@@ -302,6 +302,7 @@ describe('settings save validation and feedback', () => {
         schedulerIntervalMinutes: string;
         rssDefaults: string;
         monitorRssFeeds: string;
+        monitorRedditQueries: string;
         monitorV2exQueries: string;
       },
       action: (payload: {
@@ -309,6 +310,7 @@ describe('settings save validation and feedback', () => {
         schedulerIntervalMinutes: number;
         rssDefaults: string[];
         monitorRssFeeds: string[];
+        monitorRedditQueries: string[];
         monitorV2exQueries: string[];
       }) => Promise<unknown>,
     ) => Promise<{ ok: boolean; error?: string; payload?: unknown }>;
@@ -319,6 +321,7 @@ describe('settings save validation and feedback', () => {
         schedulerIntervalMinutes: 15,
         rssDefaults: ['OpenAI blog', 'Anthropic news'],
         monitorRssFeeds: ['https://openai.com/blog/rss.xml'],
+        monitorRedditQueries: ['claude api latency'],
         monitorV2exQueries: ['llm api', 'cursor'],
       },
     });
@@ -329,6 +332,7 @@ describe('settings save validation and feedback', () => {
         schedulerIntervalMinutes: '0',
         rssDefaults: 'OpenAI blog, Anthropic news',
         monitorRssFeeds: 'https://openai.com/blog/rss.xml',
+        monitorRedditQueries: 'claude api latency',
         monitorV2exQueries: 'llm api, cursor',
       },
       saveAction,
@@ -346,6 +350,7 @@ describe('settings save validation and feedback', () => {
         schedulerIntervalMinutes: '15',
         rssDefaults: 'OpenAI blog, Anthropic news',
         monitorRssFeeds: 'https://openai.com/blog/rss.xml\nhttps://hnrss.org/frontpage',
+        monitorRedditQueries: 'claude api latency,\nmodel routing',
         monitorV2exQueries: 'llm api,\ncursor',
       },
       saveAction,
@@ -356,6 +361,7 @@ describe('settings save validation and feedback', () => {
       schedulerIntervalMinutes: 15,
       rssDefaults: ['OpenAI blog', 'Anthropic news'],
       monitorRssFeeds: ['https://openai.com/blog/rss.xml', 'https://hnrss.org/frontpage'],
+      monitorRedditQueries: ['claude api latency', 'model routing'],
       monitorV2exQueries: ['llm api', 'cursor'],
     });
     expect(valid).toEqual({
@@ -365,6 +371,7 @@ describe('settings save validation and feedback', () => {
         schedulerIntervalMinutes: 15,
         rssDefaults: ['OpenAI blog', 'Anthropic news'],
         monitorRssFeeds: ['https://openai.com/blog/rss.xml', 'https://hnrss.org/frontpage'],
+        monitorRedditQueries: ['claude api latency', 'model routing'],
         monitorV2exQueries: ['llm api', 'cursor'],
       },
     });
@@ -382,6 +389,7 @@ describe('settings save validation and feedback', () => {
             schedulerIntervalMinutes: 15,
             rssDefaults: ['OpenAI blog'],
             monitorRssFeeds: ['https://openai.com/blog/rss.xml'],
+            monitorRedditQueries: ['claude api latency'],
             monitorV2exQueries: ['llm api'],
           },
           scheduler: {
@@ -463,6 +471,7 @@ describe('settings save validation and feedback', () => {
             schedulerIntervalMinutes: 15,
             rssDefaults: ['OpenAI blog'],
             monitorRssFeeds: ['https://openai.com/blog/rss.xml'],
+            monitorRedditQueries: ['claude api latency'],
             monitorV2exQueries: ['llm api'],
           },
         },
@@ -491,6 +500,7 @@ describe('settings save validation and feedback', () => {
     expect(successHtml).toContain('https://openai.com/blog/rss.xml');
     expect(successHtml).toContain('llm api');
     expect(successHtml).toContain('monitorRssFeeds：https://openai.com/blog/rss.xml');
+    expect(successHtml).toContain('monitorRedditQueries：claude api latency');
     expect(successHtml).toContain('monitorV2exQueries：llm api');
 
     const errorHtml = renderPage(SettingsPage, {
@@ -520,6 +530,7 @@ describe('settings save validation and feedback', () => {
         schedulerIntervalMinutes: 45,
         rssDefaults: ['OpenAI blog', 'TechCrunch'],
         monitorRssFeeds: ['https://openai.com/blog/rss.xml', 'https://hnrss.org/frontpage'],
+        monitorRedditQueries: ['claude api latency', 'model routing'],
         monitorV2exQueries: ['llm api', 'cursor'],
       },
       scheduler: {
@@ -585,6 +596,10 @@ describe('settings save validation and feedback', () => {
       container,
       (element) => element.getAttribute('data-settings-field') === 'monitorRssFeeds',
     );
+    const monitorRedditQueriesField = findElement(
+      container,
+      (element) => element.getAttribute('data-settings-field') === 'monitorRedditQueries',
+    );
     const monitorV2exQueriesField = findElement(
       container,
       (element) => element.getAttribute('data-settings-field') === 'monitorV2exQueries',
@@ -596,6 +611,7 @@ describe('settings save validation and feedback', () => {
     expect(schedulerField?.value).toBe('45');
     expect(rssField?.value).toBe('OpenAI blog, TechCrunch');
     expect(monitorRssFeedsField?.value).toBe('https://openai.com/blog/rss.xml\nhttps://hnrss.org/frontpage');
+    expect(monitorRedditQueriesField?.value).toBe('claude api latency\nmodel routing');
     expect(monitorV2exQueriesField?.value).toBe('llm api\ncursor');
     expect(collectText(container)).toContain('运行中');
     expect(collectText(container)).toContain('staging');

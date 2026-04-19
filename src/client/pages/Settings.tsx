@@ -12,6 +12,7 @@ export interface SettingsRecord {
   schedulerIntervalMinutes: number;
   rssDefaults: string[];
   monitorRssFeeds?: string[];
+  monitorRedditQueries?: string[];
   monitorV2exQueries?: string[];
 }
 
@@ -36,6 +37,7 @@ export interface UpdateSettingsPayload {
   schedulerIntervalMinutes: number;
   rssDefaults: string[];
   monitorRssFeeds: string[];
+  monitorRedditQueries: string[];
   monitorV2exQueries: string[];
 }
 
@@ -160,6 +162,7 @@ export async function submitSettingsForm(
     schedulerIntervalMinutes: string;
     rssDefaults: string;
     monitorRssFeeds: string;
+    monitorRedditQueries: string;
     monitorV2exQueries: string;
   },
   action: (payload: UpdateSettingsPayload) => Promise<unknown>,
@@ -168,6 +171,7 @@ export async function submitSettingsForm(
   const schedulerIntervalMinutes = Number(formValues.schedulerIntervalMinutes);
   const rssDefaults = parseListInput(formValues.rssDefaults);
   const monitorRssFeeds = parseListInput(formValues.monitorRssFeeds);
+  const monitorRedditQueries = parseListInput(formValues.monitorRedditQueries);
   const monitorV2exQueries = parseListInput(formValues.monitorV2exQueries);
 
   if (allowlist.length === 0) {
@@ -183,6 +187,7 @@ export async function submitSettingsForm(
     schedulerIntervalMinutes,
     rssDefaults,
     monitorRssFeeds,
+    monitorRedditQueries,
     monitorV2exQueries,
   };
 
@@ -216,6 +221,7 @@ const defaultSettingsFormValues = {
   schedulerIntervalMinutes: '15',
   rssDefaults: 'OpenAI blog, Anthropic news',
   monitorRssFeeds: '',
+  monitorRedditQueries: '',
   monitorV2exQueries: '',
 } as const;
 
@@ -393,6 +399,7 @@ function getLoadedFormValues(settings?: SettingsRecord) {
   }
 
   const monitorRssFeeds = readSettingsList(settings.monitorRssFeeds);
+  const monitorRedditQueries = readSettingsList(settings.monitorRedditQueries);
   const monitorV2exQueries = readSettingsList(settings.monitorV2exQueries);
 
   return {
@@ -403,6 +410,8 @@ function getLoadedFormValues(settings?: SettingsRecord) {
         : defaultSettingsFormValues.schedulerIntervalMinutes,
     rssDefaults: settings.rssDefaults.length > 0 ? formatList(settings.rssDefaults) : '',
     monitorRssFeeds: monitorRssFeeds.length > 0 ? formatMultilineList(monitorRssFeeds) : '',
+    monitorRedditQueries:
+      monitorRedditQueries.length > 0 ? formatMultilineList(monitorRedditQueries) : '',
     monitorV2exQueries: monitorV2exQueries.length > 0 ? formatMultilineList(monitorV2exQueries) : '',
   };
 }
@@ -426,6 +435,10 @@ function mergeSettingsRecords(loaded?: SettingsRecord, saved?: SettingsRecord): 
       saved && Object.prototype.hasOwnProperty.call(saved, 'monitorRssFeeds')
         ? readSettingsList(saved.monitorRssFeeds)
         : readSettingsList(base.monitorRssFeeds),
+    monitorRedditQueries:
+      saved && Object.prototype.hasOwnProperty.call(saved, 'monitorRedditQueries')
+        ? readSettingsList(saved.monitorRedditQueries)
+        : readSettingsList(base.monitorRedditQueries),
     monitorV2exQueries:
       saved && Object.prototype.hasOwnProperty.call(saved, 'monitorV2exQueries')
         ? readSettingsList(saved.monitorV2exQueries)
@@ -492,6 +505,7 @@ export function SettingsPage({
   const [schedulerIntervalMinutesDraft, setSchedulerIntervalMinutesDraft] = useState<string | null>(null);
   const [rssDefaultsDraft, setRssDefaultsDraft] = useState<string | null>(null);
   const [monitorRssFeedsDraft, setMonitorRssFeedsDraft] = useState<string | null>(null);
+  const [monitorRedditQueriesDraft, setMonitorRedditQueriesDraft] = useState<string | null>(null);
   const [monitorV2exQueriesDraft, setMonitorV2exQueriesDraft] = useState<string | null>(null);
   const [enqueueRunAtDraft, setEnqueueRunAtDraft] = useState<string>('2026-04-20T09:00');
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
@@ -504,6 +518,7 @@ export function SettingsPage({
   const schedulerIntervalMinutes = schedulerIntervalMinutesDraft ?? loadedFormValues.schedulerIntervalMinutes;
   const rssDefaults = rssDefaultsDraft ?? loadedFormValues.rssDefaults;
   const monitorRssFeeds = monitorRssFeedsDraft ?? loadedFormValues.monitorRssFeeds;
+  const monitorRedditQueries = monitorRedditQueriesDraft ?? loadedFormValues.monitorRedditQueries;
   const monitorV2exQueries = monitorV2exQueriesDraft ?? loadedFormValues.monitorV2exQueries;
 
   const schedulerContract = asRecord(savedData?.scheduler ?? loadedData?.scheduler);
@@ -538,6 +553,7 @@ export function SettingsPage({
         schedulerIntervalMinutes,
         rssDefaults,
         monitorRssFeeds,
+        monitorRedditQueries,
         monitorV2exQueries,
       },
       async (payload) => {
@@ -661,6 +677,12 @@ export function SettingsPage({
                   monitorRssFeeds:{' '}
                   {readSettingsList(effectiveSettings.monitorRssFeeds).length > 0
                     ? formatList(readSettingsList(effectiveSettings.monitorRssFeeds))
+                    : '未提供'}
+                </div>
+                <div>
+                  monitorRedditQueries:{' '}
+                  {readSettingsList(effectiveSettings.monitorRedditQueries).length > 0
+                    ? formatList(readSettingsList(effectiveSettings.monitorRedditQueries))
                     : '未提供'}
                 </div>
                 <div>
@@ -967,7 +989,7 @@ export function SettingsPage({
 
         <SectionCard
           title="监控来源配置"
-          description="这里配置 Monitor 抓取优先使用的 RSS 源和 V2EX 关键词。支持逗号或换行分隔，继续兼容现有 `/api/settings` 保存。"
+          description="这里配置 Monitor 抓取优先使用的 RSS 源、Reddit 查询词和 V2EX 关键词。支持逗号或换行分隔，继续兼容现有 `/api/settings` 保存。"
         >
           <div style={{ display: 'grid', gap: '14px' }}>
             <label style={{ display: 'grid', gap: '8px' }}>
@@ -978,6 +1000,20 @@ export function SettingsPage({
                 onChange={(event) => {
                   setValidationMessage(null);
                   setMonitorRssFeedsDraft(event.target.value);
+                }}
+                rows={4}
+                style={{ ...fieldStyle, minHeight: '120px', resize: 'vertical' }}
+              />
+            </label>
+
+            <label style={{ display: 'grid', gap: '8px' }}>
+              <span style={{ fontWeight: 700 }}>Reddit 查询词</span>
+              <textarea
+                data-settings-field="monitorRedditQueries"
+                value={monitorRedditQueries}
+                onChange={(event) => {
+                  setValidationMessage(null);
+                  setMonitorRedditQueriesDraft(event.target.value);
                 }}
                 rows={4}
                 style={{ ...fieldStyle, minHeight: '120px', resize: 'vertical' }}
@@ -1018,6 +1054,18 @@ export function SettingsPage({
                   : '未提供',
               },
               {
+                label: '当前 Reddit 查询词',
+                value: readSettingsList(effectiveSettings?.monitorRedditQueries).length
+                  ? formatList(readSettingsList(effectiveSettings?.monitorRedditQueries))
+                  : '未提供',
+              },
+              {
+                label: '最近保存 Reddit 查询词',
+                value: readSettingsList(savedData?.settings?.monitorRedditQueries).length
+                  ? formatList(readSettingsList(savedData?.settings?.monitorRedditQueries))
+                  : '未提供',
+              },
+              {
                 label: '最近保存 V2EX 关键词',
                 value: readSettingsList(savedData?.settings?.monitorV2exQueries).length
                   ? formatList(readSettingsList(savedData?.settings?.monitorV2exQueries))
@@ -1051,6 +1099,10 @@ export function SettingsPage({
                     <div>
                       monitorRssFeeds：
                       {readSettingsList(displayUpdateState.data.settings.monitorRssFeeds).join(', ') || '未提供'}
+                    </div>
+                    <div>
+                      monitorRedditQueries：
+                      {readSettingsList(displayUpdateState.data.settings.monitorRedditQueries).join(', ') || '未提供'}
                     </div>
                     <div>
                       monitorV2exQueries：

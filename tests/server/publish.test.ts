@@ -11,6 +11,15 @@ import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
 
 let activeTestDbRoot: string | undefined;
 let activeTestDatabasePath: string | undefined;
+const originalEnv = {
+  X_ACCESS_TOKEN: process.env.X_ACCESS_TOKEN,
+  X_BEARER_TOKEN: process.env.X_BEARER_TOKEN,
+  REDDIT_CLIENT_ID: process.env.REDDIT_CLIENT_ID,
+  REDDIT_CLIENT_SECRET: process.env.REDDIT_CLIENT_SECRET,
+  REDDIT_USERNAME: process.env.REDDIT_USERNAME,
+  REDDIT_PASSWORD: process.env.REDDIT_PASSWORD,
+  REDDIT_USER_AGENT: process.env.REDDIT_USER_AGENT,
+};
 
 async function requestApp(
   app: express.Express,
@@ -125,10 +134,26 @@ function createTestApp(
 beforeEach(() => {
   activeTestDbRoot = undefined;
   activeTestDatabasePath = undefined;
+  delete process.env.X_ACCESS_TOKEN;
+  delete process.env.X_BEARER_TOKEN;
+  delete process.env.REDDIT_CLIENT_ID;
+  delete process.env.REDDIT_CLIENT_SECRET;
+  delete process.env.REDDIT_USERNAME;
+  delete process.env.REDDIT_PASSWORD;
+  delete process.env.REDDIT_USER_AGENT;
 });
 
 afterEach(() => {
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+  process.env.X_ACCESS_TOKEN = originalEnv.X_ACCESS_TOKEN;
+  process.env.X_BEARER_TOKEN = originalEnv.X_BEARER_TOKEN;
+  process.env.REDDIT_CLIENT_ID = originalEnv.REDDIT_CLIENT_ID;
+  process.env.REDDIT_CLIENT_SECRET = originalEnv.REDDIT_CLIENT_SECRET;
+  process.env.REDDIT_USERNAME = originalEnv.REDDIT_USERNAME;
+  process.env.REDDIT_PASSWORD = originalEnv.REDDIT_PASSWORD;
+  process.env.REDDIT_USER_AGENT = originalEnv.REDDIT_USER_AGENT;
   if (activeTestDbRoot) {
     cleanupTestDatabasePath(activeTestDbRoot);
     activeTestDbRoot = undefined;
@@ -621,6 +646,200 @@ describe('publish api', () => {
       }),
     ]);
     expect(readJobQueue()).toEqual([]);
+  });
+
+  it('retries transient x publisher failures through the publish route and persists the final published contract', async () => {
+    process.env.X_ACCESS_TOKEN = 'x-access-token';
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            title: 'Service unavailable',
+          }),
+          {
+            status: 503,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: {
+              id: '2888888888888',
+            },
+          }),
+          {
+            status: 201,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          },
+        ),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const testDatabase = createTestDatabasePath();
+    activeTestDbRoot = testDatabase.rootDir;
+    activeTestDatabasePath = testDatabase.databasePath;
+    const draftStore = createSQLiteDraftStore();
+    const draft = draftStore.create({
+      platform: 'x',
+      title: 'Retry publish',
+      content: 'Retry route-level x publish',
+    });
+    const app = createTestApp(
+      {
+        lookupDraft(id) {
+          const storedDraft = draftStore.getById(id);
+          if (!storedDraft) {
+            return undefined;
+          }
+
+          return {
+            id: storedDraft.id,
+            platform: storedDraft.platform,
+            title: storedDraft.title,
+            content: storedDraft.content,
+            target: storedDraft.target,
+          };
+        },
+      },
+      { useDefaultPersistence: true },
+    );
+
+    const response = await requestApp(app, 'POST', `/api/drafts/${draft.id}/publish`);
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({
+      draftId: draft.id,
+      draftStatus: 'published',
+      platform: 'x',
+      mode: 'api',
+      status: 'published',
+      success: true,
+      publishUrl: 'https://x.com/i/web/status/2888888888888',
+      externalId: '2888888888888',
+      message: `x api published draft ${draft.id}`,
+      publishedAt: expect.any(String),
+      details: {
+        retry: {
+          publish: {
+            attempts: 2,
+            maxAttempts: 3,
+            stage: 'publish',
+            lastHttpStatus: 201,
+          },
+        },
+      },
+    });
+    expect(readPublishLogs()).toEqual([
+      expect.objectContaining({
+        draftId: draft.id,
+        status: 'published',
+        publishUrl: 'https://x.com/i/web/status/2888888888888',
+        message: `x api published draft ${draft.id}`,
+      }),
+    ]);
+  });
+
+  it('returns a failed reddit publish contract instead of throwing when oauth auth fails', async () => {
+    process.env.REDDIT_CLIENT_ID = 'client-id';
+    process.env.REDDIT_CLIENT_SECRET = 'client-secret';
+    process.env.REDDIT_USERNAME = 'promo-user';
+    process.env.REDDIT_PASSWORD = 'promo-pass';
+    process.env.REDDIT_USER_AGENT = 'promobot/test';
+
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: 'invalid_grant',
+        }),
+        {
+          status: 401,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const testDatabase = createTestDatabasePath();
+    activeTestDbRoot = testDatabase.rootDir;
+    activeTestDatabasePath = testDatabase.databasePath;
+    const draftStore = createSQLiteDraftStore();
+    const draft = draftStore.create({
+      platform: 'reddit',
+      title: 'OAuth fail publish',
+      content: 'OAuth should fail without throwing.',
+      target: 'LocalLLaMA',
+    });
+    const app = createTestApp(
+      {
+        lookupDraft(id) {
+          const storedDraft = draftStore.getById(id);
+          if (!storedDraft) {
+            return undefined;
+          }
+
+          return {
+            id: storedDraft.id,
+            platform: storedDraft.platform,
+            title: storedDraft.title,
+            content: storedDraft.content,
+            target: storedDraft.target,
+          };
+        },
+      },
+      { useDefaultPersistence: true },
+    );
+
+    const response = await requestApp(app, 'POST', `/api/drafts/${draft.id}/publish`);
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({
+      draftId: draft.id,
+      draftStatus: 'failed',
+      platform: 'reddit',
+      mode: 'api',
+      status: 'failed',
+      success: false,
+      publishUrl: null,
+      externalId: null,
+      message: 'reddit oauth failed with status 401',
+      publishedAt: null,
+      details: {
+        subreddit: 'promobot',
+        error: {
+          category: 'auth',
+          retriable: false,
+          httpStatus: 401,
+          stage: 'oauth',
+          bodySnippet: '{"error":"invalid_grant"}',
+        },
+        retry: {
+          oauth: {
+            attempts: 1,
+            maxAttempts: 3,
+            stage: 'oauth',
+            lastHttpStatus: 401,
+          },
+        },
+      },
+    });
+    expect(readPublishLogs()).toEqual([
+      expect.objectContaining({
+        draftId: draft.id,
+        status: 'failed',
+        publishUrl: null,
+        message: 'reddit oauth failed with status 401',
+      }),
+    ]);
   });
 
   it('returns 400 for an invalid draft id', async () => {

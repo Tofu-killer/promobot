@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../../src/server/app';
 import { createMonitorStore } from '../../src/server/store/monitor';
 import { createSQLiteDraftStore } from '../../src/server/store/drafts';
@@ -93,6 +93,24 @@ async function requestApp(method: string, url: string, body?: unknown) {
   });
 }
 
+const originalEnv = {
+  REDDIT_CLIENT_ID: process.env.REDDIT_CLIENT_ID,
+  REDDIT_CLIENT_SECRET: process.env.REDDIT_CLIENT_SECRET,
+  REDDIT_USERNAME: process.env.REDDIT_USERNAME,
+  REDDIT_PASSWORD: process.env.REDDIT_PASSWORD,
+  REDDIT_USER_AGENT: process.env.REDDIT_USER_AGENT,
+};
+
+afterEach(() => {
+  process.env.REDDIT_CLIENT_ID = originalEnv.REDDIT_CLIENT_ID;
+  process.env.REDDIT_CLIENT_SECRET = originalEnv.REDDIT_CLIENT_SECRET;
+  process.env.REDDIT_USERNAME = originalEnv.REDDIT_USERNAME;
+  process.env.REDDIT_PASSWORD = originalEnv.REDDIT_PASSWORD;
+  process.env.REDDIT_USER_AGENT = originalEnv.REDDIT_USER_AGENT;
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+
 describe('monitor api', () => {
   it('fetches monitor items into SQLite through the manual fetch endpoint', async () => {
     const { rootDir } = createTestDatabasePath();
@@ -121,6 +139,87 @@ describe('monitor api', () => {
         inserted: 3,
         total: 3,
       });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('uses configured reddit monitor queries before falling back to seed data', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      process.env.REDDIT_CLIENT_ID = 'reddit-id';
+      process.env.REDDIT_CLIENT_SECRET = 'reddit-secret';
+      process.env.REDDIT_USERNAME = 'reddit-user';
+      process.env.REDDIT_PASSWORD = 'reddit-pass';
+      process.env.REDDIT_USER_AGENT = 'promobot/test';
+
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              access_token: 'reddit-access-token',
+            }),
+            {
+              status: 200,
+              headers: {
+                'Content-Type': 'application/json',
+              },
+            },
+          ),
+        )
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              data: {
+                children: [
+                  {
+                    data: {
+                      id: 'abc123',
+                      title: 'Claude latency in Australia',
+                      selftext: 'Operators comparing AU routing for Claude requests.',
+                      permalink: '/r/LocalLLaMA/comments/abc123/claude_latency_in_australia/',
+                      subreddit_name_prefixed: 'r/LocalLLaMA',
+                      author: 'latencywatch',
+                    },
+                  },
+                ],
+              },
+            }),
+            {
+              status: 200,
+              headers: {
+                'Content-Type': 'application/json',
+              },
+            },
+          ),
+        );
+      vi.stubGlobal('fetch', fetchMock);
+
+      const settingsResponse = await requestApp('PATCH', '/api/settings', {
+        monitorRedditQueries: ['claude latency australia'],
+      });
+
+      expect(settingsResponse.status).toBe(200);
+
+      const response = await requestApp('POST', '/api/monitor/fetch');
+
+      expect(response.status).toBe(201);
+      expect(JSON.parse(response.body)).toEqual({
+        items: [
+          expect.objectContaining({
+            id: 1,
+            source: 'reddit',
+            title: 'Claude latency in Australia',
+            detail:
+              'r/LocalLLaMA · latencywatch\n\nhttps://www.reddit.com/r/LocalLLaMA/comments/abc123/claude_latency_in_australia/',
+            status: 'new',
+          }),
+        ],
+        inserted: 1,
+        total: 1,
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
     } finally {
       cleanupTestDatabasePath(rootDir);
     }

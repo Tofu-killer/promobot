@@ -1,5 +1,16 @@
 import { createStubPublisher } from './stub';
 import type { PublishRequest, PublishResult } from './types';
+import {
+  FetchRetryError,
+  type PublisherErrorDetails,
+  type RetryStageDetails,
+  classifyHttpError,
+  createInvalidResponseError,
+  createTransientError,
+  fetchWithRetry,
+  readResponseSnippet,
+  sanitizeSnippet,
+} from './http';
 
 const stubPublisher = createStubPublisher({
   platform: 'x',
@@ -18,25 +29,88 @@ export async function publishToX(request: PublishRequest): Promise<PublishResult
     return await stubPublisher(request);
   }
 
-  const response = await fetch('https://api.twitter.com/2/tweets', {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      authorization: `Bearer ${accessToken}`,
-    },
-    body: JSON.stringify({
-      text: request.content,
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`X publish request failed with status ${response.status}`);
+  let publishRequest;
+  try {
+    publishRequest = await fetchWithRetry(
+      'https://api.twitter.com/2/tweets',
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          text: request.content,
+        }),
+      },
+      {
+        stage: 'publish',
+      },
+    );
+  } catch (error) {
+    return createFailedPublishResult(
+      request,
+      error instanceof FetchRetryError
+        ? {
+            message: `x publish request failed: ${error.message}`,
+            retry: {
+              publish: error.retry,
+            },
+            error: createTransientError('publish', sanitizeSnippet(error.message)),
+          }
+        : {
+            message: 'x publish request failed',
+            retry: {
+              publish: {
+                attempts: 1,
+                maxAttempts: 3,
+                stage: 'publish',
+              },
+            },
+            error: createTransientError(
+              'publish',
+              sanitizeSnippet(error instanceof Error ? error.message : String(error)),
+            ),
+          },
+    );
   }
 
-  const data = (await response.json()) as XCreateTweetResponse;
+  const { response, retry } = publishRequest;
+  if (!response.ok) {
+    return createFailedPublishResult(request, {
+      message: `X publish request failed with status ${response.status}`,
+      retry: {
+        publish: retry,
+      },
+      error: classifyHttpError(response.status, 'publish', await readResponseSnippet(response)),
+    });
+  }
+
+  let data: XCreateTweetResponse;
+  try {
+    data = (await response.json()) as XCreateTweetResponse;
+  } catch (error) {
+    return createFailedPublishResult(request, {
+      message: 'x publish response was not valid JSON',
+      retry: {
+        publish: retry,
+      },
+      error: createInvalidResponseError(
+        'publish',
+        sanitizeSnippet(error instanceof Error ? error.message : String(error)),
+      ),
+    });
+  }
+
   const tweetId = data.data?.id?.trim();
   if (!tweetId) {
-    throw new Error('X publish response missing tweet id');
+    return createFailedPublishResult(request, {
+      message: 'x publish response missing tweet id',
+      retry: {
+        publish: retry,
+      },
+      error: createInvalidResponseError('publish', sanitizeSnippet(JSON.stringify(data))),
+    });
   }
 
   return {
@@ -48,7 +122,39 @@ export async function publishToX(request: PublishRequest): Promise<PublishResult
     externalId: tweetId,
     message: `x api published draft ${String(request.draftId)}`,
     publishedAt: new Date().toISOString(),
-    details: request.target ? { target: request.target } : undefined,
+    details: {
+      ...(request.target ? { target: request.target } : {}),
+      retry: {
+        publish: retry,
+      },
+    },
+  };
+}
+
+function createFailedPublishResult(
+  request: PublishRequest,
+  input: {
+    message: string;
+    retry: {
+      publish: RetryStageDetails;
+    };
+    error: PublisherErrorDetails;
+  },
+): PublishResult {
+  return {
+    platform: 'x',
+    mode: 'api',
+    status: 'failed',
+    success: false,
+    publishUrl: null,
+    externalId: null,
+    message: input.message,
+    publishedAt: null,
+    details: {
+      ...(request.target ? { target: request.target } : {}),
+      retry: input.retry,
+      error: input.error,
+    },
   };
 }
 

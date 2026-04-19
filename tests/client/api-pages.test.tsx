@@ -1099,6 +1099,7 @@ describe('client API page wiring', () => {
           allowlist: ['127.0.0.1'],
           rssDefaults: ['OpenAI blog'],
           monitorRssFeeds: ['https://openai.com/blog/rss.xml'],
+          monitorRedditQueries: ['claude api latency'],
           monitorV2exQueries: ['llm api'],
         },
         platformReadiness: [
@@ -1131,6 +1132,7 @@ describe('client API page wiring', () => {
         schedulerIntervalMinutes: number;
         allowlist: string[];
         monitorRssFeeds?: string[];
+        monitorRedditQueries?: string[];
         monitorV2exQueries?: string[];
       };
       platformReadiness?: Array<{
@@ -1144,6 +1146,7 @@ describe('client API page wiring', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/settings', undefined);
     expect(result.settings.schedulerIntervalMinutes).toBe(15);
     expect(result.settings.monitorRssFeeds?.[0]).toBe('https://openai.com/blog/rss.xml');
+    expect(result.settings.monitorRedditQueries).toEqual(['claude api latency']);
     expect(result.platformReadiness?.[1]?.platform).toBe('facebookGroup');
   });
 
@@ -1155,6 +1158,7 @@ describe('client API page wiring', () => {
           allowlist: ['10.0.0.1'],
           rssDefaults: ['TechCrunch'],
           monitorRssFeeds: ['https://rss.techcrunch.com/feed'],
+          monitorRedditQueries: ['model routing'],
           monitorV2exQueries: ['cursor'],
         },
       }),
@@ -1170,6 +1174,7 @@ describe('client API page wiring', () => {
       schedulerIntervalMinutes: number;
       rssDefaults: string[];
       monitorRssFeeds: string[];
+      monitorRedditQueries: string[];
       monitorV2exQueries: string[];
     }) => Promise<{ settings: { schedulerIntervalMinutes: number; monitorV2exQueries?: string[] } }>;
 
@@ -1178,6 +1183,7 @@ describe('client API page wiring', () => {
       schedulerIntervalMinutes: 30,
       rssDefaults: ['TechCrunch'],
       monitorRssFeeds: ['https://rss.techcrunch.com/feed'],
+      monitorRedditQueries: ['model routing'],
       monitorV2exQueries: ['cursor'],
     });
 
@@ -1191,6 +1197,7 @@ describe('client API page wiring', () => {
           schedulerIntervalMinutes: 30,
           rssDefaults: ['TechCrunch'],
           monitorRssFeeds: ['https://rss.techcrunch.com/feed'],
+          monitorRedditQueries: ['model routing'],
           monitorV2exQueries: ['cursor'],
         }),
       }),
@@ -1449,6 +1456,7 @@ describe('client API page wiring', () => {
             allowlist: ['127.0.0.1'],
             rssDefaults: ['OpenAI blog'],
             monitorRssFeeds: ['https://openai.com/blog/rss.xml'],
+            monitorRedditQueries: ['claude api latency'],
             monitorV2exQueries: ['llm api', 'cursor'],
           },
           scheduler: {

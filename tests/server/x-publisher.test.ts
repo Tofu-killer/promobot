@@ -88,4 +88,117 @@ describe('x publisher', () => {
     });
     expect(result.message).toContain('stub');
   });
+
+  it('retries transient x api failures and reports retry details on success', async () => {
+    process.env.X_ACCESS_TOKEN = 'x-access-token';
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            errors: [{ message: 'upstream unavailable' }],
+          }),
+          {
+            status: 503,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: {
+              id: '1999999999999',
+            },
+          }),
+          {
+            status: 201,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          },
+        ),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await publishToX({
+      draftId: 9,
+      content: 'Retry the transient x failure.',
+      target: '@promobot',
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({
+      platform: 'x',
+      mode: 'api',
+      status: 'published',
+      success: true,
+      publishUrl: 'https://x.com/i/web/status/1999999999999',
+      externalId: '1999999999999',
+      details: {
+        target: '@promobot',
+        retry: {
+          publish: {
+            attempts: 2,
+            maxAttempts: 3,
+            stage: 'publish',
+            lastHttpStatus: 201,
+          },
+        },
+      },
+    });
+  });
+
+  it('returns a failed contract with classified auth errors for x api failures', async () => {
+    process.env.X_ACCESS_TOKEN = 'x-access-token';
+
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          title: 'Unauthorized',
+        }),
+        {
+          status: 401,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await publishToX({
+      draftId: 10,
+      content: 'This should fail.',
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      platform: 'x',
+      mode: 'api',
+      status: 'failed',
+      success: false,
+      publishUrl: null,
+      externalId: null,
+      details: {
+        error: {
+          category: 'auth',
+          retriable: false,
+          httpStatus: 401,
+          stage: 'publish',
+        },
+        retry: {
+          publish: {
+            attempts: 1,
+            maxAttempts: 3,
+            stage: 'publish',
+            lastHttpStatus: 401,
+          },
+        },
+      },
+    });
+  });
 });

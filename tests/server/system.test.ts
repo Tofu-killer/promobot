@@ -186,7 +186,16 @@ describe('security middleware', () => {
     const response = await requestApp({ remoteAddress: '127.0.0.1' });
 
     expect(response.status).toBe(200);
-    expect(JSON.parse(response.body)).toEqual({ ok: true });
+    expect(JSON.parse(response.body)).toEqual({
+      ok: true,
+      service: 'promobot',
+      timestamp: expect.any(String),
+      uptimeSeconds: expect.any(Number),
+      scheduler: {
+        available: false,
+        started: false,
+      },
+    });
   });
 
   it('rejects requests from disallowed IPs', async () => {
@@ -198,6 +207,72 @@ describe('security middleware', () => {
 });
 
 describe('system runtime api', () => {
+  it('includes scheduler health details in the health endpoint when a scheduler runtime is wired in', async () => {
+    const schedulerRuntime = {
+      getStatus() {
+        return {
+          available: true,
+          started: true,
+          queue: {
+            pending: 2,
+            running: 1,
+            failed: 0,
+            duePending: 1,
+          },
+        };
+      },
+      listJobs() {
+        return {
+          jobs: [],
+          queue: {
+            pending: 2,
+            running: 1,
+            failed: 0,
+            duePending: 1,
+          },
+          recentJobs: [],
+        };
+      },
+      getJob() {
+        return undefined;
+      },
+      reload() {
+        return this.getStatus();
+      },
+      async tickNow() {
+        return [];
+      },
+      enqueueJob() {
+        throw new Error('not implemented');
+      },
+      stop() {},
+    };
+
+    const response = await requestApp({
+      remoteAddress: '127.0.0.1',
+      url: '/api/system/health',
+      dependencies: { schedulerRuntime },
+    });
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({
+      ok: true,
+      service: 'promobot',
+      timestamp: expect.any(String),
+      uptimeSeconds: expect.any(Number),
+      scheduler: {
+        available: true,
+        started: true,
+        queue: {
+          pending: 2,
+          running: 1,
+          failed: 0,
+          duePending: 1,
+        },
+      },
+    });
+  });
+
   it('returns a runtime snapshot when a scheduler runtime is wired in', async () => {
     const schedulerRuntime = {
       getStatus() {
@@ -637,7 +712,16 @@ describe('static client hosting', () => {
     });
 
     expect(healthResponse.status).toBe(200);
-    expect(JSON.parse(healthResponse.body)).toEqual({ ok: true });
+    expect(JSON.parse(healthResponse.body)).toEqual({
+      ok: true,
+      service: 'promobot',
+      timestamp: expect.any(String),
+      uptimeSeconds: expect.any(Number),
+      scheduler: {
+        available: false,
+        started: false,
+      },
+    });
     expect(missingApiResponse.status).toBe(404);
     expect(missingApiResponse.body).not.toContain('PromoBot SPA');
   });

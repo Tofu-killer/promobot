@@ -6,6 +6,7 @@ export interface SettingsRecord {
   schedulerIntervalMinutes: number;
   rssDefaults: string[];
   monitorRssFeeds: string[];
+  monitorRedditQueries: string[];
   monitorV2exQueries: string[];
 }
 
@@ -14,6 +15,7 @@ export interface UpdateSettingsInput {
   schedulerIntervalMinutes?: number;
   rssDefaults?: string[];
   monitorRssFeeds?: string[];
+  monitorRedditQueries?: string[];
   monitorV2exQueries?: string[];
 }
 
@@ -22,6 +24,7 @@ const DEFAULT_SETTINGS: SettingsRecord = {
   schedulerIntervalMinutes: 15,
   rssDefaults: ['OpenAI blog', 'Anthropic news', 'Product Hunt', 'Reddit watchlist'],
   monitorRssFeeds: [],
+  monitorRedditQueries: [],
   monitorV2exQueries: [],
 };
 
@@ -56,6 +59,11 @@ function readSettings(database: DatabaseConnection): SettingsRecord {
       settings.rssDefaults = parseStringArray(row.value, DEFAULT_SETTINGS.rssDefaults);
     } else if (row.key === 'monitorRssFeeds') {
       settings.monitorRssFeeds = parseStringArray(row.value, DEFAULT_SETTINGS.monitorRssFeeds);
+    } else if (row.key === 'monitorRedditQueries') {
+      settings.monitorRedditQueries = parseStringArray(
+        row.value,
+        DEFAULT_SETTINGS.monitorRedditQueries,
+      );
     } else if (row.key === 'monitorV2exQueries') {
       settings.monitorV2exQueries = parseStringArray(
         row.value,
@@ -79,6 +87,9 @@ function updateSettings(database: DatabaseConnection, input: UpdateSettingsInput
   }
   if (input.monitorRssFeeds !== undefined) {
     upsertSetting(database, 'monitorRssFeeds', JSON.stringify(input.monitorRssFeeds));
+  }
+  if (input.monitorRedditQueries !== undefined) {
+    upsertSetting(database, 'monitorRedditQueries', JSON.stringify(input.monitorRedditQueries));
   }
   if (input.monitorV2exQueries !== undefined) {
     upsertSetting(database, 'monitorV2exQueries', JSON.stringify(input.monitorV2exQueries));

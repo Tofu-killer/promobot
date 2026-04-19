@@ -139,6 +139,93 @@ pm2 logs promobot
 - 启动 `./dist/server/index.js`
 - 继承当前 shell 环境
 - 不会主动解析 `.env`
+- 启动前会确保 `<repo>/logs/` 存在
+- stdout / stderr 默认写到 `<repo>/logs/promobot-out.log` 和 `<repo>/logs/promobot-error.log`
+- 带 `min_uptime`、`max_restarts`、`exp_backoff_restart_delay`、`kill_timeout` 等基础保活参数
+
+建议的 PM2 启动步骤：
+
+```bash
+mkdir -p logs data
+set -a
+source .env
+set +a
+pnpm build
+pm2 start pm2.config.js --update-env
+pm2 status promobot
+```
+
+## PM2 healthcheck
+
+启动后至少做三层检查：
+
+```bash
+pm2 status promobot
+curl http://127.0.0.1:3001/api/system/health
+pm2 logs promobot --lines 100
+```
+
+`/api/system/health` 当前会返回：
+
+- `ok`
+- `service`
+- `timestamp`
+- `uptimeSeconds`
+- `scheduler.available`
+- `scheduler.started`
+- 如果 runtime 已挂载，还会返回 `scheduler.queue.pending/running/failed/duePending`
+
+最小通过标准：
+
+- HTTP `200`
+- JSON 中 `ok=true`
+- `service=promobot`
+- `scheduler.available` / `scheduler.started` 与当前部署形态一致
+
+## 日志轮转
+
+当前仓库提供样例配置：`ops/logrotate.promobot.conf`
+
+使用方式：
+
+1. 把文件里的 `REPO_ROOT` 替换成实际仓库绝对路径
+2. 复制到 `/etc/logrotate.d/promobot`
+3. 确认它覆盖 `<repo>/logs/promobot-*.log`
+
+样例策略：
+
+- 每日轮转
+- 保留 7 份
+- 压缩旧日志
+- `copytruncate`，避免直接截断正在被 PM2 持有的文件句柄
+
+如果你更偏向 PM2 插件，也可以改用 `pm2-logrotate`，但当前仓库内置的是 Linux `logrotate` 样例而不是插件脚本。
+
+## SQLite 备份与迁移
+
+当前仓库没有单独的 migration CLI，也没有自动 schema 升级说明，所以生产迁移按“停服务 + 文件级备份”处理。
+
+备份前建议先停服务：
+
+```bash
+pm2 stop promobot
+```
+
+需要一起备份/迁移的内容：
+
+- `PROMOBOT_DB_PATH` 指向的 SQLite 文件
+- 该数据库目录旁边的 `browser-sessions/`
+- 当前生效的 `.env` / shell 环境变量来源
+
+迁移到新机器时：
+
+1. 恢复 SQLite 文件到目标路径
+2. 恢复同级 `browser-sessions/`
+3. 设置正确的 `PROMOBOT_DB_PATH`
+4. 重新导入环境变量
+5. 再执行 `pm2 start pm2.config.js --update-env`
+
+当前建议在相同代码版本或经过验证的兼容版本之间迁移；不要把仓库描述成已经具备独立数据库 migration 系统。
 
 ## 浏览器访问
 
@@ -186,4 +273,8 @@ curl http://127.0.0.1:3001/api/system/health
 curl http://127.0.0.1:3001/
 ```
 
-预期能看到 HTML 入口，而不是 404。
+预期：
+
+- `/api/system/health` 返回 `200`
+- 响应 JSON 里至少包含 `ok=true` 和 `service=promobot`
+- 页面入口返回 HTML，而不是 404

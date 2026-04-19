@@ -10,7 +10,13 @@ export function createSystemRouter(dependencies: SystemRouteDependencies = {}) {
   const schedulerRuntime = dependencies.schedulerRuntime;
 
   systemRouter.get('/health', (_request, response) => {
-    response.json({ ok: true });
+    response.json({
+      ok: true,
+      service: 'promobot',
+      timestamp: new Date().toISOString(),
+      uptimeSeconds: Math.round(process.uptime()),
+      scheduler: buildSchedulerHealthSnapshot(schedulerRuntime),
+    });
   });
 
   systemRouter.get('/runtime', (_request, response) => {
@@ -166,6 +172,31 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function buildSchedulerHealthSnapshot(schedulerRuntime: SchedulerRuntime | undefined) {
+  if (!schedulerRuntime) {
+    return {
+      available: false,
+      started: false,
+    };
+  }
+
+  const status = schedulerRuntime.getStatus();
+  const queue = isPlainObject(status.queue)
+    ? {
+        pending: readHealthNumber(status.queue.pending),
+        running: readHealthNumber(status.queue.running),
+        failed: readHealthNumber(status.queue.failed),
+        duePending: readHealthNumber(status.queue.duePending),
+      }
+    : null;
+
+  return {
+    available: status.available === true,
+    started: status.started === true,
+    ...(queue ? { queue } : {}),
+  };
+}
+
 function parseOptionalPositiveInteger(value: unknown): number | undefined {
   if (typeof value !== 'string' || value.trim().length === 0) {
     return undefined;
@@ -190,4 +221,8 @@ function parseJobId(value: unknown): number | undefined {
   }
 
   return parsed;
+}
+
+function readHealthNumber(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }

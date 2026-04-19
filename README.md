@@ -30,6 +30,7 @@ PromoBot 现在不是“只有 spec 的空仓库”了。
 - 当 `dist/client/index.html` 存在时，Express 会直接服务构建后的前端文件，并对非 API 路由做 SPA fallback。
 - 所有 API 都挂在 IP allowlist 中间件后面。
 - 当前 allowlist 只做“精确 IP 字符串匹配”或 `*` 全放开，不支持 CIDR 子网计算。
+- `/api/system/health` 现在会返回 `service`、`timestamp`、`uptimeSeconds` 和 scheduler 摘要，便于 PM2 / 运维探活。
 
 ## 重要限制
 
@@ -58,6 +59,13 @@ pnpm test
 - 生产访问时，浏览器可直接走同一个 Node 进程访问页面和 `/api`
 
 更完整的本地开发、构建、LAN 访问、环境变量和限制说明见 `docs/DEPLOYMENT.md`。
+
+## 生产运维补充
+
+- `pm2.config.js` 现在会把日志落到仓库下的 `logs/`，并带基本重启/退避配置。
+- 仓库提供 `ops/logrotate.promobot.conf` 作为 Linux `logrotate` 样例；使用前把其中的 `REPO_ROOT` 替换成实际仓库绝对路径。
+- SQLite 备份/迁移时，不只复制 `promobot.sqlite`，还要连同数据库目录旁边的 `browser-sessions/` 一起迁走。
+- 详细步骤见 `docs/DEPLOYMENT.md`。
 
 ## 设计参考
 

@@ -1,5 +1,6 @@
 import type { MonitorItemRecord } from '../store/monitor';
 import { createMonitorRssService } from './monitor/rss';
+import { searchReddit } from './monitor/redditSearch';
 import { searchV2ex } from './monitor/v2exSearch';
 import { createMonitorStore } from '../store/monitor';
 import { createSettingsStore } from '../store/settings';
@@ -76,13 +77,21 @@ interface CollectedSignal {
 
 async function collectConfiguredSignals(
   rssService: ReturnType<typeof createMonitorRssService>,
-  settings: { monitorRssFeeds?: string[]; monitorV2exQueries?: string[] },
+  settings: {
+    monitorRssFeeds?: string[];
+    monitorRedditQueries?: string[];
+    monitorV2exQueries?: string[];
+  },
 ): Promise<CollectedSignal[]> {
   const results: CollectedSignal[] = [];
   const rssFeeds =
     settings.monitorRssFeeds && settings.monitorRssFeeds.length > 0
       ? settings.monitorRssFeeds
       : parseList(process.env.MONITOR_RSS_FEEDS);
+  const redditQueries =
+    settings.monitorRedditQueries && settings.monitorRedditQueries.length > 0
+      ? settings.monitorRedditQueries
+      : parseList(process.env.MONITOR_REDDIT_QUERIES);
   const v2exQueries =
     settings.monitorV2exQueries && settings.monitorV2exQueries.length > 0
       ? settings.monitorV2exQueries
@@ -103,6 +112,25 @@ async function collectConfiguredSignals(
         source: item.source,
         title: item.title,
         detail: item.metadata.link ? `${item.detail}\n\n${item.metadata.link}` : item.detail,
+      });
+    }
+  }
+
+  for (const query of redditQueries) {
+    try {
+      const items = await searchReddit(query);
+      for (const item of items) {
+        results.push({
+          source: item.source,
+          title: item.title,
+          detail: item.url ? `${item.detail}\n\n${item.url}` : item.detail,
+        });
+      }
+    } catch (error) {
+      results.push({
+        source: 'reddit',
+        title: `Reddit fetch failed: ${query}`,
+        detail: error instanceof Error ? error.message : String(error),
       });
     }
   }
