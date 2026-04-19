@@ -24,8 +24,18 @@ export interface InboxResponse {
   unread: number;
 }
 
+export interface FetchInboxResponse extends InboxResponse {
+  inserted: number;
+}
+
 export async function loadInboxRequest(): Promise<InboxResponse> {
   return apiRequest<InboxResponse>('/api/inbox');
+}
+
+export async function fetchInboxRequest(): Promise<FetchInboxResponse> {
+  return apiRequest<FetchInboxResponse>('/api/inbox/fetch', {
+    method: 'POST',
+  });
 }
 
 export interface UpdateInboxItemResponse {
@@ -56,9 +66,11 @@ export async function suggestInboxReplyRequest(id: number): Promise<InboxReplySu
 
 interface InboxPageProps {
   loadInboxAction?: () => Promise<InboxResponse>;
+  fetchInboxAction?: () => Promise<FetchInboxResponse>;
   updateInboxAction?: (id: number, status: string) => Promise<UpdateInboxItemResponse>;
   suggestReplyAction?: (id: number) => Promise<InboxReplySuggestionResponse>;
   stateOverride?: AsyncState<InboxResponse>;
+  fetchStateOverride?: AsyncState<FetchInboxResponse>;
   inboxUpdateStateOverride?: AsyncState<UpdateInboxItemResponse>;
   replySuggestionStateOverride?: AsyncState<InboxReplySuggestionResponse>;
 }
@@ -71,19 +83,23 @@ const feedbackStyle = {
 
 export function InboxPage({
   loadInboxAction = loadInboxRequest,
+  fetchInboxAction = fetchInboxRequest,
   updateInboxAction = updateInboxItemRequest,
   suggestReplyAction = suggestInboxReplyRequest,
   stateOverride,
+  fetchStateOverride,
   inboxUpdateStateOverride,
   replySuggestionStateOverride,
 }: InboxPageProps) {
   const { state, reload } = useAsyncQuery(loadInboxAction, [loadInboxAction]);
+  const { state: fetchState, run: runFetchInbox } = useAsyncAction(fetchInboxAction);
   const { state: inboxUpdateState, run: runInboxUpdate } = useAsyncAction(({ id, status }: { id: number; status: string }) =>
     updateInboxAction(id, status),
   );
   const { state: replySuggestionState, run: runReplySuggestion } = useAsyncAction((id: number) => suggestReplyAction(id));
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
   const displayState = stateOverride ?? state;
+  const displayFetchState = fetchStateOverride ?? fetchState;
   const displayInboxUpdateState = inboxUpdateStateOverride ?? inboxUpdateState;
   const displayReplySuggestionState = replySuggestionStateOverride ?? replySuggestionState;
   const fallbackData: InboxResponse = {
@@ -146,6 +162,14 @@ export function InboxPage({
     } catch {}
   }
 
+  function handleFetchInbox() {
+    void runFetchInbox()
+      .then(() => {
+        reload();
+      })
+      .catch(() => undefined);
+  }
+
   return (
     <section>
       <PageHeader
@@ -155,6 +179,10 @@ export function InboxPage({
         actions={
           <>
             <ActionButton label="刷新收件箱" onClick={reload} />
+            <ActionButton
+              label={displayFetchState.status === 'loading' ? '正在抓取收件箱...' : '抓取新命中'}
+              onClick={handleFetchInbox}
+            />
             <ActionButton
               label={displayReplySuggestionState.status === 'loading' ? '正在生成回复...' : 'AI 生成回复'}
               tone="primary"
@@ -168,6 +196,16 @@ export function InboxPage({
 
       {displayState.status === 'loading' ? <p style={{ color: '#334155' }}>正在加载收件箱...</p> : null}
       {displayState.status === 'error' ? <p style={{ color: '#b91c1c' }}>收件箱加载失败：{displayState.error}</p> : null}
+      {displayFetchState.status === 'success' && displayFetchState.data ? (
+        <p style={{ ...feedbackStyle, margin: '0 0 16px', background: '#eff6ff', color: '#1d4ed8' }}>
+          已抓取 {displayFetchState.data.inserted} 条收件箱命中，未读 {displayFetchState.data.unread}
+        </p>
+      ) : null}
+      {displayFetchState.status === 'error' ? (
+        <p style={{ ...feedbackStyle, margin: '0 0 16px', background: '#fef2f2', color: '#b91c1c' }}>
+          收件箱抓取失败：{displayFetchState.error}
+        </p>
+      ) : null}
       {inboxStatusFeedback ? (
         <p style={{ ...feedbackStyle, margin: '0 0 16px', background: '#ecfdf5', color: '#166534' }}>{inboxStatusFeedback}</p>
       ) : null}

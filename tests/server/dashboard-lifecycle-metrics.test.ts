@@ -160,6 +160,14 @@ describe('dashboard lifecycle metrics api', () => {
         publishLogs: {
           failedCount: 2,
         },
+        jobQueue: {
+          pending: 0,
+          running: 0,
+          done: 0,
+          failed: 0,
+          canceled: 0,
+          duePending: 0,
+        },
       });
     } finally {
       cleanupTestDatabasePath(rootDir);
@@ -193,6 +201,14 @@ describe('dashboard lifecycle metrics api', () => {
         totals: {
           items: 1,
           followUps: 0,
+        },
+        jobQueue: {
+          pending: 0,
+          running: 0,
+          done: 0,
+          failed: 0,
+          canceled: 0,
+          duePending: 0,
         },
       });
     } finally {

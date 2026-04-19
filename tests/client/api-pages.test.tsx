@@ -105,6 +105,14 @@ describe('client API page wiring', () => {
           items: 8,
           followUps: 1,
         },
+        jobQueue: {
+          pending: 4,
+          running: 1,
+          done: 7,
+          failed: 2,
+          canceled: 0,
+          duePending: 3,
+        },
       }),
     );
     vi.stubGlobal('fetch', fetchMock);
@@ -116,6 +124,7 @@ describe('client API page wiring', () => {
     const loadDashboardRequest = dashboardModule.loadDashboardRequest as () => Promise<{
       monitor: { total: number; new: number; followUpDrafts: number };
       drafts: { total: number; review: number };
+      jobQueue?: { pending: number; duePending: number };
     }>;
 
     const result = await loadDashboardRequest();
@@ -123,6 +132,7 @@ describe('client API page wiring', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/monitor/dashboard', undefined);
     expect(result.monitor.new).toBe(2);
     expect(result.drafts.review).toBe(2);
+    expect(result.jobQueue?.pending).toBe(4);
   });
 
   it('shows dashboard loading, error, and success states', async () => {
@@ -155,6 +165,14 @@ describe('client API page wiring', () => {
             items: 8,
             followUps: 1,
           },
+          jobQueue: {
+            pending: 4,
+            running: 1,
+            done: 7,
+            failed: 2,
+            canceled: 0,
+            duePending: 3,
+          },
         },
       },
     });
@@ -163,6 +181,8 @@ describe('client API page wiring', () => {
     expect(html).toContain('待审核');
     expect(html).toContain('已跟进');
     expect(html).toContain('新线索');
+    expect(html).toContain('队列待执行');
+    expect(html).toContain('队列失败');
   });
 
   it('shows project loading, error, and success states', async () => {
@@ -927,6 +947,97 @@ describe('client API page wiring', () => {
     expect(result.settings.schedulerIntervalMinutes).toBe(30);
   });
 
+  it('posts runtime control actions through the shared API helpers', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          runtime: {
+            available: true,
+            started: true,
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          runtime: {
+            available: true,
+            started: true,
+          },
+          results: [{ jobId: 1, type: 'publish', outcome: 'completed' }],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          items: [{ id: 1, source: 'rss' }],
+          inserted: 1,
+          total: 1,
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          items: [{ id: 1, source: 'reddit' }],
+          inserted: 1,
+          total: 1,
+          unread: 1,
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          items: [{ id: 1, source: 'reddit', sentiment: 'positive' }],
+          inserted: 1,
+          total: 1,
+        }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const settingsModule = (await import('../../src/client/pages/Settings')) as Record<string, unknown>;
+
+    expect(typeof settingsModule.reloadSchedulerRuntimeRequest).toBe('function');
+    expect(typeof settingsModule.tickSchedulerRuntimeRequest).toBe('function');
+    expect(typeof settingsModule.fetchMonitorSignalsRequest).toBe('function');
+    expect(typeof settingsModule.fetchInboxSignalsRequest).toBe('function');
+    expect(typeof settingsModule.fetchReputationSignalsRequest).toBe('function');
+
+    const reloadSchedulerRuntimeRequest = settingsModule.reloadSchedulerRuntimeRequest as () => Promise<unknown>;
+    const tickSchedulerRuntimeRequest = settingsModule.tickSchedulerRuntimeRequest as () => Promise<unknown>;
+    const fetchMonitorSignalsRequest = settingsModule.fetchMonitorSignalsRequest as () => Promise<unknown>;
+    const fetchInboxSignalsRequest = settingsModule.fetchInboxSignalsRequest as () => Promise<unknown>;
+    const fetchReputationSignalsRequest = settingsModule.fetchReputationSignalsRequest as () => Promise<unknown>;
+
+    await reloadSchedulerRuntimeRequest();
+    await tickSchedulerRuntimeRequest();
+    await fetchMonitorSignalsRequest();
+    await fetchInboxSignalsRequest();
+    await fetchReputationSignalsRequest();
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      '/api/system/runtime/reload',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/system/runtime/tick',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      '/api/monitor/fetch',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      '/api/inbox/fetch',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      5,
+      '/api/reputation/fetch',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+
   it('shows settings loading, error, and success states', async () => {
     const { SettingsPage } = await import('../../src/client/pages/Settings');
 
@@ -958,6 +1069,22 @@ describe('client API page wiring', () => {
           runtime: {
             environment: 'production',
             queueDepth: 3,
+            queue: {
+              pending: 2,
+              running: 1,
+              failed: 1,
+              duePending: 1,
+            },
+            recentJobs: [
+              {
+                id: 14,
+                type: 'publish',
+                status: 'pending',
+                runAt: '2026-04-19T09:15:00.000Z',
+                attempts: 1,
+                updatedAt: '2026-04-19T09:05:00.000Z',
+              },
+            ],
           },
           ai: {
             provider: 'OpenAI',
@@ -979,6 +1106,10 @@ describe('client API page wiring', () => {
     expect(html).toContain('运行环境');
     expect(html).toContain('gpt-4.1-mini');
     expect(html).toContain('127.0.0.1');
+    expect(html).toContain('运行控制台');
+    expect(html).toContain('最近作业');
+    expect(html).toContain('重载 Scheduler');
+    expect(html).toContain('抓取 Monitor');
   });
 
   it('renders the settings edit form and save action', async () => {
@@ -990,6 +1121,7 @@ describe('client API page wiring', () => {
     expect(html).toContain('AI 配置');
     expect(html).toContain('LAN allowlist');
     expect(html).toContain('RSS 默认源');
+    expect(html).toContain('运行控制台');
     expect(html).toContain('保存设置');
   });
 

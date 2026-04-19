@@ -42,6 +42,48 @@ export async function updateSettingsRequest(input: UpdateSettingsPayload): Promi
   });
 }
 
+export interface RuntimeControlResponse {
+  runtime: Record<string, unknown>;
+  results?: Array<Record<string, unknown>>;
+}
+
+export interface FetchControlResponse {
+  items: Array<Record<string, unknown>>;
+  inserted: number;
+  total: number;
+  unread?: number;
+}
+
+export async function reloadSchedulerRuntimeRequest(): Promise<RuntimeControlResponse> {
+  return apiRequest<RuntimeControlResponse>('/api/system/runtime/reload', {
+    method: 'POST',
+  });
+}
+
+export async function tickSchedulerRuntimeRequest(): Promise<RuntimeControlResponse> {
+  return apiRequest<RuntimeControlResponse>('/api/system/runtime/tick', {
+    method: 'POST',
+  });
+}
+
+export async function fetchMonitorSignalsRequest(): Promise<FetchControlResponse> {
+  return apiRequest<FetchControlResponse>('/api/monitor/fetch', {
+    method: 'POST',
+  });
+}
+
+export async function fetchInboxSignalsRequest(): Promise<FetchControlResponse> {
+  return apiRequest<FetchControlResponse>('/api/inbox/fetch', {
+    method: 'POST',
+  });
+}
+
+export async function fetchReputationSignalsRequest(): Promise<FetchControlResponse> {
+  return apiRequest<FetchControlResponse>('/api/reputation/fetch', {
+    method: 'POST',
+  });
+}
+
 export async function submitSettingsForm(
   formValues: {
     allowlist: string;
@@ -84,6 +126,11 @@ export async function submitSettingsForm(
 
 interface SettingsPageProps {
   loadSettingsAction?: () => Promise<SettingsResponse>;
+  reloadSchedulerAction?: () => Promise<RuntimeControlResponse>;
+  tickSchedulerAction?: () => Promise<RuntimeControlResponse>;
+  fetchMonitorAction?: () => Promise<FetchControlResponse>;
+  fetchInboxAction?: () => Promise<FetchControlResponse>;
+  fetchReputationAction?: () => Promise<FetchControlResponse>;
   stateOverride?: AsyncState<SettingsResponse>;
   updateStateOverride?: AsyncState<SettingsResponse>;
   validationMessageOverride?: string;
@@ -208,6 +255,17 @@ function formatContractValue(value: unknown) {
   return '未提供';
 }
 
+function readRecordArray(value: unknown): Array<Record<string, unknown>> {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter(
+    (entry): entry is Record<string, unknown> =>
+      typeof entry === 'object' && entry !== null && !Array.isArray(entry),
+  );
+}
+
 function getLoadedFormValues(settings?: SettingsRecord) {
   if (!settings) {
     return defaultSettingsFormValues;
@@ -248,6 +306,11 @@ function renderInfoRows(rows: Array<{ label: string; value: string }>) {
 
 export function SettingsPage({
   loadSettingsAction = loadSettingsRequest,
+  reloadSchedulerAction = reloadSchedulerRuntimeRequest,
+  tickSchedulerAction = tickSchedulerRuntimeRequest,
+  fetchMonitorAction = fetchMonitorSignalsRequest,
+  fetchInboxAction = fetchInboxSignalsRequest,
+  fetchReputationAction = fetchReputationSignalsRequest,
   stateOverride,
   updateStateOverride,
   validationMessageOverride,
@@ -265,6 +328,9 @@ export function SettingsPage({
   const [schedulerIntervalMinutesDraft, setSchedulerIntervalMinutesDraft] = useState<string | null>(null);
   const [rssDefaultsDraft, setRssDefaultsDraft] = useState<string | null>(null);
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
+  const [controlMessage, setControlMessage] = useState<string | null>(null);
+  const [controlError, setControlError] = useState<string | null>(null);
+  const [activeControl, setActiveControl] = useState<string | null>(null);
   const displayValidationMessage = validationMessageOverride ?? validationMessage;
 
   const allowlist = allowlistDraft ?? loadedFormValues.allowlist;
@@ -282,6 +348,8 @@ export function SettingsPage({
   const runtimeEnvironment = readString(runtimeContract?.environment);
   const runtimeQueueDepth =
     readNumber(runtimeContract?.queueDepth) ?? readNumber(asRecord(schedulerContract?.runtime)?.queueDepth);
+  const runtimeQueue = asRecord(runtimeContract?.queue);
+  const recentJobs = readRecordArray(runtimeContract?.recentJobs);
 
   function handleSaveSettings() {
     void submitSettingsForm(
@@ -299,6 +367,26 @@ export function SettingsPage({
         setValidationMessage(result.error ?? '保存前校验失败');
       }
     });
+  }
+
+  async function runControlAction(
+    actionLabel: string,
+    action: () => Promise<RuntimeControlResponse | FetchControlResponse>,
+    successBuilder: (result: RuntimeControlResponse | FetchControlResponse) => string,
+  ) {
+    setControlError(null);
+    setControlMessage(null);
+    setActiveControl(actionLabel);
+
+    try {
+      const result = await action();
+      setControlMessage(successBuilder(result));
+      reload();
+    } catch (error) {
+      setControlError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setActiveControl(null);
+    }
   }
 
   return (
@@ -370,12 +458,101 @@ export function SettingsPage({
             </label>
             {renderInfoRows([
               { label: 'Scheduler 开关', value: formatBooleanLabel(schedulerEnabled) },
+              { label: 'Scheduler Started', value: formatContractValue(runtimeContract?.started) },
               { label: '上次运行', value: formatContractValue(schedulerContract?.lastRunAt) },
+              { label: '最近 Tick', value: formatContractValue(runtimeContract?.lastTickAt) },
               { label: '下次运行', value: formatContractValue(schedulerContract?.nextRunAt) },
               { label: '运行模式', value: formatContractValue(runtimeMode) },
               { label: '运行环境', value: formatContractValue(runtimeEnvironment) },
               { label: '队列深度', value: formatContractValue(runtimeQueueDepth) },
             ])}
+          </div>
+        </SectionCard>
+
+        <SectionCard title="运行控制台" description="把 runtime queue、最近作业和手动触发入口放在一个地方，便于运营时直接点控。">
+          <div style={{ display: 'grid', gap: '14px' }}>
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+              <ActionButton
+                label={activeControl === 'reload' ? '正在重载 Scheduler...' : '重载 Scheduler'}
+                onClick={() => {
+                  void runControlAction('reload', reloadSchedulerAction, () => 'Scheduler 已重载');
+                }}
+              />
+              <ActionButton
+                label={activeControl === 'tick' ? '正在执行 Tick...' : '立即 Tick'}
+                onClick={() => {
+                  void runControlAction('tick', tickSchedulerAction, (result) => {
+                    const tickResult = result as RuntimeControlResponse;
+                    const count = Array.isArray(tickResult.results) ? tickResult.results.length : 0;
+                    return `Tick 已执行，本轮处理结果 ${count} 条`;
+                  });
+                }}
+              />
+              <ActionButton
+                label={activeControl === 'monitor_fetch' ? '正在抓取 Monitor...' : '抓取 Monitor'}
+                onClick={() => {
+                  void runControlAction('monitor_fetch', fetchMonitorAction, (result) => {
+                    const fetchResult = result as FetchControlResponse;
+                    return `Monitor 已抓取，新增 ${fetchResult.inserted} 条`;
+                  });
+                }}
+              />
+              <ActionButton
+                label={activeControl === 'inbox_fetch' ? '正在抓取 Inbox...' : '抓取 Inbox'}
+                onClick={() => {
+                  void runControlAction('inbox_fetch', fetchInboxAction, (result) => {
+                    const fetchResult = result as FetchControlResponse;
+                    return `Inbox 已抓取，新增 ${fetchResult.inserted} 条`;
+                  });
+                }}
+              />
+              <ActionButton
+                label={activeControl === 'reputation_fetch' ? '正在抓取 Reputation...' : '抓取 Reputation'}
+                onClick={() => {
+                  void runControlAction('reputation_fetch', fetchReputationAction, (result) => {
+                    const fetchResult = result as FetchControlResponse;
+                    return `Reputation 已抓取，新增 ${fetchResult.inserted} 条`;
+                  });
+                }}
+              />
+            </div>
+
+            {controlMessage ? <div style={{ color: '#166534', fontWeight: 700 }}>{controlMessage}</div> : null}
+            {controlError ? <div style={{ color: '#b91c1c', fontWeight: 700 }}>控制台动作失败：{controlError}</div> : null}
+
+            {renderInfoRows([
+              { label: 'Pending Jobs', value: formatContractValue(runtimeQueue?.pending) },
+              { label: 'Running Jobs', value: formatContractValue(runtimeQueue?.running) },
+              { label: 'Failed Jobs', value: formatContractValue(runtimeQueue?.failed) },
+              { label: 'Due Pending', value: formatContractValue(runtimeQueue?.duePending) },
+            ])}
+
+            <div style={{ display: 'grid', gap: '10px' }}>
+              <div style={{ fontWeight: 700 }}>最近作业</div>
+              {recentJobs.length > 0 ? (
+                recentJobs.map((job) => (
+                  <div
+                    key={`${formatContractValue(job.id)}-${formatContractValue(job.updatedAt)}`}
+                    style={{
+                      borderRadius: '14px',
+                      background: '#f8fafc',
+                      border: '1px solid #e2e8f0',
+                      padding: '12px 14px',
+                      display: 'grid',
+                      gap: '4px',
+                    }}
+                  >
+                    <div style={{ fontWeight: 700 }}>
+                      #{formatContractValue(job.id)} · {formatContractValue(job.type)} · {formatContractValue(job.status)}
+                    </div>
+                    <div style={{ color: '#475569' }}>runAt: {formatContractValue(job.runAt)}</div>
+                    <div style={{ color: '#475569' }}>attempts: {formatContractValue(job.attempts)}</div>
+                  </div>
+                ))
+              ) : (
+                <div style={{ color: '#475569' }}>runtime 尚未返回 recentJobs。</div>
+              )}
+            </div>
           </div>
         </SectionCard>
 

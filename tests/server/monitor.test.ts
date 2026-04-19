@@ -94,6 +94,38 @@ async function requestApp(method: string, url: string, body?: unknown) {
 }
 
 describe('monitor api', () => {
+  it('fetches monitor items into SQLite through the manual fetch endpoint', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const response = await requestApp('POST', '/api/monitor/fetch');
+
+      expect(response.status).toBe(201);
+      expect(JSON.parse(response.body)).toEqual({
+        items: [
+          expect.objectContaining({
+            id: 1,
+            source: 'rss',
+            status: 'new',
+          }),
+          expect.objectContaining({
+            id: 2,
+            source: 'reddit',
+            status: 'new',
+          }),
+          expect.objectContaining({
+            id: 3,
+            source: 'x',
+            status: 'new',
+          }),
+        ],
+        inserted: 3,
+        total: 3,
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('creates a follow-up draft from a monitor item', async () => {
     const { rootDir } = createTestDatabasePath();
     try {

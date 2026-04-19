@@ -30,6 +30,14 @@ export interface DashboardResponse {
     total: number;
     connected: number;
   };
+  jobQueue?: {
+    pending: number;
+    running: number;
+    done: number;
+    failed: number;
+    canceled?: number;
+    duePending: number;
+  };
 }
 
 export async function loadDashboardRequest(): Promise<DashboardResponse> {
@@ -54,6 +62,7 @@ export function DashboardPage({
     publishLogs: { failedCount: 0 },
     inbox: { total: 1, unread: 1 },
     channelAccounts: { total: 1, connected: 1 },
+    jobQueue: { pending: 0, running: 0, done: 0, failed: 0, canceled: 0, duePending: 0 },
   };
   const viewData = displayState.status === 'success' && displayState.data ? displayState.data : fallbackData;
   const inboxMetrics = viewData.inbox ?? { total: 0, unread: 0 };
@@ -64,6 +73,14 @@ export function DashboardPage({
   };
   const publishLogMetrics = {
     failedCount: viewData.publishLogs?.failedCount ?? 0,
+  };
+  const jobQueueMetrics = viewData.jobQueue ?? {
+    pending: 0,
+    running: 0,
+    done: 0,
+    failed: 0,
+    canceled: 0,
+    duePending: 0,
   };
 
   return (
@@ -105,6 +122,26 @@ export function DashboardPage({
             label="发布失败"
             value={String(publishLogMetrics.failedCount)}
             detail="最近发布流水中记录的失败次数"
+          />
+          <StatCard
+            label="队列待执行"
+            value={String(jobQueueMetrics.pending)}
+            detail="job_queue 中 pending 的任务数量"
+          />
+          <StatCard
+            label="队列运行中"
+            value={String(jobQueueMetrics.running)}
+            detail="当前被 scheduler 占用的任务数量"
+          />
+          <StatCard
+            label="到期待执行"
+            value={String(jobQueueMetrics.duePending)}
+            detail="已经到执行时间、等待本轮 tick 处理的任务数量"
+          />
+          <StatCard
+            label="队列失败"
+            value={String(jobQueueMetrics.failed)}
+            detail="job_queue 中 failed 的任务数量"
           />
         </div>
       ) : null}

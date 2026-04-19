@@ -1,9 +1,11 @@
 import { Router } from 'express';
 import { createInboxStore } from '../store/inbox';
 import { chatJson } from '../services/aiClient';
+import { createInboxFetchService } from '../services/inboxFetch';
 
 export const inboxRouter = Router();
 const inboxStore = createInboxStore();
+const inboxFetchService = createInboxFetchService();
 
 const allowedStatuses = new Set(['handled', 'snoozed', 'needs_reply', 'needs_review']);
 
@@ -15,6 +17,18 @@ inboxRouter.get('/', (_request, response) => {
   const items = inboxStore.list();
   response.json({
     items,
+    total: items.length,
+    unread: items.filter((item) => item.status !== 'handled').length,
+  });
+});
+
+inboxRouter.post('/fetch', (_request, response) => {
+  const result = inboxFetchService.fetchNow();
+  const items = inboxStore.list();
+
+  response.status(201).json({
+    items: result.items,
+    inserted: result.inserted,
     total: items.length,
     unread: items.filter((item) => item.status !== 'handled').length,
   });

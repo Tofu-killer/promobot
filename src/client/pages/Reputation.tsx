@@ -28,8 +28,20 @@ export interface ReputationStatsResponse {
   items: ReputationItem[];
 }
 
+export interface FetchReputationResponse {
+  items: ReputationItem[];
+  inserted: number;
+  total: number;
+}
+
 export async function loadReputationRequest(): Promise<ReputationStatsResponse> {
   return apiRequest<ReputationStatsResponse>('/api/reputation/stats');
+}
+
+export async function fetchReputationRequest(): Promise<FetchReputationResponse> {
+  return apiRequest<FetchReputationResponse>('/api/reputation/fetch', {
+    method: 'POST',
+  });
 }
 
 export interface UpdateReputationItemResponse {
@@ -48,8 +60,10 @@ export async function updateReputationItemRequest(id: number, status: string): P
 
 interface ReputationPageProps {
   loadReputationAction?: () => Promise<ReputationStatsResponse>;
+  fetchReputationAction?: () => Promise<FetchReputationResponse>;
   updateReputationAction?: (id: number, status: string) => Promise<UpdateReputationItemResponse>;
   stateOverride?: AsyncState<ReputationStatsResponse>;
+  fetchStateOverride?: AsyncState<FetchReputationResponse>;
   reputationUpdateStateOverride?: AsyncState<UpdateReputationItemResponse>;
 }
 
@@ -61,16 +75,20 @@ const feedbackStyle = {
 
 export function ReputationPage({
   loadReputationAction = loadReputationRequest,
+  fetchReputationAction = fetchReputationRequest,
   updateReputationAction = updateReputationItemRequest,
   stateOverride,
+  fetchStateOverride,
   reputationUpdateStateOverride,
 }: ReputationPageProps) {
   const { state, reload } = useAsyncQuery(loadReputationAction, [loadReputationAction]);
+  const { state: fetchState, run: runFetchReputation } = useAsyncAction(fetchReputationAction);
   const { state: reputationUpdateState, run: runReputationUpdate } = useAsyncAction(
     ({ id, status }: { id: number; status: string }) => updateReputationAction(id, status),
   );
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
   const displayState = stateOverride ?? state;
+  const displayFetchState = fetchStateOverride ?? fetchState;
   const displayReputationUpdateState = reputationUpdateStateOverride ?? reputationUpdateState;
   const fallbackData: ReputationStatsResponse = {
     total: 1,
@@ -123,6 +141,14 @@ export function ReputationPage({
     } catch {}
   }
 
+  function handleFetchReputation() {
+    void runFetchReputation()
+      .then(() => {
+        reload();
+      })
+      .catch(() => undefined);
+  }
+
   return (
     <section>
       <PageHeader
@@ -132,6 +158,10 @@ export function ReputationPage({
         actions={
           <>
             <ActionButton label="刷新口碑数据" onClick={reload} />
+            <ActionButton
+              label={displayFetchState.status === 'loading' ? '正在抓取口碑...' : '抓取新口碑'}
+              onClick={handleFetchReputation}
+            />
             <ActionButton
               label={displayReputationUpdateState.status === 'loading' ? '正在回写状态...' : '标记已处理'}
               tone="primary"
@@ -145,6 +175,23 @@ export function ReputationPage({
 
       {displayState.status === 'loading' ? <p style={{ color: '#334155' }}>正在加载口碑数据...</p> : null}
       {displayState.status === 'error' ? <p style={{ color: '#b91c1c' }}>口碑数据加载失败：{displayState.error}</p> : null}
+      {displayFetchState.status === 'success' && displayFetchState.data ? (
+        <p style={{ ...feedbackStyle, margin: '0 0 16px', background: '#eff6ff', color: '#1d4ed8' }}>
+          已抓取 {displayFetchState.data.inserted} 条口碑提及，当前总数 {displayFetchState.data.total}
+        </p>
+      ) : null}
+      {displayFetchState.status === 'error' ? (
+        <p
+          style={{
+            ...feedbackStyle,
+            margin: '0 0 16px',
+            background: '#fef2f2',
+            color: '#b91c1c',
+          }}
+        >
+          口碑抓取失败：{displayFetchState.error}
+        </p>
+      ) : null}
       {reputationFeedback ? (
         <p
           style={{

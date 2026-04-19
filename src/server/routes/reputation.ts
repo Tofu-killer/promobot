@@ -1,11 +1,33 @@
 import { Router } from 'express';
+import { createReputationFetchService } from '../services/reputationFetch';
 import { createReputationStore } from '../store/reputation';
 
 export const reputationRouter = Router();
 const reputationStore = createReputationStore();
+const reputationFetchService = createReputationFetchService();
+
+reputationRouter.get('/feed', (_request, response) => {
+  const stats = reputationStore.getStats();
+
+  response.json({
+    items: stats.items,
+    total: stats.total,
+  });
+});
 
 reputationRouter.get('/stats', (_request, response) => {
   response.json(reputationStore.getStats());
+});
+
+reputationRouter.post('/fetch', (_request, response) => {
+  const result = reputationFetchService.fetchNow();
+  const stats = reputationStore.getStats();
+
+  response.status(201).json({
+    items: result.items,
+    inserted: result.inserted,
+    total: stats.total,
+  });
 });
 
 reputationRouter.patch('/:id', (request, response) => {

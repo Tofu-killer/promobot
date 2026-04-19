@@ -1,10 +1,12 @@
 import { Router } from 'express';
+import { createMonitorFetchService } from '../services/monitorFetch';
 import { createMonitorStore, type MonitorItemRecord } from '../store/monitor';
 import { createSQLiteDraftStore } from '../store/drafts';
 import { systemDashboardRouter } from './systemDashboard';
 
 export const monitorRouter = Router();
 const monitorStore = createMonitorStore();
+const monitorFetchService = createMonitorFetchService();
 const draftStore = createSQLiteDraftStore();
 
 monitorRouter.use(systemDashboardRouter);
@@ -14,6 +16,16 @@ monitorRouter.get('/feed', (_request, response) => {
   response.json({
     items,
     total: items.length,
+  });
+});
+
+monitorRouter.post('/fetch', (_request, response) => {
+  const result = monitorFetchService.fetchNow();
+
+  response.status(201).json({
+    items: result.items,
+    inserted: result.inserted,
+    total: monitorStore.list().length,
   });
 });
 

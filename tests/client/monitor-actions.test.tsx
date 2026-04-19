@@ -531,6 +531,49 @@ afterEach(() => {
 });
 
 describe('Monitor follow-up actions', () => {
+  it('posts manual monitor fetch through the shared API helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse(
+        {
+          items: [
+            {
+              id: 1,
+              source: 'rss',
+              title: 'APAC pricing watch',
+              detail: 'Tracked a competitor pricing update.',
+              status: 'new',
+              createdAt: '2026-04-19T00:00:00.000Z',
+            },
+          ],
+          inserted: 1,
+          total: 1,
+        },
+        201,
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const monitorModule = (await import('../../src/client/pages/Monitor')) as Record<string, unknown>;
+
+    expect(typeof monitorModule.fetchMonitorFeedRequest).toBe('function');
+
+    const fetchMonitorFeedRequest = monitorModule.fetchMonitorFeedRequest as () => Promise<{
+      inserted: number;
+      total: number;
+    }>;
+
+    const result = await fetchMonitorFeedRequest();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/monitor/fetch',
+      expect.objectContaining({
+        method: 'POST',
+      }),
+    );
+    expect(result.inserted).toBe(1);
+    expect(result.total).toBe(1);
+  });
+
   it('posts follow-up generation through the shared API helper', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse(
@@ -631,6 +674,64 @@ describe('Monitor follow-up actions', () => {
     expect(collectText(container)).toContain('Follow-up: Competitor launched a lower tier');
     expect(collectText(container)).toContain('draftId: 42');
     expect(collectText(container)).toContain('status: draft');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('shows monitor fetch feedback after clicking the action', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { MonitorPage } = await import('../../src/client/pages/Monitor');
+
+    const stateOverride = {
+      status: 'success' as const,
+      data: {
+        items: [],
+        total: 0,
+      },
+    };
+    const fetchMonitorAction = vi.fn().mockResolvedValue({
+      items: [
+        {
+          id: 1,
+          source: 'rss',
+          title: 'APAC pricing watch',
+          detail: 'Tracked a competitor pricing update.',
+          status: 'new',
+          createdAt: '2026-04-19T00:00:00.000Z',
+        },
+      ],
+      inserted: 1,
+      total: 1,
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(MonitorPage as never, {
+          loadMonitorAction: async () => stateOverride.data,
+          stateOverride,
+          fetchMonitorAction,
+        }),
+      );
+      await flush();
+    });
+
+    const button = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('抓取新动态'),
+    );
+
+    await act(async () => {
+      button?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(fetchMonitorAction).toHaveBeenCalledTimes(1);
+    expect(collectText(container)).toContain('已抓取 1 条监控动态，当前总数 1');
 
     await act(async () => {
       root.unmount();

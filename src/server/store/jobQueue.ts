@@ -20,6 +20,8 @@ export interface JobQueueEntry extends JobRecord {
   finishedAt?: string;
   createdAt: string;
   updatedAt: string;
+  canRetry?: boolean;
+  canCancel?: boolean;
 }
 
 export interface JobQueueStats {
@@ -27,6 +29,7 @@ export interface JobQueueStats {
   running: number;
   done: number;
   failed: number;
+  canceled?: number;
   duePending: number;
 }
 
@@ -38,8 +41,11 @@ export interface ListJobQueueOptions {
 export interface JobQueueStore extends JobStore {
   enqueue(input: EnqueueJobInput): JobQueueEntry;
   list(options?: ListJobQueueOptions): JobQueueEntry[];
+  get(jobId: number): JobQueueEntry | undefined;
   getStats(nowIso?: string): JobQueueStats;
   requeueRunningJobs(nowIso?: string): number;
+  retry(jobId: number, runAt?: string): JobQueueEntry | undefined;
+  cancel(jobId: number, canceledAtIso?: string): JobQueueEntry | undefined;
   schedulePublishJob(draftId: number, runAt: string): JobQueueEntry;
   deletePendingPublishJobs(draftId: number): number;
 }
@@ -64,11 +70,20 @@ export function createJobQueueStore(): JobQueueStore {
     list(options) {
       return withDatabase((database) => listJobs(database, options));
     },
+    get(jobId) {
+      return withDatabase((database) => getJobById(database, jobId));
+    },
     getStats(nowIso) {
       return withDatabase((database) => getJobQueueStats(database, nowIso ?? new Date().toISOString()));
     },
     requeueRunningJobs(nowIso) {
       return withDatabase((database) => requeueRunningJobs(database, nowIso ?? new Date().toISOString()));
+    },
+    retry(jobId, runAt) {
+      return withDatabase((database) => retryJob(database, jobId, runAt ?? new Date().toISOString()));
+    },
+    cancel(jobId, canceledAtIso) {
+      return withDatabase((database) => cancelJob(database, jobId, canceledAtIso ?? new Date().toISOString()));
     },
     schedulePublishJob(draftId, runAt) {
       return withDatabase((database) => schedulePublishJob(database, draftId, runAt));
@@ -154,7 +169,7 @@ function markDone(database: DatabaseConnection, jobId: number, finishedAtIso: st
             finished_at = @finished_at,
             last_error = NULL,
             updated_at = @updated_at
-        WHERE id = @id
+        WHERE id = @id AND status = 'running'
       `,
     )
     .run({
@@ -178,7 +193,7 @@ function markFailed(
             finished_at = @finished_at,
             last_error = @last_error,
             updated_at = @updated_at
-        WHERE id = @id
+        WHERE id = @id AND status = 'running'
       `,
     )
     .run({
@@ -241,6 +256,7 @@ function getJobQueueStats(database: DatabaseConnection, nowIso: string): JobQueu
     running: 0,
     done: 0,
     failed: 0,
+    canceled: 0,
     duePending: 0,
   };
 
@@ -253,6 +269,8 @@ function getJobQueueStats(database: DatabaseConnection, nowIso: string): JobQueu
       counts.done = Number(row.count);
     } else if (row.status === 'failed') {
       counts.failed = Number(row.count);
+    } else if (row.status === 'canceled') {
+      counts.canceled = Number(row.count);
     }
   }
 
@@ -286,6 +304,67 @@ function requeueRunningJobs(database: DatabaseConnection, nowIso: string): numbe
     });
 
   return result.changes;
+}
+
+function retryJob(
+  database: DatabaseConnection,
+  jobId: number,
+  runAtIso: string,
+): JobQueueEntry | undefined {
+  const updatedAt = new Date().toISOString();
+  const result = database
+    .prepare(
+      `
+        UPDATE job_queue
+        SET status = 'pending',
+            run_at = @run_at,
+            last_error = NULL,
+            started_at = NULL,
+            finished_at = NULL,
+            updated_at = @updated_at
+        WHERE id = @id AND status IN ('failed', 'canceled')
+      `,
+    )
+    .run({
+      id: jobId,
+      run_at: runAtIso,
+      updated_at: updatedAt,
+    });
+
+  if (result.changes === 0) {
+    return undefined;
+  }
+
+  return getJobById(database, jobId);
+}
+
+function cancelJob(
+  database: DatabaseConnection,
+  jobId: number,
+  canceledAtIso: string,
+): JobQueueEntry | undefined {
+  const result = database
+    .prepare(
+      `
+        UPDATE job_queue
+        SET status = 'canceled',
+            finished_at = @finished_at,
+            last_error = NULL,
+            updated_at = @updated_at
+        WHERE id = @id AND status IN ('pending', 'running')
+      `,
+    )
+    .run({
+      id: jobId,
+      finished_at: canceledAtIso,
+      updated_at: canceledAtIso,
+    });
+
+  if (result.changes === 0) {
+    return undefined;
+  }
+
+  return getJobById(database, jobId);
 }
 
 function schedulePublishJob(
@@ -392,6 +471,7 @@ function normalizeJobRecord(row: Record<string, unknown>): JobRecord {
 }
 
 function normalizeJobQueueEntry(row: Record<string, unknown>): JobQueueEntry {
+  const status = String(row.status) as JobStatus;
   return {
     ...normalizeJobRecord(row),
     lastError: typeof row.lastError === 'string' ? row.lastError : undefined,
@@ -399,6 +479,8 @@ function normalizeJobQueueEntry(row: Record<string, unknown>): JobQueueEntry {
     finishedAt: typeof row.finishedAt === 'string' ? row.finishedAt : undefined,
     createdAt: String(row.createdAt),
     updatedAt: String(row.updatedAt),
+    canRetry: status === 'failed' || status === 'canceled',
+    canCancel: status === 'pending' || status === 'running',
   };
 }
 

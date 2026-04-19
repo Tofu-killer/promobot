@@ -125,6 +125,14 @@ describe('dashboard api', () => {
           items: 2,
           followUps: 1,
         },
+        jobQueue: {
+          pending: 0,
+          running: 0,
+          done: 0,
+          failed: 0,
+          canceled: 0,
+          duePending: 0,
+        },
       });
     } finally {
       cleanupTestDatabasePath(rootDir);

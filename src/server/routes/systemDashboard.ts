@@ -3,12 +3,14 @@ import { createMonitorStore } from '../store/monitor';
 import { createSQLiteDraftStore } from '../store/drafts';
 import { createInboxStore } from '../store/inbox';
 import { createChannelAccountStore } from '../store/channelAccounts';
+import { createJobQueueStore } from '../store/jobQueue';
 import { withDatabase } from '../lib/persistence';
 
 const monitorStore = createMonitorStore();
 const draftStore = createSQLiteDraftStore();
 const inboxStore = createInboxStore();
 const channelAccountStore = createChannelAccountStore();
+const jobQueueStore = createJobQueueStore();
 
 export const systemDashboardRouter = Router();
 
@@ -20,6 +22,7 @@ systemDashboardRouter.get('/dashboard', (_request, response) => {
   const followUpDrafts = drafts.filter((draft) => draft.title?.toLowerCase().includes('follow-up'));
   const unreadInboxItems = inboxItems.filter((item) => item.status !== 'handled');
   const connectedChannelAccounts = channelAccounts.filter((account) => account.status === 'healthy');
+  const jobQueueStats = jobQueueStore.getStats(new Date().toISOString());
   const scheduledDraftCount = drafts.filter((draft) => draft.status === 'scheduled').length;
   const publishedDraftCount = drafts.filter((draft) => draft.status === 'published').length;
   const publishLogMetrics = withDatabase((database) => {
@@ -78,5 +81,6 @@ systemDashboardRouter.get('/dashboard', (_request, response) => {
           },
         }
       : {}),
+    jobQueue: jobQueueStats,
   });
 });

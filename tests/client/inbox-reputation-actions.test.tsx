@@ -28,6 +28,44 @@ afterEach(() => {
 });
 
 describe('Inbox action wiring', () => {
+  it('posts inbox fetch through the shared API helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        items: [
+          {
+            id: 7,
+            source: 'reddit',
+            status: 'needs_reply',
+            author: 'user123',
+            title: 'Need lower latency in APAC',
+            excerpt: 'Can you share current response times?',
+            createdAt: '2026-04-19T10:00:00.000Z',
+          },
+        ],
+        inserted: 1,
+        total: 1,
+        unread: 1,
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const inboxModule = (await import('../../src/client/pages/Inbox')) as Record<string, unknown>;
+
+    expect(typeof inboxModule.fetchInboxRequest).toBe('function');
+
+    const fetchInboxRequest = inboxModule.fetchInboxRequest as () => Promise<{ inserted: number; unread: number }>;
+    const result = await fetchInboxRequest();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/inbox/fetch',
+      expect.objectContaining({
+        method: 'POST',
+      }),
+    );
+    expect(result.inserted).toBe(1);
+    expect(result.unread).toBe(1);
+  });
+
   it.each([
     ['handled', '/api/inbox/7'],
     ['snoozed', '/api/inbox/7'],
@@ -180,9 +218,73 @@ describe('Inbox action wiring', () => {
     expect(html).toContain('已生成最新回复建议');
     expect(html).toContain('Thanks for flagging this. We can share current APAC latency benchmarks.');
   });
+
+  it('renders inbox fetch feedback when available', async () => {
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    const html = renderPage(InboxPage, {
+      stateOverride: {
+        status: 'success',
+        data: {
+          items: [],
+          total: 0,
+          unread: 0,
+        },
+      } satisfies ApiState<unknown>,
+      fetchStateOverride: {
+        status: 'success',
+        data: {
+          items: [],
+          inserted: 2,
+          total: 2,
+          unread: 1,
+        },
+      } satisfies ApiState<unknown>,
+    });
+
+    expect(html).toContain('已抓取 2 条收件箱命中，未读 1');
+    expect(html).toContain('抓取新命中');
+  });
 });
 
 describe('Reputation action wiring', () => {
+  it('posts reputation fetch through the shared API helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        items: [
+          {
+            id: 4,
+            source: 'x',
+            sentiment: 'negative',
+            status: 'escalate',
+            title: 'Session expired complaint',
+            detail: 'Users report being logged out unexpectedly.',
+            createdAt: '2026-04-19T10:00:00.000Z',
+          },
+        ],
+        inserted: 1,
+        total: 1,
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const reputationModule = (await import('../../src/client/pages/Reputation')) as Record<string, unknown>;
+
+    expect(typeof reputationModule.fetchReputationRequest).toBe('function');
+
+    const fetchReputationRequest = reputationModule.fetchReputationRequest as () => Promise<{ inserted: number; total: number }>;
+    const result = await fetchReputationRequest();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/reputation/fetch',
+      expect.objectContaining({
+        method: 'POST',
+      }),
+    );
+    expect(result.inserted).toBe(1);
+    expect(result.total).toBe(1);
+  });
+
   it.each(['handled', 'escalate'] as const)(
     'patches reputation item status as %s through the shared API helper',
     async (status) => {
@@ -307,5 +409,34 @@ describe('Reputation action wiring', () => {
       expect(successHtml).toContain(`已将“Session expired complaint”回写为 ${status}`);
       expect(successHtml).toContain(`x · ${status} · 2026-04-19T10:00:00.000Z`);
     }
+  });
+
+  it('renders reputation fetch feedback when available', async () => {
+    const { ReputationPage } = await import('../../src/client/pages/Reputation');
+
+    const html = renderPage(ReputationPage, {
+      stateOverride: {
+        status: 'success',
+        data: {
+          total: 0,
+          positive: 0,
+          neutral: 0,
+          negative: 0,
+          trend: [],
+          items: [],
+        },
+      } satisfies ApiState<unknown>,
+      fetchStateOverride: {
+        status: 'success',
+        data: {
+          items: [],
+          inserted: 3,
+          total: 5,
+        },
+      } satisfies ApiState<unknown>,
+    });
+
+    expect(html).toContain('已抓取 3 条口碑提及，当前总数 5');
+    expect(html).toContain('抓取新口碑');
   });
 });

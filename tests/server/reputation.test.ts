@@ -106,6 +106,45 @@ afterEach(() => {
 });
 
 describe('reputation api', () => {
+  it('returns a feed view and supports manual fetch into SQLite', async () => {
+    const fetchResponse = await requestApp('POST', '/api/reputation/fetch');
+
+    expect(fetchResponse.status).toBe(201);
+    expect(JSON.parse(fetchResponse.body)).toEqual({
+      items: [
+        expect.objectContaining({
+          id: 1,
+          source: 'reddit',
+          sentiment: 'positive',
+        }),
+        expect.objectContaining({
+          id: 2,
+          source: 'facebook-group',
+          sentiment: 'negative',
+        }),
+      ],
+      inserted: 2,
+      total: 2,
+    });
+
+    const feedResponse = await requestApp('GET', '/api/reputation/feed');
+
+    expect(feedResponse.status).toBe(200);
+    expect(JSON.parse(feedResponse.body)).toEqual({
+      items: [
+        expect.objectContaining({
+          id: 1,
+          title: expect.stringContaining('Lower APAC latency praise'),
+        }),
+        expect.objectContaining({
+          id: 2,
+          title: expect.stringContaining('Billing confusion mention'),
+        }),
+      ],
+      total: 2,
+    });
+  });
+
   it('returns aggregated reputation stats and items from SQLite', async () => {
     const reputationStore = createReputationStore();
     reputationStore.create({

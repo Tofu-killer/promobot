@@ -129,6 +129,34 @@ function installFetchStub(replyText: string) {
 }
 
 describe('inbox api', () => {
+  it('fetches inbox items into SQLite through the manual fetch endpoint', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const response = await requestApp('POST', '/api/inbox/fetch');
+
+      expect(response.status).toBe(201);
+      expect(JSON.parse(response.body)).toEqual({
+        items: [
+          expect.objectContaining({
+            id: 1,
+            source: 'reddit',
+            status: 'needs_reply',
+          }),
+          expect.objectContaining({
+            id: 2,
+            source: 'x',
+            status: 'needs_review',
+          }),
+        ],
+        inserted: 2,
+        total: 2,
+        unread: 2,
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('returns inbox items with total and unread counts from SQLite', async () => {
     const { rootDir } = createTestDatabasePath();
     try {

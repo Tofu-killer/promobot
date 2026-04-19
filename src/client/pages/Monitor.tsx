@@ -31,6 +31,12 @@ export interface FollowUpDraftResponse {
   };
 }
 
+export interface FetchMonitorFeedResponse {
+  items: MonitorItem[];
+  inserted: number;
+  total: number;
+}
+
 export async function loadMonitorFeedRequest(): Promise<MonitorFeedResponse> {
   return apiRequest<MonitorFeedResponse>('/api/monitor/feed');
 }
@@ -48,11 +54,19 @@ export async function generateFollowUpRequest(
   });
 }
 
+export async function fetchMonitorFeedRequest(): Promise<FetchMonitorFeedResponse> {
+  return apiRequest<FetchMonitorFeedResponse>('/api/monitor/fetch', {
+    method: 'POST',
+  });
+}
+
 interface MonitorPageProps {
   loadMonitorAction?: () => Promise<MonitorFeedResponse>;
   generateFollowUpAction?: (id: number, platform: string) => Promise<FollowUpDraftResponse>;
+  fetchMonitorAction?: () => Promise<FetchMonitorFeedResponse>;
   stateOverride?: AsyncState<MonitorFeedResponse>;
   followUpStateOverride?: AsyncState<FollowUpDraftResponse>;
+  fetchStateOverride?: AsyncState<FetchMonitorFeedResponse>;
 }
 
 const sourceFilters = ['全部来源', 'X / Twitter', 'RSS', 'Reddit', 'Product Hunt'];
@@ -60,15 +74,19 @@ const sourceFilters = ['全部来源', 'X / Twitter', 'RSS', 'Reddit', 'Product 
 export function MonitorPage({
   loadMonitorAction = loadMonitorFeedRequest,
   generateFollowUpAction = generateFollowUpRequest,
+  fetchMonitorAction = fetchMonitorFeedRequest,
   stateOverride,
   followUpStateOverride,
+  fetchStateOverride,
 }: MonitorPageProps) {
   const { state, reload } = useAsyncQuery(loadMonitorAction, [loadMonitorAction]);
+  const { state: fetchState, run: runFetchMonitor } = useAsyncAction(fetchMonitorAction);
   const { state: followUpState, run: generateFollowUp } = useAsyncAction(
     ({ id, platform }: { id: number; platform: string }) => generateFollowUpAction(id, platform),
   );
   const displayState = stateOverride ?? state;
   const displayFollowUpState = followUpStateOverride ?? followUpState;
+  const displayFetchState = fetchStateOverride ?? fetchState;
   const fallbackData: MonitorFeedResponse = {
     items: [
       {
@@ -96,6 +114,14 @@ export function MonitorPage({
     }).catch(() => undefined);
   }
 
+  function handleFetchMonitor() {
+    void runFetchMonitor()
+      .then(() => {
+        reload();
+      })
+      .catch(() => undefined);
+  }
+
   return (
     <section>
       <PageHeader
@@ -105,6 +131,10 @@ export function MonitorPage({
         actions={
           <>
             <ActionButton label="刷新监控" onClick={reload} />
+            <ActionButton
+              label={displayFetchState.status === 'loading' ? '正在抓取动态...' : '抓取新动态'}
+              onClick={handleFetchMonitor}
+            />
             <ActionButton
               label={displayFollowUpState.status === 'loading' ? '正在生成跟进草稿...' : '生成跟进草稿'}
               tone="primary"
@@ -116,6 +146,14 @@ export function MonitorPage({
 
       {displayState.status === 'loading' ? <p style={{ color: '#334155' }}>正在加载监控动态...</p> : null}
       {displayState.status === 'error' ? <p style={{ color: '#b91c1c' }}>监控动态加载失败：{displayState.error}</p> : null}
+      {displayFetchState.status === 'success' && displayFetchState.data ? (
+        <p style={{ color: '#166534', fontWeight: 700 }}>
+          已抓取 {displayFetchState.data.inserted} 条监控动态，当前总数 {displayFetchState.data.total}
+        </p>
+      ) : null}
+      {displayFetchState.status === 'error' ? (
+        <p style={{ color: '#b91c1c' }}>监控抓取失败：{displayFetchState.error}</p>
+      ) : null}
 
       {displayFollowUpState.status === 'success' && displayFollowUpState.data ? (
         <SectionCard

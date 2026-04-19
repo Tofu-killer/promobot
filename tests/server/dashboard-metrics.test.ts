@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createApp } from '../../src/server/app';
 import { createChannelAccountStore } from '../../src/server/store/channelAccounts';
 import { createInboxStore } from '../../src/server/store/inbox';
+import { createJobQueueStore } from '../../src/server/store/jobQueue';
 import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
 
 async function requestApp(method: string, url: string) {
@@ -95,6 +96,7 @@ describe('dashboard metrics api', () => {
     try {
       const inboxStore = createInboxStore();
       const channelAccountStore = createChannelAccountStore();
+      const jobQueueStore = createJobQueueStore();
 
       inboxStore.create({
         source: 'x',
@@ -126,6 +128,12 @@ describe('dashboard metrics api', () => {
         status: 'failed',
       });
 
+      jobQueueStore.enqueue({
+        type: 'monitor_fetch',
+        payload: { source: 'rss' },
+        runAt: '2026-04-19T09:00:00.000Z',
+      });
+
       const response = await requestApp('GET', '/api/monitor/dashboard');
 
       expect(response.status).toBe(200);
@@ -137,6 +145,10 @@ describe('dashboard metrics api', () => {
         channelAccounts: {
           total: 2,
           connected: 1,
+        },
+        jobQueue: {
+          pending: 1,
+          duePending: 1,
         },
       });
     } finally {

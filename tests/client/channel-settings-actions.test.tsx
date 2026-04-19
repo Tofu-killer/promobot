@@ -283,6 +283,24 @@ describe('settings save validation and feedback', () => {
               queueDepth: 2,
             },
           },
+          runtime: {
+            queue: {
+              pending: 2,
+              running: 1,
+              failed: 0,
+              duePending: 1,
+            },
+            recentJobs: [
+              {
+                id: 12,
+                type: 'publish',
+                status: 'pending',
+                runAt: '2026-04-19T09:15:00.000Z',
+                attempts: 1,
+                updatedAt: '2026-04-19T09:00:00.000Z',
+              },
+            ],
+          },
           ai: {
             provider: 'OpenAI',
             model: 'gpt-4.1-mini',
@@ -307,6 +325,9 @@ describe('settings save validation and feedback', () => {
     expect(successHtml).toContain('AI 配置');
     expect(successHtml).toContain('调度与运行态');
     expect(successHtml).toContain('worker');
+    expect(successHtml).toContain('运行控制台');
+    expect(successHtml).toContain('Pending Jobs');
+    expect(successHtml).toContain('最近作业');
 
     const errorHtml = renderPage(SettingsPage, {
       updateStateOverride: {

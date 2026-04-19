@@ -25,11 +25,21 @@ export interface SchedulerRuntimeSnapshot {
   recentJobs: JobQueueEntry[];
 }
 
+export interface SchedulerRuntimeJobListSnapshot {
+  jobs: JobQueueEntry[];
+  queue: JobQueueStats;
+  recentJobs: JobQueueEntry[];
+}
+
 export interface SchedulerRuntime {
   getStatus(): SchedulerRuntimeSnapshot;
+  listJobs(limit?: number): SchedulerRuntimeJobListSnapshot;
+  getJob(jobId: number): JobQueueEntry | undefined;
   reload(): SchedulerRuntimeSnapshot;
   tickNow(): Promise<JobExecutionResult[]>;
   enqueueJob(input: EnqueueJobInput): JobQueueEntry;
+  retryJob(jobId: number, runAt?: string): JobQueueEntry | undefined;
+  cancelJob(jobId: number): JobQueueEntry | undefined;
   stop(): void;
 }
 
@@ -114,14 +124,32 @@ export function createSchedulerRuntime(
     };
   }
 
+  function listJobs(limit = 50): SchedulerRuntimeJobListSnapshot {
+    return {
+      jobs: jobQueueStore.list({ limit }),
+      queue: jobQueueStore.getStats(now().toISOString()),
+      recentJobs: jobQueueStore.list({ limit: 12 }),
+    };
+  }
+
   return {
     getStatus,
+    listJobs,
+    getJob(jobId) {
+      return jobQueueStore.get(jobId);
+    },
     reload() {
       return rebuildScheduler();
     },
     tickNow,
     enqueueJob(input) {
       return jobQueueStore.enqueue(input);
+    },
+    retryJob(jobId, runAt) {
+      return jobQueueStore.retry(jobId, runAt);
+    },
+    cancelJob(jobId) {
+      return jobQueueStore.cancel(jobId);
     },
     stop() {
       scheduler.stop();

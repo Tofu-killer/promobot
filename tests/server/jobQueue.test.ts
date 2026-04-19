@@ -36,6 +36,7 @@ describe('job queue store', () => {
         running: 0,
         done: 1,
         failed: 0,
+        canceled: 0,
         duePending: 0,
       });
     } finally {
@@ -72,6 +73,7 @@ describe('job queue store', () => {
         running: 0,
         done: 0,
         failed: 1,
+        canceled: 0,
         duePending: 0,
       });
     } finally {
@@ -100,6 +102,75 @@ describe('job queue store', () => {
 
       expect(store.deletePendingPublishJobs(42)).toBe(1);
       expect(store.list({ limit: 5 })).toEqual([]);
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('lists jobs with actionability flags and supports retry/cancel flows', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const store = createJobQueueStore();
+      const pending = store.enqueue({
+        type: 'publish',
+        payload: { draftId: 99 },
+        runAt: '2026-04-19T13:00:00.000Z',
+      });
+      const failed = store.enqueue({
+        type: 'monitor_fetch',
+        payload: { source: 'rss' },
+        runAt: '2026-04-19T13:05:00.000Z',
+      });
+
+      await store.markRunning(failed.id, '2026-04-19T13:06:00.000Z');
+      await store.markFailed(failed.id, 'boom', '2026-04-19T13:07:00.000Z');
+
+      const listed = store.list({ limit: 10 });
+      expect(listed).toEqual([
+        expect.objectContaining({
+          id: pending.id,
+          status: 'pending',
+          canCancel: true,
+          canRetry: false,
+        }),
+        expect.objectContaining({
+          id: failed.id,
+          status: 'failed',
+          canCancel: false,
+          canRetry: true,
+          lastError: 'boom',
+        }),
+      ]);
+
+      const retried = store.retry(failed.id, '2026-04-19T13:10:00.000Z');
+      expect(retried).toEqual(
+        expect.objectContaining({
+          id: failed.id,
+          status: 'pending',
+          runAt: '2026-04-19T13:10:00.000Z',
+          canCancel: true,
+          canRetry: false,
+        }),
+      );
+
+      const canceled = store.cancel(pending.id, '2026-04-19T13:11:00.000Z');
+      expect(canceled).toEqual(
+        expect.objectContaining({
+          id: pending.id,
+          status: 'canceled',
+          canCancel: false,
+          canRetry: true,
+        }),
+      );
+
+      expect(store.getStats('2026-04-19T13:12:00.000Z')).toEqual({
+        pending: 1,
+        running: 0,
+        done: 0,
+        failed: 0,
+        canceled: 1,
+        duePending: 1,
+      });
     } finally {
       cleanupTestDatabasePath(rootDir);
     }

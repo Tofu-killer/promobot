@@ -60,11 +60,23 @@ describe('dashboard enhanced metrics page', () => {
             total: 2,
             connected: 1,
           },
+          jobQueue: {
+            pending: 4,
+            running: 1,
+            done: 7,
+            failed: 2,
+            canceled: 0,
+            duePending: 3,
+          },
         },
       },
     });
 
     expect(html).toContain('待处理私信');
     expect(html).toContain('健康账号');
+    expect(html).toContain('队列待执行');
+    expect(html).toContain('队列运行中');
+    expect(html).toContain('到期待执行');
+    expect(html).toContain('队列失败');
   });
 });

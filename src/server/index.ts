@@ -1,11 +1,27 @@
 import { createApp } from './app';
 import { loadConfig } from './config';
+import { createInboxFetchService } from './services/inboxFetch';
+import { createMonitorFetchService } from './services/monitorFetch';
 import { createPublishJobHandler } from './services/publishQueue';
+import { createReputationFetchService } from './services/reputationFetch';
 import { createSchedulerRuntime } from './runtime/schedulerRuntime';
+
+const monitorFetchService = createMonitorFetchService();
+const inboxFetchService = createInboxFetchService();
+const reputationFetchService = createReputationFetchService();
 
 const schedulerRuntime = createSchedulerRuntime({
   handlers: {
+    inbox_fetch: async () => {
+      inboxFetchService.fetchNow();
+    },
+    monitor_fetch: async () => {
+      monitorFetchService.fetchNow();
+    },
     publish: createPublishJobHandler(),
+    reputation_fetch: async () => {
+      reputationFetchService.fetchNow();
+    },
   },
 });
 schedulerRuntime.reload();
