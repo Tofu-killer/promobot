@@ -36,17 +36,35 @@ describe('channel account follow-up actions', () => {
         ok: true,
         test: {
           checkedAt: '2026-04-19T00:00:00.000Z',
-          status: 'healthy',
+          status: 'needs_relogin',
+          summary: '需要重新登录',
+          message: '检测到 X 浏览器 session 已过期，请重新登录后重新保存 session 元数据。',
+          action: 'relogin',
+          nextStep: '/api/channel-accounts/3/session',
         },
         channelAccount: {
           id: 3,
           platform: 'x',
           accountKey: 'acct-x-2',
           displayName: 'X Secondary',
-          authType: 'api-key',
+          authType: 'browser',
           status: 'healthy',
           metadata: {
             team: 'growth',
+          },
+          session: {
+            hasSession: true,
+            status: 'expired',
+            validatedAt: '2026-04-19T00:00:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/x-secondary.json',
+          },
+          publishReadiness: {
+            platform: 'x',
+            ready: false,
+            mode: 'browser',
+            status: 'needs_relogin',
+            message: '已有 X 浏览器 session，但需要重新登录刷新。',
+            action: 'relogin',
           },
           createdAt: '2026-04-19T00:00:00.000Z',
           updatedAt: '2026-04-19T00:00:00.000Z',
@@ -66,6 +84,10 @@ describe('channel account follow-up actions', () => {
       test: {
         checkedAt: string;
         status: string;
+        summary?: string;
+        message?: string;
+        action?: string;
+        nextStep?: string;
       };
       channelAccount: {
         id: number;
@@ -83,7 +105,9 @@ describe('channel account follow-up actions', () => {
     );
     expect(result.ok).toBe(true);
     expect(result.channelAccount.displayName).toBe('X Secondary');
-    expect(result.test.status).toBe('healthy');
+    expect(result.test.status).toBe('needs_relogin');
+    expect(result.test.summary).toBe('需要重新登录');
+    expect(result.test.action).toBe('relogin');
   });
 
   it('runs the connection test follow-up for the latest created account and refreshes the list', async () => {
@@ -122,10 +146,24 @@ describe('channel account follow-up actions', () => {
               platform: 'x',
               accountKey: 'acct-x-2',
               displayName: 'X Secondary',
-              authType: 'api-key',
+              authType: 'browser',
               status: 'healthy',
               metadata: {
                 team: 'growth',
+              },
+              session: {
+                hasSession: true,
+                status: 'expired',
+                validatedAt: '2026-04-19T00:00:00.000Z',
+                storageStatePath: 'artifacts/browser-sessions/x-secondary.json',
+              },
+              publishReadiness: {
+                platform: 'x',
+                ready: false,
+                mode: 'browser',
+                status: 'needs_relogin',
+                message: '已有 X 浏览器 session，但需要重新登录刷新。',
+                action: 'relogin',
               },
               createdAt: '2026-04-19T00:00:00.000Z',
               updatedAt: '2026-04-19T00:00:00.000Z',
@@ -141,10 +179,24 @@ describe('channel account follow-up actions', () => {
             platform: 'x',
             accountKey: 'acct-x-2',
             displayName: 'X Secondary',
-            authType: 'api-key',
+            authType: 'browser',
             status: 'healthy',
             metadata: {
               team: 'growth',
+            },
+            session: {
+              hasSession: true,
+              status: 'expired',
+              validatedAt: '2026-04-19T00:00:00.000Z',
+              storageStatePath: 'artifacts/browser-sessions/x-secondary.json',
+            },
+            publishReadiness: {
+              platform: 'x',
+              ready: false,
+              mode: 'browser',
+              status: 'needs_relogin',
+              message: '已有 X 浏览器 session，但需要重新登录刷新。',
+              action: 'relogin',
             },
             createdAt: '2026-04-19T00:00:00.000Z',
             updatedAt: '2026-04-19T00:00:00.000Z',
@@ -157,17 +209,35 @@ describe('channel account follow-up actions', () => {
           ok: true,
           test: {
             checkedAt: '2026-04-19T00:00:00.000Z',
-            status: 'healthy',
+            status: 'needs_relogin',
+            summary: '需要重新登录',
+            message: '检测到 X 浏览器 session 已过期，请重新登录后重新保存 session 元数据。',
+            action: 'relogin',
+            nextStep: '/api/channel-accounts/3/session',
           },
           channelAccount: {
             id: 3,
             platform: 'x',
             accountKey: 'acct-x-2',
             displayName: 'X Secondary',
-            authType: 'api-key',
+            authType: 'browser',
             status: 'healthy',
             metadata: {
               team: 'growth',
+            },
+            session: {
+              hasSession: true,
+              status: 'expired',
+              validatedAt: '2026-04-19T00:00:00.000Z',
+              storageStatePath: 'artifacts/browser-sessions/x-secondary.json',
+            },
+            publishReadiness: {
+              platform: 'x',
+              ready: false,
+              mode: 'browser',
+              status: 'needs_relogin',
+              message: '已有 X 浏览器 session，但需要重新登录刷新。',
+              action: 'relogin',
             },
             createdAt: '2026-04-19T00:00:00.000Z',
             updatedAt: '2026-04-19T00:00:00.000Z',
@@ -180,7 +250,10 @@ describe('channel account follow-up actions', () => {
     expect(html).toContain('X Secondary');
     expect(html).toContain('账号已创建，可继续测试连接');
     expect(html).toContain('最近一次连接测试');
-    expect(html).toContain('healthy');
+    expect(html).toContain('连接结果：</strong>需要重新登录');
+    expect(html).toContain('反馈：</strong>检测到 X 浏览器 session 已过期，请重新登录后重新保存 session 元数据。');
+    expect(html).toContain('建议动作：</strong>重新登录');
+    expect(html).toContain('下一步：</strong>/api/channel-accounts/3/session');
   });
 
   it('renders channel account create errors visibly', async () => {

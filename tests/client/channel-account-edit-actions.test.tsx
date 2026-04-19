@@ -976,6 +976,46 @@ describe('channel account edit actions', () => {
               ],
             },
           },
+          testConnectionStateOverride: {
+            status: 'success',
+            data: {
+              ok: true,
+              test: {
+                checkedAt: '2026-04-19T03:05:00.000Z',
+                status: 'needs_relogin',
+                summary: '需要重新登录',
+                message: '检测到 X 浏览器 session 已过期，请重新登录后重新保存 session 元数据。',
+                action: 'relogin',
+                nextStep: '/api/channel-accounts/7/session',
+              },
+              channelAccount: {
+                id: 7,
+                platform: 'x',
+                accountKey: 'acct-browser',
+                displayName: 'Browser X',
+                authType: 'browser',
+                status: 'healthy',
+                metadata: {},
+                session: {
+                  hasSession: true,
+                  status: 'expired',
+                  validatedAt: '2026-04-19T02:00:00.000Z',
+                  storageStatePath: 'artifacts/browser-sessions/acct-browser.json',
+                  id: 'x:acct-browser',
+                },
+                publishReadiness: {
+                  platform: 'x',
+                  ready: false,
+                  mode: 'browser',
+                  status: 'needs_relogin',
+                  message: '已有 X 浏览器 session，但需要重新登录刷新。',
+                  action: 'relogin',
+                },
+                createdAt: '2026-04-19T00:00:00.000Z',
+                updatedAt: '2026-04-19T00:00:00.000Z',
+              },
+            },
+          },
           saveChannelAccountSessionAction,
           requestChannelAccountSessionAction,
         }),
@@ -983,6 +1023,10 @@ describe('channel account edit actions', () => {
       await flush();
     });
 
+    expect(collectText(container)).toContain('最近一次连接测试');
+    expect(collectText(container)).toContain('连接结果：需要重新登录');
+    expect(collectText(container)).toContain('建议动作：重新登录');
+    expect(collectText(container)).toContain('下一步：/api/channel-accounts/7/session');
     expect(collectText(container)).toContain('发布就绪：需要重新登录');
     expect(collectText(container)).toContain('发布方式：浏览器接管');
     expect(collectText(container)).toContain('编辑账号');

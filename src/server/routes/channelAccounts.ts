@@ -190,22 +190,22 @@ channelAccountsRouter.post('/:id/test', (request, response) => {
     return;
   }
 
-  const channelAccount = channelAccountStore.test(id, {
+  const testedChannelAccount = channelAccountStore.test(id, {
     status: input.status,
   });
 
-  if (!channelAccount) {
+  if (!testedChannelAccount) {
     response.status(404).json({ error: 'channel account not found' });
     return;
   }
 
+  const channelAccount = attachSessionSummary(testedChannelAccount, createSessionStore());
+  const test = buildChannelAccountTestResult(channelAccount);
+
   response.json({
     ok: true,
-    test: {
-      checkedAt: new Date().toISOString(),
-      status: channelAccount.status,
-    },
-    channelAccount: attachSessionSummary(channelAccount, createSessionStore()),
+    test,
+    channelAccount,
   });
 });
 
@@ -234,8 +234,154 @@ function attachSessionSummary<
     publishReadiness: getChannelAccountPublishReadiness({
       platform: channelAccount.platform,
       accountKey: channelAccount.accountKey,
+      authType:
+        typeof (channelAccount as { authType?: unknown }).authType === 'string'
+          ? ((channelAccount as { authType?: string }).authType)
+          : undefined,
     }),
   };
+}
+
+function buildChannelAccountTestResult(account: {
+  id: number;
+  platform: string;
+  authType: string;
+  publishReadiness?: {
+    ready: boolean;
+    mode: 'api' | 'browser' | 'manual';
+    status: 'ready' | 'needs_config' | 'needs_session' | 'needs_relogin';
+    message: string;
+    action?: BrowserSessionAction | 'configure_credentials';
+    details?: Record<string, unknown>;
+  };
+}): {
+  checkedAt: string;
+  status: string;
+  summary: string;
+  message: string;
+  action?: BrowserSessionAction | 'configure_credentials';
+  nextStep?: string;
+  details: Record<string, unknown>;
+} {
+  const readiness =
+    account.publishReadiness ??
+    getChannelAccountPublishReadiness({
+      platform: account.platform,
+      accountKey: '',
+      authType: account.authType,
+    });
+
+  return {
+    checkedAt: new Date().toISOString(),
+    status: readiness.status,
+    summary: formatReadinessSummary(readiness.status),
+    message: formatTestMessage({
+      platform: account.platform,
+      authType: account.authType,
+      readiness,
+    }),
+    ...(readiness.action ? { action: readiness.action } : {}),
+    ...(buildTestNextStep(account.id, readiness.action)
+      ? { nextStep: buildTestNextStep(account.id, readiness.action) }
+      : {}),
+    details: {
+      ready: readiness.ready,
+      mode: readiness.mode,
+      authType: account.authType,
+      ...(readiness.details ?? {}),
+    },
+  };
+}
+
+function formatReadinessSummary(
+  status: 'ready' | 'needs_config' | 'needs_session' | 'needs_relogin',
+): string {
+  if (status === 'ready') {
+    return '可用';
+  }
+
+  if (status === 'needs_relogin') {
+    return '需要重新登录';
+  }
+
+  if (status === 'needs_session') {
+    return '缺少会话';
+  }
+
+  return '缺少配置';
+}
+
+function formatTestMessage(input: {
+  platform: string;
+  authType: string;
+  readiness: {
+    status: 'ready' | 'needs_config' | 'needs_session' | 'needs_relogin';
+    mode: 'api' | 'browser' | 'manual';
+    message: string;
+  };
+}): string {
+  const platformLabel = getPlatformLabel(input.platform);
+
+  if (input.readiness.mode === 'api') {
+    if (input.readiness.status === 'ready') {
+      return `${platformLabel} API 账号已检测到可用凭证。`;
+    }
+
+    if (input.platform === 'x') {
+      return 'X API 账号缺少可用凭证，请配置 X_ACCESS_TOKEN 或 X_BEARER_TOKEN。';
+    }
+
+    if (input.platform === 'reddit') {
+      return 'Reddit API 账号缺少完整 OAuth 凭证，请配置 client id/secret 和 username/password。';
+    }
+  }
+
+  if (input.readiness.mode === 'browser') {
+    if (input.readiness.status === 'ready') {
+      return `${platformLabel} 浏览器 session 可用，可以继续发布流程。`;
+    }
+
+    if (input.readiness.status === 'needs_relogin') {
+      return `${platformLabel} 浏览器 session 已过期，需要重新登录并重新保存 session 元数据。`;
+    }
+
+    if (input.readiness.status === 'needs_session') {
+      return `${platformLabel} 浏览器 session 缺失，请先登录并保存 session 元数据。`;
+    }
+  }
+
+  return input.readiness.message;
+}
+
+function buildTestNextStep(
+  accountId: number,
+  action: BrowserSessionAction | 'configure_credentials' | undefined,
+): string | undefined {
+  if (!action) {
+    return undefined;
+  }
+
+  if (action === 'configure_credentials') {
+    return `/api/channel-accounts/${accountId}`;
+  }
+
+  return `/api/channel-accounts/${accountId}/session`;
+}
+
+function getPlatformLabel(platform: string): string {
+  if (platform === 'x') {
+    return 'X';
+  }
+
+  if (platform === 'facebookGroup' || platform === 'facebook-group') {
+    return 'Facebook Group';
+  }
+
+  if (platform === 'reddit') {
+    return 'Reddit';
+  }
+
+  return platform;
 }
 
 function parseSessionSummary(value: unknown): SessionSummary {

@@ -903,6 +903,79 @@ describe('client API page wiring', () => {
     expect(html).toContain('建议动作：配置凭证');
     expect(html).toContain('保存 Session 元数据');
     expect(html).toContain('请求登录');
+
+    const connectionHtml = renderPage(ChannelAccountsPage, {
+      stateOverride: {
+        status: 'success',
+        data: {
+          channelAccounts: [
+            {
+              id: 1,
+              platform: 'x',
+              accountKey: 'acct-x',
+              displayName: 'X / Twitter',
+              authType: 'api-key',
+              status: 'healthy',
+              metadata: {},
+              session: {
+                hasSession: true,
+                status: 'active',
+                validatedAt: '2026-04-19T01:00:00.000Z',
+                storageStatePath: 'artifacts/browser-sessions/acct-x.json',
+              },
+              publishReadiness: {
+                platform: 'x',
+                ready: true,
+                mode: 'api',
+                status: 'ready',
+                message: 'X API token 已配置，可直接尝试发布。',
+              },
+              createdAt: '2026-04-19T00:00:00.000Z',
+              updatedAt: '2026-04-19T00:00:00.000Z',
+            },
+          ],
+        },
+      },
+      testConnectionStateOverride: {
+        status: 'success',
+        data: {
+          ok: true,
+          test: {
+            checkedAt: '2026-04-19T02:00:00.000Z',
+            status: 'healthy',
+          },
+          channelAccount: {
+            id: 1,
+            platform: 'x',
+            accountKey: 'acct-x',
+            displayName: 'X / Twitter',
+            authType: 'api-key',
+            status: 'healthy',
+            metadata: {},
+            session: {
+              hasSession: true,
+              status: 'active',
+              validatedAt: '2026-04-19T01:00:00.000Z',
+              storageStatePath: 'artifacts/browser-sessions/acct-x.json',
+            },
+            publishReadiness: {
+              platform: 'x',
+              ready: true,
+              mode: 'api',
+              status: 'ready',
+              message: 'X API token 已配置，可直接尝试发布。',
+            },
+            createdAt: '2026-04-19T00:00:00.000Z',
+            updatedAt: '2026-04-19T00:00:00.000Z',
+          },
+        },
+      },
+    });
+
+    expect(connectionHtml).toContain('最近一次连接测试');
+    expect(connectionHtml).toContain('连接结果：</strong>已就绪');
+    expect(connectionHtml).toContain('反馈：</strong>X API token 已配置，可直接尝试发布。');
+    expect(connectionHtml).toContain('检查时间：</strong>2026-04-19T02:00:00.000Z');
   });
 
   it('renders the channel account create form and save action', async () => {

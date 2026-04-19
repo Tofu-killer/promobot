@@ -156,7 +156,20 @@ describe('channel accounts api', () => {
 
       const body = JSON.parse(response.body) as {
         ok: boolean;
-        test: { checkedAt: string; status: string };
+        test: {
+          checkedAt: string;
+          status: string;
+          summary: string;
+          message: string;
+          action?: string;
+          nextStep?: string;
+          details: {
+            ready: boolean;
+            mode: string;
+            authType: string;
+            credentials: Record<string, unknown>;
+          };
+        };
         channelAccount: { id: number; status: string };
       };
 
@@ -164,7 +177,20 @@ describe('channel accounts api', () => {
         ok: true,
         test: {
           checkedAt: expect.any(String),
-          status: 'unknown',
+          status: 'needs_config',
+          summary: '缺少配置',
+          message: 'X API 账号缺少可用凭证，请配置 X_ACCESS_TOKEN 或 X_BEARER_TOKEN。',
+          action: 'configure_credentials',
+          nextStep: '/api/channel-accounts/1',
+          details: {
+            ready: false,
+            mode: 'api',
+            authType: 'api',
+            credentials: {
+              hasAccessToken: false,
+              hasBearerToken: false,
+            },
+          },
         },
         channelAccount: expect.objectContaining({
           id: 1,
@@ -195,6 +221,8 @@ describe('channel accounts api', () => {
   it('tests a channel account and updates its status when requested', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
+      process.env.X_ACCESS_TOKEN = 'x-token';
+
       await requestApp('POST', '/api/channel-accounts', {
         platform: 'x',
         accountKey: '@promobot',
@@ -212,7 +240,18 @@ describe('channel accounts api', () => {
         ok: true,
         test: {
           checkedAt: expect.any(String),
-          status: 'healthy',
+          status: 'ready',
+          summary: '可用',
+          message: 'X API 账号已检测到可用凭证。',
+          details: {
+            ready: true,
+            mode: 'api',
+            authType: 'api',
+            credentials: {
+              hasAccessToken: true,
+              hasBearerToken: false,
+            },
+          },
         },
         channelAccount: expect.objectContaining({
           id: 1,
@@ -228,6 +267,116 @@ describe('channel accounts api', () => {
             status: 'healthy',
           }),
         ],
+      });
+    } finally {
+      delete process.env.X_ACCESS_TOKEN;
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('tests a reddit browser account using saved session state', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'reddit',
+        accountKey: 'u/promobot',
+        displayName: 'PromoBot Reddit',
+        authType: 'browser',
+        status: 'unknown',
+      });
+
+      await requestApp('POST', '/api/channel-accounts/1/session', {
+        storageStatePath: 'artifacts/browser-sessions/reddit-promobot.json',
+        status: 'expired',
+        validatedAt: '2026-04-19T12:34:56.000Z',
+      });
+
+      const response = await requestApp('POST', '/api/channel-accounts/1/test');
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        ok: true,
+        test: {
+          checkedAt: expect.any(String),
+          status: 'needs_relogin',
+          summary: '需要重新登录',
+          message: 'Reddit 浏览器 session 已过期，需要重新登录并重新保存 session 元数据。',
+          action: 'relogin',
+          nextStep: '/api/channel-accounts/1/session',
+          details: {
+            ready: false,
+            mode: 'browser',
+            authType: 'browser',
+            session: {
+              hasSession: true,
+              id: 'reddit:u-promobot',
+              status: 'expired',
+              validatedAt: '2026-04-19T12:34:56.000Z',
+              storageStatePath: 'artifacts/browser-sessions/reddit-promobot.json',
+            },
+          },
+        },
+        channelAccount: expect.objectContaining({
+          id: 1,
+          status: 'unknown',
+          session: {
+            hasSession: true,
+            id: 'reddit:u-promobot',
+            status: 'expired',
+            validatedAt: '2026-04-19T12:34:56.000Z',
+            storageStatePath: 'artifacts/browser-sessions/reddit-promobot.json',
+          },
+        }),
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('tests a facebookGroup browser account using saved session state', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'facebookGroup',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB Group',
+        authType: 'browser',
+        status: 'unknown',
+      });
+
+      await requestApp('POST', '/api/channel-accounts/1/session', {
+        storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
+        status: 'active',
+        validatedAt: '2026-04-19T12:34:56.000Z',
+      });
+
+      const response = await requestApp('POST', '/api/channel-accounts/1/test');
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        ok: true,
+        test: {
+          checkedAt: expect.any(String),
+          status: 'ready',
+          summary: '可用',
+          message: 'Facebook Group 浏览器 session 可用，可以继续发布流程。',
+          details: {
+            ready: true,
+            mode: 'browser',
+            authType: 'browser',
+            session: {
+              hasSession: true,
+              id: 'facebookGroup:launch-campaign',
+              status: 'active',
+              validatedAt: '2026-04-19T12:34:56.000Z',
+              storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
+            },
+          },
+        },
+        channelAccount: expect.objectContaining({
+          id: 1,
+          status: 'unknown',
+        }),
       });
     } finally {
       cleanupTestDatabasePath(rootDir);

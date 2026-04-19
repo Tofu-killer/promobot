@@ -101,6 +101,11 @@ export interface TestChannelAccountConnectionResponse {
   test: {
     checkedAt: string;
     status: string;
+    summary?: string;
+    message?: string;
+    action?: string;
+    nextStep?: string;
+    readiness?: Record<string, unknown>;
   };
   channelAccount: ChannelAccountRecord;
 }
@@ -293,6 +298,15 @@ function resolvePublishReadiness(account: ChannelAccountRecord): Record<string, 
   );
 }
 
+interface ConnectionTestFeedback {
+  accountLabel?: string;
+  result: string;
+  message?: string;
+  action?: string;
+  nextStep?: string;
+  checkedAt: string;
+}
+
 export function ChannelAccountsPage({
   loadChannelAccountsAction = loadChannelAccountsRequest,
   createChannelAccountAction = createChannelAccountRequest,
@@ -397,6 +411,13 @@ export function ChannelAccountsPage({
   const latestCreatedAccount = createdAccount;
   const fallbackTestTarget = visibleAccounts[0] ?? null;
   const testTarget = latestCreatedAccount ?? fallbackTestTarget;
+  const testedAccount = displayTestConnectionState.data?.channelAccount
+    ? normalizeChannelAccountRecord(displayTestConnectionState.data.channelAccount)
+    : testTarget;
+  const connectionTestFeedback =
+    displayTestConnectionState.status === 'success' && displayTestConnectionState.data
+      ? describeConnectionTestFeedback(displayTestConnectionState.data, testedAccount)
+      : null;
 
   function handleCreateChannelAccount() {
     const parsedMetadata = parseMetadataInput(metadata);
@@ -622,28 +643,56 @@ export function ChannelAccountsPage({
                   onClick={handleTestConnection}
                 />
               </div>
-
-              {displayTestConnectionState.status === 'error' ? (
-                <p style={{ margin: 0, color: '#b91c1c' }}>连接测试失败：{displayTestConnectionState.error}</p>
-              ) : null}
-
-              {displayTestConnectionState.status === 'success' && displayTestConnectionState.data ? (
-                <div style={{ display: 'grid', gap: '8px' }}>
-                  <div style={{ fontWeight: 700 }}>最近一次连接测试</div>
-                  <div>
-                    <strong>结果：</strong>
-                    {displayTestConnectionState.data.test.status}
-                  </div>
-                  <div>
-                    <strong>检查时间：</strong>
-                    {displayTestConnectionState.data.test.checkedAt}
-                  </div>
-                </div>
-              ) : null}
             </div>
           ) : null}
 
-          {displayCreateState.status === 'idle' ? (
+          {displayTestConnectionState.status === 'loading' ? (
+            <p style={{ margin: 0, color: '#334155' }}>正在测试连接...</p>
+          ) : null}
+
+          {displayTestConnectionState.status === 'error' ? (
+            <p style={{ margin: 0, color: '#b91c1c' }}>连接测试失败：{displayTestConnectionState.error}</p>
+          ) : null}
+
+          {connectionTestFeedback ? (
+            <div style={{ display: 'grid', gap: '8px', color: '#334155' }}>
+              <div style={{ fontWeight: 700 }}>最近一次连接测试</div>
+              {connectionTestFeedback.accountLabel ? (
+                <div>
+                  <strong>账号：</strong>
+                  {connectionTestFeedback.accountLabel}
+                </div>
+              ) : null}
+              <div>
+                <strong>连接结果：</strong>
+                {connectionTestFeedback.result}
+              </div>
+              {connectionTestFeedback.message ? (
+                <div>
+                  <strong>反馈：</strong>
+                  {connectionTestFeedback.message}
+                </div>
+              ) : null}
+              {connectionTestFeedback.action ? (
+                <div>
+                  <strong>建议动作：</strong>
+                  {formatReadinessAction(connectionTestFeedback.action)}
+                </div>
+              ) : null}
+              {connectionTestFeedback.nextStep ? (
+                <div>
+                  <strong>下一步：</strong>
+                  {connectionTestFeedback.nextStep}
+                </div>
+              ) : null}
+              <div>
+                <strong>检查时间：</strong>
+                {connectionTestFeedback.checkedAt}
+              </div>
+            </div>
+          ) : null}
+
+          {displayCreateState.status === 'idle' && displayTestConnectionState.status === 'idle' ? (
             <p style={{ margin: 0, color: '#475569' }}>提交表单后，这里会显示新账号和下一步测试连接动作。</p>
           ) : null}
         </SectionCard>
@@ -973,6 +1022,61 @@ function mergeMetadataWithSession(
   }
 
   return metadata;
+}
+
+function describeConnectionTestFeedback(
+  response: TestChannelAccountConnectionResponse,
+  fallbackAccount: ChannelAccountRecord | null,
+): ConnectionTestFeedback {
+  const account = response.channelAccount
+    ? normalizeChannelAccountRecord(response.channelAccount)
+    : fallbackAccount;
+  const readiness =
+    normalizeReadinessRecord(response.test.readiness) ??
+    (account ? normalizeReadinessRecord(account.publishReadiness) : undefined);
+  const result =
+    readTextValue(response.test.summary) ??
+    (readiness ? formatReadinessStatus(readiness.status) : undefined) ??
+    formatConnectionTestStatus(response.test.status);
+  const message =
+    readTextValue(response.test.message) ??
+    (readiness ? readTextValue(readiness.message) : undefined) ??
+    buildDefaultConnectionTestMessage(account, result);
+  const action =
+    readTextValue(response.test.action) ??
+    (readiness ? readTextValue(readiness.action) : undefined);
+
+  return {
+    accountLabel: account?.displayName,
+    result,
+    message: message === result ? undefined : message,
+    action,
+    nextStep: readTextValue(response.test.nextStep),
+    checkedAt: response.test.checkedAt,
+  };
+}
+
+function formatConnectionTestStatus(value: unknown) {
+  if (value === 'healthy') return '连接正常';
+  if (value === 'failed') return '连接失败';
+  if (value === 'unknown') return '状态未变化';
+  if (value === 'ready') return '已就绪';
+  if (value === 'needs_config') return '待配置';
+  if (value === 'needs_session') return '需要登录会话';
+  if (value === 'needs_relogin') return '需要重新登录';
+  return formatReadinessValue(value);
+}
+
+function buildDefaultConnectionTestMessage(account: ChannelAccountRecord | null, result: string) {
+  if (account?.displayName) {
+    return `${account.displayName} 连接检查已完成，当前结果为${result}。`;
+  }
+
+  return `连接检查已完成，当前结果为${result}。`;
+}
+
+function readTextValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
