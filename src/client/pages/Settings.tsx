@@ -11,6 +11,8 @@ export interface SettingsRecord {
   allowlist: string[];
   schedulerIntervalMinutes: number;
   rssDefaults: string[];
+  monitorRssFeeds?: string[];
+  monitorV2exQueries?: string[];
 }
 
 export interface SettingsResponse {
@@ -33,6 +35,8 @@ export interface UpdateSettingsPayload {
   allowlist: string[];
   schedulerIntervalMinutes: number;
   rssDefaults: string[];
+  monitorRssFeeds: string[];
+  monitorV2exQueries: string[];
 }
 
 export async function updateSettingsRequest(input: UpdateSettingsPayload): Promise<SettingsResponse> {
@@ -155,18 +159,16 @@ export async function submitSettingsForm(
     allowlist: string;
     schedulerIntervalMinutes: string;
     rssDefaults: string;
+    monitorRssFeeds: string;
+    monitorV2exQueries: string;
   },
   action: (payload: UpdateSettingsPayload) => Promise<unknown>,
 ): Promise<{ ok: boolean; error?: string; payload?: UpdateSettingsPayload }> {
-  const allowlist = formValues.allowlist
-    .split(',')
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0);
+  const allowlist = parseListInput(formValues.allowlist);
   const schedulerIntervalMinutes = Number(formValues.schedulerIntervalMinutes);
-  const rssDefaults = formValues.rssDefaults
-    .split(',')
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0);
+  const rssDefaults = parseListInput(formValues.rssDefaults);
+  const monitorRssFeeds = parseListInput(formValues.monitorRssFeeds);
+  const monitorV2exQueries = parseListInput(formValues.monitorV2exQueries);
 
   if (allowlist.length === 0) {
     return { ok: false, error: 'allowlist 不能为空' };
@@ -180,6 +182,8 @@ export async function submitSettingsForm(
     allowlist,
     schedulerIntervalMinutes,
     rssDefaults,
+    monitorRssFeeds,
+    monitorV2exQueries,
   };
 
   await action(payload);
@@ -211,6 +215,8 @@ const defaultSettingsFormValues = {
   allowlist: '127.0.0.1, ::1',
   schedulerIntervalMinutes: '15',
   rssDefaults: 'OpenAI blog, Anthropic news',
+  monitorRssFeeds: '',
+  monitorV2exQueries: '',
 } as const;
 
 const fieldStyle = {
@@ -259,6 +265,21 @@ function readBoolean(value: unknown): boolean | null {
 
 function formatList(entries: string[]) {
   return entries.join(', ');
+}
+
+function formatMultilineList(entries: string[]) {
+  return entries.join('\n');
+}
+
+function parseListInput(value: string) {
+  return value
+    .split(/\r?\n|,/)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
+
+function readSettingsList(value: string[] | undefined) {
+  return Array.isArray(value) ? value.filter((entry) => typeof entry === 'string') : [];
 }
 
 function formatBooleanLabel(value: boolean | null) {
@@ -371,6 +392,9 @@ function getLoadedFormValues(settings?: SettingsRecord) {
     return defaultSettingsFormValues;
   }
 
+  const monitorRssFeeds = readSettingsList(settings.monitorRssFeeds);
+  const monitorV2exQueries = readSettingsList(settings.monitorV2exQueries);
+
   return {
     allowlist: settings.allowlist.length > 0 ? formatList(settings.allowlist) : defaultSettingsFormValues.allowlist,
     schedulerIntervalMinutes:
@@ -378,6 +402,34 @@ function getLoadedFormValues(settings?: SettingsRecord) {
         ? String(settings.schedulerIntervalMinutes)
         : defaultSettingsFormValues.schedulerIntervalMinutes,
     rssDefaults: settings.rssDefaults.length > 0 ? formatList(settings.rssDefaults) : '',
+    monitorRssFeeds: monitorRssFeeds.length > 0 ? formatMultilineList(monitorRssFeeds) : '',
+    monitorV2exQueries: monitorV2exQueries.length > 0 ? formatMultilineList(monitorV2exQueries) : '',
+  };
+}
+
+function mergeSettingsRecords(loaded?: SettingsRecord, saved?: SettingsRecord): SettingsRecord | undefined {
+  if (!loaded && !saved) {
+    return undefined;
+  }
+
+  const base = loaded ?? {
+    allowlist: [],
+    schedulerIntervalMinutes: 0,
+    rssDefaults: [],
+  };
+
+  return {
+    allowlist: saved?.allowlist ?? base.allowlist,
+    schedulerIntervalMinutes: saved?.schedulerIntervalMinutes ?? base.schedulerIntervalMinutes,
+    rssDefaults: saved?.rssDefaults ?? base.rssDefaults,
+    monitorRssFeeds:
+      saved && Object.prototype.hasOwnProperty.call(saved, 'monitorRssFeeds')
+        ? readSettingsList(saved.monitorRssFeeds)
+        : readSettingsList(base.monitorRssFeeds),
+    monitorV2exQueries:
+      saved && Object.prototype.hasOwnProperty.call(saved, 'monitorV2exQueries')
+        ? readSettingsList(saved.monitorV2exQueries)
+        : readSettingsList(base.monitorV2exQueries),
   };
 }
 
@@ -433,12 +485,14 @@ export function SettingsPage({
   const displayUpdateState = updateStateOverride ?? updateState;
   const loadedData = displayState.status === 'success' ? displayState.data : undefined;
   const savedData = displayUpdateState.status === 'success' ? displayUpdateState.data : undefined;
-  const effectiveSettings = savedData?.settings ?? loadedData?.settings;
+  const effectiveSettings = mergeSettingsRecords(loadedData?.settings, savedData?.settings);
   const loadedFormValues = getLoadedFormValues(effectiveSettings);
 
   const [allowlistDraft, setAllowlistDraft] = useState<string | null>(null);
   const [schedulerIntervalMinutesDraft, setSchedulerIntervalMinutesDraft] = useState<string | null>(null);
   const [rssDefaultsDraft, setRssDefaultsDraft] = useState<string | null>(null);
+  const [monitorRssFeedsDraft, setMonitorRssFeedsDraft] = useState<string | null>(null);
+  const [monitorV2exQueriesDraft, setMonitorV2exQueriesDraft] = useState<string | null>(null);
   const [enqueueRunAtDraft, setEnqueueRunAtDraft] = useState<string>('2026-04-20T09:00');
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
   const [controlMessage, setControlMessage] = useState<string | null>(null);
@@ -449,6 +503,8 @@ export function SettingsPage({
   const allowlist = allowlistDraft ?? loadedFormValues.allowlist;
   const schedulerIntervalMinutes = schedulerIntervalMinutesDraft ?? loadedFormValues.schedulerIntervalMinutes;
   const rssDefaults = rssDefaultsDraft ?? loadedFormValues.rssDefaults;
+  const monitorRssFeeds = monitorRssFeedsDraft ?? loadedFormValues.monitorRssFeeds;
+  const monitorV2exQueries = monitorV2exQueriesDraft ?? loadedFormValues.monitorV2exQueries;
 
   const schedulerContract = asRecord(savedData?.scheduler ?? loadedData?.scheduler);
   const runtimeContract = asRecord(savedData?.runtime ?? loadedData?.runtime) ?? asRecord(schedulerContract?.runtime);
@@ -481,6 +537,8 @@ export function SettingsPage({
         allowlist,
         schedulerIntervalMinutes,
         rssDefaults,
+        monitorRssFeeds,
+        monitorV2exQueries,
       },
       async (payload) => {
         setValidationMessage(null);
@@ -599,6 +657,18 @@ export function SettingsPage({
                 <div>schedulerIntervalMinutes: {effectiveSettings.schedulerIntervalMinutes}</div>
                 <div>allowlist: {effectiveSettings.allowlist.length > 0 ? formatList(effectiveSettings.allowlist) : '未提供'}</div>
                 <div>rssDefaults: {effectiveSettings.rssDefaults.length > 0 ? formatList(effectiveSettings.rssDefaults) : '未提供'}</div>
+                <div>
+                  monitorRssFeeds:{' '}
+                  {readSettingsList(effectiveSettings.monitorRssFeeds).length > 0
+                    ? formatList(readSettingsList(effectiveSettings.monitorRssFeeds))
+                    : '未提供'}
+                </div>
+                <div>
+                  monitorV2exQueries:{' '}
+                  {readSettingsList(effectiveSettings.monitorV2exQueries).length > 0
+                    ? formatList(readSettingsList(effectiveSettings.monitorV2exQueries))
+                    : '未提供'}
+                </div>
               </div>
             ) : null}
 
@@ -895,6 +965,68 @@ export function SettingsPage({
           </div>
         </SectionCard>
 
+        <SectionCard
+          title="监控来源配置"
+          description="这里配置 Monitor 抓取优先使用的 RSS 源和 V2EX 关键词。支持逗号或换行分隔，继续兼容现有 `/api/settings` 保存。"
+        >
+          <div style={{ display: 'grid', gap: '14px' }}>
+            <label style={{ display: 'grid', gap: '8px' }}>
+              <span style={{ fontWeight: 700 }}>Monitor RSS 源</span>
+              <textarea
+                data-settings-field="monitorRssFeeds"
+                value={monitorRssFeeds}
+                onChange={(event) => {
+                  setValidationMessage(null);
+                  setMonitorRssFeedsDraft(event.target.value);
+                }}
+                rows={4}
+                style={{ ...fieldStyle, minHeight: '120px', resize: 'vertical' }}
+              />
+            </label>
+
+            <label style={{ display: 'grid', gap: '8px' }}>
+              <span style={{ fontWeight: 700 }}>V2EX 关键词</span>
+              <textarea
+                data-settings-field="monitorV2exQueries"
+                value={monitorV2exQueries}
+                onChange={(event) => {
+                  setValidationMessage(null);
+                  setMonitorV2exQueriesDraft(event.target.value);
+                }}
+                rows={4}
+                style={{ ...fieldStyle, minHeight: '120px', resize: 'vertical' }}
+              />
+            </label>
+
+            {renderInfoRows([
+              {
+                label: '当前 Monitor RSS 源',
+                value: readSettingsList(effectiveSettings?.monitorRssFeeds).length
+                  ? formatList(readSettingsList(effectiveSettings?.monitorRssFeeds))
+                  : '未提供',
+              },
+              {
+                label: '最近保存 Monitor RSS 源',
+                value: readSettingsList(savedData?.settings?.monitorRssFeeds).length
+                  ? formatList(readSettingsList(savedData?.settings?.monitorRssFeeds))
+                  : '未提供',
+              },
+              {
+                label: '当前 V2EX 关键词',
+                value: readSettingsList(effectiveSettings?.monitorV2exQueries).length
+                  ? formatList(readSettingsList(effectiveSettings?.monitorV2exQueries))
+                  : '未提供',
+              },
+              {
+                label: '最近保存 V2EX 关键词',
+                value: readSettingsList(savedData?.settings?.monitorV2exQueries).length
+                  ? formatList(readSettingsList(savedData?.settings?.monitorV2exQueries))
+                  : '未提供',
+              },
+            ])}
+          </div>
+        </SectionCard>
+
         <SectionCard title="原始接口 Contract" description="保留原始 JSON 视图，方便前后端联调和观察新增字段落位。">
           {displayState.status === 'success' && displayState.data ? (
             <JsonPreview value={displayState.data} />
@@ -916,6 +1048,14 @@ export function SettingsPage({
                     <div>allowlist：{displayUpdateState.data.settings.allowlist.join(', ')}</div>
                     <div>schedulerIntervalMinutes：{displayUpdateState.data.settings.schedulerIntervalMinutes}</div>
                     <div>rssDefaults：{displayUpdateState.data.settings.rssDefaults.join(', ') || '未提供'}</div>
+                    <div>
+                      monitorRssFeeds：
+                      {readSettingsList(displayUpdateState.data.settings.monitorRssFeeds).join(', ') || '未提供'}
+                    </div>
+                    <div>
+                      monitorV2exQueries：
+                      {readSettingsList(displayUpdateState.data.settings.monitorV2exQueries).join(', ') || '未提供'}
+                    </div>
                   </>
                 ) : (
                   <div>接口未返回 settings 节点，但请求已成功。</div>

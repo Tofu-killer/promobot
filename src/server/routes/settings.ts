@@ -37,6 +37,12 @@ export function createSettingsRouter(dependencies: SettingsRouteDependencies = {
       rssDefaults: Array.isArray(input.rssDefaults)
         ? input.rssDefaults.filter((value: unknown): value is string => typeof value === 'string')
         : undefined,
+      monitorRssFeeds: Array.isArray(input.monitorRssFeeds)
+        ? input.monitorRssFeeds.filter((value: unknown): value is string => typeof value === 'string')
+        : undefined,
+      monitorV2exQueries: Array.isArray(input.monitorV2exQueries)
+        ? input.monitorV2exQueries.filter((value: unknown): value is string => typeof value === 'string')
+        : undefined,
     });
 
     response.json({

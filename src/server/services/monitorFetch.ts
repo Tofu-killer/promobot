@@ -2,6 +2,7 @@ import type { MonitorItemRecord } from '../store/monitor';
 import { createMonitorRssService } from './monitor/rss';
 import { searchV2ex } from './monitor/v2exSearch';
 import { createMonitorStore } from '../store/monitor';
+import { createSettingsStore } from '../store/settings';
 
 export interface MonitorFetchResult {
   items: MonitorItemRecord[];
@@ -11,10 +12,12 @@ export interface MonitorFetchResult {
 export function createMonitorFetchService() {
   const monitorStore = createMonitorStore();
   const rssService = createMonitorRssService();
+  const settingsStore = createSettingsStore();
 
   return {
     async fetchNow(now: Date = new Date()): Promise<MonitorFetchResult> {
-      const collected = await collectConfiguredSignals(rssService);
+      const settings = settingsStore.get();
+      const collected = await collectConfiguredSignals(rssService, settings);
       if (collected.length > 0) {
         const items = collected.map((item) =>
           monitorStore.create({
@@ -73,10 +76,17 @@ interface CollectedSignal {
 
 async function collectConfiguredSignals(
   rssService: ReturnType<typeof createMonitorRssService>,
+  settings: { monitorRssFeeds?: string[]; monitorV2exQueries?: string[] },
 ): Promise<CollectedSignal[]> {
   const results: CollectedSignal[] = [];
-  const rssFeeds = parseList(process.env.MONITOR_RSS_FEEDS);
-  const v2exQueries = parseList(process.env.MONITOR_V2EX_QUERIES);
+  const rssFeeds =
+    settings.monitorRssFeeds && settings.monitorRssFeeds.length > 0
+      ? settings.monitorRssFeeds
+      : parseList(process.env.MONITOR_RSS_FEEDS);
+  const v2exQueries =
+    settings.monitorV2exQueries && settings.monitorV2exQueries.length > 0
+      ? settings.monitorV2exQueries
+      : parseList(process.env.MONITOR_V2EX_QUERIES);
 
   for (const feed of rssFeeds) {
     const result = await rssService.fetchFeeds([feed]);

@@ -1098,6 +1098,8 @@ describe('client API page wiring', () => {
           schedulerIntervalMinutes: 15,
           allowlist: ['127.0.0.1'],
           rssDefaults: ['OpenAI blog'],
+          monitorRssFeeds: ['https://openai.com/blog/rss.xml'],
+          monitorV2exQueries: ['llm api'],
         },
         platformReadiness: [
           {
@@ -1128,6 +1130,8 @@ describe('client API page wiring', () => {
       settings: {
         schedulerIntervalMinutes: number;
         allowlist: string[];
+        monitorRssFeeds?: string[];
+        monitorV2exQueries?: string[];
       };
       platformReadiness?: Array<{
         platform: string;
@@ -1139,6 +1143,7 @@ describe('client API page wiring', () => {
 
     expect(fetchMock).toHaveBeenCalledWith('/api/settings', undefined);
     expect(result.settings.schedulerIntervalMinutes).toBe(15);
+    expect(result.settings.monitorRssFeeds?.[0]).toBe('https://openai.com/blog/rss.xml');
     expect(result.platformReadiness?.[1]?.platform).toBe('facebookGroup');
   });
 
@@ -1149,6 +1154,8 @@ describe('client API page wiring', () => {
           schedulerIntervalMinutes: 30,
           allowlist: ['10.0.0.1'],
           rssDefaults: ['TechCrunch'],
+          monitorRssFeeds: ['https://rss.techcrunch.com/feed'],
+          monitorV2exQueries: ['cursor'],
         },
       }),
     );
@@ -1162,12 +1169,16 @@ describe('client API page wiring', () => {
       allowlist: string[];
       schedulerIntervalMinutes: number;
       rssDefaults: string[];
-    }) => Promise<{ settings: { schedulerIntervalMinutes: number } }>;
+      monitorRssFeeds: string[];
+      monitorV2exQueries: string[];
+    }) => Promise<{ settings: { schedulerIntervalMinutes: number; monitorV2exQueries?: string[] } }>;
 
     const result = await updateSettingsRequest({
       allowlist: ['10.0.0.1'],
       schedulerIntervalMinutes: 30,
       rssDefaults: ['TechCrunch'],
+      monitorRssFeeds: ['https://rss.techcrunch.com/feed'],
+      monitorV2exQueries: ['cursor'],
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
@@ -1179,10 +1190,13 @@ describe('client API page wiring', () => {
           allowlist: ['10.0.0.1'],
           schedulerIntervalMinutes: 30,
           rssDefaults: ['TechCrunch'],
+          monitorRssFeeds: ['https://rss.techcrunch.com/feed'],
+          monitorV2exQueries: ['cursor'],
         }),
       }),
     );
     expect(result.settings.schedulerIntervalMinutes).toBe(30);
+    expect(result.settings.monitorV2exQueries).toEqual(['cursor']);
   });
 
   it('posts runtime control actions through the shared API helpers', async () => {
@@ -1434,6 +1448,8 @@ describe('client API page wiring', () => {
             schedulerIntervalMinutes: 15,
             allowlist: ['127.0.0.1'],
             rssDefaults: ['OpenAI blog'],
+            monitorRssFeeds: ['https://openai.com/blog/rss.xml'],
+            monitorV2exQueries: ['llm api', 'cursor'],
           },
           scheduler: {
             enabled: true,
@@ -1537,6 +1553,11 @@ describe('client API page wiring', () => {
     expect(html).toContain('发布就绪：需要登录会话');
     expect(html).toContain('建议动作：请求登录');
     expect(html).toContain('RSS 默认源');
+    expect(html).toContain('监控来源配置');
+    expect(html).toContain('Monitor RSS 源');
+    expect(html).toContain('V2EX 关键词');
+    expect(html).toContain('https://openai.com/blog/rss.xml');
+    expect(html).toContain('llm api, cursor');
     expect(html).toContain('运行环境');
     expect(html).toContain('gpt-4.1-mini');
     expect(html).toContain('127.0.0.1');
@@ -1561,6 +1582,7 @@ describe('client API page wiring', () => {
     expect(html).toContain('AI 配置');
     expect(html).toContain('LAN allowlist');
     expect(html).toContain('RSS 默认源');
+    expect(html).toContain('监控来源配置');
     expect(html).toContain('运行控制台');
     expect(html).toContain('保存设置');
   });

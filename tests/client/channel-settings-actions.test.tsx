@@ -301,11 +301,15 @@ describe('settings save validation and feedback', () => {
         allowlist: string;
         schedulerIntervalMinutes: string;
         rssDefaults: string;
+        monitorRssFeeds: string;
+        monitorV2exQueries: string;
       },
       action: (payload: {
         allowlist: string[];
         schedulerIntervalMinutes: number;
         rssDefaults: string[];
+        monitorRssFeeds: string[];
+        monitorV2exQueries: string[];
       }) => Promise<unknown>,
     ) => Promise<{ ok: boolean; error?: string; payload?: unknown }>;
 
@@ -314,6 +318,8 @@ describe('settings save validation and feedback', () => {
         allowlist: ['127.0.0.1', '::1'],
         schedulerIntervalMinutes: 15,
         rssDefaults: ['OpenAI blog', 'Anthropic news'],
+        monitorRssFeeds: ['https://openai.com/blog/rss.xml'],
+        monitorV2exQueries: ['llm api', 'cursor'],
       },
     });
 
@@ -322,6 +328,8 @@ describe('settings save validation and feedback', () => {
         allowlist: '127.0.0.1, ::1',
         schedulerIntervalMinutes: '0',
         rssDefaults: 'OpenAI blog, Anthropic news',
+        monitorRssFeeds: 'https://openai.com/blog/rss.xml',
+        monitorV2exQueries: 'llm api, cursor',
       },
       saveAction,
     );
@@ -337,6 +345,8 @@ describe('settings save validation and feedback', () => {
         allowlist: '127.0.0.1, ::1',
         schedulerIntervalMinutes: '15',
         rssDefaults: 'OpenAI blog, Anthropic news',
+        monitorRssFeeds: 'https://openai.com/blog/rss.xml\nhttps://hnrss.org/frontpage',
+        monitorV2exQueries: 'llm api,\ncursor',
       },
       saveAction,
     );
@@ -345,6 +355,8 @@ describe('settings save validation and feedback', () => {
       allowlist: ['127.0.0.1', '::1'],
       schedulerIntervalMinutes: 15,
       rssDefaults: ['OpenAI blog', 'Anthropic news'],
+      monitorRssFeeds: ['https://openai.com/blog/rss.xml', 'https://hnrss.org/frontpage'],
+      monitorV2exQueries: ['llm api', 'cursor'],
     });
     expect(valid).toEqual({
       ok: true,
@@ -352,6 +364,8 @@ describe('settings save validation and feedback', () => {
         allowlist: ['127.0.0.1', '::1'],
         schedulerIntervalMinutes: 15,
         rssDefaults: ['OpenAI blog', 'Anthropic news'],
+        monitorRssFeeds: ['https://openai.com/blog/rss.xml', 'https://hnrss.org/frontpage'],
+        monitorV2exQueries: ['llm api', 'cursor'],
       },
     });
   });
@@ -367,6 +381,8 @@ describe('settings save validation and feedback', () => {
             allowlist: ['127.0.0.1'],
             schedulerIntervalMinutes: 15,
             rssDefaults: ['OpenAI blog'],
+            monitorRssFeeds: ['https://openai.com/blog/rss.xml'],
+            monitorV2exQueries: ['llm api'],
           },
           scheduler: {
             enabled: true,
@@ -446,6 +462,8 @@ describe('settings save validation and feedback', () => {
             allowlist: ['127.0.0.1'],
             schedulerIntervalMinutes: 15,
             rssDefaults: ['OpenAI blog'],
+            monitorRssFeeds: ['https://openai.com/blog/rss.xml'],
+            monitorV2exQueries: ['llm api'],
           },
         },
       } satisfies ApiState,
@@ -469,6 +487,11 @@ describe('settings save validation and feedback', () => {
     expect(successHtml).toContain('发布就绪：需要登录会话');
     expect(successHtml).toContain('建议动作：请求登录');
     expect(successHtml).toContain('X API token 已配置，可直接尝试发布。');
+    expect(successHtml).toContain('监控来源配置');
+    expect(successHtml).toContain('https://openai.com/blog/rss.xml');
+    expect(successHtml).toContain('llm api');
+    expect(successHtml).toContain('monitorRssFeeds：https://openai.com/blog/rss.xml');
+    expect(successHtml).toContain('monitorV2exQueries：llm api');
 
     const errorHtml = renderPage(SettingsPage, {
       updateStateOverride: {
@@ -496,6 +519,8 @@ describe('settings save validation and feedback', () => {
         allowlist: ['10.0.0.1', '10.0.0.2'],
         schedulerIntervalMinutes: 45,
         rssDefaults: ['OpenAI blog', 'TechCrunch'],
+        monitorRssFeeds: ['https://openai.com/blog/rss.xml', 'https://hnrss.org/frontpage'],
+        monitorV2exQueries: ['llm api', 'cursor'],
       },
       scheduler: {
         enabled: true,
@@ -556,12 +581,22 @@ describe('settings save validation and feedback', () => {
       container,
       (element) => element.getAttribute('data-settings-field') === 'rssDefaults',
     );
+    const monitorRssFeedsField = findElement(
+      container,
+      (element) => element.getAttribute('data-settings-field') === 'monitorRssFeeds',
+    );
+    const monitorV2exQueriesField = findElement(
+      container,
+      (element) => element.getAttribute('data-settings-field') === 'monitorV2exQueries',
+    );
 
     expect(loadSettingsAction).toHaveBeenCalledTimes(1);
     expect(loadSystemJobsAction).toHaveBeenCalledTimes(1);
     expect(allowlistField?.value).toBe('10.0.0.1, 10.0.0.2');
     expect(schedulerField?.value).toBe('45');
     expect(rssField?.value).toBe('OpenAI blog, TechCrunch');
+    expect(monitorRssFeedsField?.value).toBe('https://openai.com/blog/rss.xml\nhttps://hnrss.org/frontpage');
+    expect(monitorV2exQueriesField?.value).toBe('llm api\ncursor');
     expect(collectText(container)).toContain('运行中');
     expect(collectText(container)).toContain('staging');
     expect(collectText(container)).toContain('平台就绪度');

@@ -5,18 +5,24 @@ export interface SettingsRecord {
   allowlist: string[];
   schedulerIntervalMinutes: number;
   rssDefaults: string[];
+  monitorRssFeeds: string[];
+  monitorV2exQueries: string[];
 }
 
 export interface UpdateSettingsInput {
   allowlist?: string[];
   schedulerIntervalMinutes?: number;
   rssDefaults?: string[];
+  monitorRssFeeds?: string[];
+  monitorV2exQueries?: string[];
 }
 
 const DEFAULT_SETTINGS: SettingsRecord = {
   allowlist: ['127.0.0.1', '::1'],
   schedulerIntervalMinutes: 15,
   rssDefaults: ['OpenAI blog', 'Anthropic news', 'Product Hunt', 'Reddit watchlist'],
+  monitorRssFeeds: [],
+  monitorV2exQueries: [],
 };
 
 export interface SettingsStore {
@@ -48,6 +54,13 @@ function readSettings(database: DatabaseConnection): SettingsRecord {
       settings.schedulerIntervalMinutes = parseInteger(row.value, DEFAULT_SETTINGS.schedulerIntervalMinutes);
     } else if (row.key === 'rssDefaults') {
       settings.rssDefaults = parseStringArray(row.value, DEFAULT_SETTINGS.rssDefaults);
+    } else if (row.key === 'monitorRssFeeds') {
+      settings.monitorRssFeeds = parseStringArray(row.value, DEFAULT_SETTINGS.monitorRssFeeds);
+    } else if (row.key === 'monitorV2exQueries') {
+      settings.monitorV2exQueries = parseStringArray(
+        row.value,
+        DEFAULT_SETTINGS.monitorV2exQueries,
+      );
     }
   }
 
@@ -63,6 +76,12 @@ function updateSettings(database: DatabaseConnection, input: UpdateSettingsInput
   }
   if (input.rssDefaults !== undefined) {
     upsertSetting(database, 'rssDefaults', JSON.stringify(input.rssDefaults));
+  }
+  if (input.monitorRssFeeds !== undefined) {
+    upsertSetting(database, 'monitorRssFeeds', JSON.stringify(input.monitorRssFeeds));
+  }
+  if (input.monitorV2exQueries !== undefined) {
+    upsertSetting(database, 'monitorV2exQueries', JSON.stringify(input.monitorV2exQueries));
   }
 
   return readSettings(database);

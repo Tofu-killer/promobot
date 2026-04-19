@@ -110,6 +110,8 @@ describe('settings api', () => {
         allowlist: ['127.0.0.1', '10.0.0.0/24'],
         schedulerIntervalMinutes: 30,
         rssDefaults: ['OpenAI blog', 'Anthropic news'],
+        monitorRssFeeds: ['https://openai.com/blog/rss.xml', 'https://example.com/feed.xml'],
+        monitorV2exQueries: ['openai api', 'llm router'],
       });
 
       expect(updated.status).toBe(200);
@@ -122,6 +124,8 @@ describe('settings api', () => {
           allowlist: ['127.0.0.1', '10.0.0.0/24'],
           schedulerIntervalMinutes: 30,
           rssDefaults: ['OpenAI blog', 'Anthropic news'],
+          monitorRssFeeds: ['https://openai.com/blog/rss.xml', 'https://example.com/feed.xml'],
+          monitorV2exQueries: ['openai api', 'llm router'],
         }),
         platforms: [
           expect.objectContaining({
@@ -147,6 +151,52 @@ describe('settings api', () => {
       delete process.env.REDDIT_CLIENT_SECRET;
       delete process.env.REDDIT_USERNAME;
       delete process.env.REDDIT_PASSWORD;
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('supports patching monitor source settings without breaking legacy settings', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const initial = await requestApp('PATCH', '/api/settings', {
+        allowlist: ['127.0.0.1', '10.0.0.0/24'],
+        schedulerIntervalMinutes: 45,
+        rssDefaults: ['OpenAI blog'],
+      });
+
+      expect(initial.status).toBe(200);
+
+      const updated = await requestApp('PATCH', '/api/settings', {
+        monitorRssFeeds: ['https://news.ycombinator.com/rss', 'https://example.com/alerts.xml'],
+        monitorV2exQueries: ['australia saas'],
+      });
+
+      expect(updated.status).toBe(200);
+      expect(JSON.parse(updated.body)).toEqual({
+        settings: expect.objectContaining({
+          allowlist: ['127.0.0.1', '10.0.0.0/24'],
+          schedulerIntervalMinutes: 45,
+          rssDefaults: ['OpenAI blog'],
+          monitorRssFeeds: ['https://news.ycombinator.com/rss', 'https://example.com/alerts.xml'],
+          monitorV2exQueries: ['australia saas'],
+        }),
+        platforms: expect.any(Array),
+      });
+
+      const loaded = await requestApp('GET', '/api/settings');
+
+      expect(loaded.status).toBe(200);
+      expect(JSON.parse(loaded.body)).toEqual({
+        settings: expect.objectContaining({
+          allowlist: ['127.0.0.1', '10.0.0.0/24'],
+          schedulerIntervalMinutes: 45,
+          rssDefaults: ['OpenAI blog'],
+          monitorRssFeeds: ['https://news.ycombinator.com/rss', 'https://example.com/alerts.xml'],
+          monitorV2exQueries: ['australia saas'],
+        }),
+        platforms: expect.any(Array),
+      });
+    } finally {
       cleanupTestDatabasePath(rootDir);
     }
   });
@@ -219,6 +269,8 @@ describe('settings api', () => {
       expect(JSON.parse(loaded.body)).toEqual({
         settings: expect.objectContaining({
           schedulerIntervalMinutes: 15,
+          monitorRssFeeds: [],
+          monitorV2exQueries: [],
         }),
         platforms: expect.any(Array),
         runtime: expect.objectContaining({
@@ -244,6 +296,8 @@ describe('settings api', () => {
       expect(JSON.parse(updated.body)).toEqual({
         settings: expect.objectContaining({
           schedulerIntervalMinutes: 30,
+          monitorRssFeeds: [],
+          monitorV2exQueries: [],
         }),
         platforms: expect.any(Array),
         runtime: expect.objectContaining({
