@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { apiRequest } from '../lib/api';
 import type { AsyncState } from '../hooks/useAsyncRequest';
 import { useAsyncAction, useAsyncQuery } from '../hooks/useAsyncRequest';
@@ -37,6 +38,17 @@ export interface FetchMonitorFeedResponse {
   total: number;
 }
 
+export interface EnqueueMonitorFetchJobResponse {
+  job: {
+    id: number;
+    type: string;
+    status: string;
+    runAt: string;
+    attempts?: number;
+  };
+  runtime: Record<string, unknown>;
+}
+
 export async function loadMonitorFeedRequest(): Promise<MonitorFeedResponse> {
   return apiRequest<MonitorFeedResponse>('/api/monitor/feed');
 }
@@ -60,33 +72,65 @@ export async function fetchMonitorFeedRequest(): Promise<FetchMonitorFeedRespons
   });
 }
 
+export async function enqueueMonitorFetchJobRequest(runAt?: string): Promise<EnqueueMonitorFetchJobResponse> {
+  return apiRequest<EnqueueMonitorFetchJobResponse>('/api/system/jobs', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      type: 'monitor_fetch',
+      payload: {},
+      ...(runAt ? { runAt } : {}),
+    }),
+  });
+}
+
 interface MonitorPageProps {
   loadMonitorAction?: () => Promise<MonitorFeedResponse>;
   generateFollowUpAction?: (id: number, platform: string) => Promise<FollowUpDraftResponse>;
   fetchMonitorAction?: () => Promise<FetchMonitorFeedResponse>;
+  enqueueFetchJobAction?: (runAt?: string) => Promise<EnqueueMonitorFetchJobResponse>;
+  enqueueMonitorAction?: (runAt?: string) => Promise<EnqueueMonitorFetchJobResponse>;
   stateOverride?: AsyncState<MonitorFeedResponse>;
   followUpStateOverride?: AsyncState<FollowUpDraftResponse>;
   fetchStateOverride?: AsyncState<FetchMonitorFeedResponse>;
+  enqueueStateOverride?: AsyncState<EnqueueMonitorFetchJobResponse>;
 }
 
 const sourceFilters = ['全部来源', 'X / Twitter', 'RSS', 'Reddit', 'Product Hunt'];
+const queueInputStyle = {
+  width: '100%',
+  borderRadius: '14px',
+  border: '1px solid #cbd5e1',
+  padding: '12px 14px',
+  font: 'inherit',
+  background: '#ffffff',
+} as const;
 
 export function MonitorPage({
   loadMonitorAction = loadMonitorFeedRequest,
   generateFollowUpAction = generateFollowUpRequest,
   fetchMonitorAction = fetchMonitorFeedRequest,
+  enqueueFetchJobAction,
+  enqueueMonitorAction,
   stateOverride,
   followUpStateOverride,
   fetchStateOverride,
+  enqueueStateOverride,
 }: MonitorPageProps) {
+  const resolvedEnqueueAction = enqueueMonitorAction ?? enqueueFetchJobAction ?? enqueueMonitorFetchJobRequest;
   const { state, reload } = useAsyncQuery(loadMonitorAction, [loadMonitorAction]);
   const { state: fetchState, run: runFetchMonitor } = useAsyncAction(fetchMonitorAction);
+  const { state: enqueueState, run: runEnqueueFetchJob } = useAsyncAction(resolvedEnqueueAction);
   const { state: followUpState, run: generateFollowUp } = useAsyncAction(
     ({ id, platform }: { id: number; platform: string }) => generateFollowUpAction(id, platform),
   );
+  const [enqueueRunAtDraft, setEnqueueRunAtDraft] = useState('');
   const displayState = stateOverride ?? state;
   const displayFollowUpState = followUpStateOverride ?? followUpState;
   const displayFetchState = fetchStateOverride ?? fetchState;
+  const displayEnqueueState = enqueueStateOverride ?? enqueueState;
   const fallbackData: MonitorFeedResponse = {
     items: [
       {
@@ -122,6 +166,17 @@ export function MonitorPage({
       .catch(() => undefined);
   }
 
+  function handleEnqueueMonitorFetch() {
+    const runAt = enqueueRunAtDraft.trim().length > 0 ? enqueueRunAtDraft.trim() : undefined;
+
+    void runEnqueueFetchJob(runAt)
+      .then(() => {
+        setEnqueueRunAtDraft('');
+        reload();
+      })
+      .catch(() => undefined);
+  }
+
   return (
     <section>
       <PageHeader
@@ -134,6 +189,10 @@ export function MonitorPage({
             <ActionButton
               label={displayFetchState.status === 'loading' ? '正在抓取动态...' : '抓取新动态'}
               onClick={handleFetchMonitor}
+            />
+            <ActionButton
+              label={displayEnqueueState.status === 'loading' ? '正在提交抓取队列...' : '加入队列 / 定时抓取'}
+              onClick={handleEnqueueMonitorFetch}
             />
             <ActionButton
               label={displayFollowUpState.status === 'loading' ? '正在生成跟进草稿...' : '生成跟进草稿'}
@@ -153,6 +212,14 @@ export function MonitorPage({
       ) : null}
       {displayFetchState.status === 'error' ? (
         <p style={{ color: '#b91c1c' }}>监控抓取失败：{displayFetchState.error}</p>
+      ) : null}
+      {displayEnqueueState.status === 'success' && displayEnqueueState.data ? (
+        <p style={{ color: '#1d4ed8', fontWeight: 700 }}>
+          已将监控抓取加入队列，job #{displayEnqueueState.data.job.id}，执行时间 {displayEnqueueState.data.job.runAt}
+        </p>
+      ) : null}
+      {displayEnqueueState.status === 'error' ? (
+        <p style={{ color: '#b91c1c' }}>监控排程失败：{displayEnqueueState.error}</p>
       ) : null}
 
       {displayFollowUpState.status === 'success' && displayFollowUpState.data ? (
@@ -175,6 +242,18 @@ export function MonitorPage({
 
       {displayState.status === 'success' || displayState.status === 'idle' ? (
         <>
+          <SectionCard title="抓取排程" description="留空表示立即入队，也可以填写 ISO 时间，作为定时抓取的 runAt。">
+            <label style={{ display: 'grid', gap: '8px' }}>
+              <span style={{ fontWeight: 700 }}>计划抓取时间（可选）</span>
+              <input
+                value={enqueueRunAtDraft}
+                onChange={(event) => setEnqueueRunAtDraft(event.target.value)}
+                placeholder="例如 2026-04-20T09:00:00.000Z"
+                style={queueInputStyle}
+              />
+            </label>
+          </SectionCard>
+
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
             <StatCard label="监控源" value={String(new Set(viewData.items.map((item) => item.source)).size)} detail="按当前返回数据聚合来源数" />
             <StatCard label="新动态" value={String(viewData.total)} detail={`已抓取 ${viewData.total} 条监控动态`} />

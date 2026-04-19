@@ -34,6 +34,17 @@ export interface FetchReputationResponse {
   total: number;
 }
 
+export interface EnqueueReputationFetchJobResponse {
+  job: {
+    id: number;
+    type: string;
+    status: string;
+    runAt: string;
+    attempts?: number;
+  };
+  runtime: Record<string, unknown>;
+}
+
 export async function loadReputationRequest(): Promise<ReputationStatsResponse> {
   return apiRequest<ReputationStatsResponse>('/api/reputation/stats');
 }
@@ -41,6 +52,20 @@ export async function loadReputationRequest(): Promise<ReputationStatsResponse> 
 export async function fetchReputationRequest(): Promise<FetchReputationResponse> {
   return apiRequest<FetchReputationResponse>('/api/reputation/fetch', {
     method: 'POST',
+  });
+}
+
+export async function enqueueReputationFetchJobRequest(runAt?: string): Promise<EnqueueReputationFetchJobResponse> {
+  return apiRequest<EnqueueReputationFetchJobResponse>('/api/system/jobs', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      type: 'reputation_fetch',
+      payload: {},
+      ...(runAt ? { runAt } : {}),
+    }),
   });
 }
 
@@ -61,9 +86,11 @@ export async function updateReputationItemRequest(id: number, status: string): P
 interface ReputationPageProps {
   loadReputationAction?: () => Promise<ReputationStatsResponse>;
   fetchReputationAction?: () => Promise<FetchReputationResponse>;
+  enqueueFetchJobAction?: (runAt?: string) => Promise<EnqueueReputationFetchJobResponse>;
   updateReputationAction?: (id: number, status: string) => Promise<UpdateReputationItemResponse>;
   stateOverride?: AsyncState<ReputationStatsResponse>;
   fetchStateOverride?: AsyncState<FetchReputationResponse>;
+  enqueueStateOverride?: AsyncState<EnqueueReputationFetchJobResponse>;
   reputationUpdateStateOverride?: AsyncState<UpdateReputationItemResponse>;
 }
 
@@ -72,23 +99,36 @@ const feedbackStyle = {
   padding: '14px 16px',
   fontWeight: 600,
 } as const;
+const queueInputStyle = {
+  width: '100%',
+  borderRadius: '14px',
+  border: '1px solid #cbd5e1',
+  padding: '12px 14px',
+  font: 'inherit',
+  background: '#ffffff',
+} as const;
 
 export function ReputationPage({
   loadReputationAction = loadReputationRequest,
   fetchReputationAction = fetchReputationRequest,
+  enqueueFetchJobAction = enqueueReputationFetchJobRequest,
   updateReputationAction = updateReputationItemRequest,
   stateOverride,
   fetchStateOverride,
+  enqueueStateOverride,
   reputationUpdateStateOverride,
 }: ReputationPageProps) {
   const { state, reload } = useAsyncQuery(loadReputationAction, [loadReputationAction]);
   const { state: fetchState, run: runFetchReputation } = useAsyncAction(fetchReputationAction);
+  const { state: enqueueState, run: runEnqueueFetchJob } = useAsyncAction(enqueueFetchJobAction);
   const { state: reputationUpdateState, run: runReputationUpdate } = useAsyncAction(
     ({ id, status }: { id: number; status: string }) => updateReputationAction(id, status),
   );
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
+  const [enqueueRunAtDraft, setEnqueueRunAtDraft] = useState('');
   const displayState = stateOverride ?? state;
   const displayFetchState = fetchStateOverride ?? fetchState;
+  const displayEnqueueState = enqueueStateOverride ?? enqueueState;
   const displayReputationUpdateState = reputationUpdateStateOverride ?? reputationUpdateState;
   const fallbackData: ReputationStatsResponse = {
     total: 1,
@@ -149,6 +189,17 @@ export function ReputationPage({
       .catch(() => undefined);
   }
 
+  function handleEnqueueReputationFetch() {
+    const runAt = enqueueRunAtDraft.trim().length > 0 ? enqueueRunAtDraft.trim() : undefined;
+
+    void runEnqueueFetchJob(runAt)
+      .then(() => {
+        setEnqueueRunAtDraft('');
+        reload();
+      })
+      .catch(() => undefined);
+  }
+
   return (
     <section>
       <PageHeader
@@ -161,6 +212,10 @@ export function ReputationPage({
             <ActionButton
               label={displayFetchState.status === 'loading' ? '正在抓取口碑...' : '抓取新口碑'}
               onClick={handleFetchReputation}
+            />
+            <ActionButton
+              label={displayEnqueueState.status === 'loading' ? '正在提交抓取队列...' : '加入队列 / 定时抓取'}
+              onClick={handleEnqueueReputationFetch}
             />
             <ActionButton
               label={displayReputationUpdateState.status === 'loading' ? '正在回写状态...' : '标记已处理'}
@@ -192,6 +247,23 @@ export function ReputationPage({
           口碑抓取失败：{displayFetchState.error}
         </p>
       ) : null}
+      {displayEnqueueState.status === 'success' && displayEnqueueState.data ? (
+        <p style={{ ...feedbackStyle, margin: '0 0 16px', background: '#eff6ff', color: '#1d4ed8' }}>
+          已将口碑抓取加入队列，job #{displayEnqueueState.data.job.id}，执行时间 {displayEnqueueState.data.job.runAt}
+        </p>
+      ) : null}
+      {displayEnqueueState.status === 'error' ? (
+        <p
+          style={{
+            ...feedbackStyle,
+            margin: '0 0 16px',
+            background: '#fef2f2',
+            color: '#b91c1c',
+          }}
+        >
+          口碑排程失败：{displayEnqueueState.error}
+        </p>
+      ) : null}
       {reputationFeedback ? (
         <p
           style={{
@@ -207,6 +279,18 @@ export function ReputationPage({
 
       {displayState.status === 'success' || displayState.status === 'idle' ? (
         <>
+          <SectionCard title="抓取排程" description="留空表示立即入队，也可以填写 ISO 时间，让口碑抓取按计划执行。">
+            <label style={{ display: 'grid', gap: '8px' }}>
+              <span style={{ fontWeight: 700 }}>计划抓取时间（可选）</span>
+              <input
+                value={enqueueRunAtDraft}
+                onChange={(event) => setEnqueueRunAtDraft(event.target.value)}
+                placeholder="例如 2026-04-20T09:30:00.000Z"
+                style={queueInputStyle}
+              />
+            </label>
+          </SectionCard>
+
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
             <StatCard label="正向提及" value={String(viewData.positive)} detail={`已加载 ${viewData.total} 条口碑提及`} />
             <StatCard label="负面提及" value={String(viewData.negative)} detail="优先处理潜在风险项" />

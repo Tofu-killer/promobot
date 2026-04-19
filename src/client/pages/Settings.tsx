@@ -76,6 +76,12 @@ export interface SystemJobMutationResponse {
   runtime: Record<string, unknown>;
 }
 
+export interface EnqueueSystemJobPayload {
+  type: string;
+  payload?: Record<string, unknown>;
+  runAt?: string;
+}
+
 export async function reloadSchedulerRuntimeRequest(): Promise<RuntimeControlResponse> {
   return apiRequest<RuntimeControlResponse>('/api/system/runtime/reload', {
     method: 'POST',
@@ -129,6 +135,18 @@ export async function cancelSystemJobRequest(jobId: number): Promise<SystemJobMu
   });
 }
 
+export async function enqueueSystemJobRequest(
+  input: EnqueueSystemJobPayload,
+): Promise<SystemJobMutationResponse> {
+  return apiRequest<SystemJobMutationResponse>('/api/system/jobs', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(input),
+  });
+}
+
 export async function submitSettingsForm(
   formValues: {
     allowlist: string;
@@ -177,6 +195,7 @@ interface SettingsPageProps {
   fetchMonitorAction?: () => Promise<FetchControlResponse>;
   fetchInboxAction?: () => Promise<FetchControlResponse>;
   fetchReputationAction?: () => Promise<FetchControlResponse>;
+  enqueueSystemJobAction?: (input: EnqueueSystemJobPayload) => Promise<SystemJobMutationResponse>;
   retrySystemJobAction?: (jobId: number, runAt?: string) => Promise<SystemJobMutationResponse>;
   cancelSystemJobAction?: (jobId: number) => Promise<SystemJobMutationResponse>;
   stateOverride?: AsyncState<SettingsResponse>;
@@ -361,6 +380,7 @@ export function SettingsPage({
   fetchMonitorAction = fetchMonitorSignalsRequest,
   fetchInboxAction = fetchInboxSignalsRequest,
   fetchReputationAction = fetchReputationSignalsRequest,
+  enqueueSystemJobAction = enqueueSystemJobRequest,
   retrySystemJobAction = retrySystemJobRequest,
   cancelSystemJobAction = cancelSystemJobRequest,
   stateOverride,
@@ -371,6 +391,7 @@ export function SettingsPage({
   const { state, reload } = useAsyncQuery(loadSettingsAction, [loadSettingsAction]);
   const { state: jobsState, reload: reloadJobs } = useAsyncQuery(loadSystemJobsAction, [loadSystemJobsAction]);
   const { state: updateState, run: saveSettings } = useAsyncAction(updateSettingsRequest);
+  const { run: enqueueJob } = useAsyncAction(enqueueSystemJobAction);
   const { run: mutateJob } = useAsyncAction(
     ({ action, jobId }: { action: 'retry' | 'cancel'; jobId: number }) =>
       action === 'retry' ? retrySystemJobAction(jobId) : cancelSystemJobAction(jobId),
@@ -386,6 +407,7 @@ export function SettingsPage({
   const [allowlistDraft, setAllowlistDraft] = useState<string | null>(null);
   const [schedulerIntervalMinutesDraft, setSchedulerIntervalMinutesDraft] = useState<string | null>(null);
   const [rssDefaultsDraft, setRssDefaultsDraft] = useState<string | null>(null);
+  const [enqueueRunAtDraft, setEnqueueRunAtDraft] = useState<string>('2026-04-20T09:00');
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
   const [controlMessage, setControlMessage] = useState<string | null>(null);
   const [controlError, setControlError] = useState<string | null>(null);
@@ -460,6 +482,29 @@ export function SettingsPage({
     void mutateJob({ action, jobId })
       .then((result) => {
         setControlMessage(action === 'retry' ? `作业 #${result.job.id} 已重试` : `作业 #${result.job.id} 已取消`);
+        reload();
+        reloadJobs();
+      })
+      .catch((error) => {
+        setControlError(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => {
+        setActiveControl(null);
+      });
+  }
+
+  function handleEnqueueJob(type: 'monitor_fetch' | 'inbox_fetch' | 'reputation_fetch') {
+    setControlError(null);
+    setControlMessage(null);
+    setActiveControl(`enqueue:${type}`);
+
+    void enqueueJob({
+      type,
+      runAt: enqueueRunAtDraft.trim().length > 0 ? enqueueRunAtDraft : undefined,
+      payload: {},
+    })
+      .then((result) => {
+        setControlMessage(`已将 ${result.job.type} 加入队列，job #${result.job.id}`);
         reload();
         reloadJobs();
       })
@@ -608,6 +653,43 @@ export function SettingsPage({
               { label: 'Failed Jobs', value: formatContractValue(runtimeQueue?.failed) },
               { label: 'Due Pending', value: formatContractValue(runtimeQueue?.duePending) },
             ])}
+
+            <div style={{ display: 'grid', gap: '10px' }}>
+              <div style={{ fontWeight: 700 }}>排程新作业</div>
+              <label style={{ display: 'grid', gap: '8px' }}>
+                <span style={{ fontWeight: 700 }}>runAt</span>
+                <input
+                  data-settings-field="enqueueRunAt"
+                  value={enqueueRunAtDraft}
+                  onChange={(event) => setEnqueueRunAtDraft(event.target.value)}
+                  style={fieldStyle}
+                />
+              </label>
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                <ActionButton
+                  label={activeControl === 'enqueue:monitor_fetch' ? '正在入队 Monitor...' : '排程 Monitor Fetch'}
+                  onClick={() => {
+                    handleEnqueueJob('monitor_fetch');
+                  }}
+                />
+                <ActionButton
+                  label={activeControl === 'enqueue:inbox_fetch' ? '正在入队 Inbox...' : '排程 Inbox Fetch'}
+                  onClick={() => {
+                    handleEnqueueJob('inbox_fetch');
+                  }}
+                />
+                <ActionButton
+                  label={
+                    activeControl === 'enqueue:reputation_fetch'
+                      ? '正在入队 Reputation...'
+                      : '排程 Reputation Fetch'
+                  }
+                  onClick={() => {
+                    handleEnqueueJob('reputation_fetch');
+                  }}
+                />
+              </div>
+            </div>
 
             <div style={{ display: 'grid', gap: '10px' }}>
               <div style={{ fontWeight: 700 }}>作业控制</div>

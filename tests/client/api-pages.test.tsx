@@ -1128,6 +1128,53 @@ describe('client API page wiring', () => {
     );
   });
 
+  it('posts new system jobs through the shared API helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        job: {
+          id: 21,
+          type: 'monitor_fetch',
+          status: 'pending',
+          runAt: '2026-04-20T09:00',
+          attempts: 0,
+        },
+        runtime: {
+          available: true,
+        },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const settingsModule = (await import('../../src/client/pages/Settings')) as Record<string, unknown>;
+
+    expect(typeof settingsModule.enqueueSystemJobRequest).toBe('function');
+
+    const enqueueSystemJobRequest = settingsModule.enqueueSystemJobRequest as (input: {
+      type: string;
+      payload?: Record<string, unknown>;
+      runAt?: string;
+    }) => Promise<unknown>;
+
+    await enqueueSystemJobRequest({
+      type: 'monitor_fetch',
+      payload: {},
+      runAt: '2026-04-20T09:00',
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/system/jobs',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'monitor_fetch',
+          payload: {},
+          runAt: '2026-04-20T09:00',
+        }),
+      }),
+    );
+  });
+
   it('shows settings loading, error, and success states', async () => {
     const { SettingsPage } = await import('../../src/client/pages/Settings');
 
@@ -1224,6 +1271,8 @@ describe('client API page wiring', () => {
     expect(html).toContain('抓取 Monitor');
     expect(html).toContain('作业控制');
     expect(html).toContain('重试');
+    expect(html).toContain('排程新作业');
+    expect(html).toContain('排程 Monitor Fetch');
   });
 
   it('renders the settings edit form and save action', async () => {

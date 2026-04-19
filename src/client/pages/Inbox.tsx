@@ -28,6 +28,17 @@ export interface FetchInboxResponse extends InboxResponse {
   inserted: number;
 }
 
+export interface EnqueueInboxFetchJobResponse {
+  job: {
+    id: number;
+    type: string;
+    status: string;
+    runAt: string;
+    attempts?: number;
+  };
+  runtime: Record<string, unknown>;
+}
+
 export async function loadInboxRequest(): Promise<InboxResponse> {
   return apiRequest<InboxResponse>('/api/inbox');
 }
@@ -35,6 +46,20 @@ export async function loadInboxRequest(): Promise<InboxResponse> {
 export async function fetchInboxRequest(): Promise<FetchInboxResponse> {
   return apiRequest<FetchInboxResponse>('/api/inbox/fetch', {
     method: 'POST',
+  });
+}
+
+export async function enqueueInboxFetchJobRequest(runAt?: string): Promise<EnqueueInboxFetchJobResponse> {
+  return apiRequest<EnqueueInboxFetchJobResponse>('/api/system/jobs', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      type: 'inbox_fetch',
+      payload: {},
+      ...(runAt ? { runAt } : {}),
+    }),
   });
 }
 
@@ -67,10 +92,12 @@ export async function suggestInboxReplyRequest(id: number): Promise<InboxReplySu
 interface InboxPageProps {
   loadInboxAction?: () => Promise<InboxResponse>;
   fetchInboxAction?: () => Promise<FetchInboxResponse>;
+  enqueueFetchJobAction?: (runAt?: string) => Promise<EnqueueInboxFetchJobResponse>;
   updateInboxAction?: (id: number, status: string) => Promise<UpdateInboxItemResponse>;
   suggestReplyAction?: (id: number) => Promise<InboxReplySuggestionResponse>;
   stateOverride?: AsyncState<InboxResponse>;
   fetchStateOverride?: AsyncState<FetchInboxResponse>;
+  enqueueStateOverride?: AsyncState<EnqueueInboxFetchJobResponse>;
   inboxUpdateStateOverride?: AsyncState<UpdateInboxItemResponse>;
   replySuggestionStateOverride?: AsyncState<InboxReplySuggestionResponse>;
 }
@@ -80,26 +107,39 @@ const feedbackStyle = {
   padding: '14px 16px',
   fontWeight: 600,
 } as const;
+const queueInputStyle = {
+  width: '100%',
+  borderRadius: '14px',
+  border: '1px solid #cbd5e1',
+  padding: '12px 14px',
+  font: 'inherit',
+  background: '#ffffff',
+} as const;
 
 export function InboxPage({
   loadInboxAction = loadInboxRequest,
   fetchInboxAction = fetchInboxRequest,
+  enqueueFetchJobAction = enqueueInboxFetchJobRequest,
   updateInboxAction = updateInboxItemRequest,
   suggestReplyAction = suggestInboxReplyRequest,
   stateOverride,
   fetchStateOverride,
+  enqueueStateOverride,
   inboxUpdateStateOverride,
   replySuggestionStateOverride,
 }: InboxPageProps) {
   const { state, reload } = useAsyncQuery(loadInboxAction, [loadInboxAction]);
   const { state: fetchState, run: runFetchInbox } = useAsyncAction(fetchInboxAction);
+  const { state: enqueueState, run: runEnqueueFetchJob } = useAsyncAction(enqueueFetchJobAction);
   const { state: inboxUpdateState, run: runInboxUpdate } = useAsyncAction(({ id, status }: { id: number; status: string }) =>
     updateInboxAction(id, status),
   );
   const { state: replySuggestionState, run: runReplySuggestion } = useAsyncAction((id: number) => suggestReplyAction(id));
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
+  const [enqueueRunAtDraft, setEnqueueRunAtDraft] = useState('');
   const displayState = stateOverride ?? state;
   const displayFetchState = fetchStateOverride ?? fetchState;
+  const displayEnqueueState = enqueueStateOverride ?? enqueueState;
   const displayInboxUpdateState = inboxUpdateStateOverride ?? inboxUpdateState;
   const displayReplySuggestionState = replySuggestionStateOverride ?? replySuggestionState;
   const fallbackData: InboxResponse = {
@@ -170,6 +210,17 @@ export function InboxPage({
       .catch(() => undefined);
   }
 
+  function handleEnqueueInboxFetch() {
+    const runAt = enqueueRunAtDraft.trim().length > 0 ? enqueueRunAtDraft.trim() : undefined;
+
+    void runEnqueueFetchJob(runAt)
+      .then(() => {
+        setEnqueueRunAtDraft('');
+        reload();
+      })
+      .catch(() => undefined);
+  }
+
   return (
     <section>
       <PageHeader
@@ -182,6 +233,10 @@ export function InboxPage({
             <ActionButton
               label={displayFetchState.status === 'loading' ? '正在抓取收件箱...' : '抓取新命中'}
               onClick={handleFetchInbox}
+            />
+            <ActionButton
+              label={displayEnqueueState.status === 'loading' ? '正在提交抓取队列...' : '加入队列 / 定时抓取'}
+              onClick={handleEnqueueInboxFetch}
             />
             <ActionButton
               label={displayReplySuggestionState.status === 'loading' ? '正在生成回复...' : 'AI 生成回复'}
@@ -206,6 +261,16 @@ export function InboxPage({
           收件箱抓取失败：{displayFetchState.error}
         </p>
       ) : null}
+      {displayEnqueueState.status === 'success' && displayEnqueueState.data ? (
+        <p style={{ ...feedbackStyle, margin: '0 0 16px', background: '#eff6ff', color: '#1d4ed8' }}>
+          已将收件箱抓取加入队列，job #{displayEnqueueState.data.job.id}，执行时间 {displayEnqueueState.data.job.runAt}
+        </p>
+      ) : null}
+      {displayEnqueueState.status === 'error' ? (
+        <p style={{ ...feedbackStyle, margin: '0 0 16px', background: '#fef2f2', color: '#b91c1c' }}>
+          收件箱排程失败：{displayEnqueueState.error}
+        </p>
+      ) : null}
       {inboxStatusFeedback ? (
         <p style={{ ...feedbackStyle, margin: '0 0 16px', background: '#ecfdf5', color: '#166534' }}>{inboxStatusFeedback}</p>
       ) : null}
@@ -224,6 +289,18 @@ export function InboxPage({
 
       {displayState.status === 'success' || displayState.status === 'idle' ? (
         <>
+          <SectionCard title="抓取排程" description="留空会立即加入 system jobs，也可以填写 ISO 时间做定时抓取。">
+            <label style={{ display: 'grid', gap: '8px' }}>
+              <span style={{ fontWeight: 700 }}>计划抓取时间（可选）</span>
+              <input
+                value={enqueueRunAtDraft}
+                onChange={(event) => setEnqueueRunAtDraft(event.target.value)}
+                placeholder="例如 2026-04-20T09:15:00.000Z"
+                style={queueInputStyle}
+              />
+            </label>
+          </SectionCard>
+
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
             <StatCard label="待处理会话" value={String(viewData.total)} detail="跨渠道统一排队视图" />
             <StatCard label="未读命中" value={String(viewData.unread)} detail="等待人工回复或分流的记录" />

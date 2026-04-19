@@ -1,4 +1,5 @@
 import React, { act, createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 function jsonResponse(body: unknown, status = 200) {
@@ -8,6 +9,12 @@ function jsonResponse(body: unknown, status = 200) {
       'Content-Type': 'application/json',
     },
   });
+}
+
+function renderPage(Component: unknown, props: Record<string, unknown>) {
+  return renderToStaticMarkup(
+    createElement(Component as (properties: Record<string, unknown>) => React.JSX.Element, props),
+  );
 }
 
 class FakeEvent {
@@ -531,6 +538,42 @@ afterEach(() => {
 });
 
 describe('Monitor follow-up actions', () => {
+  it('posts monitor fetch enqueue through the shared API helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        job: {
+          id: 11,
+          type: 'monitor_fetch',
+          status: 'pending',
+          runAt: '2026-04-19T10:00:00.000Z',
+        },
+        runtime: {
+          available: true,
+        },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const monitorModule = (await import('../../src/client/pages/Monitor')) as Record<string, unknown>;
+
+    expect(typeof monitorModule.enqueueMonitorFetchJobRequest).toBe('function');
+
+    const enqueueMonitorFetchJobRequest = monitorModule.enqueueMonitorFetchJobRequest as () => Promise<unknown>;
+    await enqueueMonitorFetchJobRequest();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/system/jobs',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'monitor_fetch',
+          payload: {},
+        }),
+      }),
+    );
+  });
+
   it('posts manual monitor fetch through the shared API helper', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse(
@@ -572,6 +615,52 @@ describe('Monitor follow-up actions', () => {
     );
     expect(result.inserted).toBe(1);
     expect(result.total).toBe(1);
+  });
+
+  it('posts queued monitor fetch jobs through the shared API helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse(
+        {
+          job: {
+            id: 5,
+            type: 'monitor_fetch',
+            status: 'pending',
+            runAt: '2026-04-20T09:00:00.000Z',
+            attempts: 0,
+          },
+          runtime: {
+            available: true,
+          },
+        },
+        201,
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const monitorModule = (await import('../../src/client/pages/Monitor')) as Record<string, unknown>;
+
+    expect(typeof monitorModule.enqueueMonitorFetchJobRequest).toBe('function');
+
+    const enqueueMonitorFetchJobRequest = monitorModule.enqueueMonitorFetchJobRequest as (
+      runAt?: string,
+    ) => Promise<{ job: { id: number; type: string; runAt: string } }>;
+
+    const result = await enqueueMonitorFetchJobRequest('2026-04-20T09:00:00.000Z');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/system/jobs',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'monitor_fetch',
+          payload: {},
+          runAt: '2026-04-20T09:00:00.000Z',
+        }),
+      }),
+    );
+    expect(result.job.id).toBe(5);
+    expect(result.job.type).toBe('monitor_fetch');
   });
 
   it('posts follow-up generation through the shared API helper', async () => {
@@ -732,6 +821,98 @@ describe('Monitor follow-up actions', () => {
 
     expect(fetchMonitorAction).toHaveBeenCalledTimes(1);
     expect(collectText(container)).toContain('已抓取 1 条监控动态，当前总数 1');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('shows monitor enqueue feedback when available', async () => {
+    const { MonitorPage } = await import('../../src/client/pages/Monitor');
+
+    const html = renderPage(MonitorPage, {
+      stateOverride: {
+        status: 'success',
+        data: {
+          items: [],
+          total: 0,
+        },
+      },
+      enqueueStateOverride: {
+        status: 'success',
+        data: {
+          job: {
+            id: 11,
+            type: 'monitor_fetch',
+            status: 'pending',
+            runAt: '2026-04-19T10:00:00.000Z',
+          },
+          runtime: {
+            available: true,
+          },
+        },
+      },
+    });
+
+    expect(html).toContain('加入队列 / 定时抓取');
+    expect(html).toContain('计划抓取时间（可选）');
+    expect(html).toContain('已将监控抓取加入队列，job #11');
+    expect(html).toContain('2026-04-19T10:00:00.000Z');
+  });
+
+  it('shows queued monitor fetch feedback after clicking the action', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { MonitorPage } = await import('../../src/client/pages/Monitor');
+
+    const stateOverride = {
+      status: 'success' as const,
+      data: {
+        items: [],
+        total: 0,
+      },
+    };
+    const enqueueMonitorAction = vi.fn().mockResolvedValue({
+      job: {
+        id: 5,
+        type: 'monitor_fetch',
+        status: 'pending',
+        runAt: '2026-04-20T09:00:00.000Z',
+        attempts: 0,
+      },
+      runtime: {
+        available: true,
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(MonitorPage as never, {
+          loadMonitorAction: async () => stateOverride.data,
+          stateOverride,
+          enqueueMonitorAction,
+        }),
+      );
+      await flush();
+    });
+
+    const button = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('加入队列'),
+    );
+
+    expect(button).not.toBeNull();
+
+    await act(async () => {
+      button?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(enqueueMonitorAction).toHaveBeenCalledWith(undefined);
+    expect(collectText(container)).toContain('已将监控抓取加入队列，job #5');
+    expect(collectText(container)).toContain('2026-04-20T09:00:00.000Z');
 
     await act(async () => {
       root.unmount();

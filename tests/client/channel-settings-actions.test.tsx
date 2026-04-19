@@ -352,6 +352,8 @@ describe('settings save validation and feedback', () => {
     expect(successHtml).toContain('最近作业');
     expect(successHtml).toContain('作业控制');
     expect(successHtml).toContain('重试');
+    expect(successHtml).toContain('排程新作业');
+    expect(successHtml).toContain('排程 Monitor Fetch');
 
     const errorHtml = renderPage(SettingsPage, {
       updateStateOverride: {

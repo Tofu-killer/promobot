@@ -66,6 +66,49 @@ describe('Inbox action wiring', () => {
     expect(result.unread).toBe(1);
   });
 
+  it('posts queued inbox fetch jobs through the shared API helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        job: {
+          id: 13,
+          type: 'inbox_fetch',
+          status: 'pending',
+          runAt: '2026-04-20T09:15:00.000Z',
+          attempts: 0,
+        },
+        runtime: {
+          available: true,
+        },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const inboxModule = (await import('../../src/client/pages/Inbox')) as Record<string, unknown>;
+
+    expect(typeof inboxModule.enqueueInboxFetchJobRequest).toBe('function');
+
+    const enqueueInboxFetchJobRequest = inboxModule.enqueueInboxFetchJobRequest as (
+      runAt?: string,
+    ) => Promise<{ job: { id: number; type: string; runAt: string } }>;
+
+    const result = await enqueueInboxFetchJobRequest('2026-04-20T09:15:00.000Z');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/system/jobs',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'inbox_fetch',
+          payload: {},
+          runAt: '2026-04-20T09:15:00.000Z',
+        }),
+      }),
+    );
+    expect(result.job.id).toBe(13);
+    expect(result.job.type).toBe('inbox_fetch');
+  });
+
   it.each([
     ['handled', '/api/inbox/7'],
     ['snoozed', '/api/inbox/7'],
@@ -245,6 +288,62 @@ describe('Inbox action wiring', () => {
     expect(html).toContain('已抓取 2 条收件箱命中，未读 1');
     expect(html).toContain('抓取新命中');
   });
+
+  it('renders inbox queue feedback when available', async () => {
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    const html = renderPage(InboxPage, {
+      stateOverride: {
+        status: 'success',
+        data: {
+          items: [],
+          total: 0,
+          unread: 0,
+        },
+      } satisfies ApiState<unknown>,
+      enqueueStateOverride: {
+        status: 'success',
+        data: {
+          job: {
+            id: 13,
+            type: 'inbox_fetch',
+            status: 'pending',
+            runAt: '2026-04-20T09:15:00.000Z',
+            attempts: 0,
+          },
+          runtime: {
+            available: true,
+          },
+        },
+      } satisfies ApiState<unknown>,
+    });
+
+    expect(html).toContain('加入队列 / 定时抓取');
+    expect(html).toContain('计划抓取时间（可选）');
+    expect(html).toContain('已将收件箱抓取加入队列，job #13');
+    expect(html).toContain('2026-04-20T09:15:00.000Z');
+  });
+
+  it('renders inbox queue failure feedback when available', async () => {
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    const html = renderPage(InboxPage, {
+      stateOverride: {
+        status: 'success',
+        data: {
+          items: [],
+          total: 0,
+          unread: 0,
+        },
+      } satisfies ApiState<unknown>,
+      enqueueStateOverride: {
+        status: 'error',
+        error: 'scheduler runtime unavailable',
+      } satisfies ApiState<unknown>,
+    });
+
+    expect(html).toContain('收件箱排程失败：scheduler runtime unavailable');
+  });
 });
 
 describe('Reputation action wiring', () => {
@@ -283,6 +382,49 @@ describe('Reputation action wiring', () => {
     );
     expect(result.inserted).toBe(1);
     expect(result.total).toBe(1);
+  });
+
+  it('posts queued reputation fetch jobs through the shared API helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        job: {
+          id: 17,
+          type: 'reputation_fetch',
+          status: 'pending',
+          runAt: '2026-04-20T09:30:00.000Z',
+          attempts: 0,
+        },
+        runtime: {
+          available: true,
+        },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const reputationModule = (await import('../../src/client/pages/Reputation')) as Record<string, unknown>;
+
+    expect(typeof reputationModule.enqueueReputationFetchJobRequest).toBe('function');
+
+    const enqueueReputationFetchJobRequest = reputationModule.enqueueReputationFetchJobRequest as (
+      runAt?: string,
+    ) => Promise<{ job: { id: number; type: string; runAt: string } }>;
+
+    const result = await enqueueReputationFetchJobRequest('2026-04-20T09:30:00.000Z');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/system/jobs',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'reputation_fetch',
+          payload: {},
+          runAt: '2026-04-20T09:30:00.000Z',
+        }),
+      }),
+    );
+    expect(result.job.id).toBe(17);
+    expect(result.job.type).toBe('reputation_fetch');
   });
 
   it.each(['handled', 'escalate'] as const)(
@@ -438,5 +580,67 @@ describe('Reputation action wiring', () => {
 
     expect(html).toContain('已抓取 3 条口碑提及，当前总数 5');
     expect(html).toContain('抓取新口碑');
+  });
+
+  it('renders reputation queue feedback when available', async () => {
+    const { ReputationPage } = await import('../../src/client/pages/Reputation');
+
+    const html = renderPage(ReputationPage, {
+      stateOverride: {
+        status: 'success',
+        data: {
+          total: 0,
+          positive: 0,
+          neutral: 0,
+          negative: 0,
+          trend: [],
+          items: [],
+        },
+      } satisfies ApiState<unknown>,
+      enqueueStateOverride: {
+        status: 'success',
+        data: {
+          job: {
+            id: 17,
+            type: 'reputation_fetch',
+            status: 'pending',
+            runAt: '2026-04-20T09:30:00.000Z',
+            attempts: 0,
+          },
+          runtime: {
+            available: true,
+          },
+        },
+      } satisfies ApiState<unknown>,
+    });
+
+    expect(html).toContain('加入队列 / 定时抓取');
+    expect(html).toContain('计划抓取时间（可选）');
+    expect(html).toContain('已将口碑抓取加入队列，job #17');
+    expect(html).toContain('2026-04-20T09:30:00.000Z');
+  });
+
+  it('renders reputation queue failure feedback when available', async () => {
+    const { ReputationPage } = await import('../../src/client/pages/Reputation');
+
+    const html = renderPage(ReputationPage, {
+      stateOverride: {
+        status: 'success',
+        data: {
+          total: 0,
+          positive: 0,
+          neutral: 0,
+          negative: 0,
+          trend: [],
+          items: [],
+        },
+      } satisfies ApiState<unknown>,
+      enqueueStateOverride: {
+        status: 'error',
+        error: 'scheduler runtime unavailable',
+      } satisfies ApiState<unknown>,
+    });
+
+    expect(html).toContain('口碑排程失败：scheduler runtime unavailable');
   });
 });
