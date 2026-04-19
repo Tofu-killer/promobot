@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createApp } from '../../src/server/app';
+import { createMonitorStore } from '../../src/server/store/monitor';
+import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
 
 async function requestApp(method: string, url: string) {
   const app = createApp({
@@ -87,13 +89,33 @@ async function requestApp(method: string, url: string) {
 }
 
 describe('monitor api', () => {
-  it('returns a minimal monitor feed contract', async () => {
-    const response = await requestApp('GET', '/api/monitor/feed');
+  it('returns monitor feed items from SQLite', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const monitorStore = createMonitorStore();
+      monitorStore.create({
+        source: 'x',
+        title: 'Competitor added a cheaper tier',
+        detail: 'Entry-tier pricing is now lower than our trial plan.',
+        status: 'new',
+      });
 
-    expect(response.status).toBe(200);
-    expect(JSON.parse(response.body)).toEqual({
-      items: [],
-      total: 0,
-    });
+      const response = await requestApp('GET', '/api/monitor/feed');
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        items: [
+          expect.objectContaining({
+            id: 1,
+            source: 'x',
+            title: 'Competitor added a cheaper tier',
+            status: 'new',
+          }),
+        ],
+        total: 1,
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
   });
 });

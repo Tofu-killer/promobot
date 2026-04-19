@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createApp } from '../../src/server/app';
+import { createInboxStore } from '../../src/server/store/inbox';
+import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
 
 async function requestApp(method: string, url: string) {
   const app = createApp({
@@ -87,14 +89,36 @@ async function requestApp(method: string, url: string) {
 }
 
 describe('inbox api', () => {
-  it('returns a minimal inbox contract with unread count', async () => {
-    const response = await requestApp('GET', '/api/inbox');
+  it('returns inbox items with total and unread counts from SQLite', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const inboxStore = createInboxStore();
+      inboxStore.create({
+        source: 'reddit',
+        status: 'needs_reply',
+        author: 'user123',
+        title: 'Need lower latency in APAC',
+        excerpt: 'Can you share current response times?',
+      });
 
-    expect(response.status).toBe(200);
-    expect(JSON.parse(response.body)).toEqual({
-      items: [],
-      total: 0,
-      unread: 0,
-    });
+      const response = await requestApp('GET', '/api/inbox');
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        items: [
+          expect.objectContaining({
+            id: 1,
+            source: 'reddit',
+            status: 'needs_reply',
+            author: 'user123',
+            title: 'Need lower latency in APAC',
+          }),
+        ],
+        total: 1,
+        unread: 1,
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
   });
 });

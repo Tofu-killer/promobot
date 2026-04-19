@@ -26,6 +26,18 @@ function renderPage(
   );
 }
 
+type ApiState = {
+  status: 'idle' | 'loading' | 'success' | 'error';
+  data?: unknown;
+  error?: string | null;
+};
+
+function renderApiPage(Component: unknown, stateOverride: ApiState) {
+  return renderToStaticMarkup(
+    createElement(Component as (properties: { stateOverride?: ApiState }) => React.JSX.Element, { stateOverride }),
+  );
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -674,5 +686,235 @@ describe('client API page wiring', () => {
     expect(html).toContain('allowlist');
     expect(html).toContain('rssDefaults');
     expect(html).toContain('保存设置');
+  });
+
+  it('loads inbox items through the shared API helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        items: [
+          {
+            id: 'inbox-1',
+            source: 'reddit',
+            status: 'needs_reply',
+            author: 'user123',
+            title: 'Need lower latency in APAC',
+            excerpt: 'Can you share current response times?',
+            createdAt: '2026-04-19T00:00:00.000Z',
+          },
+        ],
+        total: 1,
+        unread: 1,
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const inboxModule = (await import('../../src/client/pages/Inbox')) as Record<string, unknown>;
+
+    expect(typeof inboxModule.loadInboxRequest).toBe('function');
+
+    const loadInboxRequest = inboxModule.loadInboxRequest as () => Promise<{
+      items: Array<{ id: string; source: string; status: string }>;
+      total: number;
+      unread: number;
+    }>;
+
+    const result = await loadInboxRequest();
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/inbox', undefined);
+    expect(result.total).toBe(1);
+    expect(result.items[0]?.source).toBe('reddit');
+  });
+
+  it('shows inbox loading, error, and success states', async () => {
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    expect(renderApiPage(InboxPage, { status: 'loading' })).toContain('正在加载收件箱');
+    expect(
+      renderApiPage(InboxPage, {
+        status: 'error',
+        error: 'Request failed with status 500',
+      }),
+    ).toContain('收件箱加载失败');
+
+    const html = renderApiPage(InboxPage, {
+      status: 'success',
+      data: {
+        items: [
+          {
+            id: 'inbox-1',
+            source: 'reddit',
+            status: 'needs_reply',
+            author: 'user123',
+            title: 'Need lower latency in APAC',
+            excerpt: 'Can you share current response times?',
+            createdAt: '2026-04-19T00:00:00.000Z',
+          },
+        ],
+        total: 1,
+        unread: 1,
+      },
+    });
+
+    expect(html).toContain('已加载 1 条收件箱记录');
+    expect(html).toContain('needs_reply');
+    expect(html).toContain('Need lower latency in APAC');
+  });
+
+  it('loads monitor feed entries through the shared API helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        items: [
+          {
+            id: 'monitor-1',
+            source: 'x',
+            title: 'Competitor added a cheaper tier',
+            detail: 'Entry-tier pricing is now lower than our trial plan.',
+            status: 'new',
+            createdAt: '2026-04-19T00:00:00.000Z',
+          },
+        ],
+        total: 1,
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const monitorModule = (await import('../../src/client/pages/Monitor')) as Record<string, unknown>;
+
+    expect(typeof monitorModule.loadMonitorFeedRequest).toBe('function');
+
+    const loadMonitorFeedRequest = monitorModule.loadMonitorFeedRequest as () => Promise<{
+      items: Array<{ id: string; source: string; title: string; status: string }>;
+      total: number;
+    }>;
+
+    const result = await loadMonitorFeedRequest();
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/monitor/feed', undefined);
+    expect(result.total).toBe(1);
+    expect(result.items[0]?.status).toBe('new');
+  });
+
+  it('shows monitor loading, error, and success states', async () => {
+    const { MonitorPage } = await import('../../src/client/pages/Monitor');
+
+    expect(renderApiPage(MonitorPage, { status: 'loading' })).toContain('正在加载监控动态');
+    expect(
+      renderApiPage(MonitorPage, {
+        status: 'error',
+        error: 'Request failed with status 502',
+      }),
+    ).toContain('监控动态加载失败');
+
+    const html = renderApiPage(MonitorPage, {
+      status: 'success',
+      data: {
+        items: [
+          {
+            id: 'monitor-1',
+            source: 'x',
+            title: 'Competitor added a cheaper tier',
+            detail: 'Entry-tier pricing is now lower than our trial plan.',
+            status: 'new',
+            createdAt: '2026-04-19T00:00:00.000Z',
+          },
+        ],
+        total: 1,
+      },
+    });
+
+    expect(html).toContain('已抓取 1 条监控动态');
+    expect(html).toContain('new');
+    expect(html).toContain('Competitor added a cheaper tier');
+  });
+
+  it('loads reputation stats through the shared API helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        total: 3,
+        positive: 2,
+        neutral: 1,
+        negative: 0,
+        trend: [
+          {
+            label: '正向',
+            value: 2,
+          },
+        ],
+        items: [
+          {
+            id: 'rep-1',
+            source: 'facebook-group',
+            sentiment: 'negative',
+            status: 'escalate',
+            title: 'Session expired complaint',
+            detail: 'Users report being logged out unexpectedly.',
+            createdAt: '2026-04-19T00:00:00.000Z',
+          },
+        ],
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const reputationModule = (await import('../../src/client/pages/Reputation')) as Record<string, unknown>;
+
+    expect(typeof reputationModule.loadReputationRequest).toBe('function');
+
+    const loadReputationRequest = reputationModule.loadReputationRequest as () => Promise<{
+      total: number;
+      positive: number;
+      neutral: number;
+      negative: number;
+      trend: Array<{ label: string; value: number }>;
+      items: Array<{ id: string; sentiment: string; status: string }>;
+    }>;
+
+    const result = await loadReputationRequest();
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/reputation/stats', undefined);
+    expect(result.negative).toBe(0);
+    expect(result.items[0]?.sentiment).toBe('negative');
+  });
+
+  it('shows reputation loading, error, and success states', async () => {
+    const { ReputationPage } = await import('../../src/client/pages/Reputation');
+
+    expect(renderApiPage(ReputationPage, { status: 'loading' })).toContain('正在加载口碑数据');
+    expect(
+      renderApiPage(ReputationPage, {
+        status: 'error',
+        error: 'Request failed with status 503',
+      }),
+    ).toContain('口碑数据加载失败');
+
+    const html = renderApiPage(ReputationPage, {
+      status: 'success',
+      data: {
+        total: 3,
+        positive: 2,
+        neutral: 1,
+        negative: 0,
+        trend: [
+          {
+            label: '正向',
+            value: 2,
+          },
+        ],
+        items: [
+          {
+            id: 'rep-1',
+            source: 'facebook-group',
+            sentiment: 'negative',
+            status: 'escalate',
+            title: 'Session expired complaint',
+            detail: 'Users report being logged out unexpectedly.',
+            createdAt: '2026-04-19T00:00:00.000Z',
+          },
+        ],
+      },
+    });
+
+    expect(html).toContain('已加载 3 条口碑提及');
+    expect(html).toContain('negative');
+    expect(html).toContain('Session expired complaint');
   });
 });

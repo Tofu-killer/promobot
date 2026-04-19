@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createApp } from '../../src/server/app';
+import { createReputationStore } from '../../src/server/store/reputation';
+import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
 
 async function requestApp(method: string, url: string) {
   const app = createApp({
@@ -87,16 +89,55 @@ async function requestApp(method: string, url: string) {
 }
 
 describe('reputation api', () => {
-  it('returns a minimal reputation stats contract', async () => {
-    const response = await requestApp('GET', '/api/reputation/stats');
+  it('returns aggregated reputation stats and items from SQLite', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const reputationStore = createReputationStore();
+      reputationStore.create({
+        source: 'facebook-group',
+        sentiment: 'negative',
+        status: 'escalate',
+        title: 'Session expired complaint',
+        detail: 'Users report being logged out unexpectedly.',
+      });
+      reputationStore.create({
+        source: 'reddit',
+        sentiment: 'positive',
+        status: 'handled',
+        title: 'Lower APAC latency praise',
+        detail: 'Users report improved latency in Australia.',
+      });
 
-    expect(response.status).toBe(200);
-    expect(JSON.parse(response.body)).toEqual({
-      total: 0,
-      positive: 0,
-      neutral: 0,
-      negative: 0,
-      trend: [],
-    });
+      const response = await requestApp('GET', '/api/reputation/stats');
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        total: 2,
+        positive: 1,
+        neutral: 0,
+        negative: 1,
+        trend: [
+          { label: '正向', value: 1 },
+          { label: '中性', value: 0 },
+          { label: '负向', value: 1 },
+        ],
+        items: [
+          expect.objectContaining({
+            id: 1,
+            sentiment: 'negative',
+            status: 'escalate',
+            title: 'Session expired complaint',
+          }),
+          expect.objectContaining({
+            id: 2,
+            sentiment: 'positive',
+            status: 'handled',
+            title: 'Lower APAC latency praise',
+          }),
+        ],
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
   });
 });

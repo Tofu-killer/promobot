@@ -2,6 +2,8 @@ interface MonitorItem {
   source: string;
   title: string;
   detail: string;
+  status?: string;
+  createdAt?: string;
 }
 
 interface MonitorFeedProps {
@@ -21,11 +23,19 @@ export function MonitorFeed({ items }: MonitorFeedProps) {
             padding: '16px'
           }}
         >
-          <div style={{ fontSize: '13px', color: '#2563eb', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-            {item.source}
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+            <div style={{ fontSize: '13px', color: '#2563eb', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+              {item.source}
+            </div>
+            {item.status ? (
+              <div style={{ fontSize: '12px', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                {item.status}
+              </div>
+            ) : null}
           </div>
           <div style={{ marginTop: '10px', fontWeight: 700 }}>{item.title}</div>
           <p style={{ margin: '10px 0 0', color: '#475569', lineHeight: 1.5 }}>{item.detail}</p>
+          {item.createdAt ? <div style={{ marginTop: '10px', color: '#64748b', fontSize: '13px' }}>{item.createdAt}</div> : null}
         </article>
       ))}
     </div>

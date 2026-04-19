@@ -1,13 +1,9 @@
 import { Router } from 'express';
+import { createReputationStore } from '../store/reputation';
 
 export const reputationRouter = Router();
+const reputationStore = createReputationStore();
 
 reputationRouter.get('/stats', (_request, response) => {
-  response.json({
-    total: 0,
-    positive: 0,
-    neutral: 0,
-    negative: 0,
-    trend: [],
-  });
+  response.json(reputationStore.getStats());
 });
