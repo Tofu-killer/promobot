@@ -12,10 +12,15 @@ export interface DashboardResponse {
   drafts: {
     total: number;
     review: number;
+    scheduled?: number;
+    published?: number;
   };
   totals: {
     items: number;
     followUps: number;
+  };
+  publishLogs?: {
+    failedCount?: number;
   };
   inbox?: {
     total: number;
@@ -44,14 +49,22 @@ export function DashboardPage({
   const displayState = stateOverride ?? state;
   const fallbackData: DashboardResponse = {
     monitor: { total: 1, new: 1, followUpDrafts: 1 },
-    drafts: { total: 1, review: 1 },
+    drafts: { total: 1, review: 1, scheduled: 0, published: 0 },
     totals: { items: 2, followUps: 1 },
+    publishLogs: { failedCount: 0 },
     inbox: { total: 1, unread: 1 },
     channelAccounts: { total: 1, connected: 1 },
   };
   const viewData = displayState.status === 'success' && displayState.data ? displayState.data : fallbackData;
   const inboxMetrics = viewData.inbox ?? { total: 0, unread: 0 };
   const channelAccountMetrics = viewData.channelAccounts ?? { total: 0, connected: 0 };
+  const draftLifecycleMetrics = {
+    scheduled: viewData.drafts.scheduled ?? 0,
+    published: viewData.drafts.published ?? 0,
+  };
+  const publishLogMetrics = {
+    failedCount: viewData.publishLogs?.failedCount ?? 0,
+  };
 
   return (
     <section>
@@ -77,6 +90,21 @@ export function DashboardPage({
             label="健康账号"
             value={String(channelAccountMetrics.connected)}
             detail="status=healthy 的渠道账号数量"
+          />
+          <StatCard
+            label="待发布"
+            value={String(draftLifecycleMetrics.scheduled)}
+            detail="已排期但尚未完成发布的草稿数量"
+          />
+          <StatCard
+            label="已发布"
+            value={String(draftLifecycleMetrics.published)}
+            detail="已完成发布的草稿数量"
+          />
+          <StatCard
+            label="发布失败"
+            value={String(publishLogMetrics.failedCount)}
+            detail="最近发布流水中记录的失败次数"
           />
         </div>
       ) : null}

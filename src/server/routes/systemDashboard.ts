@@ -3,6 +3,7 @@ import { createMonitorStore } from '../store/monitor';
 import { createSQLiteDraftStore } from '../store/drafts';
 import { createInboxStore } from '../store/inbox';
 import { createChannelAccountStore } from '../store/channelAccounts';
+import { withDatabase } from '../lib/persistence';
 
 const monitorStore = createMonitorStore();
 const draftStore = createSQLiteDraftStore();
@@ -19,6 +20,24 @@ systemDashboardRouter.get('/dashboard', (_request, response) => {
   const followUpDrafts = drafts.filter((draft) => draft.title?.toLowerCase().includes('follow-up'));
   const unreadInboxItems = inboxItems.filter((item) => item.status !== 'handled');
   const connectedChannelAccounts = channelAccounts.filter((account) => account.status === 'healthy');
+  const scheduledDraftCount = drafts.filter((draft) => draft.status === 'scheduled').length;
+  const publishedDraftCount = drafts.filter((draft) => draft.status === 'published').length;
+  const publishLogMetrics = withDatabase((database) => {
+    const row = database
+      .prepare(
+        `
+          SELECT COUNT(*) AS totalCount,
+                 COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) AS failedCount
+          FROM publish_logs
+        `,
+      )
+      .get();
+
+    return {
+      totalCount: Number(row?.totalCount ?? 0),
+      failedCount: Number(row?.failedCount ?? 0),
+    };
+  });
 
   response.json({
     monitor: {
@@ -29,11 +48,20 @@ systemDashboardRouter.get('/dashboard', (_request, response) => {
     drafts: {
       total: drafts.length,
       review: drafts.filter((draft) => draft.status === 'review').length,
+      ...(scheduledDraftCount > 0 ? { scheduled: scheduledDraftCount } : {}),
+      ...(publishedDraftCount > 0 ? { published: publishedDraftCount } : {}),
     },
     totals: {
       items: monitorItems.length + drafts.length,
       followUps: followUpDrafts.length,
     },
+    ...(publishLogMetrics.totalCount > 0
+      ? {
+          publishLogs: {
+            failedCount: publishLogMetrics.failedCount,
+          },
+        }
+      : {}),
     ...(inboxItems.length > 0
       ? {
           inbox: {
