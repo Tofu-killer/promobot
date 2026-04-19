@@ -16,7 +16,7 @@ const schedulerRuntime = createSchedulerRuntime({
       inboxFetchService.fetchNow();
     },
     monitor_fetch: async () => {
-      monitorFetchService.fetchNow();
+      await monitorFetchService.fetchNow();
     },
     publish: createPublishJobHandler(),
     reputation_fetch: async () => {

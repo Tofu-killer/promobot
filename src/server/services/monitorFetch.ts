@@ -1,4 +1,6 @@
 import type { MonitorItemRecord } from '../store/monitor';
+import { createMonitorRssService } from './monitor/rss';
+import { searchV2ex } from './monitor/v2exSearch';
 import { createMonitorStore } from '../store/monitor';
 
 export interface MonitorFetchResult {
@@ -8,9 +10,27 @@ export interface MonitorFetchResult {
 
 export function createMonitorFetchService() {
   const monitorStore = createMonitorStore();
+  const rssService = createMonitorRssService();
 
   return {
-    fetchNow(now: Date = new Date()): MonitorFetchResult {
+    async fetchNow(now: Date = new Date()): Promise<MonitorFetchResult> {
+      const collected = await collectConfiguredSignals(rssService);
+      if (collected.length > 0) {
+        const items = collected.map((item) =>
+          monitorStore.create({
+            source: item.source,
+            title: item.title,
+            detail: item.detail,
+            status: 'new',
+          }),
+        );
+
+        return {
+          items,
+          inserted: items.length,
+        };
+      }
+
       const minuteStamp = now.toISOString();
       const seeds = [
         {
@@ -43,4 +63,65 @@ export function createMonitorFetchService() {
       };
     },
   };
+}
+
+interface CollectedSignal {
+  source: string;
+  title: string;
+  detail: string;
+}
+
+async function collectConfiguredSignals(
+  rssService: ReturnType<typeof createMonitorRssService>,
+): Promise<CollectedSignal[]> {
+  const results: CollectedSignal[] = [];
+  const rssFeeds = parseList(process.env.MONITOR_RSS_FEEDS);
+  const v2exQueries = parseList(process.env.MONITOR_V2EX_QUERIES);
+
+  for (const feed of rssFeeds) {
+    const result = await rssService.fetchFeeds([feed]);
+    for (const failure of result.failures) {
+      results.push({
+        source: 'rss',
+        title: `RSS fetch failed: ${failure.feedUrl}`,
+        detail: failure.message,
+      });
+    }
+
+    for (const item of result.items) {
+      results.push({
+        source: item.source,
+        title: item.title,
+        detail: item.metadata.link ? `${item.detail}\n\n${item.metadata.link}` : item.detail,
+      });
+    }
+  }
+
+  for (const query of v2exQueries) {
+    try {
+      const items = await searchV2ex(query);
+      for (const item of items) {
+        results.push({
+          source: item.source,
+          title: item.title,
+          detail: `${item.detail}\n\n${item.url}`,
+        });
+      }
+    } catch (error) {
+      results.push({
+        source: 'v2ex',
+        title: `V2EX fetch failed: ${query}`,
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  return results;
+}
+
+function parseList(value: string | undefined) {
+  return (value ?? '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
 }

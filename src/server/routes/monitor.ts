@@ -19,14 +19,18 @@ monitorRouter.get('/feed', (_request, response) => {
   });
 });
 
-monitorRouter.post('/fetch', (_request, response) => {
-  const result = monitorFetchService.fetchNow();
+monitorRouter.post('/fetch', async (_request, response, next) => {
+  try {
+    const result = await monitorFetchService.fetchNow();
 
-  response.status(201).json({
-    items: result.items,
-    inserted: result.inserted,
-    total: monitorStore.list().length,
-  });
+    response.status(201).json({
+      items: result.items,
+      inserted: result.inserted,
+      total: monitorStore.list().length,
+    });
+  } catch (error) {
+    next(error);
+  }
 });
 
 monitorRouter.post('/:id/generate-follow-up', (request, response) => {
