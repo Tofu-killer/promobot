@@ -36,9 +36,51 @@ export async function updateSettingsRequest(input: UpdateSettingsPayload): Promi
   });
 }
 
+export async function submitSettingsForm(
+  formValues: {
+    allowlist: string;
+    schedulerIntervalMinutes: string;
+    rssDefaults: string;
+  },
+  action: (payload: UpdateSettingsPayload) => Promise<unknown>,
+): Promise<{ ok: boolean; error?: string; payload?: UpdateSettingsPayload }> {
+  const allowlist = formValues.allowlist
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+  const schedulerIntervalMinutes = Number(formValues.schedulerIntervalMinutes);
+  const rssDefaults = formValues.rssDefaults
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+
+  if (allowlist.length === 0) {
+    return { ok: false, error: 'allowlist 不能为空' };
+  }
+
+  if (!Number.isInteger(schedulerIntervalMinutes) || schedulerIntervalMinutes <= 0) {
+    return { ok: false, error: 'schedulerIntervalMinutes 必须是大于 0 的整数' };
+  }
+
+  const payload = {
+    allowlist,
+    schedulerIntervalMinutes,
+    rssDefaults,
+  };
+
+  await action(payload);
+
+  return {
+    ok: true,
+    payload,
+  };
+}
+
 interface SettingsPageProps {
   loadSettingsAction?: () => Promise<SettingsResponse>;
   stateOverride?: AsyncState<SettingsResponse>;
+  updateStateOverride?: AsyncState<SettingsResponse>;
+  validationMessageOverride?: string;
 }
 
 const fieldStyle = {
@@ -50,25 +92,37 @@ const fieldStyle = {
   background: '#ffffff',
 } as const;
 
-export function SettingsPage({ loadSettingsAction = loadSettingsRequest, stateOverride }: SettingsPageProps) {
+export function SettingsPage({
+  loadSettingsAction = loadSettingsRequest,
+  stateOverride,
+  updateStateOverride,
+  validationMessageOverride,
+}: SettingsPageProps) {
   const { state, reload } = useAsyncQuery(loadSettingsAction, [loadSettingsAction]);
   const [allowlist, setAllowlist] = useState('127.0.0.1, ::1');
   const [schedulerIntervalMinutes, setSchedulerIntervalMinutes] = useState('15');
   const [rssDefaults, setRssDefaults] = useState('OpenAI blog, Anthropic news');
   const { state: updateState, run: saveSettings } = useAsyncAction(updateSettingsRequest);
   const displayState = stateOverride ?? state;
+  const displayUpdateState = updateStateOverride ?? updateState;
+  const [validationMessage, setValidationMessage] = useState<string | null>(null);
+  const displayValidationMessage = validationMessageOverride ?? validationMessage;
 
   function handleSaveSettings() {
-    void saveSettings({
-      allowlist: allowlist
-        .split(',')
-        .map((entry) => entry.trim())
-        .filter((entry) => entry.length > 0),
-      schedulerIntervalMinutes: Number(schedulerIntervalMinutes),
-      rssDefaults: rssDefaults
-        .split(',')
-        .map((entry) => entry.trim())
-        .filter((entry) => entry.length > 0),
+    void submitSettingsForm(
+      {
+        allowlist,
+        schedulerIntervalMinutes,
+        rssDefaults,
+      },
+      async (payload) => {
+        setValidationMessage(null);
+        await saveSettings(payload);
+      },
+    ).then((result) => {
+      if (!result.ok) {
+        setValidationMessage(result.error ?? '保存前校验失败');
+      }
     });
   }
 
@@ -81,7 +135,7 @@ export function SettingsPage({ loadSettingsAction = loadSettingsRequest, stateOv
         actions={
           <>
             <ActionButton label="重新加载默认源" onClick={reload} />
-            <ActionButton label={updateState.status === 'loading' ? '正在保存设置...' : '保存设置'} tone="primary" onClick={handleSaveSettings} />
+            <ActionButton label={displayUpdateState.status === 'loading' ? '正在保存设置...' : '保存设置'} tone="primary" onClick={handleSaveSettings} />
           </>
         }
       />
@@ -121,7 +175,7 @@ export function SettingsPage({ loadSettingsAction = loadSettingsRequest, stateOv
                 justifySelf: 'flex-start',
               }}
             >
-              {updateState.status === 'loading' ? '正在保存设置...' : '保存设置'}
+              {displayUpdateState.status === 'loading' ? '正在保存设置...' : '保存设置'}
             </button>
           </div>
         </SectionCard>
@@ -158,10 +212,33 @@ export function SettingsPage({ loadSettingsAction = loadSettingsRequest, stateOv
             <div>如果接口缺失或失败，这里配合左侧卡片一起保留错误上下文。</div>
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
               <ActionButton label="重新加载默认源" onClick={reload} />
-              <ActionButton label={updateState.status === 'loading' ? '正在保存设置...' : '保存设置'} tone="primary" onClick={handleSaveSettings} />
+              <ActionButton label={displayUpdateState.status === 'loading' ? '正在保存设置...' : '保存设置'} tone="primary" onClick={handleSaveSettings} />
             </div>
           </div>
         </SectionCard>
+
+        {(displayValidationMessage || displayUpdateState.status !== 'idle') && (
+          <SectionCard title="最近保存结果" description="保存前校验和最近一次提交结果会显示在这里。">
+            {displayValidationMessage ? (
+              <p style={{ margin: 0, color: '#b91c1c' }}>
+                保存前校验失败：{displayValidationMessage}
+              </p>
+            ) : null}
+            {displayUpdateState.status === 'success' ? (
+              <div style={{ color: '#166534' }}>
+                <div style={{ fontWeight: 700 }}>设置已保存</div>
+                {displayUpdateState.data?.settings ? (
+                  <div style={{ marginTop: '8px' }}>
+                    {displayUpdateState.data.settings.allowlist.join(', ')}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+            {displayUpdateState.status === 'error' ? (
+              <p style={{ margin: 0, color: '#b91c1c' }}>保存失败：{displayUpdateState.error}</p>
+            ) : null}
+          </SectionCard>
+        )}
       </div>
     </section>
   );

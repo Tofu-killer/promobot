@@ -1,6 +1,7 @@
+import { useState } from 'react';
 import { apiRequest } from '../lib/api';
 import type { AsyncState } from '../hooks/useAsyncRequest';
-import { useAsyncQuery } from '../hooks/useAsyncRequest';
+import { useAsyncAction, useAsyncQuery } from '../hooks/useAsyncRequest';
 import { ActionButton } from '../components/ActionButton';
 import { PageHeader } from '../components/PageHeader';
 import { SectionCard } from '../components/SectionCard';
@@ -27,14 +28,64 @@ export async function loadInboxRequest(): Promise<InboxResponse> {
   return apiRequest<InboxResponse>('/api/inbox');
 }
 
-interface InboxPageProps {
-  loadInboxAction?: () => Promise<InboxResponse>;
-  stateOverride?: AsyncState<InboxResponse>;
+export interface UpdateInboxItemResponse {
+  item: InboxItem;
 }
 
-export function InboxPage({ loadInboxAction = loadInboxRequest, stateOverride }: InboxPageProps) {
+export async function updateInboxItemRequest(id: number, status: string): Promise<UpdateInboxItemResponse> {
+  return apiRequest<UpdateInboxItemResponse>(`/api/inbox/${id}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ status }),
+  });
+}
+
+export interface InboxReplySuggestionResponse {
+  suggestion: {
+    reply: string;
+  };
+}
+
+export async function suggestInboxReplyRequest(id: number): Promise<InboxReplySuggestionResponse> {
+  return apiRequest<InboxReplySuggestionResponse>(`/api/inbox/${id}/suggest-reply`, {
+    method: 'POST',
+  });
+}
+
+interface InboxPageProps {
+  loadInboxAction?: () => Promise<InboxResponse>;
+  updateInboxAction?: (id: number, status: string) => Promise<UpdateInboxItemResponse>;
+  suggestReplyAction?: (id: number) => Promise<InboxReplySuggestionResponse>;
+  stateOverride?: AsyncState<InboxResponse>;
+  inboxUpdateStateOverride?: AsyncState<UpdateInboxItemResponse>;
+  replySuggestionStateOverride?: AsyncState<InboxReplySuggestionResponse>;
+}
+
+const feedbackStyle = {
+  borderRadius: '16px',
+  padding: '14px 16px',
+  fontWeight: 600,
+} as const;
+
+export function InboxPage({
+  loadInboxAction = loadInboxRequest,
+  updateInboxAction = updateInboxItemRequest,
+  suggestReplyAction = suggestInboxReplyRequest,
+  stateOverride,
+  inboxUpdateStateOverride,
+  replySuggestionStateOverride,
+}: InboxPageProps) {
   const { state, reload } = useAsyncQuery(loadInboxAction, [loadInboxAction]);
+  const { state: inboxUpdateState, run: runInboxUpdate } = useAsyncAction(({ id, status }: { id: number; status: string }) =>
+    updateInboxAction(id, status),
+  );
+  const { state: replySuggestionState, run: runReplySuggestion } = useAsyncAction((id: number) => suggestReplyAction(id));
+  const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
   const displayState = stateOverride ?? state;
+  const displayInboxUpdateState = inboxUpdateStateOverride ?? inboxUpdateState;
+  const displayReplySuggestionState = replySuggestionStateOverride ?? replySuggestionState;
   const fallbackData: InboxResponse = {
     items: [
       {
@@ -51,6 +102,49 @@ export function InboxPage({ loadInboxAction = loadInboxRequest, stateOverride }:
     unread: 1,
   };
   const viewData = displayState.status === 'success' && displayState.data ? displayState.data : fallbackData;
+  const updatedInboxItem =
+    displayInboxUpdateState.status === 'success' && displayInboxUpdateState.data ? displayInboxUpdateState.data.item : null;
+  const displayItems = updatedInboxItem
+    ? viewData.items.map((item) => (item.id === updatedInboxItem.id ? updatedInboxItem : item))
+    : viewData.items;
+  const selectedItem = displayItems.find((item) => item.id === selectedItemId) ?? displayItems[0] ?? null;
+  const inboxStatusFeedback =
+    displayInboxUpdateState.status === 'success' && displayInboxUpdateState.data
+      ? `已将“${displayInboxUpdateState.data.item.title}”回写为 ${displayInboxUpdateState.data.item.status}`
+      : displayInboxUpdateState.status === 'error'
+        ? `收件箱状态更新失败：${displayInboxUpdateState.error}`
+        : null;
+  const replyFeedback =
+    displayReplySuggestionState.status === 'success' && displayReplySuggestionState.data
+      ? '已生成最新回复建议'
+      : displayReplySuggestionState.status === 'error'
+        ? `生成回复失败：${displayReplySuggestionState.error}`
+        : null;
+  const suggestedReply =
+    displayReplySuggestionState.status === 'success' && displayReplySuggestionState.data
+      ? displayReplySuggestionState.data.suggestion.reply
+      : null;
+
+  async function handleInboxStatus(item: InboxItem, status: 'handled' | 'snoozed') {
+    setSelectedItemId(item.id);
+
+    try {
+      await runInboxUpdate({ id: item.id, status });
+      reload();
+    } catch {}
+  }
+
+  async function handleGenerateReply(item: InboxItem | null) {
+    if (!item) {
+      return;
+    }
+
+    setSelectedItemId(item.id);
+
+    try {
+      await runReplySuggestion(item.id);
+    } catch {}
+  }
 
   return (
     <section>
@@ -61,13 +155,34 @@ export function InboxPage({ loadInboxAction = loadInboxRequest, stateOverride }:
         actions={
           <>
             <ActionButton label="刷新收件箱" onClick={reload} />
-            <ActionButton label="AI 生成回复" tone="primary" />
+            <ActionButton
+              label={displayReplySuggestionState.status === 'loading' ? '正在生成回复...' : 'AI 生成回复'}
+              tone="primary"
+              onClick={() => {
+                void handleGenerateReply(selectedItem);
+              }}
+            />
           </>
         }
       />
 
       {displayState.status === 'loading' ? <p style={{ color: '#334155' }}>正在加载收件箱...</p> : null}
       {displayState.status === 'error' ? <p style={{ color: '#b91c1c' }}>收件箱加载失败：{displayState.error}</p> : null}
+      {inboxStatusFeedback ? (
+        <p style={{ ...feedbackStyle, margin: '0 0 16px', background: '#ecfdf5', color: '#166534' }}>{inboxStatusFeedback}</p>
+      ) : null}
+      {replyFeedback ? (
+        <p
+          style={{
+            ...feedbackStyle,
+            margin: '0 0 16px',
+            background: displayReplySuggestionState.status === 'error' ? '#fef2f2' : '#eff6ff',
+            color: displayReplySuggestionState.status === 'error' ? '#b91c1c' : '#1d4ed8',
+          }}
+        >
+          {replyFeedback}
+        </p>
+      ) : null}
 
       {displayState.status === 'success' || displayState.status === 'idle' ? (
         <>
@@ -76,7 +191,7 @@ export function InboxPage({ loadInboxAction = loadInboxRequest, stateOverride }:
             <StatCard label="未读命中" value={String(viewData.unread)} detail="等待人工回复或分流的记录" />
             <StatCard
               label="需人工接管"
-              value={String(viewData.items.filter((item) => item.status === 'needs_reply').length)}
+              value={String(displayItems.filter((item) => item.status === 'needs_reply').length)}
               detail="高价值或需要人工确认的会话"
             />
           </div>
@@ -84,17 +199,19 @@ export function InboxPage({ loadInboxAction = loadInboxRequest, stateOverride }:
           <div style={{ marginTop: '20px', display: 'grid', gap: '20px', gridTemplateColumns: 'minmax(320px, 1.2fr) minmax(280px, 0.8fr)' }}>
             <SectionCard title="待回复队列" description={`已加载 ${viewData.total} 条收件箱记录`}>
               <div style={{ display: 'grid', gap: '12px' }}>
-                {viewData.items.length === 0 ? (
+                {displayItems.length === 0 ? (
                   <p style={{ margin: 0, color: '#475569' }}>暂无命中内容</p>
                 ) : (
-                  viewData.items.map((item) => (
+                  displayItems.map((item) => (
                     <article
                       key={item.id}
+                      onClick={() => setSelectedItemId(item.id)}
                       style={{
                         borderRadius: '16px',
-                        border: '1px solid #dbe4f0',
-                        background: '#f8fafc',
+                        border: item.id === selectedItem?.id ? '1px solid #93c5fd' : '1px solid #dbe4f0',
+                        background: item.id === selectedItem?.id ? '#eff6ff' : '#f8fafc',
                         padding: '18px',
+                        cursor: 'pointer',
                       }}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -109,8 +226,22 @@ export function InboxPage({ loadInboxAction = loadInboxRequest, stateOverride }:
                       </div>
                       <div style={{ marginTop: '16px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                         <ActionButton label="打开原帖" />
-                        <ActionButton label="标记已处理" />
-                        <ActionButton label="稍后处理" />
+                        <ActionButton
+                          label={
+                            displayInboxUpdateState.status === 'loading' && item.id === selectedItemId ? '处理中...' : '标记已处理'
+                          }
+                          onClick={() => {
+                            void handleInboxStatus(item, 'handled');
+                          }}
+                        />
+                        <ActionButton
+                          label={
+                            displayInboxUpdateState.status === 'loading' && item.id === selectedItemId ? '处理中...' : '稍后处理'
+                          }
+                          onClick={() => {
+                            void handleInboxStatus(item, 'snoozed');
+                          }}
+                        />
                       </div>
                     </article>
                   ))
@@ -120,6 +251,9 @@ export function InboxPage({ loadInboxAction = loadInboxRequest, stateOverride }:
 
             <SectionCard title="回复工作台" description="AI 会生成首版草稿，人工可以在发送前再补充事实和语气。">
               <div style={{ display: 'grid', gap: '12px' }}>
+                <div style={{ color: '#475569', lineHeight: 1.5 }}>
+                  {selectedItem ? `当前会话：${selectedItem.source} · ${selectedItem.author ?? 'unknown'}` : '暂无可生成回复的会话'}
+                </div>
                 <div style={{ fontWeight: 700, color: '#0f172a' }}>建议回复</div>
                 <div
                   style={{
@@ -131,7 +265,9 @@ export function InboxPage({ loadInboxAction = loadInboxRequest, stateOverride }:
                     lineHeight: 1.6,
                   }}
                 >
-                  待和真实回复建议接口打通后，这里会展示 AI 生成的首版草稿。
+                  {displayReplySuggestionState.status === 'loading'
+                    ? '正在生成回复建议...'
+                    : suggestedReply ?? '点击“AI 生成回复”后，这里会展示最新的 AI 草稿。'}
                 </div>
                 <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                   <ActionButton label="应用建议" tone="primary" />

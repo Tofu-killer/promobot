@@ -7,18 +7,20 @@ import { JsonPreview } from '../components/JsonPreview';
 import { PageHeader } from '../components/PageHeader';
 import { SectionCard } from '../components/SectionCard';
 
+export interface ChannelAccountRecord {
+  id: number;
+  platform: string;
+  accountKey: string;
+  displayName: string;
+  authType: string;
+  status: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ChannelAccountsResponse {
-  channelAccounts?: Array<{
-    id: number;
-    platform: string;
-    accountKey: string;
-    displayName: string;
-    authType: string;
-    status: string;
-    metadata: Record<string, unknown>;
-    createdAt: string;
-    updatedAt: string;
-  }>;
+  channelAccounts?: ChannelAccountRecord[];
   [key: string]: unknown;
 }
 
@@ -36,7 +38,16 @@ export interface CreateChannelAccountPayload {
 }
 
 export interface CreateChannelAccountResponse {
-  channelAccount: ChannelAccountsResponse['channelAccounts'] extends Array<infer T> ? T : never;
+  channelAccount: ChannelAccountRecord;
+}
+
+export interface TestChannelAccountConnectionResponse {
+  ok: boolean;
+  test: {
+    checkedAt: string;
+    status: string;
+  };
+  channelAccount: ChannelAccountRecord;
 }
 
 export async function createChannelAccountRequest(
@@ -51,9 +62,31 @@ export async function createChannelAccountRequest(
   });
 }
 
+export async function testChannelAccountConnectionRequest(
+  accountId: number,
+): Promise<TestChannelAccountConnectionResponse> {
+  return apiRequest<TestChannelAccountConnectionResponse>(`/api/channel-accounts/${accountId}/test`, {
+    method: 'POST',
+  });
+}
+
+export async function runChannelAccountConnectionTest(
+  accountId: number,
+  action: (targetAccountId: number) => Promise<TestChannelAccountConnectionResponse>,
+  onSuccess: () => void,
+): Promise<TestChannelAccountConnectionResponse> {
+  const result = await action(accountId);
+  onSuccess();
+  return result;
+}
+
 interface ChannelAccountsPageProps {
   loadChannelAccountsAction?: () => Promise<ChannelAccountsResponse>;
+  createChannelAccountAction?: (input: CreateChannelAccountPayload) => Promise<CreateChannelAccountResponse>;
+  testChannelAccountAction?: (accountId: number) => Promise<TestChannelAccountConnectionResponse>;
   stateOverride?: AsyncState<ChannelAccountsResponse>;
+  createStateOverride?: AsyncState<CreateChannelAccountResponse>;
+  testConnectionStateOverride?: AsyncState<TestChannelAccountConnectionResponse>;
 }
 
 const fieldStyle = {
@@ -67,7 +100,11 @@ const fieldStyle = {
 
 export function ChannelAccountsPage({
   loadChannelAccountsAction = loadChannelAccountsRequest,
+  createChannelAccountAction = createChannelAccountRequest,
+  testChannelAccountAction = testChannelAccountConnectionRequest,
   stateOverride,
+  createStateOverride,
+  testConnectionStateOverride,
 }: ChannelAccountsPageProps) {
   const { state, reload } = useAsyncQuery(loadChannelAccountsAction, [loadChannelAccountsAction]);
   const [platform, setPlatform] = useState('x');
@@ -76,8 +113,20 @@ export function ChannelAccountsPage({
   const [authType, setAuthType] = useState('api-key');
   const [status, setStatus] = useState('healthy');
   const [metadata, setMetadata] = useState('team=growth');
-  const { state: createState, run: createChannelAccount } = useAsyncAction(createChannelAccountRequest);
+  const { state: createState, run: createChannelAccount } = useAsyncAction(createChannelAccountAction);
+  const { state: testConnectionState, run: requestConnectionTest } = useAsyncAction(
+    ({ accountId }: { accountId: number }) =>
+      runChannelAccountConnectionTest(accountId, testChannelAccountAction, reload),
+  );
   const displayState = stateOverride ?? state;
+  const displayCreateState = createStateOverride ?? createState;
+  const displayTestConnectionState = testConnectionStateOverride ?? testConnectionState;
+  const latestCreatedAccount = displayCreateState.data?.channelAccount ?? null;
+  const fallbackTestTarget =
+    displayState.status === 'success' && Array.isArray(displayState.data?.channelAccounts)
+      ? displayState.data.channelAccounts[0] ?? null
+      : null;
+  const testTarget = latestCreatedAccount ?? fallbackTestTarget;
 
   function handleCreateChannelAccount() {
     const parsedMetadata = metadata
@@ -99,7 +148,20 @@ export function ChannelAccountsPage({
       authType,
       status,
       metadata: Object.keys(parsedMetadata).length > 0 ? parsedMetadata : undefined,
-    });
+    })
+      .then(() => {
+        reload();
+      })
+      .catch(() => undefined);
+  }
+
+  function handleTestConnection() {
+    if (!testTarget) {
+      reload();
+      return;
+    }
+
+    void requestConnectionTest({ accountId: testTarget.id }).catch(() => undefined);
   }
 
   return (
@@ -111,7 +173,11 @@ export function ChannelAccountsPage({
         actions={
           <>
             <ActionButton label="重新登录" />
-            <ActionButton label="测试连接" tone="primary" onClick={reload} />
+            <ActionButton
+              label={displayTestConnectionState.status === 'loading' ? '正在测试连接...' : '测试连接'}
+              tone="primary"
+              onClick={handleTestConnection}
+            />
           </>
         }
       />
@@ -162,9 +228,68 @@ export function ChannelAccountsPage({
                 justifySelf: 'flex-start',
               }}
             >
-              {createState.status === 'loading' ? '正在创建账号...' : '创建账号'}
+              {displayCreateState.status === 'loading' ? '正在创建账号...' : '创建账号'}
             </button>
           </div>
+        </SectionCard>
+
+        <SectionCard title="最近创建结果" description="创建反馈和下一步动作都会在这里落地。">
+          {displayCreateState.status === 'loading' ? <p style={{ margin: 0, color: '#334155' }}>正在创建账号...</p> : null}
+
+          {displayCreateState.status === 'error' ? (
+            <p style={{ margin: 0, color: '#b91c1c' }}>创建失败：{displayCreateState.error}</p>
+          ) : null}
+
+          {displayCreateState.status === 'success' && latestCreatedAccount ? (
+            <div style={{ display: 'grid', gap: '12px', color: '#334155' }}>
+              <div style={{ fontWeight: 700 }}>账号已创建，可继续测试连接</div>
+              <div>
+                <strong>账号：</strong>
+                {latestCreatedAccount.displayName}
+              </div>
+              <div>
+                <strong>平台：</strong>
+                {latestCreatedAccount.platform}
+              </div>
+              <div>
+                <strong>认证方式：</strong>
+                {latestCreatedAccount.authType}
+              </div>
+              <div>
+                <strong>状态：</strong>
+                {latestCreatedAccount.status}
+              </div>
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                <ActionButton
+                  label={displayTestConnectionState.status === 'loading' ? '正在测试连接...' : '测试连接'}
+                  tone="primary"
+                  onClick={handleTestConnection}
+                />
+              </div>
+
+              {displayTestConnectionState.status === 'error' ? (
+                <p style={{ margin: 0, color: '#b91c1c' }}>连接测试失败：{displayTestConnectionState.error}</p>
+              ) : null}
+
+              {displayTestConnectionState.status === 'success' && displayTestConnectionState.data ? (
+                <div style={{ display: 'grid', gap: '8px' }}>
+                  <div style={{ fontWeight: 700 }}>最近一次连接测试</div>
+                  <div>
+                    <strong>结果：</strong>
+                    {displayTestConnectionState.data.test.status}
+                  </div>
+                  <div>
+                    <strong>检查时间：</strong>
+                    {displayTestConnectionState.data.test.checkedAt}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {displayCreateState.status === 'idle' ? (
+            <p style={{ margin: 0, color: '#475569' }}>提交表单后，这里会显示新账号和下一步测试连接动作。</p>
+          ) : null}
         </SectionCard>
 
         <SectionCard title="连接状态" description="这是该页面的真实接口返回区域。">
@@ -210,10 +335,14 @@ export function ChannelAccountsPage({
 
         <SectionCard title="恢复动作" description="当后端未实现或返回错误时，页面会在左侧直接展示错误状态。">
           <div style={{ display: 'grid', gap: '12px', color: '#334155', lineHeight: 1.6 }}>
-            <div>点击“测试连接”会重新请求当前接口。</div>
+            <div>点击“测试连接”会优先对最近创建账号发起真实连接测试；如果当前没有目标账号，则会先刷新列表。</div>
             <div>如果服务端返回 404 或 500，这里不会吞掉错误，而是直接在页面中显示。</div>
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-              <ActionButton label="测试连接" tone="primary" onClick={reload} />
+              <ActionButton
+                label={displayTestConnectionState.status === 'loading' ? '正在测试连接...' : '测试连接'}
+                tone="primary"
+                onClick={handleTestConnection}
+              />
             </div>
           </div>
         </SectionCard>

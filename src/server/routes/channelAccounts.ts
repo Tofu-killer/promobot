@@ -67,6 +67,42 @@ channelAccountsRouter.patch('/:id', (request, response) => {
   response.json({ channelAccount });
 });
 
+channelAccountsRouter.post('/:id/test', (request, response) => {
+  const id = Number(request.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    response.status(400).json({ error: 'invalid channel account id' });
+    return;
+  }
+
+  const input = request.body ?? {};
+  if (
+    input.status !== undefined &&
+    input.status !== 'healthy' &&
+    input.status !== 'failed'
+  ) {
+    response.status(400).json({ error: 'invalid channel account test payload' });
+    return;
+  }
+
+  const channelAccount = channelAccountStore.test(id, {
+    status: input.status,
+  });
+
+  if (!channelAccount) {
+    response.status(404).json({ error: 'channel account not found' });
+    return;
+  }
+
+  response.json({
+    ok: true,
+    test: {
+      checkedAt: new Date().toISOString(),
+      status: channelAccount.status,
+    },
+    channelAccount,
+  });
+});
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

@@ -1,6 +1,6 @@
 import { apiRequest } from '../lib/api';
 import type { AsyncState } from '../hooks/useAsyncRequest';
-import { useAsyncQuery } from '../hooks/useAsyncRequest';
+import { useAsyncAction, useAsyncQuery } from '../hooks/useAsyncRequest';
 import { ActionButton } from '../components/ActionButton';
 import { MonitorFeed } from '../components/MonitorFeed';
 import { PageHeader } from '../components/PageHeader';
@@ -21,20 +21,54 @@ export interface MonitorFeedResponse {
   total: number;
 }
 
+export interface FollowUpDraftResponse {
+  draft: {
+    id: number;
+    platform: string;
+    title?: string;
+    content: string;
+    status: string;
+  };
+}
+
 export async function loadMonitorFeedRequest(): Promise<MonitorFeedResponse> {
   return apiRequest<MonitorFeedResponse>('/api/monitor/feed');
 }
 
+export async function generateFollowUpRequest(
+  id: number,
+  platform: string,
+): Promise<FollowUpDraftResponse> {
+  return apiRequest<FollowUpDraftResponse>(`/api/monitor/${id}/generate-follow-up`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ platform }),
+  });
+}
+
 interface MonitorPageProps {
   loadMonitorAction?: () => Promise<MonitorFeedResponse>;
+  generateFollowUpAction?: (id: number, platform: string) => Promise<FollowUpDraftResponse>;
   stateOverride?: AsyncState<MonitorFeedResponse>;
+  followUpStateOverride?: AsyncState<FollowUpDraftResponse>;
 }
 
 const sourceFilters = ['全部来源', 'X / Twitter', 'RSS', 'Reddit', 'Product Hunt'];
 
-export function MonitorPage({ loadMonitorAction = loadMonitorFeedRequest, stateOverride }: MonitorPageProps) {
+export function MonitorPage({
+  loadMonitorAction = loadMonitorFeedRequest,
+  generateFollowUpAction = generateFollowUpRequest,
+  stateOverride,
+  followUpStateOverride,
+}: MonitorPageProps) {
   const { state, reload } = useAsyncQuery(loadMonitorAction, [loadMonitorAction]);
+  const { state: followUpState, run: generateFollowUp } = useAsyncAction(
+    ({ id, platform }: { id: number; platform: string }) => generateFollowUpAction(id, platform),
+  );
   const displayState = stateOverride ?? state;
+  const displayFollowUpState = followUpStateOverride ?? followUpState;
   const fallbackData: MonitorFeedResponse = {
     items: [
       {
@@ -50,6 +84,18 @@ export function MonitorPage({ loadMonitorAction = loadMonitorFeedRequest, stateO
   };
   const viewData = displayState.status === 'success' && displayState.data ? displayState.data : fallbackData;
 
+  function handleGenerateFollowUp() {
+    const nextItem = viewData.items.find((item) => item.status === 'new') ?? viewData.items[0];
+    if (!nextItem) {
+      return;
+    }
+
+    void generateFollowUp({
+      id: nextItem.id,
+      platform: nextItem.source,
+    }).catch(() => undefined);
+  }
+
   return (
     <section>
       <PageHeader
@@ -59,13 +105,35 @@ export function MonitorPage({ loadMonitorAction = loadMonitorFeedRequest, stateO
         actions={
           <>
             <ActionButton label="刷新监控" onClick={reload} />
-            <ActionButton label="生成跟进草稿" tone="primary" />
+            <ActionButton
+              label={displayFollowUpState.status === 'loading' ? '正在生成跟进草稿...' : '生成跟进草稿'}
+              tone="primary"
+              onClick={handleGenerateFollowUp}
+            />
           </>
         }
       />
 
       {displayState.status === 'loading' ? <p style={{ color: '#334155' }}>正在加载监控动态...</p> : null}
       {displayState.status === 'error' ? <p style={{ color: '#b91c1c' }}>监控动态加载失败：{displayState.error}</p> : null}
+
+      {displayFollowUpState.status === 'success' && displayFollowUpState.data ? (
+        <SectionCard
+          title="跟进草稿已生成"
+          description="已收到 `/api/monitor/:id/generate-follow-up` 返回的最新 draft 信息。"
+        >
+          <div style={{ display: 'grid', gap: '8px' }}>
+            <div style={{ fontWeight: 700 }}>{displayFollowUpState.data.draft.title ?? `Follow-up draft #${displayFollowUpState.data.draft.id}`}</div>
+            <div style={{ color: '#475569' }}>draftId: {displayFollowUpState.data.draft.id}</div>
+            <div style={{ color: '#475569' }}>platform: {displayFollowUpState.data.draft.platform}</div>
+            <div style={{ color: '#475569' }}>status: {displayFollowUpState.data.draft.status}</div>
+            <p style={{ margin: 0, color: '#334155', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{displayFollowUpState.data.draft.content}</p>
+          </div>
+        </SectionCard>
+      ) : null}
+      {displayFollowUpState.status === 'error' ? (
+        <p style={{ color: '#b91c1c' }}>跟进草稿生成失败：{displayFollowUpState.error}</p>
+      ) : null}
 
       {displayState.status === 'success' || displayState.status === 'idle' ? (
         <>

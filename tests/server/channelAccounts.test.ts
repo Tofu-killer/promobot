@@ -124,4 +124,107 @@ describe('channel accounts api', () => {
       cleanupTestDatabasePath(rootDir);
     }
   });
+
+  it('tests a channel account without changing its status by default', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'x',
+        accountKey: '@promobot',
+        displayName: 'PromoBot X',
+        authType: 'api',
+        status: 'unknown',
+      });
+
+      const response = await requestApp('POST', '/api/channel-accounts/1/test');
+
+      expect(response.status).toBe(200);
+
+      const body = JSON.parse(response.body) as {
+        ok: boolean;
+        test: { checkedAt: string; status: string };
+        channelAccount: { id: number; status: string };
+      };
+
+      expect(body).toEqual({
+        ok: true,
+        test: {
+          checkedAt: expect.any(String),
+          status: 'unknown',
+        },
+        channelAccount: expect.objectContaining({
+          id: 1,
+          status: 'unknown',
+        }),
+      });
+
+      const listed = await requestApp('GET', '/api/channel-accounts');
+      expect(JSON.parse(listed.body)).toEqual({
+        channelAccounts: [
+          expect.objectContaining({
+            id: 1,
+            status: 'unknown',
+          }),
+        ],
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('tests a channel account and updates its status when requested', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'x',
+        accountKey: '@promobot',
+        displayName: 'PromoBot X',
+        authType: 'api',
+        status: 'unknown',
+      });
+
+      const response = await requestApp('POST', '/api/channel-accounts/1/test', {
+        status: 'healthy',
+      });
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        ok: true,
+        test: {
+          checkedAt: expect.any(String),
+          status: 'healthy',
+        },
+        channelAccount: expect.objectContaining({
+          id: 1,
+          status: 'healthy',
+        }),
+      });
+
+      const listed = await requestApp('GET', '/api/channel-accounts');
+      expect(JSON.parse(listed.body)).toEqual({
+        channelAccounts: [
+          expect.objectContaining({
+            id: 1,
+            status: 'healthy',
+          }),
+        ],
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('returns 404 when testing a missing channel account', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const response = await requestApp('POST', '/api/channel-accounts/1/test');
+
+      expect(response.status).toBe(404);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'channel account not found',
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
 });

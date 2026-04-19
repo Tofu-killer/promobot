@@ -1,6 +1,7 @@
+import { useState } from 'react';
 import { apiRequest } from '../lib/api';
 import type { AsyncState } from '../hooks/useAsyncRequest';
-import { useAsyncQuery } from '../hooks/useAsyncRequest';
+import { useAsyncAction, useAsyncQuery } from '../hooks/useAsyncRequest';
 import { ActionButton } from '../components/ActionButton';
 import { PageHeader } from '../components/PageHeader';
 import { SectionCard } from '../components/SectionCard';
@@ -31,17 +32,46 @@ export async function loadReputationRequest(): Promise<ReputationStatsResponse> 
   return apiRequest<ReputationStatsResponse>('/api/reputation/stats');
 }
 
+export interface UpdateReputationItemResponse {
+  item: ReputationItem;
+}
+
+export async function updateReputationItemRequest(id: number, status: string): Promise<UpdateReputationItemResponse> {
+  return apiRequest<UpdateReputationItemResponse>(`/api/reputation/${id}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ status }),
+  });
+}
+
 interface ReputationPageProps {
   loadReputationAction?: () => Promise<ReputationStatsResponse>;
+  updateReputationAction?: (id: number, status: string) => Promise<UpdateReputationItemResponse>;
   stateOverride?: AsyncState<ReputationStatsResponse>;
+  reputationUpdateStateOverride?: AsyncState<UpdateReputationItemResponse>;
 }
+
+const feedbackStyle = {
+  borderRadius: '16px',
+  padding: '14px 16px',
+  fontWeight: 600,
+} as const;
 
 export function ReputationPage({
   loadReputationAction = loadReputationRequest,
+  updateReputationAction = updateReputationItemRequest,
   stateOverride,
+  reputationUpdateStateOverride,
 }: ReputationPageProps) {
   const { state, reload } = useAsyncQuery(loadReputationAction, [loadReputationAction]);
+  const { state: reputationUpdateState, run: runReputationUpdate } = useAsyncAction(
+    ({ id, status }: { id: number; status: string }) => updateReputationAction(id, status),
+  );
+  const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
   const displayState = stateOverride ?? state;
+  const displayReputationUpdateState = reputationUpdateStateOverride ?? reputationUpdateState;
   const fallbackData: ReputationStatsResponse = {
     total: 1,
     positive: 0,
@@ -65,6 +95,33 @@ export function ReputationPage({
     ],
   };
   const viewData = displayState.status === 'success' && displayState.data ? displayState.data : fallbackData;
+  const updatedReputationItem =
+    displayReputationUpdateState.status === 'success' && displayReputationUpdateState.data
+      ? displayReputationUpdateState.data.item
+      : null;
+  const displayItems = updatedReputationItem
+    ? viewData.items.map((item) => (item.id === updatedReputationItem.id ? updatedReputationItem : item))
+    : viewData.items;
+  const selectedItem = displayItems.find((item) => item.id === selectedItemId) ?? displayItems[0] ?? null;
+  const reputationFeedback =
+    displayReputationUpdateState.status === 'success' && displayReputationUpdateState.data
+      ? `已将“${displayReputationUpdateState.data.item.title}”回写为 ${displayReputationUpdateState.data.item.status}`
+      : displayReputationUpdateState.status === 'error'
+        ? `口碑状态更新失败：${displayReputationUpdateState.error}`
+        : null;
+
+  async function handleReputationStatus(item: ReputationItem | null, status: 'handled' | 'escalate') {
+    if (!item) {
+      return;
+    }
+
+    setSelectedItemId(item.id);
+
+    try {
+      await runReputationUpdate({ id: item.id, status });
+      reload();
+    } catch {}
+  }
 
   return (
     <section>
@@ -75,13 +132,31 @@ export function ReputationPage({
         actions={
           <>
             <ActionButton label="刷新口碑数据" onClick={reload} />
-            <ActionButton label="标记已处理" tone="primary" />
+            <ActionButton
+              label={displayReputationUpdateState.status === 'loading' ? '正在回写状态...' : '标记已处理'}
+              tone="primary"
+              onClick={() => {
+                void handleReputationStatus(selectedItem, 'handled');
+              }}
+            />
           </>
         }
       />
 
       {displayState.status === 'loading' ? <p style={{ color: '#334155' }}>正在加载口碑数据...</p> : null}
       {displayState.status === 'error' ? <p style={{ color: '#b91c1c' }}>口碑数据加载失败：{displayState.error}</p> : null}
+      {reputationFeedback ? (
+        <p
+          style={{
+            ...feedbackStyle,
+            margin: '0 0 16px',
+            background: displayReputationUpdateState.status === 'error' ? '#fef2f2' : '#ecfdf5',
+            color: displayReputationUpdateState.status === 'error' ? '#b91c1c' : '#166534',
+          }}
+        >
+          {reputationFeedback}
+        </p>
+      ) : null}
 
       {displayState.status === 'success' || displayState.status === 'idle' ? (
         <>
@@ -90,7 +165,7 @@ export function ReputationPage({
             <StatCard label="负面提及" value={String(viewData.negative)} detail="优先处理潜在风险项" />
             <StatCard
               label="已处理"
-              value={String(viewData.items.filter((item) => item.status === 'handled').length)}
+              value={String(displayItems.filter((item) => item.status === 'handled').length)}
               detail="人工确认后已回写 handled 状态"
             />
           </div>
@@ -112,17 +187,24 @@ export function ReputationPage({
 
             <SectionCard title="重点负面提及" description="高风险条目需要优先回应，避免在多个渠道重复扩散。">
               <div style={{ display: 'grid', gap: '12px' }}>
-                {viewData.items.length === 0 ? (
+                {displayItems.length === 0 ? (
                   <p style={{ margin: 0, color: '#475569' }}>暂无口碑记录</p>
                 ) : (
-                  viewData.items.map((item) => (
+                  displayItems.map((item) => (
                     <article
                       key={item.id}
+                      onClick={() => setSelectedItemId(item.id)}
                       style={{
                         borderRadius: '16px',
-                        border: item.sentiment === 'negative' ? '1px solid #fecaca' : '1px solid #dbe4f0',
-                        background: item.sentiment === 'negative' ? '#fef2f2' : '#f8fafc',
+                        border:
+                          item.id === selectedItem?.id
+                            ? '1px solid #fca5a5'
+                            : item.sentiment === 'negative'
+                              ? '1px solid #fecaca'
+                              : '1px solid #dbe4f0',
+                        background: item.id === selectedItem?.id ? '#fff1f2' : item.sentiment === 'negative' ? '#fef2f2' : '#f8fafc',
                         padding: '18px',
+                        cursor: 'pointer',
                       }}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -135,9 +217,27 @@ export function ReputationPage({
                       <div style={{ marginTop: '10px', color: '#64748b', fontSize: '13px' }}>
                         {item.source} · {item.status} · {item.createdAt}
                       </div>
+                      <div style={{ marginTop: '10px', color: '#475569', lineHeight: 1.5 }}>
+                        {item.id === selectedItem?.id ? '当前重点跟进项' : '点击卡片可将其设为当前重点项'}
+                      </div>
                       <div style={{ marginTop: '16px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                        <ActionButton label="标记已处理" tone="primary" />
-                        <ActionButton label="转入 Social Inbox" />
+                        <ActionButton
+                          label={
+                            displayReputationUpdateState.status === 'loading' && item.id === selectedItemId
+                              ? '正在回写状态...'
+                              : '标记已处理'
+                          }
+                          tone="primary"
+                          onClick={() => {
+                            void handleReputationStatus(item, 'handled');
+                          }}
+                        />
+                        <ActionButton
+                          label={displayReputationUpdateState.status === 'loading' && item.id === selectedItemId ? '正在回写状态...' : '转入 Social Inbox'}
+                          onClick={() => {
+                            void handleReputationStatus(item, 'escalate');
+                          }}
+                        />
                       </div>
                     </article>
                   ))

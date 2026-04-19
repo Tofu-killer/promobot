@@ -35,6 +35,10 @@ export interface ChannelAccountStore {
   create(input: CreateChannelAccountInput): ChannelAccountRecord;
   list(): ChannelAccountRecord[];
   update(id: number, input: UpdateChannelAccountInput): ChannelAccountRecord | undefined;
+  test(
+    id: number,
+    input: { status?: 'healthy' | 'failed' },
+  ): ChannelAccountRecord | undefined;
 }
 
 export function createChannelAccountStore(): ChannelAccountStore {
@@ -47,6 +51,9 @@ export function createChannelAccountStore(): ChannelAccountStore {
     },
     update(id, input) {
       return withDatabase((database) => updateChannelAccount(database, id, input));
+    },
+    test(id, input) {
+      return withDatabase((database) => testChannelAccount(database, id, input));
     },
   };
 }
@@ -144,6 +151,19 @@ function updateChannelAccount(
     });
 
   return nextRecord;
+}
+
+function testChannelAccount(
+  database: DatabaseConnection,
+  id: number,
+  input: { status?: 'healthy' | 'failed' },
+): ChannelAccountRecord | undefined {
+  const nextStatus = input.status;
+  if (nextStatus === undefined) {
+    return getChannelAccountById(database, id);
+  }
+
+  return updateChannelAccount(database, id, { status: nextStatus });
 }
 
 function getChannelAccountById(
