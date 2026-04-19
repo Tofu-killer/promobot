@@ -13,9 +13,11 @@ import { ReputationPage } from './pages/Reputation';
 import { ReviewQueuePage } from './pages/ReviewQueue';
 import { SettingsPage } from './pages/Settings';
 import { ChannelAccountsPage } from './pages/ChannelAccounts';
+import { SystemQueuePage } from './pages/SystemQueue';
 
 const navItems: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard', description: '总览今日运营节奏' },
+  { id: 'queue', label: 'System Queue', description: '调度队列与作业控制' },
   { id: 'projects', label: 'Projects', description: '多品牌与站点上下文' },
   { id: 'discovery', label: 'Discovery Pool', description: '选题与趋势来源' },
   { id: 'generate', label: 'Generate Center', description: '一键生成多平台草稿' },
@@ -33,6 +35,8 @@ function renderRoute(route: AppRoute) {
   switch (route) {
     case 'dashboard':
       return <DashboardPage />;
+    case 'queue':
+      return <SystemQueuePage />;
     case 'projects':
       return <ProjectsPage />;
     case 'discovery':

@@ -8,6 +8,7 @@ describe('App shell', () => {
 
     expect(html).toContain('PromoBot');
     expect(html).toContain('Dashboard');
+    expect(html).toContain('System Queue');
     expect(html).toContain('Projects');
     expect(html).toContain('Discovery Pool');
     expect(html).toContain('Generate Center');

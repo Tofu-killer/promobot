@@ -8,6 +8,7 @@ import { InboxPage } from '../../src/client/pages/Inbox';
 import { MonitorPage } from '../../src/client/pages/Monitor';
 import { ReputationPage } from '../../src/client/pages/Reputation';
 import { SettingsPage } from '../../src/client/pages/Settings';
+import { SystemQueuePage } from '../../src/client/pages/SystemQueue';
 
 function renderAppRoute(route: AppRoute) {
   return renderToStaticMarkup(
@@ -60,6 +61,15 @@ describe('Operations pages', () => {
     expect(html).toContain('LAN allowlist');
     expect(html).toContain('保存设置');
   });
+
+  it('renders the system queue controls and job workbench', () => {
+    const html = renderToStaticMarkup(<SystemQueuePage />);
+
+    expect(html).toContain('System Queue');
+    expect(html).toContain('Pending Jobs');
+    expect(html).toContain('创建作业');
+    expect(html).toContain('队列作业');
+  });
 });
 
 describe('App route shell', () => {
@@ -68,7 +78,8 @@ describe('App route shell', () => {
     ['monitor', 'Competitor Monitor'],
     ['reputation', 'Reputation'],
     ['channels', 'Channel Accounts'],
-    ['settings', 'Settings']
+    ['settings', 'Settings'],
+    ['queue', 'System Queue']
   ] as const)('renders %s through the navigation shell', (route, heading) => {
     const html = renderAppRoute(route);
 

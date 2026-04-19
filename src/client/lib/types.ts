@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 
 export type AppRoute =
   | 'dashboard'
+  | 'queue'
   | 'projects'
   | 'discovery'
   | 'generate'
