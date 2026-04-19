@@ -5,9 +5,14 @@ import { DashboardPage } from './pages/Dashboard';
 import { DiscoveryPage } from './pages/Discovery';
 import { DraftsPage } from './pages/Drafts';
 import { GeneratePage } from './pages/Generate';
+import { InboxPage } from './pages/Inbox';
+import { MonitorPage } from './pages/Monitor';
 import { ProjectsPage } from './pages/Projects';
 import { PublishCalendarPage } from './pages/PublishCalendar';
+import { ReputationPage } from './pages/Reputation';
 import { ReviewQueuePage } from './pages/ReviewQueue';
+import { SettingsPage } from './pages/Settings';
+import { ChannelAccountsPage } from './pages/ChannelAccounts';
 
 const navItems: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard', description: '总览今日运营节奏' },
@@ -23,15 +28,6 @@ const navItems: NavItem[] = [
   { id: 'channels', label: 'Channel Accounts', description: '平台账号与登录态' },
   { id: 'settings', label: 'Settings', description: '系统配置与安全策略' }
 ];
-
-function PlaceholderPage({ title, description }: { title: string; description: string }) {
-  return (
-    <section>
-      <h2 style={{ margin: 0, fontSize: '32px' }}>{title}</h2>
-      <p style={{ marginTop: '12px', color: '#475569', maxWidth: '760px' }}>{description}</p>
-    </section>
-  );
-}
 
 function renderRoute(route: AppRoute) {
   switch (route) {
@@ -50,22 +46,26 @@ function renderRoute(route: AppRoute) {
     case 'calendar':
       return <PublishCalendarPage />;
     case 'inbox':
-      return <PlaceholderPage title="Social Inbox" description="统一查看命中关键词的帖子、AI 回复建议和人工接管入口。" />;
+      return <InboxPage />;
     case 'monitor':
-      return <PlaceholderPage title="Competitor Monitor" description="竞品动态、RSS 与关键词搜索结果会汇总在这里。" />;
+      return <MonitorPage />;
     case 'reputation':
-      return <PlaceholderPage title="Reputation" description="口碑追踪会展示正负面趋势、关键词情绪和处理状态。" />;
+      return <ReputationPage />;
     case 'channels':
-      return <PlaceholderPage title="Channel Accounts" description="管理各平台 API 凭证、Playwright session 与重新登录入口。" />;
+      return <ChannelAccountsPage />;
     case 'settings':
-      return <PlaceholderPage title="Settings" description="系统参数、访问控制和任务调度开关会放在这里。" />;
+      return <SettingsPage />;
     default:
       return <DashboardPage />;
   }
 }
 
-export default function App() {
-  const [activeRoute, setActiveRoute] = useState<AppRoute>('dashboard');
+interface AppProps {
+  initialRoute?: AppRoute;
+}
+
+export default function App({ initialRoute = 'dashboard' }: AppProps) {
+  const [activeRoute, setActiveRoute] = useState<AppRoute>(initialRoute);
 
   return (
     <Layout activeRoute={activeRoute} navItems={navItems} onNavigate={setActiveRoute}>
