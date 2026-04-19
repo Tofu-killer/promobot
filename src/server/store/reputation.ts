@@ -30,6 +30,7 @@ export interface CreateReputationItemInput {
 
 export interface ReputationStore {
   create(input: CreateReputationItemInput): ReputationItemRecord;
+  updateStatus(id: number, status: string): ReputationItemRecord | undefined;
   getStats(): ReputationStats;
 }
 
@@ -37,6 +38,9 @@ export function createReputationStore(): ReputationStore {
   return {
     create(input) {
       return withDatabase((database) => insertReputationItem(database, input));
+    },
+    updateStatus(id, status) {
+      return withDatabase((database) => updateReputationItemStatus(database, id, status));
     },
     getStats() {
       return withDatabase((database) => readReputationStats(database));
@@ -109,6 +113,44 @@ function readReputationStats(database: DatabaseConnection): ReputationStats {
     ],
     items: rows,
   };
+}
+
+function updateReputationItemStatus(
+  database: DatabaseConnection,
+  id: number,
+  status: string,
+): ReputationItemRecord | undefined {
+  const current = database
+    .prepare(
+      `
+        SELECT id, source, sentiment, status, title, detail, created_at AS createdAt
+        FROM reputation_items
+        WHERE id = ?
+      `,
+    )
+    .get([id]);
+
+  if (!current) {
+    return undefined;
+  }
+
+  database
+    .prepare(
+      `
+        UPDATE reputation_items
+        SET status = @status
+        WHERE id = @id
+      `,
+    )
+    .run({
+      id,
+      status,
+    });
+
+  return normalizeReputationItem({
+    ...(current as Record<string, unknown>),
+    status,
+  });
 }
 
 function normalizeReputationItem(row: Record<string, unknown>): ReputationItemRecord {

@@ -1,6 +1,46 @@
+import { apiRequest } from '../lib/api';
+import type { AsyncState } from '../hooks/useAsyncRequest';
+import { useAsyncQuery } from '../hooks/useAsyncRequest';
 import { StatCard } from '../components/StatCard';
 
-export function DashboardPage() {
+export interface DashboardResponse {
+  monitor: {
+    total: number;
+    new: number;
+    followUpDrafts: number;
+  };
+  drafts: {
+    total: number;
+    review: number;
+  };
+  totals: {
+    items: number;
+    followUps: number;
+  };
+}
+
+export async function loadDashboardRequest(): Promise<DashboardResponse> {
+  return apiRequest<DashboardResponse>('/api/monitor/dashboard');
+}
+
+interface DashboardPageProps {
+  loadDashboardAction?: () => Promise<DashboardResponse>;
+  stateOverride?: AsyncState<DashboardResponse>;
+}
+
+export function DashboardPage({
+  loadDashboardAction = loadDashboardRequest,
+  stateOverride,
+}: DashboardPageProps) {
+  const { state } = useAsyncQuery(loadDashboardAction, [loadDashboardAction]);
+  const displayState = stateOverride ?? state;
+  const fallbackData: DashboardResponse = {
+    monitor: { total: 1, new: 1, followUpDrafts: 1 },
+    drafts: { total: 1, review: 1 },
+    totals: { items: 2, followUps: 1 },
+  };
+  const viewData = displayState.status === 'success' && displayState.data ? displayState.data : fallbackData;
+
   return (
     <section>
       <header style={{ marginBottom: '24px' }}>
@@ -11,12 +51,17 @@ export function DashboardPage() {
         </p>
       </header>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
-        <StatCard label="今日生成" value="18" detail="跨 4 个项目的候选内容草稿" />
-        <StatCard label="待审核" value="7" detail="2 条高风险内容等待人工确认" />
-        <StatCard label="已发布" value="11" detail="X / Reddit / Facebook Group 混合发布" />
-        <StatCard label="新线索" value="24" detail="Social Inbox 与竞品监控合并命中" />
-      </div>
+      {displayState.status === 'loading' ? <p style={{ color: '#334155' }}>正在加载仪表盘...</p> : null}
+      {displayState.status === 'error' ? <p style={{ color: '#b91c1c' }}>仪表盘加载失败：{displayState.error}</p> : null}
+
+      {displayState.status === 'success' || displayState.status === 'idle' ? (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
+          <StatCard label="今日生成" value={String(viewData.drafts.total)} detail="当前已入库的草稿总数" />
+          <StatCard label="待审核" value={String(viewData.drafts.review)} detail="status=review 的草稿数量" />
+          <StatCard label="已跟进" value={String(viewData.monitor.followUpDrafts)} detail="由监控项生成的 follow-up 草稿" />
+          <StatCard label="新线索" value={String(viewData.monitor.new)} detail="当前 monitor 中 status=new 的条目数" />
+        </div>
+      ) : null}
     </section>
   );
 }

@@ -22,6 +22,7 @@ export interface CreateInboxItemInput {
 export interface InboxStore {
   create(input: CreateInboxItemInput): InboxItemRecord;
   list(): InboxItemRecord[];
+  updateStatus(id: number, status: string): InboxItemRecord | undefined;
 }
 
 export function createInboxStore(): InboxStore {
@@ -31,6 +32,9 @@ export function createInboxStore(): InboxStore {
     },
     list() {
       return withDatabase((database) => listInboxItems(database));
+    },
+    updateStatus(id, status) {
+      return withDatabase((database) => updateInboxItemStatus(database, id, status));
     },
   };
 }
@@ -82,6 +86,42 @@ function listInboxItems(database: DatabaseConnection): InboxItemRecord[] {
     )
     .all()
     .map((row) => normalizeInboxItem(row as Record<string, unknown>));
+}
+
+function updateInboxItemStatus(
+  database: DatabaseConnection,
+  id: number,
+  status: string,
+): InboxItemRecord | undefined {
+  const result = database
+    .prepare(
+      `
+        UPDATE inbox_items
+        SET status = ?
+        WHERE id = ?
+      `,
+    )
+    .run([status, id]);
+
+  if (result.changes === 0) {
+    return undefined;
+  }
+
+  const row = database
+    .prepare(
+      `
+        SELECT id, source, status, author, title, excerpt, created_at AS createdAt
+        FROM inbox_items
+        WHERE id = ?
+      `,
+    )
+    .get([id]);
+
+  if (!row) {
+    return undefined;
+  }
+
+  return normalizeInboxItem(row as Record<string, unknown>);
 }
 
 function normalizeInboxItem(row: Record<string, unknown>): InboxItemRecord {

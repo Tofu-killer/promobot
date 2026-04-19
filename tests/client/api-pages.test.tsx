@@ -89,6 +89,82 @@ describe('client API page wiring', () => {
     expect(result.project.siteUrl).toBe('https://acme.test');
   });
 
+  it('loads dashboard stats through the shared API helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        monitor: {
+          total: 3,
+          new: 2,
+          followUpDrafts: 1,
+        },
+        drafts: {
+          total: 5,
+          review: 2,
+        },
+        totals: {
+          items: 8,
+          followUps: 1,
+        },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const dashboardModule = (await import('../../src/client/pages/Dashboard')) as Record<string, unknown>;
+
+    expect(typeof dashboardModule.loadDashboardRequest).toBe('function');
+
+    const loadDashboardRequest = dashboardModule.loadDashboardRequest as () => Promise<{
+      monitor: { total: number; new: number; followUpDrafts: number };
+      drafts: { total: number; review: number };
+    }>;
+
+    const result = await loadDashboardRequest();
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/monitor/dashboard', undefined);
+    expect(result.monitor.new).toBe(2);
+    expect(result.drafts.review).toBe(2);
+  });
+
+  it('shows dashboard loading, error, and success states', async () => {
+    const { DashboardPage } = await import('../../src/client/pages/Dashboard');
+
+    expect(renderPage(DashboardPage, { stateOverride: { status: 'loading' } })).toContain('正在加载仪表盘');
+    expect(
+      renderPage(DashboardPage, {
+        stateOverride: {
+          status: 'error',
+          error: 'Request failed with status 500',
+        },
+      }),
+    ).toContain('仪表盘加载失败');
+
+    const html = renderPage(DashboardPage, {
+      stateOverride: {
+        status: 'success',
+        data: {
+          monitor: {
+            total: 3,
+            new: 2,
+            followUpDrafts: 1,
+          },
+          drafts: {
+            total: 5,
+            review: 2,
+          },
+          totals: {
+            items: 8,
+            followUps: 1,
+          },
+        },
+      },
+    });
+
+    expect(html).toContain('今日生成');
+    expect(html).toContain('待审核');
+    expect(html).toContain('已跟进');
+    expect(html).toContain('新线索');
+  });
+
   it('shows project loading, error, and success states', async () => {
     const { ProjectsPage } = await import('../../src/client/pages/Projects');
 

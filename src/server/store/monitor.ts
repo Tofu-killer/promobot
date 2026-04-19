@@ -19,6 +19,7 @@ export interface CreateMonitorItemInput {
 
 export interface MonitorStore {
   create(input: CreateMonitorItemInput): MonitorItemRecord;
+  getById(id: number): MonitorItemRecord | undefined;
   list(): MonitorItemRecord[];
 }
 
@@ -26,6 +27,9 @@ export function createMonitorStore(): MonitorStore {
   return {
     create(input) {
       return withDatabase((database) => insertMonitorItem(database, input));
+    },
+    getById(id) {
+      return withDatabase((database) => getMonitorItemById(database, id));
     },
     list() {
       return withDatabase((database) => listMonitorItems(database));
@@ -66,6 +70,20 @@ function insertMonitorItem(
   }
 
   return normalizeMonitorItem(row as Record<string, unknown>);
+}
+
+function getMonitorItemById(database: DatabaseConnection, id: number): MonitorItemRecord | undefined {
+  const row = database
+    .prepare(
+      `
+        SELECT id, source, title, detail, status, created_at AS createdAt
+        FROM monitor_items
+        WHERE id = ?
+      `,
+    )
+    .get([id]);
+
+  return row ? normalizeMonitorItem(row as Record<string, unknown>) : undefined;
 }
 
 function listMonitorItems(database: DatabaseConnection): MonitorItemRecord[] {

@@ -1,9 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../../src/server/app';
 import { createInboxStore } from '../../src/server/store/inbox';
 import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
 
-async function requestApp(method: string, url: string) {
+const originalEnv = {
+  AI_BASE_URL: process.env.AI_BASE_URL,
+  AI_API_KEY: process.env.AI_API_KEY,
+  AI_MODEL: process.env.AI_MODEL,
+};
+
+async function requestApp(method: string, url: string, body?: unknown) {
   const app = createApp({
     allowedIps: ['127.0.0.1'],
     adminPassword: 'secret',
@@ -76,6 +82,10 @@ async function requestApp(method: string, url: string) {
       return res;
     };
 
+    if (body !== undefined) {
+      req.body = body;
+    }
+
     app.handle(req, res, (error?: unknown) => {
       if (settled) return;
       if (error) {
@@ -86,6 +96,36 @@ async function requestApp(method: string, url: string) {
       finish({ status: 404, body: responseBody });
     });
   });
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  process.env.AI_BASE_URL = originalEnv.AI_BASE_URL;
+  process.env.AI_API_KEY = originalEnv.AI_API_KEY;
+  process.env.AI_MODEL = originalEnv.AI_MODEL;
+});
+
+function installFetchStub(replyText: string) {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+      const payload = JSON.parse(String(init?.body)) as {
+        messages: Array<{ role: string; content: string }>;
+        response_format?: { type: string };
+      };
+
+      expect(payload.response_format).toEqual({ type: 'json_object' });
+      expect(payload.messages[0]?.role).toBe('system');
+      expect(payload.messages[1]?.role).toBe('user');
+
+      return {
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: JSON.stringify({ reply: replyText }) } }],
+        }),
+      };
+    }),
+  );
 }
 
 describe('inbox api', () => {
@@ -116,6 +156,64 @@ describe('inbox api', () => {
         ],
         total: 1,
         unread: 1,
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('updates inbox item status', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const inboxStore = createInboxStore();
+      inboxStore.create({
+        source: 'reddit',
+        status: 'needs_reply',
+        author: 'user123',
+        title: 'Need lower latency in APAC',
+        excerpt: 'Can you share current response times?',
+      });
+
+      const response = await requestApp('PATCH', '/api/inbox/1', {
+        status: 'handled',
+      });
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        item: expect.objectContaining({
+          id: 1,
+          status: 'handled',
+        }),
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('returns an AI reply suggestion for an inbox item', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      process.env.AI_BASE_URL = 'https://example.test/v1';
+      process.env.AI_API_KEY = 'test-key';
+      process.env.AI_MODEL = 'test-model';
+      installFetchStub('We are seeing strong APAC performance.');
+
+      const inboxStore = createInboxStore();
+      inboxStore.create({
+        source: 'reddit',
+        status: 'needs_reply',
+        author: 'user123',
+        title: 'Need lower latency in APAC',
+        excerpt: 'Can you share current response times?',
+      });
+
+      const response = await requestApp('POST', '/api/inbox/1/suggest-reply');
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        suggestion: {
+          reply: 'We are seeing strong APAC performance.',
+        },
       });
     } finally {
       cleanupTestDatabasePath(rootDir);

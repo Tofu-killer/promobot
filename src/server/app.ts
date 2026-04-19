@@ -10,6 +10,7 @@ import { createPublishRouter } from './routes/publish';
 import { projectsRouter } from './routes/projects';
 import { reputationRouter } from './routes/reputation';
 import { settingsRouter } from './routes/settings';
+import { systemDashboardRouter } from './routes/systemDashboard';
 import { systemRouter } from './routes/system';
 
 export function createApp(config: AppConfig = loadConfig()) {
@@ -42,6 +43,7 @@ export function createApp(config: AppConfig = loadConfig()) {
   );
   app.use('/api/projects', projectsRouter);
   app.use('/api/inbox', inboxRouter);
+  app.use('/api/monitor', systemDashboardRouter);
   app.use('/api/monitor', monitorRouter);
   app.use('/api/reputation', reputationRouter);
   app.use('/api/channel-accounts', channelAccountsRouter);

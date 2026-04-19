@@ -4,7 +4,7 @@ import { createMonitorStore } from '../../src/server/store/monitor';
 import { createSQLiteDraftStore } from '../../src/server/store/drafts';
 import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
 
-async function requestApp(method: string, url: string, body?: unknown) {
+async function requestApp(method: string, url: string) {
   const app = createApp({
     allowedIps: ['127.0.0.1'],
     adminPassword: 'secret',
@@ -77,10 +77,6 @@ async function requestApp(method: string, url: string, body?: unknown) {
       return res;
     };
 
-    if (body !== undefined) {
-      req.body = body;
-    }
-
     app.handle(req, res, (error?: unknown) => {
       if (settled) return;
       if (error) {
@@ -93,46 +89,43 @@ async function requestApp(method: string, url: string, body?: unknown) {
   });
 }
 
-describe('monitor api', () => {
-  it('creates a follow-up draft from a monitor item', async () => {
+describe('dashboard api', () => {
+  it('returns dashboard stats from monitor and draft stores', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
       const monitorStore = createMonitorStore();
       const draftStore = createSQLiteDraftStore();
-      const item = monitorStore.create({
+      monitorStore.create({
         source: 'x',
-        title: 'Competitor launched a lower tier',
-        detail: 'Observed a cheaper plan and a follow-up opportunity.',
+        title: 'New pricing move',
+        detail: 'Competitor lowered entry tier.',
         status: 'new',
       });
-
-      const response = await requestApp('POST', `/api/monitor/${item.id}/generate-follow-up`, {
+      draftStore.create({
         platform: 'x',
+        title: 'Follow-up draft',
+        content: 'Draft body',
+        status: 'review',
       });
 
-      expect(response.status).toBe(201);
+      const response = await requestApp('GET', '/api/monitor/dashboard');
+
+      expect(response.status).toBe(200);
       expect(JSON.parse(response.body)).toEqual({
-        draft: expect.objectContaining({
-          id: 1,
-          platform: 'x',
-          title: expect.stringContaining('Follow-up'),
-          content: expect.stringContaining('Competitor launched a lower tier'),
-          status: 'draft',
-        }),
+        monitor: {
+          total: 1,
+          new: 1,
+          followUpDrafts: 1,
+        },
+        drafts: {
+          total: 1,
+          review: 1,
+        },
+        totals: {
+          items: 2,
+          followUps: 1,
+        },
       });
-      expect(draftStore.list()).toHaveLength(1);
-    } finally {
-      cleanupTestDatabasePath(rootDir);
-    }
-  });
-
-  it('returns 404 when the monitor item is missing', async () => {
-    const { rootDir } = createTestDatabasePath();
-    try {
-      const response = await requestApp('POST', '/api/monitor/404/generate-follow-up');
-
-      expect(response.status).toBe(404);
-      expect(JSON.parse(response.body)).toEqual({ error: 'monitor item not found' });
     } finally {
       cleanupTestDatabasePath(rootDir);
     }

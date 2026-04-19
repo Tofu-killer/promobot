@@ -47,3 +47,17 @@ export async function chat(
   const data = (await response.json()) as ChatCompletionResponse;
   return data.choices?.[0]?.message?.content?.trim() ?? '';
 }
+
+export async function chatJson<T>(
+  systemPrompt: string,
+  userPrompt: string,
+  options: ChatOptions = {},
+): Promise<T> {
+  const content = await chat(systemPrompt, userPrompt, { ...options, json: true });
+
+  if (!content) {
+    throw new Error('AI response empty');
+  }
+
+  return JSON.parse(content) as T;
+}
