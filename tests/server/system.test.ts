@@ -164,9 +164,52 @@ describe('system runtime api', () => {
             running: 0,
             done: 0,
             failed: 0,
+            canceled: 0,
             duePending: 1,
           },
           recentJobs: [],
+        };
+      },
+      listJobs(limit?: number) {
+        return {
+          jobs: [
+            {
+              id: 9,
+              type: 'publish',
+              payload: '{"draftId":42}',
+              status: 'pending',
+              runAt: '2026-04-19T12:06:00.000Z',
+              attempts: 0,
+              createdAt: '2026-04-19T12:06:00.000Z',
+              updatedAt: '2026-04-19T12:06:00.000Z',
+              canRetry: false,
+              canCancel: true,
+            },
+          ].slice(0, limit ?? 50),
+          queue: {
+            pending: 1,
+            running: 0,
+            done: 0,
+            failed: 0,
+            canceled: 0,
+            duePending: 1,
+          },
+          recentJobs: [],
+        };
+      },
+      getJob(jobId: number) {
+        if (jobId !== 9) return undefined;
+        return {
+          id: 9,
+          type: 'publish',
+          payload: '{"draftId":42}',
+          status: 'pending',
+          runAt: '2026-04-19T12:06:00.000Z',
+          attempts: 0,
+          createdAt: '2026-04-19T12:06:00.000Z',
+          updatedAt: '2026-04-19T12:06:00.000Z',
+          canRetry: false,
+          canCancel: true,
         };
       },
       reload() {
@@ -231,10 +274,28 @@ describe('system runtime api', () => {
             running: 0,
             done: 0,
             failed: 0,
+            canceled: 0,
             duePending: 0,
           },
           recentJobs: [],
         };
+      },
+      listJobs() {
+        return {
+          jobs: [],
+          queue: {
+            pending: 1,
+            running: 0,
+            done: 0,
+            failed: 0,
+            canceled: 0,
+            duePending: 0,
+          },
+          recentJobs: [],
+        };
+      },
+      getJob() {
+        return undefined;
       },
       reload() {
         return this.getStatus();
@@ -288,5 +349,178 @@ describe('system runtime api', () => {
         available: true,
       }),
     });
+  });
+
+  it('lists, retries, and cancels jobs through the system api', async () => {
+    const actions: string[] = [];
+    const schedulerRuntime = {
+      getStatus() {
+        return {
+          available: true,
+          started: true,
+          schedulerIntervalMinutes: 15,
+          pollMs: 900000,
+          bootedAt: null,
+          lastTickAt: null,
+          lastTickResults: [],
+          lastError: null,
+          recoveredRunningJobs: 0,
+          handlers: [],
+          queue: {
+            pending: 1,
+            running: 0,
+            done: 0,
+            failed: 1,
+            canceled: 0,
+            duePending: 0,
+          },
+          recentJobs: [],
+        };
+      },
+      listJobs(limit?: number) {
+        actions.push(`list:${limit ?? 'default'}`);
+        return {
+          jobs: [
+            {
+              id: 11,
+              type: 'publish',
+              payload: '{"draftId":11}',
+              status: 'failed',
+              runAt: '2026-04-19T12:15:00.000Z',
+              attempts: 1,
+              lastError: 'boom',
+              createdAt: '2026-04-19T12:14:00.000Z',
+              updatedAt: '2026-04-19T12:15:00.000Z',
+              canRetry: true,
+              canCancel: false,
+            },
+          ].slice(0, limit ?? 50),
+          queue: {
+            pending: 1,
+            running: 0,
+            done: 0,
+            failed: 1,
+            canceled: 0,
+            duePending: 0,
+          },
+          recentJobs: [],
+        };
+      },
+      getJob(jobId: number) {
+        actions.push(`get:${jobId}`);
+        if (jobId !== 11) return undefined;
+        return {
+          id: 11,
+          type: 'publish',
+          payload: '{"draftId":11}',
+          status: 'failed',
+          runAt: '2026-04-19T12:15:00.000Z',
+          attempts: 1,
+          lastError: 'boom',
+          createdAt: '2026-04-19T12:14:00.000Z',
+          updatedAt: '2026-04-19T12:15:00.000Z',
+          canRetry: true,
+          canCancel: false,
+        };
+      },
+      reload() {
+        return this.getStatus();
+      },
+      async tickNow() {
+        return [];
+      },
+      enqueueJob() {
+        throw new Error('not implemented');
+      },
+      retryJob(jobId: number, runAt?: string) {
+        actions.push(`retry:${jobId}:${runAt ?? ''}`);
+        if (jobId !== 11) return undefined;
+        return {
+          id: 11,
+          type: 'publish',
+          payload: '{"draftId":11}',
+          status: 'pending',
+          runAt: runAt ?? '2026-04-19T12:20:00.000Z',
+          attempts: 1,
+          createdAt: '2026-04-19T12:14:00.000Z',
+          updatedAt: '2026-04-19T12:20:00.000Z',
+          canRetry: false,
+          canCancel: true,
+        };
+      },
+      cancelJob(jobId: number) {
+        actions.push(`cancel:${jobId}`);
+        if (jobId !== 11) return undefined;
+        return {
+          id: 11,
+          type: 'publish',
+          payload: '{"draftId":11}',
+          status: 'canceled',
+          runAt: '2026-04-19T12:15:00.000Z',
+          attempts: 1,
+          finishedAt: '2026-04-19T12:21:00.000Z',
+          createdAt: '2026-04-19T12:14:00.000Z',
+          updatedAt: '2026-04-19T12:21:00.000Z',
+          canRetry: true,
+          canCancel: false,
+        };
+      },
+      stop() {},
+    };
+
+    const listResponse = await requestApp({
+      remoteAddress: '127.0.0.1',
+      url: '/api/system/jobs?limit=1',
+      dependencies: { schedulerRuntime },
+    });
+    expect(listResponse.status).toBe(200);
+    expect(JSON.parse(listResponse.body)).toEqual({
+      jobs: [
+        expect.objectContaining({
+          id: 11,
+          canRetry: true,
+          canCancel: false,
+        }),
+      ],
+      queue: expect.objectContaining({ failed: 1 }),
+      recentJobs: [],
+    });
+
+    const detailResponse = await requestApp({
+      remoteAddress: '127.0.0.1',
+      url: '/api/system/jobs/11',
+      dependencies: { schedulerRuntime },
+    });
+    expect(detailResponse.status).toBe(200);
+    expect(JSON.parse(detailResponse.body)).toEqual({
+      job: expect.objectContaining({ id: 11, status: 'failed' }),
+    });
+
+    const retryResponse = await requestApp({
+      remoteAddress: '127.0.0.1',
+      method: 'POST',
+      url: '/api/system/jobs/11/retry',
+      body: { runAt: '2026-04-19T12:20:00.000Z' },
+      dependencies: { schedulerRuntime },
+    });
+    expect(retryResponse.status).toBe(200);
+    expect(JSON.parse(retryResponse.body)).toEqual({
+      job: expect.objectContaining({ id: 11, status: 'pending' }),
+      runtime: expect.objectContaining({ available: true }),
+    });
+
+    const cancelResponse = await requestApp({
+      remoteAddress: '127.0.0.1',
+      method: 'POST',
+      url: '/api/system/jobs/11/cancel',
+      dependencies: { schedulerRuntime },
+    });
+    expect(cancelResponse.status).toBe(200);
+    expect(JSON.parse(cancelResponse.body)).toEqual({
+      job: expect.objectContaining({ id: 11, status: 'canceled' }),
+      runtime: expect.objectContaining({ available: true }),
+    });
+
+    expect(actions).toEqual(['list:1', 'get:11', 'retry:11:2026-04-19T12:20:00.000Z', 'cancel:11']);
   });
 });
