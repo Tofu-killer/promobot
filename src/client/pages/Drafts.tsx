@@ -1,50 +1,39 @@
-import { useState } from 'react';
-import { apiRequest } from '../lib/api';
+import { useEffect, useState } from 'react';
+import { apiRequest, getErrorMessage } from '../lib/api';
 import type { AsyncState } from '../hooks/useAsyncRequest';
-import { useAsyncAction, useAsyncQuery } from '../hooks/useAsyncRequest';
+import { useAsyncQuery } from '../hooks/useAsyncRequest';
 import { ActionButton } from '../components/ActionButton';
+import { DraftEditorCard } from '../components/DraftEditorCard';
 import { PageHeader } from '../components/PageHeader';
 import { SectionCard } from '../components/SectionCard';
+import {
+  createDraftFormValues,
+  type DraftFormValues,
+  type DraftInteractionStateOverride,
+  type DraftMutationState,
+  type DraftRecord,
+  type DraftsResponse,
+  type PublishDraftResponse,
+  type UpdateDraftPayload,
+  type UpdateDraftResponse,
+  upsertDraftRecord,
+} from '../lib/drafts';
 
-export interface DraftRecord {
-  id: number;
-  platform: string;
-  title?: string;
-  content: string;
-  hashtags: string[];
-  status: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface DraftsResponse {
-  drafts: DraftRecord[];
-}
-
-export interface UpdateDraftPayload {
-  title?: string;
-  content?: string;
-  status?: string;
-}
-
-export interface UpdateDraftResponse {
-  draft: DraftRecord;
-}
-
-export interface PublishDraftResponse {
-  success: boolean;
-  publishUrl: string | null;
-  message: string;
-}
+export type {
+  DraftFormValues,
+  DraftInteractionStateOverride,
+  DraftRecord,
+  DraftsResponse,
+  PublishDraftResponse,
+  UpdateDraftPayload,
+  UpdateDraftResponse,
+} from '../lib/drafts';
 
 export async function loadDraftsRequest(): Promise<DraftsResponse> {
   return apiRequest<DraftsResponse>('/api/drafts');
 }
 
-export async function updateDraftRequest(
-  id: number,
-  input: UpdateDraftPayload,
-): Promise<UpdateDraftResponse> {
+export async function updateDraftRequest(id: number, input: UpdateDraftPayload): Promise<UpdateDraftResponse> {
   return apiRequest<UpdateDraftResponse>(`/api/drafts/${id}`, {
     method: 'PATCH',
     headers: {
@@ -60,46 +49,184 @@ export async function publishDraftRequest(id: number): Promise<PublishDraftRespo
   });
 }
 
-type RequestState =
-  | { status: 'idle' }
-  | { status: 'loading' }
-  | { status: 'success'; message?: string }
-  | { status: 'error'; error: string };
-
-interface DraftFormValue {
-  title: string;
-  content: string;
-  status: string;
-}
-
-export interface DraftInteractionStateOverride {
-  formValuesById?: Record<number, DraftFormValue>;
-  saveStateById?: Record<number, RequestState>;
-  publishStateById?: Record<number, RequestState>;
-}
-
 interface DraftsPageProps {
   loadDraftsAction?: () => Promise<DraftsResponse>;
+  updateDraftAction?: (id: number, input: UpdateDraftPayload) => Promise<UpdateDraftResponse>;
+  publishDraftAction?: (id: number) => Promise<PublishDraftResponse>;
   stateOverride?: AsyncState<DraftsResponse>;
   draftInteractionStateOverride?: DraftInteractionStateOverride;
 }
 
-const fieldStyle = {
-  width: '100%',
-  borderRadius: '12px',
-  border: '1px solid #cbd5e1',
-  padding: '10px 12px',
-  font: 'inherit',
-  background: '#ffffff',
-} as const;
+function createIdleMutationState(): DraftMutationState {
+  return {
+    status: 'idle',
+    message: null,
+    error: null,
+    publishUrl: null,
+  };
+}
+
+function getDraftFormValue(
+  formValuesById: Record<number, DraftFormValues>,
+  draft: DraftRecord,
+): DraftFormValues {
+  return formValuesById[draft.id] ?? createDraftFormValues(draft);
+}
+
+function getDraftMutationValue(
+  mutationStateById: Record<number, DraftMutationState>,
+  draftId: number,
+): DraftMutationState {
+  return mutationStateById[draftId] ?? createIdleMutationState();
+}
 
 export function DraftsPage({
   loadDraftsAction = loadDraftsRequest,
+  updateDraftAction = updateDraftRequest,
+  publishDraftAction = publishDraftRequest,
   stateOverride,
   draftInteractionStateOverride,
 }: DraftsPageProps) {
   const { state, reload } = useAsyncQuery(loadDraftsAction, [loadDraftsAction]);
+  const [localDrafts, setLocalDrafts] = useState<DraftRecord[]>([]);
+  const [formValuesById, setFormValuesById] = useState<Record<number, DraftFormValues>>({});
+  const [saveStateById, setSaveStateById] = useState<Record<number, DraftMutationState>>({});
+  const [publishStateById, setPublishStateById] = useState<Record<number, DraftMutationState>>({});
   const displayState = stateOverride ?? state;
+  const visibleDrafts =
+    displayState.status === 'success' && displayState.data
+      ? localDrafts.length > 0
+        ? localDrafts
+        : displayState.data.drafts
+      : [];
+  const displayFormValuesById = draftInteractionStateOverride?.formValuesById ?? formValuesById;
+  const displaySaveStateById = draftInteractionStateOverride?.saveStateById ?? saveStateById;
+  const displayPublishStateById = draftInteractionStateOverride?.publishStateById ?? publishStateById;
+
+  useEffect(() => {
+    if (displayState.status !== 'success' || !displayState.data) {
+      return;
+    }
+
+    setLocalDrafts(displayState.data.drafts);
+    setFormValuesById((currentFormValues) => {
+      const nextFormValues = { ...currentFormValues };
+
+      for (const draft of displayState.data.drafts) {
+        if (!nextFormValues[draft.id]) {
+          nextFormValues[draft.id] = createDraftFormValues(draft);
+        }
+      }
+
+      return nextFormValues;
+    });
+  }, [displayState]);
+
+  function updateFormValues(draftId: number, updater: (currentValues: DraftFormValues) => DraftFormValues) {
+    const sourceDraft =
+      visibleDrafts.find((draft) => draft.id === draftId) ??
+      displayState.data?.drafts.find((draft) => draft.id === draftId);
+
+    if (!sourceDraft) {
+      return;
+    }
+
+    setFormValuesById((currentValues) => ({
+      ...currentValues,
+      [draftId]: updater(getDraftFormValue(currentValues, sourceDraft)),
+    }));
+    setSaveStateById((currentState) => ({
+      ...currentState,
+      [draftId]: createIdleMutationState(),
+    }));
+  }
+
+  async function handleSaveDraft(draftId: number) {
+    const sourceDraft =
+      visibleDrafts.find((draft) => draft.id === draftId) ??
+      displayState.data?.drafts.find((draft) => draft.id === draftId);
+
+    if (!sourceDraft) {
+      return;
+    }
+
+    const formValues = getDraftFormValue(formValuesById, sourceDraft);
+
+    setSaveStateById((currentState) => ({
+      ...currentState,
+      [draftId]: {
+        status: 'loading',
+        message: null,
+        error: null,
+        publishUrl: null,
+      },
+    }));
+
+    try {
+      const result = await updateDraftAction(draftId, formValues);
+      setLocalDrafts((currentDrafts) =>
+        upsertDraftRecord(currentDrafts.length > 0 ? currentDrafts : visibleDrafts, result.draft),
+      );
+      setFormValuesById((currentValues) => ({
+        ...currentValues,
+        [draftId]: createDraftFormValues(result.draft),
+      }));
+      setSaveStateById((currentState) => ({
+        ...currentState,
+        [draftId]: {
+          status: 'success',
+          message: '草稿已保存',
+          error: null,
+          publishUrl: null,
+        },
+      }));
+    } catch (error) {
+      setSaveStateById((currentState) => ({
+        ...currentState,
+        [draftId]: {
+          status: 'error',
+          message: null,
+          error: getErrorMessage(error),
+          publishUrl: null,
+        },
+      }));
+    }
+  }
+
+  async function handlePublishDraft(draftId: number) {
+    setPublishStateById((currentState) => ({
+      ...currentState,
+      [draftId]: {
+        status: 'loading',
+        message: null,
+        error: null,
+        publishUrl: null,
+      },
+    }));
+
+    try {
+      const result = await publishDraftAction(draftId);
+      setPublishStateById((currentState) => ({
+        ...currentState,
+        [draftId]: {
+          status: result.success ? 'success' : 'error',
+          message: result.success ? result.message : null,
+          error: result.success ? null : result.message,
+          publishUrl: result.publishUrl,
+        },
+      }));
+    } catch (error) {
+      setPublishStateById((currentState) => ({
+        ...currentState,
+        [draftId]: {
+          status: 'error',
+          message: null,
+          error: getErrorMessage(error),
+          publishUrl: null,
+        },
+      }));
+    }
+  }
 
   return (
     <section>
@@ -121,14 +248,40 @@ export function DraftsPage({
           <div style={{ display: 'grid', gap: '12px' }}>
             <div style={{ fontWeight: 700 }}>已加载 {displayState.data.drafts.length} 条草稿</div>
 
-            {displayState.data.drafts.length === 0 ? (
+            {visibleDrafts.length === 0 ? (
               <p style={{ margin: 0, color: '#475569' }}>暂无草稿</p>
             ) : (
-              displayState.data.drafts.map((draft) => (
-                <DraftCard
+              visibleDrafts.map((draft) => (
+                <DraftEditorCard
                   key={draft.id}
                   draft={draft}
-                  interactionOverride={draftInteractionStateOverride}
+                  formValues={getDraftFormValue(displayFormValuesById, draft)}
+                  saveState={getDraftMutationValue(displaySaveStateById, draft.id)}
+                  publishState={getDraftMutationValue(displayPublishStateById, draft.id)}
+                  onTitleChange={(value) =>
+                    updateFormValues(draft.id, (currentValues) => ({
+                      ...currentValues,
+                      title: value,
+                    }))
+                  }
+                  onContentChange={(value) =>
+                    updateFormValues(draft.id, (currentValues) => ({
+                      ...currentValues,
+                      content: value,
+                    }))
+                  }
+                  onStatusChange={(value) =>
+                    updateFormValues(draft.id, (currentValues) => ({
+                      ...currentValues,
+                      status: value,
+                    }))
+                  }
+                  onSave={() => {
+                    void handleSaveDraft(draft.id);
+                  }}
+                  onPublish={() => {
+                    void handlePublishDraft(draft.id);
+                  }}
                 />
               ))
             )}
@@ -140,101 +293,5 @@ export function DraftsPage({
         ) : null}
       </SectionCard>
     </section>
-  );
-}
-
-function DraftCard({
-  draft,
-  interactionOverride,
-}: {
-  draft: DraftRecord;
-  interactionOverride?: DraftInteractionStateOverride;
-}) {
-  const formOverride = interactionOverride?.formValuesById?.[draft.id];
-  const [title, setTitle] = useState(formOverride?.title ?? draft.title ?? '');
-  const [content, setContent] = useState(formOverride?.content ?? draft.content);
-  const [status, setStatus] = useState(formOverride?.status ?? draft.status);
-  const saveOverride = interactionOverride?.saveStateById?.[draft.id];
-  const publishOverride = interactionOverride?.publishStateById?.[draft.id];
-  const { state: saveState, run: saveDraft } = useAsyncAction((payload: UpdateDraftPayload) =>
-    updateDraftRequest(draft.id, payload),
-  );
-  const { state: publishState, run: publishDraft } = useAsyncAction(() => publishDraftRequest(draft.id));
-
-  const displaySaveState = saveOverride ?? saveState;
-  const displayPublishState = publishOverride ?? publishState;
-
-  function handleSave() {
-    void saveDraft({ title, content, status });
-  }
-
-  function handlePublish() {
-    void publishDraft(undefined);
-  }
-
-  return (
-    <article
-      style={{
-        borderRadius: '16px',
-        border: '1px solid #dbe4f0',
-        background: '#f8fafc',
-        padding: '16px',
-        display: 'grid',
-        gap: '12px',
-      }}
-    >
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
-        <strong>{draft.title ?? `Draft #${draft.id}`}</strong>
-        <span style={{ color: '#475569' }}>{draft.status}</span>
-      </div>
-
-      <div style={{ fontSize: '13px', color: '#2563eb', textTransform: 'uppercase' }}>{draft.platform}</div>
-
-      <label style={{ display: 'grid', gap: '8px' }}>
-        <span style={{ fontWeight: 700 }}>标题</span>
-        <input value={title} onChange={(event) => setTitle(event.target.value)} style={fieldStyle} />
-      </label>
-
-      <label style={{ display: 'grid', gap: '8px' }}>
-        <span style={{ fontWeight: 700 }}>内容</span>
-        <textarea
-          rows={4}
-          value={content}
-          onChange={(event) => setContent(event.target.value)}
-          style={{ ...fieldStyle, resize: 'vertical' }}
-        />
-      </label>
-
-      <label style={{ display: 'grid', gap: '8px' }}>
-        <span style={{ fontWeight: 700 }}>状态</span>
-        <input value={status} onChange={(event) => setStatus(event.target.value)} style={fieldStyle} />
-      </label>
-
-      <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-        <ActionButton
-          label={displaySaveState.status === 'loading' ? '正在保存...' : '保存修改'}
-          onClick={handleSave}
-        />
-        <ActionButton
-          label={displayPublishState.status === 'loading' ? '正在发布...' : '触发发布'}
-          tone="primary"
-          onClick={handlePublish}
-        />
-      </div>
-
-      {displaySaveState.status === 'success' ? (
-        <div style={{ color: '#166534' }}>{displaySaveState.message ?? '草稿已保存'}</div>
-      ) : null}
-      {displaySaveState.status === 'error' ? (
-        <div style={{ color: '#b91c1c' }}>{displaySaveState.error}</div>
-      ) : null}
-
-      {displayPublishState.status === 'success' ? (
-        <div style={{ color: '#166534' }}>{displayPublishState.message ?? '发布成功'}</div>
-      ) : null}
-      {displayPublishState.status === 'error' ? (
-        <div style={{ color: '#b91c1c' }}>{displayPublishState.error}</div>
-      ) : null}
-    </article>
   );
 }
