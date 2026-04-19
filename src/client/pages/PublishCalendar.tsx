@@ -1,24 +1,52 @@
+import { useState } from 'react';
 import { ActionButton } from '../components/ActionButton';
 import { PageHeader } from '../components/PageHeader';
 import { SectionCard } from '../components/SectionCard';
-import { apiRequest } from '../lib/api';
+import { apiRequest, getErrorMessage } from '../lib/api';
 import type { DraftRecord, DraftsResponse } from '../lib/drafts';
 import type { AsyncState } from '../hooks/useAsyncRequest';
-import { useAsyncQuery } from '../hooks/useAsyncRequest';
+import { useAsyncAction, useAsyncQuery } from '../hooks/useAsyncRequest';
 
 export type { DraftRecord, DraftsResponse } from '../lib/drafts';
 
 type CalendarDraftStatus = 'scheduled' | 'published';
 
+export interface UpdatePublishCalendarDraftScheduleResponse {
+  draft: DraftRecord;
+}
+
 interface PublishCalendarPageProps {
   loadDraftsAction?: () => Promise<DraftsResponse>;
+  updateDraftScheduleAction?: (
+    id: number,
+    input: { scheduledAt: string | null },
+  ) => Promise<UpdatePublishCalendarDraftScheduleResponse>;
   stateOverride?: AsyncState<DraftsResponse>;
+}
+
+interface ScheduleMutationState {
+  status: 'idle' | 'loading' | 'success' | 'error';
+  message: string | null;
+  error: string | null;
 }
 
 const calendarStatuses: CalendarDraftStatus[] = ['scheduled', 'published'];
 
 export async function loadPublishCalendarRequest(): Promise<DraftsResponse> {
   return apiRequest<DraftsResponse>('/api/drafts');
+}
+
+export async function updatePublishCalendarDraftScheduleRequest(
+  id: number,
+  input: { scheduledAt: string | null },
+): Promise<UpdatePublishCalendarDraftScheduleResponse> {
+  return apiRequest<UpdatePublishCalendarDraftScheduleResponse>(`/api/drafts/${id}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(input),
+  });
 }
 
 function isCalendarDraftStatus(status: DraftRecord['status']): status is CalendarDraftStatus {
@@ -33,11 +61,26 @@ function formatDraftTimestamp(draft: DraftRecord) {
   return draft.updatedAt.length > 0 ? draft.updatedAt : draft.createdAt;
 }
 
+function createIdleMutationState(): ScheduleMutationState {
+  return {
+    status: 'idle',
+    message: null,
+    error: null,
+  };
+}
+
 export function PublishCalendarPage({
   loadDraftsAction = loadPublishCalendarRequest,
+  updateDraftScheduleAction = updatePublishCalendarDraftScheduleRequest,
   stateOverride,
 }: PublishCalendarPageProps) {
   const { state, reload } = useAsyncQuery(loadDraftsAction, [loadDraftsAction]);
+  const { state: updateState, run: updateSchedule } = useAsyncAction(
+    ({ id, scheduledAt }: { id: number; scheduledAt: string | null }) =>
+      updateDraftScheduleAction(id, { scheduledAt }),
+  );
+  const [scheduledAtById, setScheduledAtById] = useState<Record<number, string>>({});
+  const [mutationStateById, setMutationStateById] = useState<Record<number, ScheduleMutationState>>({});
   const displayState = stateOverride ?? state;
   const calendarDrafts =
     displayState.status === 'success' && displayState.data
@@ -45,6 +88,55 @@ export function PublishCalendarPage({
       : [];
   const scheduledDrafts = calendarDrafts.filter((draft) => draft.status === 'scheduled');
   const publishedDrafts = calendarDrafts.filter((draft) => draft.status === 'published');
+
+  function getScheduledAtValue(draft: DraftRecord) {
+    return scheduledAtById[draft.id] ?? draft.scheduledAt ?? '';
+  }
+
+  function getMutationState(draftId: number) {
+    return mutationStateById[draftId] ?? createIdleMutationState();
+  }
+
+  async function handleSaveSchedule(draft: DraftRecord) {
+    const scheduledAt = getScheduledAtValue(draft);
+    setMutationStateById((current) => ({
+      ...current,
+      [draft.id]: {
+        status: 'loading',
+        message: null,
+        error: null,
+      },
+    }));
+
+    try {
+      const result = await updateSchedule({
+        id: draft.id,
+        scheduledAt,
+      });
+
+      setScheduledAtById((current) => ({
+        ...current,
+        [draft.id]: result.draft.scheduledAt ?? '',
+      }));
+      setMutationStateById((current) => ({
+        ...current,
+        [draft.id]: {
+          status: 'success',
+          message: '排程已保存',
+          error: null,
+        },
+      }));
+    } catch (error) {
+      setMutationStateById((current) => ({
+        ...current,
+        [draft.id]: {
+          status: 'error',
+          message: null,
+          error: getErrorMessage(error),
+        },
+      }));
+    }
+  }
 
   return (
     <section>
@@ -95,41 +187,101 @@ export function PublishCalendarPage({
               <p style={{ margin: 0, color: '#475569' }}>暂无 scheduled 或 published 草稿。</p>
             ) : (
               <div style={{ display: 'grid', gap: '12px' }}>
-                {calendarDrafts.map((draft) => (
-                  <article
-                    key={draft.id}
-                    style={{
-                      borderRadius: '18px',
-                      border: '1px solid #dbe4f0',
-                      padding: '18px',
-                      background: '#f8fafc',
-                      display: 'grid',
-                      gap: '10px',
-                    }}
-                  >
-                    <div style={{ display: 'flex', gap: '12px', justifyContent: 'space-between', flexWrap: 'wrap' }}>
-                      <strong>{draft.title ?? `${draft.platform} draft #${draft.id}`}</strong>
-                      <span
-                        style={{
-                          borderRadius: '999px',
-                          padding: '4px 10px',
-                          background: draft.status === 'scheduled' ? '#dbeafe' : '#dcfce7',
-                          color: draft.status === 'scheduled' ? '#1d4ed8' : '#047857',
-                          fontWeight: 700,
-                        }}
-                      >
-                        {formatCalendarStatusLabel(draft.status)}
-                      </span>
-                    </div>
+                {calendarDrafts.map((draft) => {
+                  const mutationState = getMutationState(draft.id);
+                  const scheduledAt = getScheduledAtValue(draft);
 
-                    <div style={{ color: '#475569', lineHeight: 1.5 }}>{draft.content}</div>
+                  return (
+                    <article
+                      key={draft.id}
+                      style={{
+                        borderRadius: '18px',
+                        border: '1px solid #dbe4f0',
+                        padding: '18px',
+                        background: '#f8fafc',
+                        display: 'grid',
+                        gap: '10px',
+                      }}
+                    >
+                      <div style={{ display: 'flex', gap: '12px', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+                        <strong>{draft.title ?? `${draft.platform} draft #${draft.id}`}</strong>
+                        <span
+                          style={{
+                            borderRadius: '999px',
+                            padding: '4px 10px',
+                            background: draft.status === 'scheduled' ? '#dbeafe' : '#dcfce7',
+                            color: draft.status === 'scheduled' ? '#1d4ed8' : '#047857',
+                            fontWeight: 700,
+                          }}
+                        >
+                          {formatCalendarStatusLabel(draft.status)}
+                        </span>
+                      </div>
 
-                    <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', color: '#64748b', fontSize: '14px' }}>
-                      <span>平台：{draft.platform}</span>
-                      <span>更新时间：{formatDraftTimestamp(draft)}</span>
-                    </div>
-                  </article>
-                ))}
+                      <div style={{ color: '#475569', lineHeight: 1.5 }}>{draft.content}</div>
+
+                      <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', color: '#64748b', fontSize: '14px' }}>
+                        <span>平台：{draft.platform}</span>
+                        <span>更新时间：{formatDraftTimestamp(draft)}</span>
+                      </div>
+
+                      {draft.status === 'scheduled' ? (
+                        <div style={{ display: 'grid', gap: '8px' }}>
+                          <label style={{ display: 'grid', gap: '8px' }}>
+                            <span style={{ fontWeight: 700 }}>排程时间</span>
+                            <input
+                              data-calendar-scheduled-at-id={String(draft.id)}
+                              value={scheduledAt}
+                              onChange={(event) =>
+                                setScheduledAtById((current) => ({
+                                  ...current,
+                                  [draft.id]: event.target.value,
+                                }))
+                              }
+                              style={{
+                                width: '100%',
+                                borderRadius: '12px',
+                                border: '1px solid #cbd5e1',
+                                padding: '10px 12px',
+                                font: 'inherit',
+                                background: '#ffffff',
+                              }}
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            data-calendar-save-id={String(draft.id)}
+                            onClick={() => {
+                              void handleSaveSchedule(draft);
+                            }}
+                            style={{
+                              width: 'fit-content',
+                              borderRadius: '12px',
+                              border: 'none',
+                              background: '#2563eb',
+                              color: '#ffffff',
+                              padding: '10px 14px',
+                              fontWeight: 700,
+                            }}
+                          >
+                            {mutationState.status === 'loading' ? '正在保存排程...' : '保存排程'}
+                          </button>
+                          {mutationState.status === 'success' ? (
+                            <div style={{ color: '#166534', fontWeight: 700 }}>
+                              {mutationState.message}
+                              {scheduledAt ? `，排程时间：${scheduledAt}` : ''}
+                            </div>
+                          ) : null}
+                          {mutationState.status === 'error' ? (
+                            <div style={{ color: '#b91c1c', fontWeight: 700 }}>
+                              排程保存失败：{mutationState.error}
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </article>
+                  );
+                })}
               </div>
             )}
           </div>

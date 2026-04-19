@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { apiRequest } from '../lib/api';
+import { apiRequest, getErrorMessage } from '../lib/api';
 import type { AsyncState } from '../hooks/useAsyncRequest';
 import { useAsyncAction } from '../hooks/useAsyncRequest';
 import { SectionCard } from '../components/SectionCard';
@@ -41,6 +41,17 @@ export interface GenerateDraftsResponse {
   }>;
 }
 
+export interface SendDraftToReviewResponse {
+  draft: {
+    id: number;
+    platform: string;
+    title?: string;
+    content: string;
+    hashtags: string[];
+    status: string;
+  };
+}
+
 export async function generateDraftsRequest(input: GenerateDraftsPayload): Promise<GenerateDraftsResponse> {
   return apiRequest<GenerateDraftsResponse>('/api/content/generate', {
     method: 'POST',
@@ -51,15 +62,47 @@ export async function generateDraftsRequest(input: GenerateDraftsPayload): Promi
   });
 }
 
+export async function sendDraftToReviewRequest(id: number): Promise<SendDraftToReviewResponse> {
+  return apiRequest<SendDraftToReviewResponse>(`/api/drafts/${id}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ status: 'review' }),
+  });
+}
+
+interface ReviewMutationState {
+  status: 'idle' | 'loading' | 'success' | 'error';
+  message: string | null;
+  error: string | null;
+  reviewStatus: string | null;
+}
+
 interface GeneratePageProps {
   generateAction?: (input: GenerateDraftsPayload) => Promise<GenerateDraftsResponse>;
+  sendDraftToReviewAction?: (id: number) => Promise<SendDraftToReviewResponse>;
   stateOverride?: AsyncState<GenerateDraftsResponse>;
 }
 
-export function GeneratePage({ generateAction = generateDraftsRequest, stateOverride }: GeneratePageProps) {
+function createIdleReviewMutationState(): ReviewMutationState {
+  return {
+    status: 'idle',
+    message: null,
+    error: null,
+    reviewStatus: null,
+  };
+}
+
+export function GeneratePage({
+  generateAction = generateDraftsRequest,
+  sendDraftToReviewAction = sendDraftToReviewRequest,
+  stateOverride,
+}: GeneratePageProps) {
   const [topic, setTopic] = useState('We added a cheaper Claude-compatible endpoint for Australian customers.');
   const [tone, setTone] = useState<(typeof toneOptions)[number]['value']>('professional');
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>(platformOptions.map((platform) => platform.value));
+  const [reviewStateByDraftId, setReviewStateByDraftId] = useState<Record<number, ReviewMutationState>>({});
   const { state, run } = useAsyncAction(generateAction);
 
   const displayState = stateOverride ?? state;
@@ -79,6 +122,46 @@ export function GeneratePage({ generateAction = generateDraftsRequest, stateOver
       platforms: selectedPlatforms,
       saveAsDraft,
     });
+  }
+
+  function getReviewState(draftId: number): ReviewMutationState {
+    return reviewStateByDraftId[draftId] ?? createIdleReviewMutationState();
+  }
+
+  async function handleSendDraftToReview(draftId: number) {
+    setReviewStateByDraftId((currentState) => ({
+      ...currentState,
+      [draftId]: {
+        status: 'loading',
+        message: null,
+        error: null,
+        reviewStatus: null,
+      },
+    }));
+
+    try {
+      const result = await sendDraftToReviewAction(draftId);
+
+      setReviewStateByDraftId((currentState) => ({
+        ...currentState,
+        [draftId]: {
+          status: 'success',
+          message: '已送审',
+          error: null,
+          reviewStatus: result.draft.status,
+        },
+      }));
+    } catch (error) {
+      setReviewStateByDraftId((currentState) => ({
+        ...currentState,
+        [draftId]: {
+          status: 'error',
+          message: null,
+          error: getErrorMessage(error),
+          reviewStatus: null,
+        },
+      }));
+    }
   }
 
   return (
@@ -237,7 +320,44 @@ export function GeneratePage({ generateAction = generateDraftsRequest, stateOver
                 <div style={{ marginTop: '8px', color: '#64748b' }}>
                   Hashtags: {result.hashtags.length > 0 ? result.hashtags.join(', ') : 'None'}
                 </div>
-                {result.draftId !== undefined ? <div style={{ marginTop: '6px', color: '#64748b' }}>draftId: {result.draftId}</div> : null}
+                {result.draftId !== undefined ? (
+                  <>
+                    <div style={{ marginTop: '6px', color: '#64748b' }}>draftId: {result.draftId}</div>
+                    <div style={{ marginTop: '12px', display: 'grid', gap: '8px' }}>
+                      <button
+                        data-review-draft-id={String(result.draftId)}
+                        type="button"
+                        onClick={() => {
+                          void handleSendDraftToReview(result.draftId as number);
+                        }}
+                        disabled={getReviewState(result.draftId).status === 'loading'}
+                        style={{
+                          width: 'fit-content',
+                          borderRadius: '10px',
+                          border: '1px solid #cbd5e1',
+                          background: '#ffffff',
+                          padding: '10px 14px',
+                          fontWeight: 700,
+                        }}
+                      >
+                        {getReviewState(result.draftId).status === 'loading' ? '正在送审...' : '送审'}
+                      </button>
+                      {getReviewState(result.draftId).status === 'success' ? (
+                        <div style={{ color: '#166534', fontWeight: 700 }}>
+                          {getReviewState(result.draftId).message}
+                          {getReviewState(result.draftId).reviewStatus
+                            ? `，当前状态：${getReviewState(result.draftId).reviewStatus}`
+                            : ''}
+                        </div>
+                      ) : null}
+                      {getReviewState(result.draftId).status === 'error' ? (
+                        <div style={{ color: '#b91c1c', fontWeight: 700 }}>
+                          送审失败：{getReviewState(result.draftId).error}
+                        </div>
+                      ) : null}
+                    </div>
+                  </>
+                ) : null}
               </article>
             ))}
           </div>
