@@ -2,11 +2,16 @@ import { describe, expect, it } from 'vitest';
 import { createApp } from '../../src/server/app';
 import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
 
-async function requestApp(method: string, url: string, body?: unknown) {
+async function requestApp(
+  method: string,
+  url: string,
+  body?: unknown,
+  dependencies?: Parameters<typeof createApp>[1],
+) {
   const app = createApp({
     allowedIps: ['127.0.0.1'],
     adminPassword: 'secret',
-  });
+  }, dependencies);
 
   return await new Promise<{ status: number; body: string }>((resolve, reject) => {
     const req = Object.assign(Object.create(app.request), {
@@ -113,6 +118,110 @@ describe('settings api', () => {
           rssDefaults: ['OpenAI blog', 'Anthropic news'],
         }),
       });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('includes runtime status and reloads scheduler when runtime is provided', async () => {
+    const { rootDir } = createTestDatabasePath();
+    const calls: string[] = [];
+    const schedulerRuntime = {
+      getStatus() {
+        calls.push('getStatus');
+        return {
+          available: true,
+          started: true,
+          schedulerIntervalMinutes: 15,
+          pollMs: 900000,
+          bootedAt: '2026-04-19T12:00:00.000Z',
+          lastTickAt: null,
+          lastTickResults: [],
+          lastError: null,
+          recoveredRunningJobs: 0,
+          handlers: [],
+          queue: {
+            pending: 0,
+            running: 0,
+            done: 0,
+            failed: 0,
+            duePending: 0,
+          },
+          recentJobs: [],
+        };
+      },
+      reload() {
+        calls.push('reload');
+        return {
+          available: true,
+          started: true,
+          schedulerIntervalMinutes: 30,
+          pollMs: 1800000,
+          bootedAt: '2026-04-19T12:00:00.000Z',
+          lastTickAt: null,
+          lastTickResults: [],
+          lastError: null,
+          recoveredRunningJobs: 0,
+          handlers: [],
+          queue: {
+            pending: 0,
+            running: 0,
+            done: 0,
+            failed: 0,
+            duePending: 0,
+          },
+          recentJobs: [],
+        };
+      },
+      async tickNow() {
+        return [];
+      },
+      enqueueJob() {
+        throw new Error('not implemented');
+      },
+      stop() {},
+    };
+
+    try {
+      const loaded = await requestApp('GET', '/api/settings', undefined, {
+        schedulerRuntime,
+      });
+
+      expect(loaded.status).toBe(200);
+      expect(JSON.parse(loaded.body)).toEqual({
+        settings: expect.objectContaining({
+          schedulerIntervalMinutes: 15,
+        }),
+        runtime: expect.objectContaining({
+          available: true,
+          started: true,
+        }),
+      });
+
+      const updated = await requestApp(
+        'PATCH',
+        '/api/settings',
+        {
+          allowlist: ['127.0.0.1'],
+          schedulerIntervalMinutes: 30,
+          rssDefaults: ['OpenAI blog'],
+        },
+        {
+          schedulerRuntime,
+        },
+      );
+
+      expect(updated.status).toBe(200);
+      expect(JSON.parse(updated.body)).toEqual({
+        settings: expect.objectContaining({
+          schedulerIntervalMinutes: 30,
+        }),
+        runtime: expect.objectContaining({
+          schedulerIntervalMinutes: 30,
+          pollMs: 1800000,
+        }),
+      });
+      expect(calls).toEqual(['getStatus', 'reload']);
     } finally {
       cleanupTestDatabasePath(rootDir);
     }

@@ -33,6 +33,7 @@ export interface UpdateChannelAccountInput {
 
 export interface ChannelAccountStore {
   create(input: CreateChannelAccountInput): ChannelAccountRecord;
+  getById(id: number): ChannelAccountRecord | undefined;
   list(): ChannelAccountRecord[];
   update(id: number, input: UpdateChannelAccountInput): ChannelAccountRecord | undefined;
   test(
@@ -45,6 +46,9 @@ export function createChannelAccountStore(): ChannelAccountStore {
   return {
     create(input) {
       return withDatabase((database) => insertChannelAccount(database, input));
+    },
+    getById(id) {
+      return withDatabase((database) => getChannelAccountById(database, id));
     },
     list() {
       return withDatabase((database) => listChannelAccounts(database));

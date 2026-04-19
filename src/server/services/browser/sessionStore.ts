@@ -1,13 +1,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import type { PublisherPlatform } from '../publishers/types';
+import { getDatabasePath } from '../../lib/persistence';
 
 export type SessionStatus = 'active' | 'expired' | 'missing';
+export type BrowserSessionAction = 'relogin' | 'request_session';
+export type BrowserSessionPlatform = string;
 
 export interface SessionMetadata {
   id: string;
-  platform: PublisherPlatform;
+  platform: BrowserSessionPlatform;
   accountKey: string;
   storageStatePath: string;
   status: SessionStatus;
@@ -18,7 +20,7 @@ export interface SessionMetadata {
 }
 
 export interface SaveSessionInput {
-  platform: PublisherPlatform;
+  platform: BrowserSessionPlatform;
   accountKey: string;
   storageStatePath: string;
   status: SessionStatus;
@@ -26,8 +28,21 @@ export interface SaveSessionInput {
   lastValidatedAt?: string | null;
 }
 
+export interface SessionSummary {
+  hasSession: boolean;
+  id?: string;
+  status: SessionStatus;
+  validatedAt: string | null;
+  storageStatePath: string | null;
+  notes?: string;
+}
+
 export interface SessionStoreOptions {
   rootDir: string;
+}
+
+export function createSessionStore(rootDir = resolveDefaultSessionRootDir()) {
+  return new SessionStore({ rootDir });
 }
 
 export class SessionStore {
@@ -67,12 +82,12 @@ export class SessionStore {
     return metadata;
   }
 
-  getSession(platform: PublisherPlatform, accountKey: string): SessionMetadata | null {
+  getSession(platform: BrowserSessionPlatform, accountKey: string): SessionMetadata | null {
     return this.getSessionByStorageKey(platform, sanitizeAccountKey(accountKey));
   }
 
   private getSessionByStorageKey(
-    platform: PublisherPlatform,
+    platform: BrowserSessionPlatform,
     storageKey: string,
   ): SessionMetadata | null {
     const metadataPath = this.getMetadataPath(platform, storageKey);
@@ -111,16 +126,54 @@ export class SessionStore {
     return sessions.sort((left, right) => left.id.localeCompare(right.id));
   }
 
-  private getMetadataPath(platform: PublisherPlatform, storageKey: string): string {
-    return path.join(this.options.rootDir, platform, `${storageKey}.json`);
+  private getMetadataPath(platform: BrowserSessionPlatform, storageKey: string): string {
+    return path.join(
+      this.options.rootDir,
+      sanitizePlatformKey(platform),
+      `${storageKey}.json`,
+    );
   }
 }
 
-function buildSessionId(platform: PublisherPlatform, storageKey: string): string {
+export function buildSessionSummary(session: SessionMetadata | null): SessionSummary {
+  if (!session) {
+    return {
+      hasSession: false,
+      status: 'missing',
+      validatedAt: null,
+      storageStatePath: null,
+    };
+  }
+
+  return {
+    hasSession: true,
+    id: session.id,
+    status: session.status,
+    validatedAt: session.lastValidatedAt,
+    storageStatePath: session.storageStatePath,
+    notes: session.notes,
+  };
+}
+
+function buildSessionId(platform: BrowserSessionPlatform, storageKey: string): string {
   return `${platform}:${storageKey}`;
 }
 
 function sanitizeAccountKey(accountKey: string): string {
   const sanitized = accountKey.trim().replace(/[^a-zA-Z0-9._-]+/g, '-');
   return sanitized.length > 0 ? sanitized : 'default';
+}
+
+function sanitizePlatformKey(platform: string): string {
+  const sanitized = platform.trim().replace(/[^a-zA-Z0-9._-]+/g, '-');
+  return sanitized.length > 0 ? sanitized : 'default';
+}
+
+function resolveDefaultSessionRootDir() {
+  const databasePath = getDatabasePath();
+  if (databasePath === ':memory:' || databasePath.startsWith('file:')) {
+    return path.resolve(process.cwd(), 'data/browser-sessions');
+  }
+
+  return path.join(path.dirname(databasePath), 'browser-sessions');
 }

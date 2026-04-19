@@ -163,7 +163,7 @@ function readPublishLogs() {
 }
 
 describe('publish api', () => {
-  it('publishes an x draft through the default stub adapter and returns the minimal contract', async () => {
+  it('publishes an x draft through the default stub adapter and returns the enriched publish contract', async () => {
     const lookupDraft = vi.fn().mockResolvedValue({
       id: 42,
       platform: 'x',
@@ -177,9 +177,50 @@ describe('publish api', () => {
 
     expect(response.status).toBe(200);
     expect(JSON.parse(response.body)).toEqual({
+      draftId: 42,
+      draftStatus: 'published',
+      platform: 'x',
+      mode: 'api',
+      status: 'published',
       success: true,
       publishUrl: 'https://x.com/promobot/status/42',
+      externalId: 'x-42',
       message: 'x stub publisher accepted draft 42',
+      publishedAt: expect.any(String),
+      details: {
+        target: '@promobot',
+      },
+    });
+  });
+
+  it('returns manual_required publish contracts without collapsing them into a generic failure', async () => {
+    const app = createTestApp({
+      lookupDraft: vi.fn().mockResolvedValue({
+        id: 12,
+        platform: 'facebook-group',
+        title: 'Community update',
+        content: 'Needs browser handoff',
+        target: 'group-123',
+      }),
+    });
+
+    const response = await requestApp(app, 'POST', '/api/drafts/12/publish');
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({
+      draftId: 12,
+      draftStatus: 'review',
+      platform: 'facebookGroup',
+      mode: 'browser',
+      status: 'manual_required',
+      success: false,
+      publishUrl: null,
+      externalId: null,
+      message: 'facebookGroup stub publisher accepted draft 12',
+      publishedAt: null,
+      details: {
+        target: 'group-123',
+      },
     });
   });
 
@@ -235,6 +276,84 @@ describe('publish api', () => {
     ]);
   });
 
+  it('persists queued publish semantics without backfilling publishedAt', async () => {
+    const testDatabase = createTestDatabasePath();
+    activeTestDbRoot = testDatabase.rootDir;
+    activeTestDatabasePath = testDatabase.databasePath;
+    const draftStore = createSQLiteDraftStore();
+    const draft = draftStore.create({
+      platform: 'x',
+      title: 'Queued thread',
+      content: 'Queued for async publish',
+    });
+    const publishDraft = vi.fn().mockResolvedValue({
+      platform: 'x',
+      mode: 'api',
+      status: 'queued',
+      success: false,
+      publishUrl: null,
+      externalId: 'queue-job-17',
+      message: 'queued for downstream publisher',
+      publishedAt: null,
+      details: {
+        queueName: 'social-x',
+      },
+    });
+    const app = createTestApp(
+      {
+        lookupDraft(id) {
+          const storedDraft = draftStore.getById(id);
+          if (!storedDraft) {
+            return undefined;
+          }
+
+          return {
+            id: storedDraft.id,
+            platform: storedDraft.platform,
+            title: storedDraft.title,
+            content: storedDraft.content,
+          };
+        },
+        publishDraft,
+      },
+      { useDefaultPersistence: true },
+    );
+
+    const response = await requestApp(app, 'POST', `/api/drafts/${draft.id}/publish`);
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({
+      draftId: draft.id,
+      draftStatus: 'queued',
+      platform: 'x',
+      mode: 'api',
+      status: 'queued',
+      success: false,
+      publishUrl: null,
+      externalId: 'queue-job-17',
+      message: 'queued for downstream publisher',
+      publishedAt: null,
+      details: {
+        queueName: 'social-x',
+      },
+    });
+    expect(draftStore.getById(draft.id)).toEqual(
+      expect.objectContaining({
+        id: draft.id,
+        status: 'queued',
+        publishedAt: undefined,
+      }),
+    );
+    expect(readPublishLogs()).toEqual([
+      expect.objectContaining({
+        draftId: draft.id,
+        status: 'queued',
+        publishUrl: null,
+        message: 'queued for downstream publisher',
+      }),
+    ]);
+  });
+
   it('returns 404 when the draft lookup misses', async () => {
     const app = createTestApp({
       lookupDraft: vi.fn().mockResolvedValue(undefined),
@@ -267,9 +386,17 @@ describe('publish api', () => {
 
   it('uses an injected publish adapter when one is provided', async () => {
     const publishDraft = vi.fn().mockResolvedValue({
+      platform: 'x',
+      mode: 'api',
+      status: 'queued',
       success: false,
       publishUrl: null,
+      externalId: 'queue-job-9',
       message: 'queued for manual review',
+      publishedAt: null,
+      details: {
+        queueName: 'manual-review',
+      },
     });
     const app = createTestApp({
       lookupDraft: vi.fn().mockResolvedValue({
@@ -292,10 +419,96 @@ describe('publish api', () => {
       expect.any(Object),
     );
     expect(JSON.parse(response.body)).toEqual({
+      draftId: 9,
+      draftStatus: 'queued',
+      platform: 'x',
+      mode: 'api',
+      status: 'queued',
       success: false,
       publishUrl: null,
+      externalId: 'queue-job-9',
       message: 'queued for manual review',
+      publishedAt: null,
+      details: {
+        queueName: 'manual-review',
+      },
     });
+  });
+
+  it('persists failed publish results that are returned explicitly, instead of only thrown errors', async () => {
+    const testDatabase = createTestDatabasePath();
+    activeTestDbRoot = testDatabase.rootDir;
+    activeTestDatabasePath = testDatabase.databasePath;
+    const draftStore = createSQLiteDraftStore();
+    const draft = draftStore.create({
+      platform: 'x',
+      content: 'Provider may reject this draft',
+    });
+    const app = createTestApp(
+      {
+        lookupDraft(id) {
+          const storedDraft = draftStore.getById(id);
+          if (!storedDraft) {
+            return undefined;
+          }
+
+          return {
+            id: storedDraft.id,
+            platform: storedDraft.platform,
+            title: storedDraft.title,
+            content: storedDraft.content,
+          };
+        },
+        publishDraft: vi.fn().mockResolvedValue({
+          platform: 'x',
+          mode: 'api',
+          status: 'failed',
+          success: false,
+          publishUrl: null,
+          externalId: null,
+          message: 'provider rejected draft',
+          publishedAt: null,
+          details: {
+            code: 'POLICY_BLOCK',
+          },
+        }),
+      },
+      { useDefaultPersistence: true },
+    );
+
+    const response = await requestApp(app, 'POST', `/api/drafts/${draft.id}/publish`);
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({
+      draftId: draft.id,
+      draftStatus: 'failed',
+      platform: 'x',
+      mode: 'api',
+      status: 'failed',
+      success: false,
+      publishUrl: null,
+      externalId: null,
+      message: 'provider rejected draft',
+      publishedAt: null,
+      details: {
+        code: 'POLICY_BLOCK',
+      },
+    });
+    expect(draftStore.getById(draft.id)).toEqual(
+      expect.objectContaining({
+        id: draft.id,
+        status: 'failed',
+        publishedAt: undefined,
+      }),
+    );
+    expect(readPublishLogs()).toEqual([
+      expect.objectContaining({
+        draftId: draft.id,
+        status: 'failed',
+        publishUrl: null,
+        message: 'provider rejected draft',
+      }),
+    ]);
   });
 
   it('records a failed publish log when publishing throws', async () => {
@@ -333,7 +546,8 @@ describe('publish api', () => {
     expect(draftStore.getById(draft.id)).toEqual(
       expect.objectContaining({
         id: draft.id,
-        status: 'draft',
+        status: 'failed',
+        publishedAt: undefined,
       }),
     );
     expect(readPublishLogs()).toEqual([

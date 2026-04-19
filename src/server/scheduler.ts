@@ -14,6 +14,7 @@ export interface SchedulerOptions {
   store?: JobStore;
   now?: () => Date;
   onTickError?: (error: unknown) => void;
+  onTickComplete?: (results: JobExecutionResult[]) => void;
   setIntervalFn?: typeof setInterval;
   clearIntervalFn?: typeof clearInterval;
 }
@@ -107,7 +108,9 @@ export function createScheduler(options: SchedulerOptions) {
         const jobs = options.store
           ? await options.store.listDueJobs(now().toISOString())
           : [];
-        return await runDueJobs(jobs);
+        const results = await runDueJobs(jobs);
+        options.onTickComplete?.(results);
+        return results;
       } finally {
         activeTick = undefined;
       }

@@ -1,7 +1,7 @@
 import type { DatabaseConnection } from '../db';
 import { withDatabase } from '../lib/persistence';
 
-export type PublishLogStatus = 'published' | 'failed';
+export type PublishLogStatus = 'published' | 'queued' | 'manual_required' | 'failed';
 
 export interface CreatePublishLogInput {
   draftId: number;

@@ -1,0 +1,327 @@
+import type { DatabaseConnection } from '../db';
+import {
+  createJobRecord,
+  type JobRecord,
+  type JobStatus,
+  type JobStore,
+} from '../lib/jobs';
+import { withDatabase } from '../lib/persistence';
+
+export interface EnqueueJobInput {
+  type: string;
+  payload?: Record<string, unknown>;
+  status?: JobStatus;
+  runAt: string;
+}
+
+export interface JobQueueEntry extends JobRecord {
+  lastError?: string;
+  startedAt?: string;
+  finishedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface JobQueueStats {
+  pending: number;
+  running: number;
+  done: number;
+  failed: number;
+  duePending: number;
+}
+
+export interface ListJobQueueOptions {
+  limit?: number;
+  statuses?: string[];
+}
+
+export interface JobQueueStore extends JobStore {
+  enqueue(input: EnqueueJobInput): JobQueueEntry;
+  list(options?: ListJobQueueOptions): JobQueueEntry[];
+  getStats(nowIso?: string): JobQueueStats;
+  requeueRunningJobs(nowIso?: string): number;
+}
+
+export function createJobQueueStore(): JobQueueStore {
+  return {
+    enqueue(input) {
+      return withDatabase((database) => insertJob(database, input));
+    },
+    listDueJobs(nowIso) {
+      return Promise.resolve(withDatabase((database) => listDueJobs(database, nowIso)));
+    },
+    markRunning(jobId, startedAtIso) {
+      return Promise.resolve(withDatabase((database) => markRunning(database, jobId, startedAtIso)));
+    },
+    markDone(jobId, finishedAtIso) {
+      return Promise.resolve(withDatabase((database) => markDone(database, jobId, finishedAtIso)));
+    },
+    markFailed(jobId, error, failedAtIso) {
+      return Promise.resolve(withDatabase((database) => markFailed(database, jobId, error, failedAtIso)));
+    },
+    list(options) {
+      return withDatabase((database) => listJobs(database, options));
+    },
+    getStats(nowIso) {
+      return withDatabase((database) => getJobQueueStats(database, nowIso ?? new Date().toISOString()));
+    },
+    requeueRunningJobs(nowIso) {
+      return withDatabase((database) => requeueRunningJobs(database, nowIso ?? new Date().toISOString()));
+    },
+  };
+}
+
+function insertJob(database: DatabaseConnection, input: EnqueueJobInput): JobQueueEntry {
+  const now = new Date().toISOString();
+  const result = database
+    .prepare(
+      `
+        INSERT INTO job_queue (type, payload, status, run_at, attempts, created_at, updated_at)
+        VALUES (@type, @payload, @status, @run_at, 0, @created_at, @updated_at)
+      `,
+    )
+    .run({
+      type: input.type,
+      payload: JSON.stringify(input.payload ?? {}),
+      status: input.status ?? 'pending',
+      run_at: input.runAt,
+      created_at: now,
+      updated_at: now,
+    });
+
+  const entry = getJobById(database, Number(result.lastInsertRowid));
+  if (!entry) {
+    throw new Error('job queue insert failed');
+  }
+
+  return entry;
+}
+
+function listDueJobs(database: DatabaseConnection, nowIso: string): JobRecord[] {
+  return database
+    .prepare(
+      `
+        SELECT id, type, payload, status, run_at AS runAt, attempts
+        FROM job_queue
+        WHERE status = 'pending' AND run_at <= ?
+        ORDER BY run_at ASC, id ASC
+        LIMIT 50
+      `,
+    )
+    .all([nowIso])
+    .map((row) => normalizeJobRecord(row as Record<string, unknown>));
+}
+
+function markRunning(
+  database: DatabaseConnection,
+  jobId: number,
+  startedAtIso: string,
+): boolean {
+  const result = database
+    .prepare(
+      `
+        UPDATE job_queue
+        SET status = 'running',
+            attempts = attempts + 1,
+            started_at = @started_at,
+            updated_at = @updated_at
+        WHERE id = @id AND status = 'pending'
+      `,
+    )
+    .run({
+      id: jobId,
+      started_at: startedAtIso,
+      updated_at: startedAtIso,
+    });
+
+  return result.changes > 0;
+}
+
+function markDone(database: DatabaseConnection, jobId: number, finishedAtIso: string): void {
+  database
+    .prepare(
+      `
+        UPDATE job_queue
+        SET status = 'done',
+            finished_at = @finished_at,
+            last_error = NULL,
+            updated_at = @updated_at
+        WHERE id = @id
+      `,
+    )
+    .run({
+      id: jobId,
+      finished_at: finishedAtIso,
+      updated_at: finishedAtIso,
+    });
+}
+
+function markFailed(
+  database: DatabaseConnection,
+  jobId: number,
+  error: string,
+  failedAtIso: string,
+): void {
+  database
+    .prepare(
+      `
+        UPDATE job_queue
+        SET status = 'failed',
+            finished_at = @finished_at,
+            last_error = @last_error,
+            updated_at = @updated_at
+        WHERE id = @id
+      `,
+    )
+    .run({
+      id: jobId,
+      finished_at: failedAtIso,
+      last_error: error,
+      updated_at: failedAtIso,
+    });
+}
+
+function listJobs(
+  database: DatabaseConnection,
+  options: ListJobQueueOptions = {},
+): JobQueueEntry[] {
+  const limit = normalizeLimit(options.limit);
+  const statuses = Array.isArray(options.statuses)
+    ? options.statuses.filter((status): status is string => typeof status === 'string' && status.trim().length > 0)
+    : [];
+
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+
+  if (statuses.length > 0) {
+    conditions.push(`status IN (${statuses.map(() => '?').join(', ')})`);
+    params.push(...statuses);
+  }
+
+  params.push(limit);
+
+  const rows = database
+    .prepare(
+      `
+        SELECT id, type, payload, status, run_at AS runAt, attempts,
+               last_error AS lastError, started_at AS startedAt,
+               finished_at AS finishedAt, created_at AS createdAt, updated_at AS updatedAt
+        FROM job_queue
+        ${conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''}
+        ORDER BY run_at ASC, id ASC
+        LIMIT ?
+      `,
+    )
+    .all(params);
+
+  return rows.map((row) => normalizeJobQueueEntry(row as Record<string, unknown>));
+}
+
+function getJobQueueStats(database: DatabaseConnection, nowIso: string): JobQueueStats {
+  const rows = database
+    .prepare(
+      `
+        SELECT status, COUNT(*) AS count
+        FROM job_queue
+        GROUP BY status
+      `,
+    )
+    .all() as Array<{ status: string; count: number }>;
+
+  const counts: JobQueueStats = {
+    pending: 0,
+    running: 0,
+    done: 0,
+    failed: 0,
+    duePending: 0,
+  };
+
+  for (const row of rows) {
+    if (row.status === 'pending') {
+      counts.pending = Number(row.count);
+    } else if (row.status === 'running') {
+      counts.running = Number(row.count);
+    } else if (row.status === 'done') {
+      counts.done = Number(row.count);
+    } else if (row.status === 'failed') {
+      counts.failed = Number(row.count);
+    }
+  }
+
+  const dueRow = database
+    .prepare(
+      `
+        SELECT COUNT(*) AS count
+        FROM job_queue
+        WHERE status = 'pending' AND run_at <= ?
+      `,
+    )
+    .get([nowIso]) as { count?: number } | undefined;
+
+  counts.duePending = Number(dueRow?.count ?? 0);
+
+  return counts;
+}
+
+function requeueRunningJobs(database: DatabaseConnection, nowIso: string): number {
+  const result = database
+    .prepare(
+      `
+        UPDATE job_queue
+        SET status = 'pending',
+            updated_at = @updated_at
+        WHERE status = 'running'
+      `,
+    )
+    .run({
+      updated_at: nowIso,
+    });
+
+  return result.changes;
+}
+
+function getJobById(database: DatabaseConnection, jobId: number): JobQueueEntry | undefined {
+  const row = database
+    .prepare(
+      `
+        SELECT id, type, payload, status, run_at AS runAt, attempts,
+               last_error AS lastError, started_at AS startedAt,
+               finished_at AS finishedAt, created_at AS createdAt, updated_at AS updatedAt
+        FROM job_queue
+        WHERE id = ?
+      `,
+    )
+    .get([jobId]);
+
+  return row ? normalizeJobQueueEntry(row as Record<string, unknown>) : undefined;
+}
+
+function normalizeJobRecord(row: Record<string, unknown>): JobRecord {
+  return createJobRecord({
+    id: Number(row.id),
+    type: String(row.type),
+    payload: typeof row.payload === 'string' ? row.payload : '{}',
+    status: String(row.status) as JobStatus,
+    runAt: String(row.runAt),
+    attempts: Number(row.attempts ?? 0),
+  });
+}
+
+function normalizeJobQueueEntry(row: Record<string, unknown>): JobQueueEntry {
+  return {
+    ...normalizeJobRecord(row),
+    lastError: typeof row.lastError === 'string' ? row.lastError : undefined,
+    startedAt: typeof row.startedAt === 'string' ? row.startedAt : undefined,
+    finishedAt: typeof row.finishedAt === 'string' ? row.finishedAt : undefined,
+    createdAt: String(row.createdAt),
+    updatedAt: String(row.updatedAt),
+  };
+}
+
+function normalizeLimit(value: number | undefined) {
+  if (!Number.isInteger(value) || value === undefined || value <= 0) {
+    return 20;
+  }
+
+  return Math.min(value, 100);
+}

@@ -2,10 +2,11 @@ import { Router, type Request } from 'express';
 import { publishToBlog } from '../services/publishers/blog';
 import { publishToFacebookGroup } from '../services/publishers/facebookGroup';
 import { publishToReddit } from '../services/publishers/reddit';
-import type { Publisher } from '../services/publishers/types';
+import type { PublishMode, PublishResult, PublishStatus, Publisher } from '../services/publishers/types';
 import { publishToWeibo } from '../services/publishers/weibo';
 import { publishToX } from '../services/publishers/x';
 import { publishToXiaohongshu } from '../services/publishers/xiaohongshu';
+import type { DraftStatus } from './drafts';
 import { createSQLiteDraftStore } from '../store/drafts';
 import { createSQLitePublishLogStore } from '../store/publishLogs';
 
@@ -19,16 +20,38 @@ export interface PublishableDraft {
 }
 
 export interface PublishContract {
+  draftId: number;
+  draftStatus: DraftStatus;
+  platform: string;
+  mode: PublishMode;
+  status: PublishStatus;
+  success: boolean;
+  publishUrl: string | null;
+  externalId: string | null;
+  message: string;
+  publishedAt: string | null;
+  details?: Record<string, unknown>;
+}
+
+interface LegacyPublishResult {
   success: boolean;
   publishUrl: string | null;
   message: string;
+  platform?: string;
+  mode?: PublishMode;
+  status?: PublishStatus;
+  externalId?: string | null;
+  publishedAt?: string | null;
+  details?: Record<string, unknown>;
 }
+
+type PublishAdapterResult = PublishResult | LegacyPublishResult;
 
 type MaybePromise<T> = Promise<T> | T;
 
 export interface PublishRouteDependencies {
   lookupDraft: (id: number, request: Request) => MaybePromise<PublishableDraft | undefined>;
-  publishDraft?: (draft: PublishableDraft, request: Request) => MaybePromise<PublishContract>;
+  publishDraft?: (draft: PublishableDraft, request: Request) => MaybePromise<PublishAdapterResult>;
   persistPublishResult?: (
     draftId: number,
     result: PublishContract,
@@ -58,7 +81,7 @@ export class UnsupportedDraftPlatformError extends Error {
 }
 
 export function createDraftPublishAdapter() {
-  return async (draft: PublishableDraft): Promise<PublishContract> => {
+  return async (draft: PublishableDraft): Promise<PublishResult> => {
     const publisher = publishersByPlatform[draft.platform];
     if (!publisher) {
       throw new UnsupportedDraftPlatformError(draft.platform);
@@ -72,11 +95,7 @@ export function createDraftPublishAdapter() {
       metadata: draft.metadata,
     });
 
-    return {
-      success: result.success,
-      publishUrl: result.publishUrl,
-      message: result.message,
-    };
+    return result;
   };
 }
 
@@ -87,24 +106,28 @@ function createPublishResultPersister() {
   return async (draftId: number, result: PublishContract): Promise<void> => {
     publishLogStore.create({
       draftId,
-      status: result.success ? 'published' : 'failed',
+      status: result.status,
       publishUrl: result.publishUrl,
       message: result.message,
     });
 
-    if (result.success) {
-      draftStore.update(draftId, {
-        status: 'published',
-        publishedAt: new Date().toISOString(),
-      });
-    }
+    draftStore.update(draftId, {
+      status: result.draftStatus,
+      publishedAt: result.publishedAt,
+    });
   };
 }
 
 function createPublishFailureRecorder() {
+  const draftStore = createSQLiteDraftStore();
   const publishLogStore = createSQLitePublishLogStore();
 
   return async (draftId: number, error: unknown): Promise<void> => {
+    draftStore.update(draftId, {
+      status: 'failed',
+      publishedAt: null,
+    });
+
     publishLogStore.create({
       draftId,
       status: 'failed',
@@ -123,6 +146,90 @@ function getPublishErrorMessage(error: unknown) {
   }
 
   return 'publish failed';
+}
+
+function createPublishContract(
+  draft: PublishableDraft,
+  rawResult: PublishAdapterResult,
+): PublishContract {
+  const status = normalizePublishStatus(rawResult);
+  const publishedAt = normalizePublishedAt(status, rawResult);
+
+  const contract: PublishContract = {
+    draftId: draft.id,
+    draftStatus: getDraftStatusForPublishStatus(status),
+    platform: normalizePlatform(rawResult.platform, draft.platform),
+    mode: normalizePublishMode(rawResult.mode, draft.platform),
+    status,
+    success: typeof rawResult.success === 'boolean' ? rawResult.success : status === 'published',
+    publishUrl: typeof rawResult.publishUrl === 'string' ? rawResult.publishUrl : null,
+    externalId: typeof rawResult.externalId === 'string' ? rawResult.externalId : null,
+    message: rawResult.message,
+    publishedAt,
+  };
+
+  if (rawResult.details && typeof rawResult.details === 'object') {
+    contract.details = rawResult.details;
+  }
+
+  return contract;
+}
+
+function normalizePublishStatus(result: PublishAdapterResult): PublishStatus {
+  if (result.status === 'published' || result.status === 'queued' || result.status === 'manual_required' || result.status === 'failed') {
+    return result.status;
+  }
+
+  return result.success ? 'published' : 'failed';
+}
+
+function normalizePlatform(platform: string | undefined, draftPlatform: string): string {
+  const source = platform ?? draftPlatform;
+
+  if (source === 'facebook-group') {
+    return 'facebookGroup';
+  }
+
+  return source;
+}
+
+function normalizePublishMode(mode: PublishMode | undefined, draftPlatform: string): PublishMode {
+  if (mode === 'api' || mode === 'browser' || mode === 'manual') {
+    return mode;
+  }
+
+  const platform = normalizePlatform(undefined, draftPlatform);
+
+  if (platform === 'x' || platform === 'reddit') {
+    return 'api';
+  }
+
+  if (platform === 'facebookGroup' || platform === 'xiaohongshu' || platform === 'weibo') {
+    return 'browser';
+  }
+
+  return 'manual';
+}
+
+function normalizePublishedAt(status: PublishStatus, result: PublishAdapterResult): string | null {
+  if (status !== 'published') {
+    return null;
+  }
+
+  return typeof result.publishedAt === 'string' && result.publishedAt.trim() ? result.publishedAt : new Date().toISOString();
+}
+
+function getDraftStatusForPublishStatus(status: PublishStatus): DraftStatus {
+  switch (status) {
+    case 'published':
+      return 'published';
+    case 'queued':
+      return 'queued';
+    case 'manual_required':
+      return 'review';
+    case 'failed':
+      return 'failed';
+  }
 }
 
 export function createPublishRouter(dependencies: PublishRouteDependencies) {
@@ -147,9 +254,10 @@ export function createPublishRouter(dependencies: PublishRouteDependencies) {
         return;
       }
 
-      const result = await publishDraft(draft, request);
-      await persistPublishResult(id, result, request);
-      response.json(result);
+      const publishResult = await publishDraft(draft, request);
+      const contract = createPublishContract(draft, publishResult);
+      await persistPublishResult(id, contract, request);
+      response.json(contract);
     } catch (error) {
       await recordPublishFailure(id, error, request);
 

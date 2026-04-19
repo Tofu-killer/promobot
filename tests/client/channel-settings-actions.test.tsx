@@ -1,6 +1,7 @@
-import { createElement } from 'react';
+import { act, createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { collectText, findElement, flush, installMinimalDom } from './settings-test-helpers';
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -266,6 +267,28 @@ describe('settings save validation and feedback', () => {
     const { SettingsPage } = await import('../../src/client/pages/Settings');
 
     const successHtml = renderPage(SettingsPage, {
+      stateOverride: {
+        status: 'success',
+        data: {
+          settings: {
+            allowlist: ['127.0.0.1'],
+            schedulerIntervalMinutes: 15,
+            rssDefaults: ['OpenAI blog'],
+          },
+          scheduler: {
+            enabled: true,
+            status: 'healthy',
+            runtime: {
+              mode: 'worker',
+              queueDepth: 2,
+            },
+          },
+          ai: {
+            provider: 'OpenAI',
+            model: 'gpt-4.1-mini',
+          },
+        },
+      } satisfies ApiState,
       updateStateOverride: {
         status: 'success',
         data: {
@@ -281,6 +304,9 @@ describe('settings save validation and feedback', () => {
     expect(successHtml).toContain('最近保存结果');
     expect(successHtml).toContain('设置已保存');
     expect(successHtml).toContain('127.0.0.1');
+    expect(successHtml).toContain('AI 配置');
+    expect(successHtml).toContain('调度与运行态');
+    expect(successHtml).toContain('worker');
 
     const errorHtml = renderPage(SettingsPage, {
       updateStateOverride: {
@@ -296,5 +322,63 @@ describe('settings save validation and feedback', () => {
     });
 
     expect(validationHtml).toContain('保存前校验失败：schedulerIntervalMinutes 必须是大于 0 的整数');
+  });
+
+  it('backfills the form after current settings finish loading', async () => {
+    const { container } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { SettingsPage } = await import('../../src/client/pages/Settings');
+
+    const loadSettingsAction = vi.fn().mockResolvedValue({
+      settings: {
+        allowlist: ['10.0.0.1', '10.0.0.2'],
+        schedulerIntervalMinutes: 45,
+        rssDefaults: ['OpenAI blog', 'TechCrunch'],
+      },
+      scheduler: {
+        enabled: true,
+        status: 'running',
+        lastRunAt: '2026-04-19T09:00:00.000Z',
+      },
+      runtime: {
+        environment: 'staging',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(SettingsPage as never, {
+          loadSettingsAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const allowlistField = findElement(
+      container,
+      (element) => element.getAttribute('data-settings-field') === 'allowlist',
+    );
+    const schedulerField = findElement(
+      container,
+      (element) => element.getAttribute('data-settings-field') === 'schedulerIntervalMinutes',
+    );
+    const rssField = findElement(
+      container,
+      (element) => element.getAttribute('data-settings-field') === 'rssDefaults',
+    );
+
+    expect(loadSettingsAction).toHaveBeenCalledTimes(1);
+    expect(allowlistField?.value).toBe('10.0.0.1, 10.0.0.2');
+    expect(schedulerField?.value).toBe('45');
+    expect(rssField?.value).toBe('OpenAI blog, TechCrunch');
+    expect(collectText(container)).toContain('运行中');
+    expect(collectText(container)).toContain('staging');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
   });
 });

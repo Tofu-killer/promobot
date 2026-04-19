@@ -7,12 +7,18 @@ import { JsonPreview } from '../components/JsonPreview';
 import { PageHeader } from '../components/PageHeader';
 import { SectionCard } from '../components/SectionCard';
 
+export interface SettingsRecord {
+  allowlist: string[];
+  schedulerIntervalMinutes: number;
+  rssDefaults: string[];
+}
+
 export interface SettingsResponse {
-  settings?: {
-    allowlist: string[];
-    schedulerIntervalMinutes: number;
-    rssDefaults: string[];
-  };
+  settings?: SettingsRecord;
+  scheduler?: Record<string, unknown>;
+  runtime?: Record<string, unknown>;
+  ai?: Record<string, unknown>;
+  rss?: Record<string, unknown>;
   [key: string]: unknown;
 }
 
@@ -83,6 +89,12 @@ interface SettingsPageProps {
   validationMessageOverride?: string;
 }
 
+const defaultSettingsFormValues = {
+  allowlist: '127.0.0.1, ::1',
+  schedulerIntervalMinutes: '15',
+  rssDefaults: 'OpenAI blog, Anthropic news',
+} as const;
+
 const fieldStyle = {
   width: '100%',
   borderRadius: '14px',
@@ -92,6 +104,148 @@ const fieldStyle = {
   background: '#ffffff',
 } as const;
 
+const cardGridStyle = {
+  display: 'grid',
+  gap: '20px',
+  gridTemplateColumns: 'repeat(2, minmax(320px, 1fr))',
+} as const;
+
+const statusPillStyle = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '8px',
+  borderRadius: '999px',
+  padding: '8px 12px',
+  background: '#e2e8f0',
+  color: '#0f172a',
+  fontWeight: 700,
+} as const;
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function readString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value : null;
+}
+
+function readNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function readBoolean(value: unknown): boolean | null {
+  return typeof value === 'boolean' ? value : null;
+}
+
+function formatList(entries: string[]) {
+  return entries.join(', ');
+}
+
+function formatBooleanLabel(value: boolean | null) {
+  if (value === true) {
+    return '已启用';
+  }
+
+  if (value === false) {
+    return '未启用';
+  }
+
+  return '未提供';
+}
+
+function formatStatusLabel(status: string | null, enabled: boolean | null) {
+  if (status) {
+    switch (status.toLowerCase()) {
+      case 'healthy':
+        return '健康';
+      case 'running':
+        return '运行中';
+      case 'paused':
+        return '已暂停';
+      case 'disabled':
+        return '已停用';
+      case 'degraded':
+        return '降级';
+      default:
+        return status;
+    }
+  }
+
+  if (enabled === true) {
+    return '已启用';
+  }
+
+  if (enabled === false) {
+    return '已停用';
+  }
+
+  return '未提供';
+}
+
+function formatContractValue(value: unknown) {
+  if (typeof value === 'string' && value.trim().length > 0) {
+    return value;
+  }
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return String(value);
+  }
+
+  if (typeof value === 'boolean') {
+    return value ? 'true' : 'false';
+  }
+
+  if (Array.isArray(value)) {
+    return value.length > 0 ? value.map((entry) => String(entry)).join(', ') : '未提供';
+  }
+
+  if (value && typeof value === 'object') {
+    return JSON.stringify(value);
+  }
+
+  return '未提供';
+}
+
+function getLoadedFormValues(settings?: SettingsRecord) {
+  if (!settings) {
+    return defaultSettingsFormValues;
+  }
+
+  return {
+    allowlist: settings.allowlist.length > 0 ? formatList(settings.allowlist) : defaultSettingsFormValues.allowlist,
+    schedulerIntervalMinutes:
+      settings.schedulerIntervalMinutes > 0
+        ? String(settings.schedulerIntervalMinutes)
+        : defaultSettingsFormValues.schedulerIntervalMinutes,
+    rssDefaults: settings.rssDefaults.length > 0 ? formatList(settings.rssDefaults) : '',
+  };
+}
+
+function renderInfoRows(rows: Array<{ label: string; value: string }>) {
+  return (
+    <div style={{ display: 'grid', gap: '10px' }}>
+      {rows.map((row) => (
+        <div
+          key={row.label}
+          style={{
+            display: 'grid',
+            gap: '4px',
+            borderRadius: '14px',
+            background: '#f8fafc',
+            border: '1px solid #e2e8f0',
+            padding: '12px 14px',
+          }}
+        >
+          <span style={{ fontSize: '13px', color: '#64748b', fontWeight: 700 }}>{row.label}</span>
+          <span style={{ color: '#0f172a' }}>{row.value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function SettingsPage({
   loadSettingsAction = loadSettingsRequest,
   stateOverride,
@@ -99,14 +253,35 @@ export function SettingsPage({
   validationMessageOverride,
 }: SettingsPageProps) {
   const { state, reload } = useAsyncQuery(loadSettingsAction, [loadSettingsAction]);
-  const [allowlist, setAllowlist] = useState('127.0.0.1, ::1');
-  const [schedulerIntervalMinutes, setSchedulerIntervalMinutes] = useState('15');
-  const [rssDefaults, setRssDefaults] = useState('OpenAI blog, Anthropic news');
   const { state: updateState, run: saveSettings } = useAsyncAction(updateSettingsRequest);
   const displayState = stateOverride ?? state;
   const displayUpdateState = updateStateOverride ?? updateState;
+  const loadedData = displayState.status === 'success' ? displayState.data : undefined;
+  const savedData = displayUpdateState.status === 'success' ? displayUpdateState.data : undefined;
+  const effectiveSettings = savedData?.settings ?? loadedData?.settings;
+  const loadedFormValues = getLoadedFormValues(effectiveSettings);
+
+  const [allowlistDraft, setAllowlistDraft] = useState<string | null>(null);
+  const [schedulerIntervalMinutesDraft, setSchedulerIntervalMinutesDraft] = useState<string | null>(null);
+  const [rssDefaultsDraft, setRssDefaultsDraft] = useState<string | null>(null);
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
   const displayValidationMessage = validationMessageOverride ?? validationMessage;
+
+  const allowlist = allowlistDraft ?? loadedFormValues.allowlist;
+  const schedulerIntervalMinutes = schedulerIntervalMinutesDraft ?? loadedFormValues.schedulerIntervalMinutes;
+  const rssDefaults = rssDefaultsDraft ?? loadedFormValues.rssDefaults;
+
+  const schedulerContract = asRecord(savedData?.scheduler ?? loadedData?.scheduler);
+  const runtimeContract = asRecord(savedData?.runtime ?? loadedData?.runtime) ?? asRecord(schedulerContract?.runtime);
+  const aiContract = asRecord(savedData?.ai ?? loadedData?.ai);
+  const rssContract = asRecord(savedData?.rss ?? loadedData?.rss);
+
+  const schedulerEnabled = readBoolean(schedulerContract?.enabled);
+  const schedulerStatus = formatStatusLabel(readString(schedulerContract?.status), schedulerEnabled);
+  const runtimeMode = readString(runtimeContract?.mode) ?? readString(asRecord(schedulerContract?.runtime)?.mode);
+  const runtimeEnvironment = readString(runtimeContract?.environment);
+  const runtimeQueueDepth =
+    readNumber(runtimeContract?.queueDepth) ?? readNumber(asRecord(schedulerContract?.runtime)?.queueDepth);
 
   function handleSaveSettings() {
     void submitSettingsForm(
@@ -131,107 +306,157 @@ export function SettingsPage({
       <PageHeader
         eyebrow="Control Plane"
         title="Settings"
-        description="集中管理局域网访问控制和调度配置。当前页面直接请求 `/api/settings`，把返回内容或错误显示出来。"
+        description="更贴近真实中文版控制台的系统设置页：继续兼容 `/api/settings`，同时预留 scheduler、runtime、AI 和 RSS contract 的消费位。"
         actions={
           <>
             <ActionButton label="重新加载默认源" onClick={reload} />
-            <ActionButton label={displayUpdateState.status === 'loading' ? '正在保存设置...' : '保存设置'} tone="primary" onClick={handleSaveSettings} />
+            <ActionButton
+              label={displayUpdateState.status === 'loading' ? '正在保存设置...' : '保存设置'}
+              tone="primary"
+              onClick={handleSaveSettings}
+            />
           </>
         }
       />
 
-      <div style={{ display: 'grid', gap: '20px', gridTemplateColumns: 'minmax(320px, 1fr) minmax(320px, 1fr)' }}>
-        <SectionCard title="编辑设置" description="提交 allowlist、scheduler 和 RSS 默认值到 `/api/settings`。">
-          <div style={{ display: 'grid', gap: '12px' }}>
-            <label style={{ display: 'grid', gap: '8px' }}>
-              <span style={{ fontWeight: 700 }}>allowlist</span>
-              <input value={allowlist} onChange={(event) => setAllowlist(event.target.value)} style={fieldStyle} />
-            </label>
+      <div style={cardGridStyle}>
+        <SectionCard title="设置总览" description="当前生效设置、接口兼容状态和最近一次拉取结果都会集中显示在这里。">
+          <div style={{ display: 'grid', gap: '14px' }}>
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+              <span style={{ ...statusPillStyle, background: '#dbeafe', color: '#1d4ed8' }}>兼容接口 `/api/settings`</span>
+              <span style={{ ...statusPillStyle, background: '#ecfdf5', color: '#047857' }}>
+                拉取状态：{displayState.status === 'success' ? '已同步' : displayState.status === 'error' ? '失败' : '等待同步'}
+              </span>
+              <span style={{ ...statusPillStyle, background: '#fef3c7', color: '#92400e' }}>
+                保存状态：{displayUpdateState.status === 'success' ? '已保存' : displayUpdateState.status === 'error' ? '失败' : '未提交'}
+              </span>
+            </div>
 
+            {displayState.status === 'loading' ? <p style={{ margin: 0, color: '#334155' }}>正在加载设置...</p> : null}
+
+            {displayState.status === 'error' ? (
+              <p style={{ margin: 0, color: '#b91c1c' }}>设置加载失败：{displayState.error}</p>
+            ) : null}
+
+            {effectiveSettings ? (
+              <div style={{ display: 'grid', gap: '8px', color: '#334155' }}>
+                <div style={{ fontWeight: 700 }}>当前生效设置</div>
+                <div>schedulerIntervalMinutes: {effectiveSettings.schedulerIntervalMinutes}</div>
+                <div>allowlist: {effectiveSettings.allowlist.length > 0 ? formatList(effectiveSettings.allowlist) : '未提供'}</div>
+                <div>rssDefaults: {effectiveSettings.rssDefaults.length > 0 ? formatList(effectiveSettings.rssDefaults) : '未提供'}</div>
+              </div>
+            ) : null}
+
+            {displayState.status === 'idle' ? (
+              <p style={{ margin: 0, color: '#475569' }}>页面挂载后会自动请求真实设置接口。</p>
+            ) : null}
+          </div>
+        </SectionCard>
+
+        <SectionCard title="调度与运行态" description="这里消费 scheduler/runtime contract；即使后端还没全部实现，也会把已返回字段显示出来。">
+          <div style={{ display: 'grid', gap: '14px' }}>
+            <div style={{ ...statusPillStyle, background: '#eff6ff', color: '#1d4ed8' }}>{schedulerStatus}</div>
             <label style={{ display: 'grid', gap: '8px' }}>
-              <span style={{ fontWeight: 700 }}>schedulerIntervalMinutes</span>
+              <span style={{ fontWeight: 700 }}>调度间隔</span>
               <input
+                data-settings-field="schedulerIntervalMinutes"
                 value={schedulerIntervalMinutes}
-                onChange={(event) => setSchedulerIntervalMinutes(event.target.value)}
+                onChange={(event) => {
+                  setValidationMessage(null);
+                  setSchedulerIntervalMinutesDraft(event.target.value);
+                }}
                 style={fieldStyle}
               />
             </label>
+            {renderInfoRows([
+              { label: 'Scheduler 开关', value: formatBooleanLabel(schedulerEnabled) },
+              { label: '上次运行', value: formatContractValue(schedulerContract?.lastRunAt) },
+              { label: '下次运行', value: formatContractValue(schedulerContract?.nextRunAt) },
+              { label: '运行模式', value: formatContractValue(runtimeMode) },
+              { label: '运行环境', value: formatContractValue(runtimeEnvironment) },
+              { label: '队列深度', value: formatContractValue(runtimeQueueDepth) },
+            ])}
+          </div>
+        </SectionCard>
 
+        <SectionCard title="AI 配置" description="当前页先展示 AI contract 消费位，不依赖后端已经支持写回。">
+          {renderInfoRows([
+            { label: 'Provider', value: formatContractValue(aiContract?.provider) },
+            { label: 'Model', value: formatContractValue(aiContract?.model) },
+            { label: 'Moderation', value: formatBooleanLabel(readBoolean(aiContract?.moderationEnabled)) },
+            { label: 'Fallback', value: formatBooleanLabel(readBoolean(aiContract?.allowModelFallback)) },
+          ])}
+        </SectionCard>
+
+        <SectionCard title="LAN allowlist" description="当前设置载入后会直接回填到表单，便于基于真实值继续编辑。">
+          <div style={{ display: 'grid', gap: '14px' }}>
+            <label style={{ display: 'grid', gap: '8px' }}>
+              <span style={{ fontWeight: 700 }}>allowlist</span>
+              <input
+                data-settings-field="allowlist"
+                value={allowlist}
+                onChange={(event) => {
+                  setValidationMessage(null);
+                  setAllowlistDraft(event.target.value);
+                }}
+                style={fieldStyle}
+              />
+            </label>
+            {renderInfoRows([
+              { label: '当前 allowlist', value: effectiveSettings?.allowlist.length ? formatList(effectiveSettings.allowlist) : '未提供' },
+              { label: '最近保存返回', value: savedData?.settings?.allowlist?.length ? formatList(savedData.settings.allowlist) : '未提供' },
+            ])}
+          </div>
+        </SectionCard>
+
+        <SectionCard title="RSS 默认源" description="RSS 默认值继续走 `/api/settings` 写回，扩展 RSS contract 则只做展示。">
+          <div style={{ display: 'grid', gap: '14px' }}>
             <label style={{ display: 'grid', gap: '8px' }}>
               <span style={{ fontWeight: 700 }}>rssDefaults</span>
-              <input value={rssDefaults} onChange={(event) => setRssDefaults(event.target.value)} style={fieldStyle} />
+              <input
+                data-settings-field="rssDefaults"
+                value={rssDefaults}
+                onChange={(event) => {
+                  setValidationMessage(null);
+                  setRssDefaultsDraft(event.target.value);
+                }}
+                style={fieldStyle}
+              />
             </label>
-
-            <button
-              type="button"
-              onClick={handleSaveSettings}
-              style={{
-                border: 'none',
-                borderRadius: '12px',
-                background: '#2563eb',
-                color: '#ffffff',
-                padding: '12px 16px',
-                fontWeight: 700,
-                justifySelf: 'flex-start',
-              }}
-            >
-              {displayUpdateState.status === 'loading' ? '正在保存设置...' : '保存设置'}
-            </button>
+            {renderInfoRows([
+              { label: '默认源', value: effectiveSettings?.rssDefaults.length ? formatList(effectiveSettings.rssDefaults) : '未提供' },
+              { label: '抓取窗口', value: formatContractValue(rssContract?.fetchWindowMinutes) },
+              { label: '去重策略', value: formatContractValue(rssContract?.dedupeMode) },
+              { label: 'RSS Poller', value: formatBooleanLabel(readBoolean(rssContract?.pollerEnabled)) },
+            ])}
           </div>
         </SectionCard>
 
-        <SectionCard title="LAN allowlist" description="真实接口响应首先显示在这里。">
-          {displayState.status === 'loading' ? <p style={{ margin: 0, color: '#334155' }}>正在加载设置...</p> : null}
-
-          {displayState.status === 'error' ? (
-            <p style={{ margin: 0, color: '#b91c1c' }}>设置加载失败：{displayState.error}</p>
-          ) : null}
-
+        <SectionCard title="原始接口 Contract" description="保留原始 JSON 视图，方便前后端联调和观察新增字段落位。">
           {displayState.status === 'success' && displayState.data ? (
-            <div style={{ display: 'grid', gap: '12px' }}>
-              <div style={{ fontWeight: 700 }}>已加载当前设置</div>
-              {displayState.data.settings ? (
-                <div style={{ display: 'grid', gap: '8px', color: '#334155' }}>
-                  <div>schedulerIntervalMinutes: {displayState.data.settings.schedulerIntervalMinutes}</div>
-                  <div>allowlist: {displayState.data.settings.allowlist.join(', ')}</div>
-                  <div>rssDefaults: {displayState.data.settings.rssDefaults.join(', ')}</div>
-                </div>
-              ) : null}
-              <JsonPreview value={displayState.data} />
-            </div>
-          ) : null}
-
-          {displayState.status === 'idle' ? (
-            <p style={{ margin: 0, color: '#475569' }}>页面挂载后会自动请求真实设置接口。</p>
-          ) : null}
-        </SectionCard>
-
-        <SectionCard title="调度间隔" description="即使当前接口未实现，错误也会直接显示，方便前后端联调。">
-          <div style={{ display: 'grid', gap: '12px', color: '#334155', lineHeight: 1.6 }}>
-            <div>如果接口成功返回，这一页会把设置 JSON 原样显示。</div>
-            <div>如果接口缺失或失败，这里配合左侧卡片一起保留错误上下文。</div>
-            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-              <ActionButton label="重新加载默认源" onClick={reload} />
-              <ActionButton label={displayUpdateState.status === 'loading' ? '正在保存设置...' : '保存设置'} tone="primary" onClick={handleSaveSettings} />
-            </div>
-          </div>
+            <JsonPreview value={displayState.data} />
+          ) : (
+            <p style={{ margin: 0, color: '#475569' }}>接口成功返回后，会在这里展示完整响应。</p>
+          )}
         </SectionCard>
 
         {(displayValidationMessage || displayUpdateState.status !== 'idle') && (
-          <SectionCard title="最近保存结果" description="保存前校验和最近一次提交结果会显示在这里。">
+          <SectionCard title="最近保存结果" description="保存前校验和最近一次 PATCH 结果会显示在这里。">
             {displayValidationMessage ? (
-              <p style={{ margin: 0, color: '#b91c1c' }}>
-                保存前校验失败：{displayValidationMessage}
-              </p>
+              <p style={{ margin: 0, color: '#b91c1c' }}>保存前校验失败：{displayValidationMessage}</p>
             ) : null}
             {displayUpdateState.status === 'success' ? (
-              <div style={{ color: '#166534' }}>
+              <div style={{ color: '#166534', display: 'grid', gap: '8px' }}>
                 <div style={{ fontWeight: 700 }}>设置已保存</div>
                 {displayUpdateState.data?.settings ? (
-                  <div style={{ marginTop: '8px' }}>
-                    {displayUpdateState.data.settings.allowlist.join(', ')}
-                  </div>
-                ) : null}
+                  <>
+                    <div>allowlist：{displayUpdateState.data.settings.allowlist.join(', ')}</div>
+                    <div>schedulerIntervalMinutes：{displayUpdateState.data.settings.schedulerIntervalMinutes}</div>
+                    <div>rssDefaults：{displayUpdateState.data.settings.rssDefaults.join(', ') || '未提供'}</div>
+                  </>
+                ) : (
+                  <div>接口未返回 settings 节点，但请求已成功。</div>
+                )}
               </div>
             ) : null}
             {displayUpdateState.status === 'error' ? (

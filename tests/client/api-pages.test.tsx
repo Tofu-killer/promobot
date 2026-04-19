@@ -744,12 +744,35 @@ describe('client API page wiring', () => {
             allowlist: ['127.0.0.1'],
             rssDefaults: ['OpenAI blog'],
           },
+          scheduler: {
+            enabled: true,
+            status: 'healthy',
+            lastRunAt: '2026-04-19T09:00:00.000Z',
+            nextRunAt: '2026-04-19T09:15:00.000Z',
+          },
+          runtime: {
+            environment: 'production',
+            queueDepth: 3,
+          },
+          ai: {
+            provider: 'OpenAI',
+            model: 'gpt-4.1-mini',
+            moderationEnabled: true,
+          },
+          rss: {
+            fetchWindowMinutes: 30,
+            dedupeMode: 'url',
+          },
         },
       },
     });
 
-    expect(html).toContain('已加载当前设置');
-    expect(html).toContain('schedulerIntervalMinutes');
+    expect(html).toContain('当前生效设置');
+    expect(html).toContain('调度与运行态');
+    expect(html).toContain('AI 配置');
+    expect(html).toContain('RSS 默认源');
+    expect(html).toContain('运行环境');
+    expect(html).toContain('gpt-4.1-mini');
     expect(html).toContain('127.0.0.1');
   });
 
@@ -758,9 +781,10 @@ describe('client API page wiring', () => {
 
     const html = renderPage(SettingsPage, { stateOverride: { status: 'idle', error: null } });
 
-    expect(html).toContain('编辑设置');
-    expect(html).toContain('allowlist');
-    expect(html).toContain('rssDefaults');
+    expect(html).toContain('设置总览');
+    expect(html).toContain('AI 配置');
+    expect(html).toContain('LAN allowlist');
+    expect(html).toContain('RSS 默认源');
     expect(html).toContain('保存设置');
   });
 

@@ -1,12 +1,12 @@
+import express from 'express';
 import { describe, expect, it } from 'vitest';
-import { createApp } from '../../src/server/app';
+import { channelAccountsRouter } from '../../src/server/routes/channelAccounts';
 import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
 
 async function requestApp(method: string, url: string, body?: unknown) {
-  const app = createApp({
-    allowedIps: ['127.0.0.1'],
-    adminPassword: 'secret',
-  });
+  const app = express();
+  app.use(express.json());
+  app.use('/api/channel-accounts', channelAccountsRouter);
 
   return await new Promise<{ status: number; body: string }>((resolve, reject) => {
     const req = Object.assign(Object.create(app.request), {
@@ -117,6 +117,12 @@ describe('channel accounts api', () => {
             displayName: 'PromoBot X',
             authType: 'api',
             status: 'healthy',
+            session: {
+              hasSession: false,
+              status: 'missing',
+              validatedAt: null,
+              storageStatePath: null,
+            },
           }),
         ],
       });
@@ -164,6 +170,12 @@ describe('channel accounts api', () => {
           expect.objectContaining({
             id: 1,
             status: 'unknown',
+            session: {
+              hasSession: false,
+              status: 'missing',
+              validatedAt: null,
+              storageStatePath: null,
+            },
           }),
         ],
       });
@@ -222,6 +234,135 @@ describe('channel accounts api', () => {
       expect(response.status).toBe(404);
       expect(JSON.parse(response.body)).toEqual({
         error: 'channel account not found',
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('associates session metadata with a channel account and returns session summary in the list', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'x',
+        accountKey: '@promobot',
+        displayName: 'PromoBot X',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      const attachResponse = await requestApp('POST', '/api/channel-accounts/1/session', {
+        storageStatePath: 'artifacts/browser-sessions/x-promobot.json',
+        status: 'active',
+        validatedAt: '2026-04-19T12:34:56.000Z',
+        notes: 'manual relogin completed',
+      });
+
+      expect(attachResponse.status).toBe(200);
+      expect(JSON.parse(attachResponse.body)).toEqual({
+        ok: true,
+        session: {
+          hasSession: true,
+          id: 'x:-promobot',
+          status: 'active',
+          validatedAt: '2026-04-19T12:34:56.000Z',
+          storageStatePath: 'artifacts/browser-sessions/x-promobot.json',
+          notes: 'manual relogin completed',
+        },
+        channelAccount: expect.objectContaining({
+          id: 1,
+          authType: 'browser',
+          metadata: expect.objectContaining({
+            session: expect.objectContaining({
+              id: 'x:-promobot',
+              status: 'active',
+              validatedAt: '2026-04-19T12:34:56.000Z',
+              storageStatePath: 'artifacts/browser-sessions/x-promobot.json',
+            }),
+          }),
+        }),
+      });
+
+      const listed = await requestApp('GET', '/api/channel-accounts');
+
+      expect(listed.status).toBe(200);
+      expect(JSON.parse(listed.body)).toEqual({
+        channelAccounts: [
+          expect.objectContaining({
+            id: 1,
+            session: {
+              hasSession: true,
+              id: 'x:-promobot',
+              status: 'active',
+              validatedAt: '2026-04-19T12:34:56.000Z',
+              storageStatePath: 'artifacts/browser-sessions/x-promobot.json',
+              notes: 'manual relogin completed',
+            },
+          }),
+        ],
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('returns a placeholder contract for request-session and relogin actions', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'x',
+        accountKey: '@promobot',
+        displayName: 'PromoBot X',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      const requestSessionResponse = await requestApp(
+        'POST',
+        '/api/channel-accounts/1/session/request',
+      );
+
+      expect(requestSessionResponse.status).toBe(200);
+      expect(JSON.parse(requestSessionResponse.body)).toEqual({
+        ok: true,
+        sessionAction: {
+          action: 'request_session',
+          accountId: 1,
+          status: 'pending',
+          requestedAt: expect.any(String),
+          message:
+            'Browser session capture is not wired yet. Complete login manually and attach session metadata.',
+          nextStep: '/api/channel-accounts/1/session',
+        },
+        channelAccount: expect.objectContaining({
+          id: 1,
+        }),
+      });
+
+      await requestApp('POST', '/api/channel-accounts/1/session', {
+        storageStatePath: 'artifacts/browser-sessions/x-promobot.json',
+        status: 'expired',
+      });
+
+      const reloginResponse = await requestApp('POST', '/api/channel-accounts/1/session/request', {
+        action: 'relogin',
+      });
+
+      expect(reloginResponse.status).toBe(200);
+      expect(JSON.parse(reloginResponse.body)).toEqual({
+        ok: true,
+        sessionAction: {
+          action: 'relogin',
+          accountId: 1,
+          status: 'pending',
+          requestedAt: expect.any(String),
+          message:
+            'Browser relogin is not wired yet. Refresh the login manually and attach updated session metadata.',
+          nextStep: '/api/channel-accounts/1/session',
+        },
+        channelAccount: expect.objectContaining({
+          id: 1,
+        }),
       });
     } finally {
       cleanupTestDatabasePath(rootDir);
