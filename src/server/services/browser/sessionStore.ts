@@ -37,6 +37,11 @@ export interface SessionSummary {
   notes?: string;
 }
 
+export interface BrowserSessionResolution {
+  session: SessionSummary;
+  sessionAction: BrowserSessionAction | null;
+}
+
 export interface SessionStoreOptions {
   rootDir: string;
 }
@@ -152,6 +157,31 @@ export function buildSessionSummary(session: SessionMetadata | null): SessionSum
     validatedAt: session.lastValidatedAt,
     storageStatePath: session.storageStatePath,
     notes: session.notes,
+  };
+}
+
+export function buildBrowserSessionResolution(
+  session: SessionMetadata | null,
+): BrowserSessionResolution {
+  const summary = buildSessionSummary(session);
+
+  if (!summary.hasSession || summary.status === 'missing') {
+    return {
+      session: summary,
+      sessionAction: 'request_session',
+    };
+  }
+
+  if (summary.status === 'expired') {
+    return {
+      session: summary,
+      sessionAction: 'relogin',
+    };
+  }
+
+  return {
+    session: summary,
+    sessionAction: null,
   };
 }
 
