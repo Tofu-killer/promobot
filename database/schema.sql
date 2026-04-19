@@ -1,0 +1,9 @@
+CREATE TABLE IF NOT EXISTS projects (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  site_name TEXT NOT NULL,
+  site_url TEXT NOT NULL,
+  site_description TEXT NOT NULL,
+  selling_points TEXT NOT NULL,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);

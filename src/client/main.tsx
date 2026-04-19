@@ -1,9 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-
-function BootstrapApp() {
-  return <div>PromoBot bootstrap</div>;
-}
+import App from './App';
 
 const rootElement = document.getElementById('root');
 
@@ -13,6 +10,6 @@ if (!rootElement) {
 
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
-    <BootstrapApp />
+    <App />
   </React.StrictMode>
 );
