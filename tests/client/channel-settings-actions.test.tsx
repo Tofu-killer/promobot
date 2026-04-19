@@ -307,6 +307,28 @@ describe('settings save validation and feedback', () => {
           },
         },
       } satisfies ApiState,
+      jobsStateOverride: {
+        status: 'success',
+        data: {
+          jobs: [
+            {
+              id: 11,
+              type: 'publish',
+              status: 'failed',
+              runAt: '2026-04-19T12:15:00.000Z',
+              attempts: 1,
+              lastError: 'boom',
+              canRetry: true,
+              canCancel: false,
+            },
+          ],
+          queue: {
+            pending: 2,
+            failed: 1,
+          },
+          recentJobs: [],
+        },
+      } satisfies ApiState,
       updateStateOverride: {
         status: 'success',
         data: {
@@ -328,6 +350,8 @@ describe('settings save validation and feedback', () => {
     expect(successHtml).toContain('运行控制台');
     expect(successHtml).toContain('Pending Jobs');
     expect(successHtml).toContain('最近作业');
+    expect(successHtml).toContain('作业控制');
+    expect(successHtml).toContain('重试');
 
     const errorHtml = renderPage(SettingsPage, {
       updateStateOverride: {
@@ -365,12 +389,21 @@ describe('settings save validation and feedback', () => {
         environment: 'staging',
       },
     });
+    const loadSystemJobsAction = vi.fn().mockResolvedValue({
+      jobs: [],
+      queue: {
+        pending: 0,
+        failed: 0,
+      },
+      recentJobs: [],
+    });
 
     const root = createRoot(container as never);
     await act(async () => {
       root.render(
         createElement(SettingsPage as never, {
           loadSettingsAction,
+          loadSystemJobsAction,
         }),
       );
       await flush();
@@ -391,6 +424,7 @@ describe('settings save validation and feedback', () => {
     );
 
     expect(loadSettingsAction).toHaveBeenCalledTimes(1);
+    expect(loadSystemJobsAction).toHaveBeenCalledTimes(1);
     expect(allowlistField?.value).toBe('10.0.0.1, 10.0.0.2');
     expect(schedulerField?.value).toBe('45');
     expect(rssField?.value).toBe('OpenAI blog, TechCrunch');

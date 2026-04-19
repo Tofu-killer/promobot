@@ -54,6 +54,28 @@ export interface FetchControlResponse {
   unread?: number;
 }
 
+export interface SystemJobRecord {
+  id: number;
+  type: string;
+  status: string;
+  runAt: string;
+  attempts: number;
+  lastError?: string;
+  canRetry?: boolean;
+  canCancel?: boolean;
+}
+
+export interface SystemJobsResponse {
+  jobs: SystemJobRecord[];
+  queue: Record<string, unknown>;
+  recentJobs: SystemJobRecord[];
+}
+
+export interface SystemJobMutationResponse {
+  job: SystemJobRecord;
+  runtime: Record<string, unknown>;
+}
+
 export async function reloadSchedulerRuntimeRequest(): Promise<RuntimeControlResponse> {
   return apiRequest<RuntimeControlResponse>('/api/system/runtime/reload', {
     method: 'POST',
@@ -80,6 +102,29 @@ export async function fetchInboxSignalsRequest(): Promise<FetchControlResponse> 
 
 export async function fetchReputationSignalsRequest(): Promise<FetchControlResponse> {
   return apiRequest<FetchControlResponse>('/api/reputation/fetch', {
+    method: 'POST',
+  });
+}
+
+export async function loadSystemJobsRequest(limit = 20): Promise<SystemJobsResponse> {
+  return apiRequest<SystemJobsResponse>(`/api/system/jobs?limit=${limit}`);
+}
+
+export async function retrySystemJobRequest(
+  jobId: number,
+  runAt?: string,
+): Promise<SystemJobMutationResponse> {
+  return apiRequest<SystemJobMutationResponse>(`/api/system/jobs/${jobId}/retry`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(runAt ? { runAt } : {}),
+  });
+}
+
+export async function cancelSystemJobRequest(jobId: number): Promise<SystemJobMutationResponse> {
+  return apiRequest<SystemJobMutationResponse>(`/api/system/jobs/${jobId}/cancel`, {
     method: 'POST',
   });
 }
@@ -126,12 +171,16 @@ export async function submitSettingsForm(
 
 interface SettingsPageProps {
   loadSettingsAction?: () => Promise<SettingsResponse>;
+  loadSystemJobsAction?: () => Promise<SystemJobsResponse>;
   reloadSchedulerAction?: () => Promise<RuntimeControlResponse>;
   tickSchedulerAction?: () => Promise<RuntimeControlResponse>;
   fetchMonitorAction?: () => Promise<FetchControlResponse>;
   fetchInboxAction?: () => Promise<FetchControlResponse>;
   fetchReputationAction?: () => Promise<FetchControlResponse>;
+  retrySystemJobAction?: (jobId: number, runAt?: string) => Promise<SystemJobMutationResponse>;
+  cancelSystemJobAction?: (jobId: number) => Promise<SystemJobMutationResponse>;
   stateOverride?: AsyncState<SettingsResponse>;
+  jobsStateOverride?: AsyncState<SystemJobsResponse>;
   updateStateOverride?: AsyncState<SettingsResponse>;
   validationMessageOverride?: string;
 }
@@ -306,18 +355,28 @@ function renderInfoRows(rows: Array<{ label: string; value: string }>) {
 
 export function SettingsPage({
   loadSettingsAction = loadSettingsRequest,
+  loadSystemJobsAction = () => loadSystemJobsRequest(20),
   reloadSchedulerAction = reloadSchedulerRuntimeRequest,
   tickSchedulerAction = tickSchedulerRuntimeRequest,
   fetchMonitorAction = fetchMonitorSignalsRequest,
   fetchInboxAction = fetchInboxSignalsRequest,
   fetchReputationAction = fetchReputationSignalsRequest,
+  retrySystemJobAction = retrySystemJobRequest,
+  cancelSystemJobAction = cancelSystemJobRequest,
   stateOverride,
+  jobsStateOverride,
   updateStateOverride,
   validationMessageOverride,
 }: SettingsPageProps) {
   const { state, reload } = useAsyncQuery(loadSettingsAction, [loadSettingsAction]);
+  const { state: jobsState, reload: reloadJobs } = useAsyncQuery(loadSystemJobsAction, [loadSystemJobsAction]);
   const { state: updateState, run: saveSettings } = useAsyncAction(updateSettingsRequest);
+  const { run: mutateJob } = useAsyncAction(
+    ({ action, jobId }: { action: 'retry' | 'cancel'; jobId: number }) =>
+      action === 'retry' ? retrySystemJobAction(jobId) : cancelSystemJobAction(jobId),
+  );
   const displayState = stateOverride ?? state;
+  const displayJobsState = jobsStateOverride ?? jobsState;
   const displayUpdateState = updateStateOverride ?? updateState;
   const loadedData = displayState.status === 'success' ? displayState.data : undefined;
   const savedData = displayUpdateState.status === 'success' ? displayUpdateState.data : undefined;
@@ -349,7 +408,10 @@ export function SettingsPage({
   const runtimeQueueDepth =
     readNumber(runtimeContract?.queueDepth) ?? readNumber(asRecord(schedulerContract?.runtime)?.queueDepth);
   const runtimeQueue = asRecord(runtimeContract?.queue);
-  const recentJobs = readRecordArray(runtimeContract?.recentJobs);
+  const recentJobs =
+    displayJobsState.status === 'success' && displayJobsState.data?.jobs.length > 0
+      ? displayJobsState.data.jobs
+      : readRecordArray(runtimeContract?.recentJobs);
 
   function handleSaveSettings() {
     void submitSettingsForm(
@@ -382,11 +444,31 @@ export function SettingsPage({
       const result = await action();
       setControlMessage(successBuilder(result));
       reload();
+      reloadJobs();
     } catch (error) {
       setControlError(error instanceof Error ? error.message : String(error));
     } finally {
       setActiveControl(null);
     }
+  }
+
+  function handleJobAction(jobId: number, action: 'retry' | 'cancel') {
+    setControlError(null);
+    setControlMessage(null);
+    setActiveControl(`${action}:${jobId}`);
+
+    void mutateJob({ action, jobId })
+      .then((result) => {
+        setControlMessage(action === 'retry' ? `作业 #${result.job.id} 已重试` : `作业 #${result.job.id} 已取消`);
+        reload();
+        reloadJobs();
+      })
+      .catch((error) => {
+        setControlError(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => {
+        setActiveControl(null);
+      });
   }
 
   return (
@@ -526,6 +608,58 @@ export function SettingsPage({
               { label: 'Failed Jobs', value: formatContractValue(runtimeQueue?.failed) },
               { label: 'Due Pending', value: formatContractValue(runtimeQueue?.duePending) },
             ])}
+
+            <div style={{ display: 'grid', gap: '10px' }}>
+              <div style={{ fontWeight: 700 }}>作业控制</div>
+              {displayJobsState.status === 'loading' ? (
+                <div style={{ color: '#475569' }}>正在加载 system jobs...</div>
+              ) : null}
+              {displayJobsState.status === 'error' ? (
+                <div style={{ color: '#b91c1c' }}>system jobs 加载失败：{displayJobsState.error}</div>
+              ) : null}
+              {displayJobsState.status === 'success' && displayJobsState.data.jobs.length > 0 ? (
+                displayJobsState.data.jobs.map((job) => (
+                  <div
+                    key={`job-control-${job.id}`}
+                    style={{
+                      borderRadius: '14px',
+                      background: '#f8fafc',
+                      border: '1px solid #e2e8f0',
+                      padding: '12px 14px',
+                      display: 'grid',
+                      gap: '8px',
+                    }}
+                  >
+                    <div style={{ fontWeight: 700 }}>
+                      #{job.id} · {job.type} · {job.status}
+                    </div>
+                    <div style={{ color: '#475569' }}>runAt: {job.runAt}</div>
+                    <div style={{ color: '#475569' }}>attempts: {job.attempts}</div>
+                    {job.lastError ? <div style={{ color: '#b91c1c' }}>lastError: {job.lastError}</div> : null}
+                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                      {job.canRetry ? (
+                        <ActionButton
+                          label={activeControl === `retry:${job.id}` ? '正在重试...' : '重试'}
+                          onClick={() => {
+                            handleJobAction(job.id, 'retry');
+                          }}
+                        />
+                      ) : null}
+                      {job.canCancel ? (
+                        <ActionButton
+                          label={activeControl === `cancel:${job.id}` ? '正在取消...' : '取消'}
+                          onClick={() => {
+                            handleJobAction(job.id, 'cancel');
+                          }}
+                        />
+                      ) : null}
+                    </div>
+                  </div>
+                ))
+              ) : displayJobsState.status === 'success' ? (
+                <div style={{ color: '#475569' }}>当前没有可操作的 system jobs。</div>
+              ) : null}
+            </div>
 
             <div style={{ display: 'grid', gap: '10px' }}>
               <div style={{ fontWeight: 700 }}>最近作业</div>

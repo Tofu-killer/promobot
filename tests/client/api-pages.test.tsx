@@ -1038,6 +1038,96 @@ describe('client API page wiring', () => {
     );
   });
 
+  it('loads and mutates system jobs through the shared API helpers', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          jobs: [
+            {
+              id: 11,
+              type: 'publish',
+              status: 'failed',
+              runAt: '2026-04-19T12:15:00.000Z',
+              attempts: 1,
+              canRetry: true,
+              canCancel: false,
+            },
+          ],
+          queue: {
+            pending: 1,
+            failed: 1,
+          },
+          recentJobs: [],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          job: {
+            id: 11,
+            type: 'publish',
+            status: 'pending',
+            runAt: '2026-04-19T12:20:00.000Z',
+            attempts: 1,
+            canRetry: false,
+            canCancel: true,
+          },
+          runtime: {
+            available: true,
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          job: {
+            id: 12,
+            type: 'monitor_fetch',
+            status: 'canceled',
+            runAt: '2026-04-19T12:25:00.000Z',
+            attempts: 0,
+            canRetry: true,
+            canCancel: false,
+          },
+          runtime: {
+            available: true,
+          },
+        }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const settingsModule = (await import('../../src/client/pages/Settings')) as Record<string, unknown>;
+
+    expect(typeof settingsModule.loadSystemJobsRequest).toBe('function');
+    expect(typeof settingsModule.retrySystemJobRequest).toBe('function');
+    expect(typeof settingsModule.cancelSystemJobRequest).toBe('function');
+
+    const loadSystemJobsRequest = settingsModule.loadSystemJobsRequest as (limit?: number) => Promise<unknown>;
+    const retrySystemJobRequest = settingsModule.retrySystemJobRequest as (jobId: number, runAt?: string) => Promise<unknown>;
+    const cancelSystemJobRequest = settingsModule.cancelSystemJobRequest as (jobId: number) => Promise<unknown>;
+
+    await loadSystemJobsRequest(10);
+    await retrySystemJobRequest(11, '2026-04-19T12:20:00.000Z');
+    await cancelSystemJobRequest(12);
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/system/jobs?limit=10', undefined);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/system/jobs/11/retry',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ runAt: '2026-04-19T12:20:00.000Z' }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      '/api/system/jobs/12/cancel',
+      expect.objectContaining({
+        method: 'POST',
+      }),
+    );
+  });
+
   it('shows settings loading, error, and success states', async () => {
     const { SettingsPage } = await import('../../src/client/pages/Settings');
 
@@ -1097,6 +1187,28 @@ describe('client API page wiring', () => {
           },
         },
       },
+      jobsStateOverride: {
+        status: 'success',
+        data: {
+          jobs: [
+            {
+              id: 11,
+              type: 'publish',
+              status: 'failed',
+              runAt: '2026-04-19T12:15:00.000Z',
+              attempts: 1,
+              lastError: 'boom',
+              canRetry: true,
+              canCancel: false,
+            },
+          ],
+          queue: {
+            pending: 2,
+            failed: 1,
+          },
+          recentJobs: [],
+        },
+      },
     });
 
     expect(html).toContain('当前生效设置');
@@ -1110,6 +1222,8 @@ describe('client API page wiring', () => {
     expect(html).toContain('最近作业');
     expect(html).toContain('重载 Scheduler');
     expect(html).toContain('抓取 Monitor');
+    expect(html).toContain('作业控制');
+    expect(html).toContain('重试');
   });
 
   it('renders the settings edit form and save action', async () => {
