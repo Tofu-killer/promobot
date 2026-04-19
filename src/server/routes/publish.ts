@@ -6,6 +6,8 @@ import type { Publisher } from '../services/publishers/types';
 import { publishToWeibo } from '../services/publishers/weibo';
 import { publishToX } from '../services/publishers/x';
 import { publishToXiaohongshu } from '../services/publishers/xiaohongshu';
+import { createSQLiteDraftStore } from '../store/drafts';
+import { createSQLitePublishLogStore } from '../store/publishLogs';
 
 export interface PublishableDraft {
   id: number;
@@ -27,6 +29,16 @@ type MaybePromise<T> = Promise<T> | T;
 export interface PublishRouteDependencies {
   lookupDraft: (id: number, request: Request) => MaybePromise<PublishableDraft | undefined>;
   publishDraft?: (draft: PublishableDraft, request: Request) => MaybePromise<PublishContract>;
+  persistPublishResult?: (
+    draftId: number,
+    result: PublishContract,
+    request: Request,
+  ) => MaybePromise<void>;
+  recordPublishFailure?: (
+    draftId: number,
+    error: unknown,
+    request: Request,
+  ) => MaybePromise<void>;
 }
 
 const publishersByPlatform: Record<string, Publisher> = {
@@ -68,8 +80,54 @@ export function createDraftPublishAdapter() {
   };
 }
 
+function createPublishResultPersister() {
+  const draftStore = createSQLiteDraftStore();
+  const publishLogStore = createSQLitePublishLogStore();
+
+  return async (draftId: number, result: PublishContract): Promise<void> => {
+    publishLogStore.create({
+      draftId,
+      status: result.success ? 'published' : 'failed',
+      publishUrl: result.publishUrl,
+      message: result.message,
+    });
+
+    if (result.success) {
+      draftStore.update(draftId, { status: 'published' });
+    }
+  };
+}
+
+function createPublishFailureRecorder() {
+  const publishLogStore = createSQLitePublishLogStore();
+
+  return async (draftId: number, error: unknown): Promise<void> => {
+    publishLogStore.create({
+      draftId,
+      status: 'failed',
+      message: getPublishErrorMessage(error),
+    });
+  };
+}
+
+function getPublishErrorMessage(error: unknown) {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+
+  if (typeof error === 'string' && error.trim()) {
+    return error;
+  }
+
+  return 'publish failed';
+}
+
 export function createPublishRouter(dependencies: PublishRouteDependencies) {
   const publishDraft = dependencies.publishDraft ?? createDraftPublishAdapter();
+  const persistPublishResult =
+    dependencies.persistPublishResult ?? createPublishResultPersister();
+  const recordPublishFailure =
+    dependencies.recordPublishFailure ?? createPublishFailureRecorder();
   const publishRouter = Router();
 
   publishRouter.post('/:id/publish', async (request, response, next) => {
@@ -87,8 +145,11 @@ export function createPublishRouter(dependencies: PublishRouteDependencies) {
       }
 
       const result = await publishDraft(draft, request);
+      await persistPublishResult(id, result, request);
       response.json(result);
     } catch (error) {
+      await recordPublishFailure(id, error, request);
+
       if (error instanceof UnsupportedDraftPlatformError) {
         response.status(400).json({ error: 'unsupported draft platform' });
         return;

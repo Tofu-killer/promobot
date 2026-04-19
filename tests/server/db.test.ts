@@ -22,7 +22,7 @@ describe('database schema', () => {
     try {
       const rows = db
         .prepare(
-          "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('projects', 'drafts', 'channel_accounts', 'settings') ORDER BY name",
+          "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('projects', 'drafts', 'publish_logs', 'channel_accounts', 'settings') ORDER BY name",
         )
         .all() as Array<{ name: string }>;
 
@@ -30,6 +30,7 @@ describe('database schema', () => {
         'channel_accounts',
         'drafts',
         'projects',
+        'publish_logs',
         'settings',
       ]);
     } finally {

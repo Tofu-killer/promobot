@@ -1,10 +1,16 @@
 import express from 'express';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   createPublishRouter,
   type PublishRouteDependencies,
 } from '../../src/server/routes/publish';
+import { initDb } from '../../src/server/db';
+import { createSQLiteDraftStore } from '../../src/server/store/drafts';
+import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
+
+let activeTestDbRoot: string | undefined;
+let activeTestDatabasePath: string | undefined;
 
 async function requestApp(
   app: express.Express,
@@ -95,11 +101,65 @@ async function requestApp(
   });
 }
 
-function createTestApp(dependencies: PublishRouteDependencies) {
+function createTestApp(
+  dependencies: PublishRouteDependencies,
+  options?: { useDefaultPersistence?: boolean },
+) {
   const app = express();
   app.use(express.json());
-  app.use('/api/drafts', createPublishRouter(dependencies));
+  app.use(
+    '/api/drafts',
+    createPublishRouter(
+      options?.useDefaultPersistence
+        ? dependencies
+        : {
+            persistPublishResult: vi.fn().mockResolvedValue(undefined),
+            recordPublishFailure: vi.fn().mockResolvedValue(undefined),
+            ...dependencies,
+          },
+    ),
+  );
   return app;
+}
+
+beforeEach(() => {
+  activeTestDbRoot = undefined;
+  activeTestDatabasePath = undefined;
+});
+
+afterEach(() => {
+  vi.clearAllMocks();
+  if (activeTestDbRoot) {
+    cleanupTestDatabasePath(activeTestDbRoot);
+    activeTestDbRoot = undefined;
+  }
+});
+
+function readPublishLogs() {
+  if (!activeTestDatabasePath) {
+    throw new Error('active test database path is not configured');
+  }
+
+  const db = initDb(activeTestDatabasePath);
+
+  try {
+    return db
+      .prepare(
+        `
+          SELECT draft_id AS draftId, status, publish_url AS publishUrl, message
+          FROM publish_logs
+          ORDER BY id ASC
+        `,
+      )
+      .all() as Array<{
+      draftId: number;
+      status: string;
+      publishUrl?: string;
+      message: string;
+    }>;
+  } finally {
+    db.close();
+  }
 }
 
 describe('publish api', () => {
@@ -121,6 +181,54 @@ describe('publish api', () => {
       publishUrl: 'https://x.com/promobot/status/42',
       message: 'x stub publisher accepted draft 42',
     });
+  });
+
+  it('persists a publish log and updates the draft status after a successful publish', async () => {
+    const testDatabase = createTestDatabasePath();
+    activeTestDbRoot = testDatabase.rootDir;
+    activeTestDatabasePath = testDatabase.databasePath;
+    const draftStore = createSQLiteDraftStore();
+    const draft = draftStore.create({
+      platform: 'x',
+      title: 'Launch update',
+      content: 'Claude 3.5 Sonnet is now available.',
+    });
+    const app = createTestApp(
+      {
+        lookupDraft(id) {
+          const storedDraft = draftStore.getById(id);
+          if (!storedDraft) {
+            return undefined;
+          }
+
+          return {
+            id: storedDraft.id,
+            platform: storedDraft.platform,
+            title: storedDraft.title,
+            content: storedDraft.content,
+          };
+        },
+      },
+      { useDefaultPersistence: true },
+    );
+
+    const response = await requestApp(app, 'POST', `/api/drafts/${draft.id}/publish`);
+
+    expect(response.status).toBe(200);
+    expect(draftStore.getById(draft.id)).toEqual(
+      expect.objectContaining({
+        id: draft.id,
+        status: 'published',
+      }),
+    );
+    expect(readPublishLogs()).toEqual([
+      expect.objectContaining({
+        draftId: draft.id,
+        status: 'published',
+        publishUrl: `https://x.com/promobot/status/${draft.id}`,
+        message: `x stub publisher accepted draft ${draft.id}`,
+      }),
+    ]);
   });
 
   it('returns 404 when the draft lookup misses', async () => {
@@ -184,6 +292,54 @@ describe('publish api', () => {
       publishUrl: null,
       message: 'queued for manual review',
     });
+  });
+
+  it('records a failed publish log when publishing throws', async () => {
+    const testDatabase = createTestDatabasePath();
+    activeTestDbRoot = testDatabase.rootDir;
+    activeTestDatabasePath = testDatabase.databasePath;
+    const draftStore = createSQLiteDraftStore();
+    const draft = draftStore.create({
+      platform: 'x',
+      content: 'Will fail to publish',
+    });
+    const app = createTestApp(
+      {
+        lookupDraft(id) {
+          const storedDraft = draftStore.getById(id);
+          if (!storedDraft) {
+            return undefined;
+          }
+
+          return {
+            id: storedDraft.id,
+            platform: storedDraft.platform,
+            title: storedDraft.title,
+            content: storedDraft.content,
+          };
+        },
+        publishDraft: vi.fn().mockRejectedValue(new Error('publisher exploded')),
+      },
+      { useDefaultPersistence: true },
+    );
+
+    await expect(requestApp(app, 'POST', `/api/drafts/${draft.id}/publish`)).rejects.toThrow(
+      'publisher exploded',
+    );
+    expect(draftStore.getById(draft.id)).toEqual(
+      expect.objectContaining({
+        id: draft.id,
+        status: 'draft',
+      }),
+    );
+    expect(readPublishLogs()).toEqual([
+      expect.objectContaining({
+        draftId: draft.id,
+        status: 'failed',
+        publishUrl: null,
+        message: 'publisher exploded',
+      }),
+    ]);
   });
 
   it('returns 400 for an invalid draft id', async () => {

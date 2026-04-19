@@ -227,6 +227,86 @@ describe('client API page wiring', () => {
     expect(result.drafts[0]?.title).toBe('Launch thread');
   });
 
+  it('patches draft updates through the shared API helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        draft: {
+          id: 1,
+          platform: 'x',
+          title: 'Updated launch thread',
+          content: 'Updated draft body',
+          hashtags: ['#launch'],
+          status: 'review',
+          createdAt: '2026-04-19T00:00:00.000Z',
+          updatedAt: '2026-04-19T00:10:00.000Z',
+        },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const draftsModule = (await import('../../src/client/pages/Drafts')) as Record<string, unknown>;
+
+    expect(typeof draftsModule.updateDraftRequest).toBe('function');
+
+    const updateDraftRequest = draftsModule.updateDraftRequest as (
+      id: number,
+      input: { title: string; content: string; status: string },
+    ) => Promise<{ draft: { id: number; title?: string; status: string } }>;
+
+    const result = await updateDraftRequest(1, {
+      title: 'Updated launch thread',
+      content: 'Updated draft body',
+      status: 'review',
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/drafts/1',
+      expect.objectContaining({
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: 'Updated launch thread',
+          content: 'Updated draft body',
+          status: 'review',
+        }),
+      }),
+    );
+    expect(result.draft.title).toBe('Updated launch thread');
+    expect(result.draft.status).toBe('review');
+  });
+
+  it('publishes drafts through the shared API helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        success: true,
+        publishUrl: 'https://x.com/promobot/status/1',
+        message: 'x stub publisher accepted draft 1',
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const draftsModule = (await import('../../src/client/pages/Drafts')) as Record<string, unknown>;
+
+    expect(typeof draftsModule.publishDraftRequest).toBe('function');
+
+    const publishDraftRequest = draftsModule.publishDraftRequest as (id: number) => Promise<{
+      success: boolean;
+      publishUrl: string | null;
+      message: string;
+    }>;
+
+    const result = await publishDraftRequest(1);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/drafts/1/publish',
+      expect.objectContaining({
+        method: 'POST',
+      }),
+    );
+    expect(result.success).toBe(true);
+    expect(result.publishUrl).toBe('https://x.com/promobot/status/1');
+  });
+
   it('shows drafts loading, error, and success states', async () => {
     const { DraftsPage } = await import('../../src/client/pages/Drafts');
 
@@ -263,6 +343,58 @@ describe('client API page wiring', () => {
     expect(html).toContain('已加载 1 条草稿');
     expect(html).toContain('Launch thread');
     expect(html).toContain('draft');
+  });
+
+  it('shows actionable draft controls with save and publish feedback', async () => {
+    const { DraftsPage } = await import('../../src/client/pages/Drafts');
+
+    const html = renderPage(DraftsPage, {
+      stateOverride: {
+        status: 'success',
+        data: {
+          drafts: [
+            {
+              id: 1,
+              platform: 'x',
+              title: 'Launch thread',
+              content: 'Draft body',
+              hashtags: ['#launch'],
+              status: 'draft',
+              createdAt: '2026-04-19T00:00:00.000Z',
+              updatedAt: '2026-04-19T00:00:00.000Z',
+            },
+          ],
+        },
+      },
+      draftInteractionStateOverride: {
+        formValuesById: {
+          1: {
+            title: 'Updated launch thread',
+            content: 'Updated draft body',
+            status: 'review',
+          },
+        },
+        saveStateById: {
+          1: {
+            status: 'success',
+            message: '草稿已保存',
+          },
+        },
+        publishStateById: {
+          1: {
+            status: 'error',
+            error: 'unsupported draft platform',
+          },
+        },
+      },
+    });
+
+    expect(html).toContain('保存修改');
+    expect(html).toContain('触发发布');
+    expect(html).toContain('草稿已保存');
+    expect(html).toContain('unsupported draft platform');
+    expect(html).toContain('Updated launch thread');
+    expect(html).toContain('Updated draft body');
   });
 
   it('loads channel accounts through the shared API helper', async () => {
@@ -308,6 +440,64 @@ describe('client API page wiring', () => {
 
     expect(fetchMock).toHaveBeenCalledWith('/api/channel-accounts', undefined);
     expect(result.channelAccounts).toHaveLength(2);
+  });
+
+  it('posts a new channel account through the shared API helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        channelAccount: {
+          id: 3,
+          platform: 'x',
+          accountKey: 'acct-x-2',
+          displayName: 'X Secondary',
+          authType: 'api-key',
+          status: 'healthy',
+          metadata: {},
+          createdAt: '2026-04-19T00:00:00.000Z',
+          updatedAt: '2026-04-19T00:00:00.000Z',
+        },
+      }, 201),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const channelsModule = (await import('../../src/client/pages/ChannelAccounts')) as Record<string, unknown>;
+
+    expect(typeof channelsModule.createChannelAccountRequest).toBe('function');
+
+    const createChannelAccountRequest = channelsModule.createChannelAccountRequest as (input: {
+      platform: string;
+      accountKey: string;
+      displayName: string;
+      authType: string;
+      status?: string;
+      metadata?: Record<string, unknown>;
+    }) => Promise<{ channelAccount: { id: number; displayName: string } }>;
+
+    const result = await createChannelAccountRequest({
+      platform: 'x',
+      accountKey: 'acct-x-2',
+      displayName: 'X Secondary',
+      authType: 'api-key',
+      status: 'healthy',
+      metadata: { team: 'growth' },
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/channel-accounts',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          platform: 'x',
+          accountKey: 'acct-x-2',
+          displayName: 'X Secondary',
+          authType: 'api-key',
+          status: 'healthy',
+          metadata: { team: 'growth' },
+        }),
+      }),
+    );
+    expect(result.channelAccount.displayName).toBe('X Secondary');
   });
 
   it('shows channel account loading, error, and success states', async () => {
@@ -360,6 +550,18 @@ describe('client API page wiring', () => {
     expect(html).toContain('healthy');
   });
 
+  it('renders the channel account create form and save action', async () => {
+    const { ChannelAccountsPage } = await import('../../src/client/pages/ChannelAccounts');
+
+    const html = renderPage(ChannelAccountsPage, { stateOverride: { status: 'idle', error: null } });
+
+    expect(html).toContain('创建账号');
+    expect(html).toContain('账号 Key');
+    expect(html).toContain('metadata');
+    expect(html).toContain('测试连接');
+    expect(html).toContain('重新登录');
+  });
+
   it('loads settings through the shared API helper', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({
@@ -387,6 +589,49 @@ describe('client API page wiring', () => {
 
     expect(fetchMock).toHaveBeenCalledWith('/api/settings', undefined);
     expect(result.settings.schedulerIntervalMinutes).toBe(15);
+  });
+
+  it('patches settings through the shared API helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        settings: {
+          schedulerIntervalMinutes: 30,
+          allowlist: ['10.0.0.1'],
+          rssDefaults: ['TechCrunch'],
+        },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const settingsModule = (await import('../../src/client/pages/Settings')) as Record<string, unknown>;
+
+    expect(typeof settingsModule.updateSettingsRequest).toBe('function');
+
+    const updateSettingsRequest = settingsModule.updateSettingsRequest as (input: {
+      allowlist: string[];
+      schedulerIntervalMinutes: number;
+      rssDefaults: string[];
+    }) => Promise<{ settings: { schedulerIntervalMinutes: number } }>;
+
+    const result = await updateSettingsRequest({
+      allowlist: ['10.0.0.1'],
+      schedulerIntervalMinutes: 30,
+      rssDefaults: ['TechCrunch'],
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/settings',
+      expect.objectContaining({
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          allowlist: ['10.0.0.1'],
+          schedulerIntervalMinutes: 30,
+          rssDefaults: ['TechCrunch'],
+        }),
+      }),
+    );
+    expect(result.settings.schedulerIntervalMinutes).toBe(30);
   });
 
   it('shows settings loading, error, and success states', async () => {
@@ -418,5 +663,16 @@ describe('client API page wiring', () => {
     expect(html).toContain('已加载当前设置');
     expect(html).toContain('schedulerIntervalMinutes');
     expect(html).toContain('127.0.0.1');
+  });
+
+  it('renders the settings edit form and save action', async () => {
+    const { SettingsPage } = await import('../../src/client/pages/Settings');
+
+    const html = renderPage(SettingsPage, { stateOverride: { status: 'idle', error: null } });
+
+    expect(html).toContain('编辑设置');
+    expect(html).toContain('allowlist');
+    expect(html).toContain('rssDefaults');
+    expect(html).toContain('保存设置');
   });
 });
