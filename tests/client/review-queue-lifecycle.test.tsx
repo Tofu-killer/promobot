@@ -715,6 +715,8 @@ describe('Review Queue lifecycle actions', () => {
 
     expect(publishReviewDraftAction).toHaveBeenCalledWith(11);
     expect(collectText(container)).toContain('已发布：Launch thread');
+    expect(collectText(container)).toContain('发布链接：https://x.com/promobot/status/11');
+    expect(collectText(container)).toContain('回执消息：published immediately');
 
     await act(async () => {
       updateFieldValue(scheduleField, '2026-04-20T09:30', window);
@@ -732,6 +734,8 @@ describe('Review Queue lifecycle actions', () => {
     });
     expect(collectText(container)).toContain('已排程：Launch thread');
     expect(collectText(container)).toContain('排程时间：2026-04-20T09:30');
+    expect(collectText(container)).toContain('当前去向：已推入 Publish Calendar，等待发布窗口。');
+    expect(collectText(container)).toContain('计划推送时间：2026-04-20T09:30');
 
     const updatedScheduleField = findElement(
       container,
@@ -813,6 +817,8 @@ describe('Review Queue lifecycle actions', () => {
 
     expect(publishReviewDraftAction).toHaveBeenCalledWith(21);
     expect(collectText(container)).toContain('发布失败：publisher offline');
+    expect(collectText(container)).toContain('回执状态：失败');
+    expect(collectText(container)).toContain('回执消息：publisher offline');
 
     await act(async () => {
       updateFieldValue(scheduleField, '2026-04-19T18:45', window);
@@ -829,6 +835,7 @@ describe('Review Queue lifecycle actions', () => {
       status: 'scheduled',
     });
     expect(collectText(container)).toContain('排程失败：draft not found');
+    expect(collectText(container)).toContain('计划推送时间：2026-04-19T18:45');
 
     await act(async () => {
       root.unmount();

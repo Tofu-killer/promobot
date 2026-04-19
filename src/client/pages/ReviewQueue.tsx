@@ -24,6 +24,8 @@ interface ReviewActionState {
   message: string | null;
   error: string | null;
   action: 'review' | 'publish' | 'schedule' | null;
+  publishUrl: string | null;
+  contractMessage: string | null;
 }
 
 export async function loadReviewQueueRequest(): Promise<DraftsResponse> {
@@ -68,6 +70,8 @@ function createIdleActionState(): ReviewActionState {
     message: null,
     error: null,
     action: null,
+    publishUrl: null,
+    contractMessage: null,
   };
 }
 
@@ -88,6 +92,122 @@ function formatReviewActionErrorPrefix(action: ReviewActionState['action']) {
     default:
       return '审核动作失败';
   }
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function readString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value : null;
+}
+
+function formatReviewDraftBadgeLabel(status: DraftRecord['status']) {
+  switch (status) {
+    case 'scheduled':
+      return '已排程';
+    case 'approved':
+      return '已通过';
+    case 'draft':
+      return '已退回';
+    case 'published':
+      return '已发布';
+    default:
+      return '审核中';
+  }
+}
+
+function getReviewDraftBadgeStyle(status: DraftRecord['status']) {
+  switch (status) {
+    case 'scheduled':
+      return {
+        background: '#dbeafe',
+        color: '#1d4ed8',
+      };
+    case 'approved':
+      return {
+        background: '#dcfce7',
+        color: '#166534',
+      };
+    case 'draft':
+      return {
+        background: '#fee2e2',
+        color: '#b91c1c',
+      };
+    case 'published':
+      return {
+        background: '#dcfce7',
+        color: '#047857',
+      };
+    default:
+      return {
+        background: '#fef3c7',
+        color: '#92400e',
+      };
+  };
+}
+
+function formatReviewDraftDestination(status: DraftRecord['status']) {
+  switch (status) {
+    case 'scheduled':
+      return '当前去向：已推入 Publish Calendar，等待发布窗口。';
+    case 'published':
+      return '当前去向：已完成发布。';
+    case 'approved':
+      return '当前去向：已通过审核，等待后续流转。';
+    case 'draft':
+      return '当前去向：已退回草稿池，等待修改。';
+    default:
+      return '当前去向：仍在审核队列，尚未推入 Publish Calendar。';
+  }
+}
+
+function formatPublishContractStatus(draft: DraftRecord, actionState: ReviewActionState) {
+  if (actionState.action === 'publish') {
+    if (actionState.status === 'loading') {
+      return '处理中';
+    }
+
+    if (actionState.status === 'success') {
+      return '已确认';
+    }
+
+    if (actionState.status === 'error') {
+      return '失败';
+    }
+  }
+
+  if (draft.status === 'published') {
+    return '已发布';
+  }
+
+  return '待触发';
+}
+
+function getReviewDraftPublishContract(draft: DraftRecord, actionState: ReviewActionState) {
+  const draftRecord = asRecord(draft);
+
+  return {
+    publishUrl:
+      actionState.action === 'publish'
+        ? actionState.publishUrl ?? readString(draftRecord?.publishUrl) ?? readString(draftRecord?.lastPublishUrl)
+        : readString(draftRecord?.publishUrl) ?? readString(draftRecord?.lastPublishUrl),
+    contractMessage:
+      actionState.action === 'publish'
+        ? actionState.contractMessage ??
+          readString(draftRecord?.publishMessage) ??
+          readString(draftRecord?.lastPublishMessage) ??
+          readString(draftRecord?.message)
+        : readString(draftRecord?.publishMessage) ??
+          readString(draftRecord?.lastPublishMessage) ??
+          readString(draftRecord?.message),
+    publishError:
+      actionState.action === 'publish'
+        ? actionState.error ?? readString(draftRecord?.publishError) ?? readString(draftRecord?.lastPublishError)
+        : readString(draftRecord?.publishError) ?? readString(draftRecord?.lastPublishError),
+  };
 }
 
 export function ReviewQueuePage({
@@ -144,6 +264,8 @@ export function ReviewQueuePage({
         message: null,
         error: null,
         action: 'review',
+        publishUrl: null,
+        contractMessage: null,
       },
     }));
 
@@ -159,6 +281,8 @@ export function ReviewQueuePage({
           message: `${formatReviewActionLabel(nextStatus)}：${result.draft.title ?? result.draft.platform}`,
           error: null,
           action: 'review',
+          publishUrl: null,
+          contractMessage: null,
         },
       }));
     } catch (error) {
@@ -169,6 +293,8 @@ export function ReviewQueuePage({
           message: null,
           error: getErrorMessage(error),
           action: 'review',
+          publishUrl: null,
+          contractMessage: null,
         },
       }));
     }
@@ -189,6 +315,8 @@ export function ReviewQueuePage({
         message: null,
         error: null,
         action: 'publish',
+        publishUrl: null,
+        contractMessage: null,
       },
     }));
 
@@ -201,6 +329,8 @@ export function ReviewQueuePage({
           message: result.success ? `已发布：${sourceDraft.title ?? sourceDraft.platform}` : null,
           error: result.success ? null : result.message,
           action: 'publish',
+          publishUrl: result.publishUrl,
+          contractMessage: result.message,
         },
       }));
     } catch (error) {
@@ -211,6 +341,8 @@ export function ReviewQueuePage({
           message: null,
           error: getErrorMessage(error),
           action: 'publish',
+          publishUrl: null,
+          contractMessage: getErrorMessage(error),
         },
       }));
     }
@@ -233,6 +365,8 @@ export function ReviewQueuePage({
         message: null,
         error: null,
         action: 'schedule',
+        publishUrl: null,
+        contractMessage: null,
       },
     }));
 
@@ -255,6 +389,8 @@ export function ReviewQueuePage({
           message: `已排程：${result.draft.title ?? result.draft.platform}${result.draft.scheduledAt ? `，排程时间：${result.draft.scheduledAt}` : ''}`,
           error: null,
           action: 'schedule',
+          publishUrl: null,
+          contractMessage: null,
         },
       }));
     } catch (error) {
@@ -265,6 +401,8 @@ export function ReviewQueuePage({
           message: null,
           error: getErrorMessage(error),
           action: 'schedule',
+          publishUrl: null,
+          contractMessage: null,
         },
       }));
     }
@@ -296,6 +434,9 @@ export function ReviewQueuePage({
               <div style={{ display: 'grid', gap: '12px' }}>
                 {visibleDrafts.map((draft) => {
                   const actionState = getReviewActionState(actionStateById, draft.id);
+                  const publishContract = getReviewDraftPublishContract(draft, actionState);
+                  const scheduledAtValue = scheduledAtById[draft.id] ?? draft.scheduledAt ?? '';
+                  const badgeStyle = getReviewDraftBadgeStyle(draft.status);
 
                   return (
                     <article
@@ -315,12 +456,12 @@ export function ReviewQueuePage({
                           style={{
                             borderRadius: '999px',
                             padding: '4px 10px',
-                            background: '#fef3c7',
-                            color: '#92400e',
+                            background: badgeStyle.background,
+                            color: badgeStyle.color,
                             fontWeight: 700,
                           }}
                         >
-                          审核中
+                          {formatReviewDraftBadgeLabel(draft.status)}
                         </span>
                       </div>
 
@@ -329,6 +470,21 @@ export function ReviewQueuePage({
                       <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', color: '#64748b', fontSize: '14px' }}>
                         <span>平台：{draft.platform}</span>
                         <span>更新时间：{draft.updatedAt}</span>
+                      </div>
+
+                      <div
+                        style={{
+                          borderRadius: '14px',
+                          border: '1px solid #dbe4f0',
+                          background: '#ffffff',
+                          padding: '12px 14px',
+                          display: 'grid',
+                          gap: '6px',
+                          color: '#334155',
+                        }}
+                      >
+                        <div style={{ fontWeight: 700 }}>{formatReviewDraftDestination(draft.status)}</div>
+                        <div>计划推送时间：{scheduledAtValue.length > 0 ? scheduledAtValue : '未设置'}</div>
                       </div>
 
                       <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
@@ -381,7 +537,7 @@ export function ReviewQueuePage({
                             fontWeight: 700,
                           }}
                         >
-                          Publish now
+                          立即发布
                         </button>
                       </div>
 
@@ -420,8 +576,26 @@ export function ReviewQueuePage({
                             fontWeight: 700,
                           }}
                         >
-                          Schedule
+                          推入排程
                         </button>
+                      </div>
+
+                      <div
+                        style={{
+                          borderRadius: '14px',
+                          border: '1px solid #dbe4f0',
+                          background: '#ffffff',
+                          padding: '12px 14px',
+                          display: 'grid',
+                          gap: '6px',
+                          color: '#334155',
+                        }}
+                      >
+                        <div style={{ fontWeight: 700 }}>Publish contract</div>
+                        <div>回执状态：{formatPublishContractStatus(draft, actionState)}</div>
+                        <div>发布链接：{publishContract.publishUrl ?? '未返回'}</div>
+                        <div>回执消息：{publishContract.contractMessage ?? '待触发发布'}</div>
+                        {publishContract.publishError ? <div>最近错误：{publishContract.publishError}</div> : null}
                       </div>
 
                       {actionState.status === 'loading' ? (

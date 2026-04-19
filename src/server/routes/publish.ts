@@ -8,6 +8,7 @@ import { publishToX } from '../services/publishers/x';
 import { publishToXiaohongshu } from '../services/publishers/xiaohongshu';
 import type { DraftStatus } from './drafts';
 import { createSQLiteDraftStore } from '../store/drafts';
+import { createJobQueueStore } from '../store/jobQueue';
 import { createSQLitePublishLogStore } from '../store/publishLogs';
 
 export interface PublishableDraft {
@@ -101,6 +102,7 @@ export function createDraftPublishAdapter() {
 
 function createPublishResultPersister() {
   const draftStore = createSQLiteDraftStore();
+  const jobQueueStore = createJobQueueStore();
   const publishLogStore = createSQLitePublishLogStore();
 
   return async (draftId: number, result: PublishContract): Promise<void> => {
@@ -113,18 +115,23 @@ function createPublishResultPersister() {
 
     draftStore.update(draftId, {
       status: result.draftStatus,
+      scheduledAt: null,
       publishedAt: result.publishedAt,
     });
+
+    jobQueueStore.deletePendingPublishJobs(draftId);
   };
 }
 
 function createPublishFailureRecorder() {
   const draftStore = createSQLiteDraftStore();
+  const jobQueueStore = createJobQueueStore();
   const publishLogStore = createSQLitePublishLogStore();
 
   return async (draftId: number, error: unknown): Promise<void> => {
     draftStore.update(draftId, {
       status: 'failed',
+      scheduledAt: null,
       publishedAt: null,
     });
 
@@ -133,6 +140,8 @@ function createPublishFailureRecorder() {
       status: 'failed',
       message: getPublishErrorMessage(error),
     });
+
+    jobQueueStore.deletePendingPublishJobs(draftId);
   };
 }
 

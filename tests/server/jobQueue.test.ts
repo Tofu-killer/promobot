@@ -78,4 +78,30 @@ describe('job queue store', () => {
       cleanupTestDatabasePath(rootDir);
     }
   });
+
+  it('upserts and clears publish jobs by draft id', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const store = createJobQueueStore();
+
+      const first = store.schedulePublishJob(42, '2026-04-19T11:00:00.000Z');
+      const second = store.schedulePublishJob(42, '2026-04-19T12:00:00.000Z');
+
+      expect(second.id).toBe(first.id);
+      expect(store.list({ limit: 5 })).toEqual([
+        expect.objectContaining({
+          id: first.id,
+          type: 'publish',
+          payload: '{"draftId":42}',
+          status: 'pending',
+          runAt: '2026-04-19T12:00:00.000Z',
+        }),
+      ]);
+
+      expect(store.deletePendingPublishJobs(42)).toBe(1);
+      expect(store.list({ limit: 5 })).toEqual([]);
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
 });

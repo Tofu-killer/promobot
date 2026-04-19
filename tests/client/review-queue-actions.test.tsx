@@ -618,6 +618,9 @@ describe('review queue wiring', () => {
     expect(html).toContain('Launch thread');
     expect(html).toContain('通过');
     expect(html).toContain('退回');
+    expect(html).toContain('当前去向：仍在审核队列，尚未推入 Publish Calendar。');
+    expect(html).toContain('Publish contract');
+    expect(html).toContain('回执状态：待触发');
   });
 
   it('approves and rejects review drafts through PATCH /api/drafts/:id', async () => {

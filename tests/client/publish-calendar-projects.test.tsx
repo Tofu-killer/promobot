@@ -616,6 +616,7 @@ describe('PublishCalendar and Projects pages', () => {
               content: 'Queued for 09:30',
               hashtags: ['#launch'],
               status: 'scheduled',
+              scheduledAt: '2026-04-20T09:30',
               createdAt: '2026-04-19T08:00:00.000Z',
               updatedAt: '2026-04-19T08:10:00.000Z',
             },
@@ -626,6 +627,9 @@ describe('PublishCalendar and Projects pages', () => {
               content: 'Published at 10:15',
               hashtags: ['#ama'],
               status: 'published',
+              publishedAt: '2026-04-19T10:15:00.000Z',
+              publishUrl: 'https://reddit.test/r/ama-12',
+              publishMessage: 'publisher accepted AMA post',
               createdAt: '2026-04-19T07:00:00.000Z',
               updatedAt: '2026-04-19T10:15:00.000Z',
             },
@@ -648,6 +652,10 @@ describe('PublishCalendar and Projects pages', () => {
     expect(html).toContain('已发布 1');
     expect(html).toContain('Scheduled launch thread');
     expect(html).toContain('Already live AMA');
+    expect(html).toContain('当前排程状态：已写入 scheduled，等待发布器消费。');
+    expect(html).toContain('发布 contract');
+    expect(html).toContain('发布链接：https://reddit.test/r/ama-12');
+    expect(html).toContain('回执消息：publisher accepted AMA post');
     expect(html).not.toContain('Internal draft');
   });
 

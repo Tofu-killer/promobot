@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../../src/server/app';
+import { initDb } from '../../src/server/db';
 import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
 
 const originalEnv = {
@@ -9,6 +10,7 @@ const originalEnv = {
 };
 
 let activeTestDbRoot: string | undefined;
+let activeTestDatabasePath: string | undefined;
 
 async function requestApp(
   app: ReturnType<typeof createApp>,
@@ -123,7 +125,9 @@ beforeEach(() => {
   process.env.AI_BASE_URL = 'https://example.test/v1';
   process.env.AI_API_KEY = 'test-key';
   process.env.AI_MODEL = 'test-model';
-  activeTestDbRoot = createTestDatabasePath().rootDir;
+  const testDatabase = createTestDatabasePath();
+  activeTestDbRoot = testDatabase.rootDir;
+  activeTestDatabasePath = testDatabase.databasePath;
 });
 
 afterEach(() => {
@@ -134,8 +138,37 @@ afterEach(() => {
   if (activeTestDbRoot) {
     cleanupTestDatabasePath(activeTestDbRoot);
     activeTestDbRoot = undefined;
+    activeTestDatabasePath = undefined;
   }
 });
+
+function readJobQueue() {
+  if (!activeTestDatabasePath) {
+    throw new Error('active test database path is not configured');
+  }
+
+  const db = initDb(activeTestDatabasePath);
+
+  try {
+    return db
+      .prepare(
+        `
+          SELECT id, type, payload, status, run_at AS runAt
+          FROM job_queue
+          ORDER BY id ASC
+        `,
+      )
+      .all() as Array<{
+      id: number;
+      type: string;
+      payload: string;
+      status: string;
+      runAt: string;
+    }>;
+  } finally {
+    db.close();
+  }
+}
 
 describe('drafts api', () => {
   it('lists drafts saved from content generation', async () => {
@@ -202,7 +235,7 @@ describe('drafts api', () => {
     });
   });
 
-  it('updates draft scheduledAt', async () => {
+  it('updates draft scheduledAt and enqueues a publish job', async () => {
     installFetchStub();
     const app = createApp({
       allowedIps: ['127.0.0.1'],
@@ -224,8 +257,81 @@ describe('drafts api', () => {
     expect(JSON.parse(response.body)).toEqual({
       draft: expect.objectContaining({
         id: 1,
+        status: 'scheduled',
         scheduledAt: '2026-04-20T09:30:00.000Z',
       }),
+      publishJob: expect.objectContaining({
+        type: 'publish',
+        status: 'pending',
+        runAt: '2026-04-20T09:30:00.000Z',
+      }),
     });
+
+    expect(readJobQueue()).toEqual([
+      expect.objectContaining({
+        type: 'publish',
+        payload: '{"draftId":1}',
+        status: 'pending',
+        runAt: '2026-04-20T09:30:00.000Z',
+      }),
+    ]);
+  });
+
+  it('reschedules and clears publish jobs when scheduled drafts are edited', async () => {
+    installFetchStub();
+    const app = createApp({
+      allowedIps: ['127.0.0.1'],
+      adminPassword: 'secret',
+    });
+
+    await requestApp(app, 'POST', '/api/content/generate', {
+      topic: 'Claude support launched',
+      platforms: ['x'],
+      tone: 'professional',
+      saveAsDraft: true,
+    });
+
+    await requestApp(app, 'PATCH', '/api/drafts/1', {
+      scheduledAt: '2026-04-20T09:30:00.000Z',
+    });
+
+    const rescheduled = await requestApp(app, 'PATCH', '/api/drafts/1', {
+      scheduledAt: '2026-04-20T11:00:00.000Z',
+    });
+
+    expect(rescheduled.status).toBe(200);
+    expect(JSON.parse(rescheduled.body)).toEqual({
+      draft: expect.objectContaining({
+        id: 1,
+        status: 'scheduled',
+        scheduledAt: '2026-04-20T11:00:00.000Z',
+      }),
+      publishJob: expect.objectContaining({
+        type: 'publish',
+        status: 'pending',
+        runAt: '2026-04-20T11:00:00.000Z',
+      }),
+    });
+    expect(readJobQueue()).toEqual([
+      expect.objectContaining({
+        type: 'publish',
+        payload: '{"draftId":1}',
+        status: 'pending',
+        runAt: '2026-04-20T11:00:00.000Z',
+      }),
+    ]);
+
+    const cleared = await requestApp(app, 'PATCH', '/api/drafts/1', {
+      scheduledAt: null,
+    });
+
+    expect(cleared.status).toBe(200);
+    expect(JSON.parse(cleared.body)).toEqual({
+      draft: expect.objectContaining({
+        id: 1,
+        status: 'approved',
+      }),
+    });
+    expect(readJobQueue()).toEqual([]);
   });
 });

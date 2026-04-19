@@ -162,6 +162,56 @@ function readPublishLogs() {
   }
 }
 
+function readJobQueue() {
+  if (!activeTestDatabasePath) {
+    throw new Error('active test database path is not configured');
+  }
+
+  const db = initDb(activeTestDatabasePath);
+
+  try {
+    return db
+      .prepare(
+        `
+          SELECT id, type, payload, status, run_at AS runAt
+          FROM job_queue
+          ORDER BY id ASC
+        `,
+      )
+      .all() as Array<{
+      id: number;
+      type: string;
+      payload: string;
+      status: string;
+      runAt: string;
+    }>;
+  } finally {
+    db.close();
+  }
+}
+
+function insertPendingPublishJob(draftId: number, runAt: string) {
+  if (!activeTestDatabasePath) {
+    throw new Error('active test database path is not configured');
+  }
+
+  const db = initDb(activeTestDatabasePath);
+
+  try {
+    db.prepare(
+      `
+        INSERT INTO job_queue (type, payload, status, run_at, attempts, created_at, updated_at)
+        VALUES ('publish', @payload, 'pending', @run_at, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      `,
+    ).run({
+      payload: JSON.stringify({ draftId }),
+      run_at: runAt,
+    });
+  } finally {
+    db.close();
+  }
+}
+
 describe('publish api', () => {
   it('publishes an x draft through the default stub adapter and returns the enriched publish contract', async () => {
     const lookupDraft = vi.fn().mockResolvedValue({
@@ -234,6 +284,11 @@ describe('publish api', () => {
       title: 'Launch update',
       content: 'Claude 3.5 Sonnet is now available.',
     });
+    draftStore.update(draft.id, {
+      status: 'scheduled',
+      scheduledAt: '2026-04-20T09:30:00.000Z',
+    });
+    insertPendingPublishJob(draft.id, '2026-04-20T09:30:00.000Z');
     const app = createTestApp(
       {
         lookupDraft(id) {
@@ -260,6 +315,7 @@ describe('publish api', () => {
       expect.objectContaining({
         id: draft.id,
         status: 'published',
+        scheduledAt: undefined,
         publishedAt: expect.any(String),
       }),
     );
@@ -274,6 +330,7 @@ describe('publish api', () => {
         message: `x stub publisher accepted draft ${draft.id}`,
       }),
     ]);
+    expect(readJobQueue()).toEqual([]);
   });
 
   it('persists queued publish semantics without backfilling publishedAt', async () => {
@@ -341,6 +398,7 @@ describe('publish api', () => {
       expect.objectContaining({
         id: draft.id,
         status: 'queued',
+        scheduledAt: undefined,
         publishedAt: undefined,
       }),
     );
@@ -352,6 +410,7 @@ describe('publish api', () => {
         message: 'queued for downstream publisher',
       }),
     ]);
+    expect(readJobQueue()).toEqual([]);
   });
 
   it('returns 404 when the draft lookup misses', async () => {
@@ -498,6 +557,7 @@ describe('publish api', () => {
       expect.objectContaining({
         id: draft.id,
         status: 'failed',
+        scheduledAt: undefined,
         publishedAt: undefined,
       }),
     );
@@ -509,6 +569,7 @@ describe('publish api', () => {
         message: 'provider rejected draft',
       }),
     ]);
+    expect(readJobQueue()).toEqual([]);
   });
 
   it('records a failed publish log when publishing throws', async () => {
@@ -547,6 +608,7 @@ describe('publish api', () => {
       expect.objectContaining({
         id: draft.id,
         status: 'failed',
+        scheduledAt: undefined,
         publishedAt: undefined,
       }),
     );
@@ -558,6 +620,7 @@ describe('publish api', () => {
         message: 'publisher exploded',
       }),
     ]);
+    expect(readJobQueue()).toEqual([]);
   });
 
   it('returns 400 for an invalid draft id', async () => {

@@ -497,6 +497,12 @@ describe('client API page wiring', () => {
             authType: 'api-key',
             status: 'healthy',
             metadata: {},
+            session: {
+              hasSession: true,
+              status: 'active',
+              validatedAt: '2026-04-19T01:00:00.000Z',
+              storageStatePath: 'artifacts/browser-sessions/acct-x.json',
+            },
             createdAt: '2026-04-19T00:00:00.000Z',
             updatedAt: '2026-04-19T00:00:00.000Z',
           },
@@ -508,6 +514,12 @@ describe('client API page wiring', () => {
             authType: 'oauth',
             status: 'healthy',
             metadata: {},
+            session: {
+              hasSession: false,
+              status: 'missing',
+              validatedAt: null,
+              storageStatePath: null,
+            },
             createdAt: '2026-04-19T00:00:00.000Z',
             updatedAt: '2026-04-19T00:00:00.000Z',
           },
@@ -528,6 +540,181 @@ describe('client API page wiring', () => {
 
     expect(fetchMock).toHaveBeenCalledWith('/api/channel-accounts', undefined);
     expect(result.channelAccounts).toHaveLength(2);
+  });
+
+  it('posts channel account session metadata through the shared API helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        session: {
+          hasSession: true,
+          id: 'x:acct-x',
+          status: 'active',
+          validatedAt: '2026-04-19T01:00:00.000Z',
+          storageStatePath: 'artifacts/browser-sessions/acct-x.json',
+          notes: 'manual relogin completed',
+        },
+        channelAccount: {
+          id: 3,
+          platform: 'x',
+          accountKey: 'acct-x-2',
+          displayName: 'X Secondary',
+          authType: 'browser',
+          status: 'healthy',
+          metadata: {},
+          session: {
+            hasSession: true,
+            id: 'x:acct-x',
+            status: 'active',
+            validatedAt: '2026-04-19T01:00:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/acct-x.json',
+            notes: 'manual relogin completed',
+          },
+          createdAt: '2026-04-19T00:00:00.000Z',
+          updatedAt: '2026-04-19T00:00:00.000Z',
+        },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const channelsModule = (await import('../../src/client/pages/ChannelAccounts')) as Record<string, unknown>;
+
+    expect(typeof channelsModule.saveChannelAccountSessionRequest).toBe('function');
+
+    const saveChannelAccountSessionRequest = channelsModule.saveChannelAccountSessionRequest as (
+      accountId: number,
+      input: {
+        storageStatePath: string;
+        status: 'active' | 'expired' | 'missing';
+        validatedAt?: string | null;
+        notes?: string;
+      },
+    ) => Promise<{ ok: boolean; session: { hasSession: boolean; status: string } }>;
+
+    const result = await saveChannelAccountSessionRequest(3, {
+      storageStatePath: 'artifacts/browser-sessions/acct-x.json',
+      status: 'active',
+      validatedAt: '2026-04-19T01:00:00.000Z',
+      notes: 'manual relogin completed',
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/channel-accounts/3/session',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          storageStatePath: 'artifacts/browser-sessions/acct-x.json',
+          status: 'active',
+          validatedAt: '2026-04-19T01:00:00.000Z',
+          notes: 'manual relogin completed',
+        }),
+      }),
+    );
+    expect(result.ok).toBe(true);
+    expect(result.session.status).toBe('active');
+  });
+
+  it('posts request-session and relogin actions through the shared API helper', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          ok: true,
+          sessionAction: {
+            action: 'request_session',
+            accountId: 3,
+            status: 'pending',
+            requestedAt: '2026-04-19T01:10:00.000Z',
+            message: 'Browser session capture is not wired yet.',
+            nextStep: '/api/channel-accounts/3/session',
+          },
+          channelAccount: {
+            id: 3,
+            platform: 'x',
+            accountKey: 'acct-x-2',
+            displayName: 'X Secondary',
+            authType: 'browser',
+            status: 'healthy',
+            metadata: {},
+            session: {
+              hasSession: false,
+              status: 'missing',
+              validatedAt: null,
+              storageStatePath: null,
+            },
+            createdAt: '2026-04-19T00:00:00.000Z',
+            updatedAt: '2026-04-19T00:00:00.000Z',
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          ok: true,
+          sessionAction: {
+            action: 'relogin',
+            accountId: 3,
+            status: 'pending',
+            requestedAt: '2026-04-19T01:20:00.000Z',
+            message: 'Browser relogin is not wired yet.',
+            nextStep: '/api/channel-accounts/3/session',
+          },
+          channelAccount: {
+            id: 3,
+            platform: 'x',
+            accountKey: 'acct-x-2',
+            displayName: 'X Secondary',
+            authType: 'browser',
+            status: 'healthy',
+            metadata: {},
+            session: {
+              hasSession: true,
+              status: 'expired',
+              validatedAt: '2026-04-19T01:00:00.000Z',
+              storageStatePath: 'artifacts/browser-sessions/acct-x.json',
+            },
+            createdAt: '2026-04-19T00:00:00.000Z',
+            updatedAt: '2026-04-19T00:00:00.000Z',
+          },
+        }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const channelsModule = (await import('../../src/client/pages/ChannelAccounts')) as Record<string, unknown>;
+
+    expect(typeof channelsModule.requestChannelAccountSessionActionRequest).toBe('function');
+
+    const requestChannelAccountSessionActionRequest =
+      channelsModule.requestChannelAccountSessionActionRequest as (
+        accountId: number,
+        input?: { action?: 'request_session' | 'relogin' },
+      ) => Promise<{ ok: boolean; sessionAction: { action: string; status: string } }>;
+
+    const requestSessionResult = await requestChannelAccountSessionActionRequest(3);
+    const reloginResult = await requestChannelAccountSessionActionRequest(3, {
+      action: 'relogin',
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      '/api/channel-accounts/3/session/request',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/channel-accounts/3/session/request',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'relogin' }),
+      }),
+    );
+    expect(requestSessionResult.sessionAction.action).toBe('request_session');
+    expect(reloginResult.sessionAction.action).toBe('relogin');
   });
 
   it('posts a new channel account through the shared API helper', async () => {
@@ -614,6 +801,12 @@ describe('client API page wiring', () => {
               authType: 'api-key',
               status: 'healthy',
               metadata: {},
+              session: {
+                hasSession: true,
+                status: 'active',
+                validatedAt: '2026-04-19T01:00:00.000Z',
+                storageStatePath: 'artifacts/browser-sessions/acct-x.json',
+              },
               createdAt: '2026-04-19T00:00:00.000Z',
               updatedAt: '2026-04-19T00:00:00.000Z',
             },
@@ -625,6 +818,12 @@ describe('client API page wiring', () => {
               authType: 'oauth',
               status: 'healthy',
               metadata: {},
+              session: {
+                hasSession: false,
+                status: 'missing',
+                validatedAt: null,
+                storageStatePath: null,
+              },
               createdAt: '2026-04-19T00:00:00.000Z',
               updatedAt: '2026-04-19T00:00:00.000Z',
             },
@@ -636,6 +835,12 @@ describe('client API page wiring', () => {
     expect(html).toContain('接口返回 2 个账号');
     expect(html).toContain('X / Twitter');
     expect(html).toContain('healthy');
+    expect(html).toContain('Session 已关联');
+    expect(html).toContain('Session 状态：active');
+    expect(html).toContain('最近验证：2026-04-19T01:00:00.000Z');
+    expect(html).toContain('Storage Path：artifacts/browser-sessions/acct-x.json');
+    expect(html).toContain('保存 Session 元数据');
+    expect(html).toContain('请求登录');
   });
 
   it('renders the channel account create form and save action', async () => {

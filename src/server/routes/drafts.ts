@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import type { JobQueueEntry, JobQueueStore } from '../store/jobQueue';
+import { createJobQueueStore } from '../store/jobQueue';
 import { createSQLiteDraftStore } from '../store/drafts';
 
 export type DraftStatus =
@@ -47,6 +49,10 @@ export interface DraftStore {
   update(id: number, input: UpdateDraftInput): DraftRecord | undefined;
 }
 
+export interface DraftsRouterDependencies {
+  jobQueueStore?: JobQueueStore;
+}
+
 const allowedStatuses = new Set<DraftStatus>([
   'approved',
   'draft',
@@ -65,8 +71,12 @@ export function createDraftStore(): DraftStore {
   return createSQLiteDraftStore();
 }
 
-export function createDraftsRouter(draftStore: DraftStore) {
+export function createDraftsRouter(
+  draftStore: DraftStore,
+  dependencies: DraftsRouterDependencies = {},
+) {
   const draftsRouter = Router();
+  const jobQueueStore = dependencies.jobQueueStore ?? createJobQueueStore();
 
   draftsRouter.get('/', (request, response) => {
     const status = typeof request.query.status === 'string' ? request.query.status : undefined;
@@ -82,6 +92,12 @@ export function createDraftsRouter(draftStore: DraftStore) {
   draftsRouter.patch('/:id', (request, response) => {
     const id = Number(request.params.id);
     const patch: UpdateDraftInput = {};
+    const currentDraft = draftStore.getById(id);
+
+    if (!currentDraft) {
+      response.status(404).json({ error: 'draft not found' });
+      return;
+    }
 
     if (typeof request.body?.title === 'string') {
       patch.title = request.body.title;
@@ -105,14 +121,57 @@ export function createDraftsRouter(draftStore: DraftStore) {
       patch.scheduledAt = request.body.scheduledAt;
     }
 
-    const draft = draftStore.update(id, patch);
-    if (!draft) {
-      response.status(404).json({ error: 'draft not found' });
-      return;
-    }
+    const normalizedPatch = normalizeDraftPatch(currentDraft, patch);
+    const draft = draftStore.update(id, normalizedPatch);
+    const publishJob = draft ? syncDraftSchedule(jobQueueStore, currentDraft, draft) : undefined;
 
-    response.json({ draft });
+    response.json({
+      draft,
+      ...(publishJob ? { publishJob } : {}),
+    });
   });
 
   return draftsRouter;
+}
+
+function normalizeDraftPatch(currentDraft: DraftRecord, patch: UpdateDraftInput): UpdateDraftInput {
+  const nextPatch: UpdateDraftInput = { ...patch };
+
+  if (patch.scheduledAt !== undefined) {
+    if (typeof patch.scheduledAt === 'string' && patch.scheduledAt.trim().length > 0) {
+      nextPatch.scheduledAt = patch.scheduledAt;
+      if (nextPatch.status === undefined) {
+        nextPatch.status = 'scheduled';
+      }
+    } else {
+      nextPatch.scheduledAt = null;
+      if (nextPatch.status === undefined && currentDraft.status === 'scheduled') {
+        nextPatch.status = 'approved';
+      }
+    }
+  }
+
+  return nextPatch;
+}
+
+function syncDraftSchedule(
+  jobQueueStore: JobQueueStore,
+  currentDraft: DraftRecord,
+  draft: DraftRecord,
+): JobQueueEntry | undefined {
+  const scheduledAt =
+    typeof draft.scheduledAt === 'string' && draft.scheduledAt.trim().length > 0
+      ? draft.scheduledAt
+      : null;
+  const shouldSchedule = draft.status === 'scheduled' && scheduledAt !== null;
+
+  if (shouldSchedule) {
+    return jobQueueStore.schedulePublishJob(draft.id, scheduledAt);
+  }
+
+  if (currentDraft.status === 'scheduled' || currentDraft.scheduledAt) {
+    jobQueueStore.deletePendingPublishJobs(draft.id);
+  }
+
+  return undefined;
 }

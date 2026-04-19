@@ -47,6 +47,7 @@ export function createPublishJobHandler(): JobHandler {
 
       draftStore.update(draftId, {
         status: getDraftStatusForPublishStatus(result.status),
+        scheduledAt: null,
         publishedAt,
       });
 
@@ -56,6 +57,7 @@ export function createPublishJobHandler(): JobHandler {
     } catch (error) {
       draftStore.update(draftId, {
         status: 'failed',
+        scheduledAt: null,
         publishedAt: null,
       });
 

@@ -863,4 +863,231 @@ describe('channel account edit actions', () => {
       await flush();
     });
   });
+
+  it('saves session metadata and triggers relogin actions without regressing account editing', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ChannelAccountsPage } = await import('../../src/client/pages/ChannelAccounts');
+
+    const saveSessionDeferred = createDeferredPromise<{
+      ok: boolean;
+      session: {
+        hasSession: boolean;
+        id: string;
+        status: string;
+        validatedAt: string | null;
+        storageStatePath: string | null;
+        notes?: string;
+      };
+      channelAccount: {
+        id: number;
+        platform: string;
+        accountKey: string;
+        displayName: string;
+        authType: string;
+        status: string;
+        metadata: Record<string, unknown>;
+        session: {
+          hasSession: boolean;
+          status: string;
+          validatedAt: string | null;
+          storageStatePath: string | null;
+          id?: string;
+          notes?: string;
+        };
+        createdAt: string;
+        updatedAt: string;
+      };
+    }>();
+    const saveChannelAccountSessionAction = vi.fn().mockReturnValue(saveSessionDeferred.promise);
+    const requestChannelAccountSessionAction = vi.fn().mockResolvedValue({
+      ok: true,
+      sessionAction: {
+        action: 'relogin',
+        accountId: 7,
+        status: 'pending',
+        requestedAt: '2026-04-19T03:10:00.000Z',
+        message:
+          'Browser relogin is not wired yet. Refresh the login manually and attach updated session metadata.',
+        nextStep: '/api/channel-accounts/7/session',
+      },
+      channelAccount: {
+        id: 7,
+        platform: 'x',
+        accountKey: 'acct-browser',
+        displayName: 'Browser X',
+        authType: 'browser',
+        status: 'healthy',
+        metadata: {},
+        session: {
+          hasSession: true,
+          status: 'expired',
+          validatedAt: '2026-04-19T02:00:00.000Z',
+          storageStatePath: 'artifacts/browser-sessions/acct-browser.json',
+          id: 'x:acct-browser',
+        },
+        createdAt: '2026-04-19T00:00:00.000Z',
+        updatedAt: '2026-04-19T00:00:00.000Z',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ChannelAccountsPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              channelAccounts: [
+                {
+                  id: 7,
+                  platform: 'x',
+                  accountKey: 'acct-browser',
+                  displayName: 'Browser X',
+                  authType: 'browser',
+                  status: 'healthy',
+                  metadata: {},
+                  session: {
+                    hasSession: true,
+                    status: 'expired',
+                    validatedAt: '2026-04-19T02:00:00.000Z',
+                    storageStatePath: 'artifacts/browser-sessions/acct-browser.json',
+                    id: 'x:acct-browser',
+                  },
+                  createdAt: '2026-04-19T00:00:00.000Z',
+                  updatedAt: '2026-04-19T00:00:00.000Z',
+                },
+              ],
+            },
+          },
+          saveChannelAccountSessionAction,
+          requestChannelAccountSessionAction,
+        }),
+      );
+      await flush();
+    });
+
+    const editButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-edit-account-id') === '7',
+    );
+
+    await act(async () => {
+      editButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    await act(async () => {
+      updateFieldValue(
+        findElement(
+          container,
+          (element) => element.tagName === 'INPUT' && element.getAttribute('data-edit-session-storage-path-id') === '7',
+        ),
+        'artifacts/browser-sessions/browser-x-fresh.json',
+        window,
+      );
+      updateFieldValue(
+        findElement(
+          container,
+          (element) => element.tagName === 'INPUT' && element.getAttribute('data-edit-session-status-id') === '7',
+        ),
+        'active',
+        window,
+      );
+      updateFieldValue(
+        findElement(
+          container,
+          (element) => element.tagName === 'INPUT' && element.getAttribute('data-edit-session-validated-at-id') === '7',
+        ),
+        '2026-04-19T03:00:00.000Z',
+        window,
+      );
+      updateFieldValue(
+        findElement(
+          container,
+          (element) => element.tagName === 'INPUT' && element.getAttribute('data-edit-session-notes-id') === '7',
+        ),
+        'cookie refreshed in headed browser',
+        window,
+      );
+      await flush();
+    });
+
+    const saveSessionButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-save-session-id') === '7',
+    );
+
+    await act(async () => {
+      saveSessionButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(saveChannelAccountSessionAction).toHaveBeenCalledWith(7, {
+      storageStatePath: 'artifacts/browser-sessions/browser-x-fresh.json',
+      status: 'active',
+      validatedAt: '2026-04-19T03:00:00.000Z',
+      notes: 'cookie refreshed in headed browser',
+    });
+    expect(collectText(container)).toContain('正在保存 Session...');
+
+    await act(async () => {
+      saveSessionDeferred.resolve({
+        ok: true,
+        session: {
+          hasSession: true,
+          id: 'x:acct-browser',
+          status: 'active',
+          validatedAt: '2026-04-19T03:00:00.000Z',
+          storageStatePath: 'artifacts/browser-sessions/browser-x-fresh.json',
+          notes: 'cookie refreshed in headed browser',
+        },
+        channelAccount: {
+          id: 7,
+          platform: 'x',
+          accountKey: 'acct-browser',
+          displayName: 'Browser X',
+          authType: 'browser',
+          status: 'healthy',
+          metadata: {},
+          session: {
+            hasSession: true,
+            id: 'x:acct-browser',
+            status: 'active',
+            validatedAt: '2026-04-19T03:00:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/browser-x-fresh.json',
+            notes: 'cookie refreshed in headed browser',
+          },
+          createdAt: '2026-04-19T00:00:00.000Z',
+          updatedAt: '2026-04-19T03:00:00.000Z',
+        },
+      });
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('Session 元数据已保存');
+    expect(collectText(container)).toContain('Session 状态：active');
+    expect(collectText(container)).toContain('Storage Path：artifacts/browser-sessions/browser-x-fresh.json');
+
+    const reloginButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-session-action-id') === '7',
+    );
+
+    await act(async () => {
+      reloginButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(requestChannelAccountSessionAction).toHaveBeenCalledWith(7, {
+      action: 'relogin',
+    });
+    expect(collectText(container)).toContain('重新登录请求已发送');
+    expect(collectText(container)).toContain('Refresh the login manually');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
 });

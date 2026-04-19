@@ -23,6 +23,7 @@ describe('publish queue handler', () => {
         expect.objectContaining({
           id: draft.id,
           status: 'published',
+          scheduledAt: undefined,
           publishedAt: expect.any(String),
         }),
       );
@@ -56,6 +57,7 @@ describe('publish queue handler', () => {
         expect.objectContaining({
           id: draft.id,
           status: 'review',
+          scheduledAt: undefined,
           publishedAt: undefined,
         }),
       );

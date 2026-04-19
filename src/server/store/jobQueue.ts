@@ -40,6 +40,8 @@ export interface JobQueueStore extends JobStore {
   list(options?: ListJobQueueOptions): JobQueueEntry[];
   getStats(nowIso?: string): JobQueueStats;
   requeueRunningJobs(nowIso?: string): number;
+  schedulePublishJob(draftId: number, runAt: string): JobQueueEntry;
+  deletePendingPublishJobs(draftId: number): number;
 }
 
 export function createJobQueueStore(): JobQueueStore {
@@ -67,6 +69,12 @@ export function createJobQueueStore(): JobQueueStore {
     },
     requeueRunningJobs(nowIso) {
       return withDatabase((database) => requeueRunningJobs(database, nowIso ?? new Date().toISOString()));
+    },
+    schedulePublishJob(draftId, runAt) {
+      return withDatabase((database) => schedulePublishJob(database, draftId, runAt));
+    },
+    deletePendingPublishJobs(draftId) {
+      return withDatabase((database) => deletePendingPublishJobs(database, draftId));
     },
   };
 }
@@ -280,6 +288,78 @@ function requeueRunningJobs(database: DatabaseConnection, nowIso: string): numbe
   return result.changes;
 }
 
+function schedulePublishJob(
+  database: DatabaseConnection,
+  draftId: number,
+  runAt: string,
+): JobQueueEntry {
+  const now = new Date().toISOString();
+  const payload = buildPublishPayload(draftId);
+  const existing = database
+    .prepare(
+      `
+        SELECT id
+        FROM job_queue
+        WHERE type = 'publish'
+          AND payload = ?
+          AND status IN ('pending', 'failed')
+        ORDER BY id ASC
+        LIMIT 1
+      `,
+    )
+    .get([payload]) as { id?: number } | undefined;
+
+  if (existing?.id) {
+    database
+      .prepare(
+        `
+          UPDATE job_queue
+          SET status = 'pending',
+              run_at = @run_at,
+              last_error = NULL,
+              started_at = NULL,
+              finished_at = NULL,
+              updated_at = @updated_at
+          WHERE id = @id
+        `,
+      )
+      .run({
+        id: existing.id,
+        run_at: runAt,
+        updated_at: now,
+      });
+
+    const entry = getJobById(database, Number(existing.id));
+    if (!entry) {
+      throw new Error('publish job update failed');
+    }
+
+    return entry;
+  }
+
+  return insertJob(database, {
+    type: 'publish',
+    payload: { draftId },
+    runAt,
+    status: 'pending',
+  });
+}
+
+function deletePendingPublishJobs(database: DatabaseConnection, draftId: number): number {
+  const result = database
+    .prepare(
+      `
+        DELETE FROM job_queue
+        WHERE type = 'publish'
+          AND payload = ?
+          AND status IN ('pending', 'failed')
+      `,
+    )
+    .run([buildPublishPayload(draftId)]);
+
+  return result.changes;
+}
+
 function getJobById(database: DatabaseConnection, jobId: number): JobQueueEntry | undefined {
   const row = database
     .prepare(
@@ -294,6 +374,10 @@ function getJobById(database: DatabaseConnection, jobId: number): JobQueueEntry 
     .get([jobId]);
 
   return row ? normalizeJobQueueEntry(row as Record<string, unknown>) : undefined;
+}
+
+function buildPublishPayload(draftId: number) {
+  return JSON.stringify({ draftId });
 }
 
 function normalizeJobRecord(row: Record<string, unknown>): JobRecord {

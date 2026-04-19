@@ -61,6 +61,44 @@ function formatDraftTimestamp(draft: DraftRecord) {
   return draft.updatedAt.length > 0 ? draft.updatedAt : draft.createdAt;
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function readString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value : null;
+}
+
+function getDraftPublishContract(draft: DraftRecord) {
+  const draftRecord = asRecord(draft);
+
+  return {
+    publishUrl:
+      readString(draftRecord?.publishUrl) ??
+      readString(draftRecord?.lastPublishUrl) ??
+      readString(draftRecord?.url),
+    publishMessage:
+      readString(draftRecord?.publishMessage) ??
+      readString(draftRecord?.lastPublishMessage) ??
+      readString(draftRecord?.message),
+    publishError: readString(draftRecord?.lastPublishError) ?? readString(draftRecord?.publishError),
+  };
+}
+
+function formatCalendarDraftStateDescription(draft: DraftRecord, scheduledAt: string) {
+  if (draft.status === 'published') {
+    return '当前排程状态：已完成发布。';
+  }
+
+  if (scheduledAt.length > 0) {
+    return '当前排程状态：已写入 scheduled，等待发布器消费。';
+  }
+
+  return '当前排程状态：尚未提供 scheduledAt，保存后才能进入发布窗口。';
+}
+
 function createIdleMutationState(): ScheduleMutationState {
   return {
     status: 'idle',
@@ -95,7 +133,7 @@ export function PublishCalendarPage({
   stateOverride,
 }: PublishCalendarPageProps) {
   const { state, reload } = useAsyncQuery(loadDraftsAction, [loadDraftsAction]);
-  const { state: updateState, run: updateSchedule } = useAsyncAction(
+  const { run: updateSchedule } = useAsyncAction(
     ({ id, scheduledAt }: { id: number; scheduledAt: string | null }) =>
       updateDraftScheduleAction(id, { scheduledAt }),
   );
@@ -213,6 +251,7 @@ export function PublishCalendarPage({
                 {calendarDrafts.map((draft) => {
                   const mutationState = getMutationState(draft.id);
                   const scheduledAt = getScheduledAtValue(draft);
+                  const publishContract = getDraftPublishContract(draft);
 
                   return (
                     <article
@@ -243,10 +282,53 @@ export function PublishCalendarPage({
 
                       <div style={{ color: '#475569', lineHeight: 1.5 }}>{draft.content}</div>
 
+                      <div
+                        style={{
+                          borderRadius: '14px',
+                          border: '1px solid #dbe4f0',
+                          background: '#ffffff',
+                          padding: '12px 14px',
+                          display: 'grid',
+                          gap: '6px',
+                          color: '#334155',
+                        }}
+                      >
+                        <div style={{ fontWeight: 700 }}>{formatCalendarDraftStateDescription(draft, scheduledAt)}</div>
+                        {draft.status === 'scheduled' ? (
+                          <div>计划发布时间：{scheduledAt.length > 0 ? scheduledAt : '未设置'}</div>
+                        ) : null}
+                        {draft.status === 'published' ? (
+                          <div>发布时间：{draft.publishedAt ?? '未返回'}</div>
+                        ) : null}
+                      </div>
+
                       <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', color: '#64748b', fontSize: '14px' }}>
                         <span>平台：{draft.platform}</span>
                         <span>更新时间：{formatDraftTimestamp(draft)}</span>
                         {draft.status === 'published' && draft.publishedAt ? <span>发布时间：{draft.publishedAt}</span> : null}
+                      </div>
+
+                      <div
+                        style={{
+                          borderRadius: '14px',
+                          border: '1px solid #dbe4f0',
+                          background: '#ffffff',
+                          padding: '12px 14px',
+                          display: 'grid',
+                          gap: '6px',
+                          color: '#334155',
+                        }}
+                      >
+                        <div style={{ fontWeight: 700 }}>发布 contract</div>
+                        {draft.status === 'published' || publishContract.publishUrl || publishContract.publishMessage || publishContract.publishError ? (
+                          <>
+                            <div>发布链接：{publishContract.publishUrl ?? '未返回'}</div>
+                            <div>回执消息：{publishContract.publishMessage ?? '等待 contract 字段'}</div>
+                            {publishContract.publishError ? <div>最近错误：{publishContract.publishError}</div> : null}
+                          </>
+                        ) : (
+                          <div>排程草稿尚未进入发布回执阶段。</div>
+                        )}
                       </div>
 
                       {draft.status === 'scheduled' ? (

@@ -15,8 +15,18 @@ export interface ChannelAccountRecord {
   authType: string;
   status: string;
   metadata: Record<string, unknown>;
+  session?: ChannelAccountSessionSummary;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ChannelAccountSessionSummary {
+  hasSession: boolean;
+  status: 'active' | 'expired' | 'missing' | string;
+  validatedAt: string | null;
+  storageStatePath: string | null;
+  id?: string;
+  notes?: string;
 }
 
 export interface ChannelAccountsResponse {
@@ -51,6 +61,36 @@ export interface UpdateChannelAccountPayload {
 }
 
 export interface UpdateChannelAccountResponse {
+  channelAccount: ChannelAccountRecord;
+}
+
+export interface SaveChannelAccountSessionPayload {
+  storageStatePath: string;
+  status?: 'active' | 'expired' | 'missing';
+  validatedAt?: string | null;
+  notes?: string;
+}
+
+export interface SaveChannelAccountSessionResponse {
+  ok: boolean;
+  session: ChannelAccountSessionSummary;
+  channelAccount: ChannelAccountRecord;
+}
+
+export interface RequestChannelAccountSessionActionPayload {
+  action?: 'request_session' | 'relogin';
+}
+
+export interface RequestChannelAccountSessionActionResponse {
+  ok: boolean;
+  sessionAction: {
+    action: 'request_session' | 'relogin';
+    accountId: number;
+    status: string;
+    requestedAt: string;
+    message: string;
+    nextStep: string;
+  };
   channelAccount: ChannelAccountRecord;
 }
 
@@ -96,6 +136,35 @@ export async function testChannelAccountConnectionRequest(
   });
 }
 
+export async function saveChannelAccountSessionRequest(
+  accountId: number,
+  input: SaveChannelAccountSessionPayload,
+): Promise<SaveChannelAccountSessionResponse> {
+  return apiRequest<SaveChannelAccountSessionResponse>(`/api/channel-accounts/${accountId}/session`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(input),
+  });
+}
+
+export async function requestChannelAccountSessionActionRequest(
+  accountId: number,
+  input: RequestChannelAccountSessionActionPayload = {},
+): Promise<RequestChannelAccountSessionActionResponse> {
+  return apiRequest<RequestChannelAccountSessionActionResponse>(
+    `/api/channel-accounts/${accountId}/session/request`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(input),
+    },
+  );
+}
+
 export async function runChannelAccountConnectionTest(
   accountId: number,
   action: (targetAccountId: number) => Promise<TestChannelAccountConnectionResponse>,
@@ -110,6 +179,10 @@ interface EditFormValue {
   displayName: string;
   status: string;
   metadata: string;
+  sessionStorageStatePath: string;
+  sessionStatus: string;
+  sessionValidatedAt: string;
+  sessionNotes: string;
 }
 
 interface ChannelAccountsPageProps {
@@ -120,10 +193,20 @@ interface ChannelAccountsPageProps {
     input: UpdateChannelAccountPayload,
   ) => Promise<UpdateChannelAccountResponse>;
   testChannelAccountAction?: (accountId: number) => Promise<TestChannelAccountConnectionResponse>;
+  saveChannelAccountSessionAction?: (
+    accountId: number,
+    input: SaveChannelAccountSessionPayload,
+  ) => Promise<SaveChannelAccountSessionResponse>;
+  requestChannelAccountSessionAction?: (
+    accountId: number,
+    input?: RequestChannelAccountSessionActionPayload,
+  ) => Promise<RequestChannelAccountSessionActionResponse>;
   stateOverride?: AsyncState<ChannelAccountsResponse>;
   createStateOverride?: AsyncState<CreateChannelAccountResponse>;
   updateStateOverride?: AsyncState<UpdateChannelAccountResponse>;
   testConnectionStateOverride?: AsyncState<TestChannelAccountConnectionResponse>;
+  saveSessionStateOverride?: AsyncState<SaveChannelAccountSessionResponse>;
+  sessionActionStateOverride?: AsyncState<RequestChannelAccountSessionActionResponse>;
 }
 
 const fieldStyle = {
@@ -137,6 +220,10 @@ const fieldStyle = {
 
 function serializeMetadata(metadata: Record<string, unknown>) {
   return Object.entries(metadata)
+    .filter(
+      ([key, value]) =>
+        key !== 'session' && (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'),
+    )
     .map(([key, value]) => `${key}=${String(value)}`)
     .join(',');
 }
@@ -160,10 +247,14 @@ export function ChannelAccountsPage({
   createChannelAccountAction = createChannelAccountRequest,
   updateChannelAccountAction = updateChannelAccountRequest,
   testChannelAccountAction = testChannelAccountConnectionRequest,
+  saveChannelAccountSessionAction = saveChannelAccountSessionRequest,
+  requestChannelAccountSessionAction = requestChannelAccountSessionActionRequest,
   stateOverride,
   createStateOverride,
   updateStateOverride,
   testConnectionStateOverride,
+  saveSessionStateOverride,
+  sessionActionStateOverride,
 }: ChannelAccountsPageProps) {
   const { state, reload } = useAsyncQuery(loadChannelAccountsAction, [loadChannelAccountsAction]);
   const [platform, setPlatform] = useState('x');
@@ -183,17 +274,42 @@ export function ChannelAccountsPage({
     ({ accountId }: { accountId: number }) =>
       runChannelAccountConnectionTest(accountId, testChannelAccountAction, reload),
   );
+  const { state: saveSessionState, run: saveSession } = useAsyncAction(
+    ({ accountId, input }: { accountId: number; input: SaveChannelAccountSessionPayload }) =>
+      saveChannelAccountSessionAction(accountId, input),
+  );
+  const { state: sessionActionState, run: requestSessionAction } = useAsyncAction(
+    ({
+      accountId,
+      input,
+    }: {
+      accountId: number;
+      input?: RequestChannelAccountSessionActionPayload;
+    }) => requestChannelAccountSessionAction(accountId, input),
+  );
   const displayState = stateOverride ?? state;
   const displayCreateState = createStateOverride ?? createState;
   const displayUpdateState = updateStateOverride ?? updateState;
   const displayTestConnectionState = testConnectionStateOverride ?? testConnectionState;
+  const displaySaveSessionState = saveSessionStateOverride ?? saveSessionState;
+  const displaySessionActionState = sessionActionStateOverride ?? sessionActionState;
 
   const loadedAccounts =
     displayState.status === 'success' && Array.isArray(displayState.data?.channelAccounts)
-      ? displayState.data.channelAccounts
+      ? displayState.data.channelAccounts.map(normalizeChannelAccountRecord)
       : [];
-  const createdAccount = displayCreateState.data?.channelAccount ?? null;
-  const updatedAccount = displayUpdateState.data?.channelAccount ?? null;
+  const createdAccount = displayCreateState.data?.channelAccount
+    ? normalizeChannelAccountRecord(displayCreateState.data.channelAccount)
+    : null;
+  const updatedAccount = displayUpdateState.data?.channelAccount
+    ? normalizeChannelAccountRecord(displayUpdateState.data.channelAccount)
+    : null;
+  const sessionSavedAccount = displaySaveSessionState.data?.channelAccount
+    ? normalizeChannelAccountRecord(displaySaveSessionState.data.channelAccount)
+    : null;
+  const sessionActionAccount = displaySessionActionState.data?.channelAccount
+    ? normalizeChannelAccountRecord(displaySessionActionState.data.channelAccount)
+    : null;
 
   const visibleAccounts = useMemo(() => {
     let accounts = [...loadedAccounts];
@@ -203,11 +319,29 @@ export function ChannelAccountsPage({
     }
 
     if (updatedAccount) {
-      accounts = accounts.map((account) => (account.id === updatedAccount.id ? updatedAccount : account));
+      accounts = accounts.map((account) =>
+        account.id === updatedAccount.id ? mergeChannelAccountRecord(account, updatedAccount) : account,
+      );
+    }
+
+    if (sessionSavedAccount) {
+      accounts = accounts.map((account) =>
+        account.id === sessionSavedAccount.id
+          ? mergeChannelAccountRecord(account, sessionSavedAccount)
+          : account,
+      );
+    }
+
+    if (sessionActionAccount) {
+      accounts = accounts.map((account) =>
+        account.id === sessionActionAccount.id
+          ? mergeChannelAccountRecord(account, sessionActionAccount)
+          : account,
+      );
     }
 
     return accounts;
-  }, [loadedAccounts, createdAccount, updatedAccount]);
+  }, [loadedAccounts, createdAccount, updatedAccount, sessionSavedAccount, sessionActionAccount]);
 
   const latestCreatedAccount = createdAccount;
   const fallbackTestTarget = visibleAccounts[0] ?? null;
@@ -231,10 +365,15 @@ export function ChannelAccountsPage({
   }
 
   function getEditFormValue(account: ChannelAccountRecord): EditFormValue {
+    const session = getSessionSummary(account);
     return editFormById[account.id] ?? {
       displayName: account.displayName,
       status: account.status,
       metadata: serializeMetadata(account.metadata),
+      sessionStorageStatePath: session.storageStatePath ?? '',
+      sessionStatus: session.status === 'missing' ? 'active' : session.status,
+      sessionValidatedAt: session.validatedAt ?? '',
+      sessionNotes: session.notes ?? '',
     };
   }
 
@@ -268,6 +407,7 @@ export function ChannelAccountsPage({
     }
 
     const formValue = getEditFormValue(account);
+    const parsedMetadata = parseMetadataInput(formValue.metadata);
 
     void updateAccount({
       accountId,
@@ -277,7 +417,35 @@ export function ChannelAccountsPage({
         displayName: formValue.displayName,
         authType: account.authType,
         status: formValue.status,
-        metadata: parseMetadataInput(formValue.metadata),
+        metadata: mergeMetadataWithSession(parsedMetadata, account),
+      },
+    }).catch(() => undefined);
+  }
+
+  function handleSaveSession(accountId: number) {
+    const account = visibleAccounts.find((entry) => entry.id === accountId);
+    if (!account) {
+      return;
+    }
+
+    const formValue = getEditFormValue(account);
+
+    void saveSession({
+      accountId,
+      input: {
+        storageStatePath: formValue.sessionStorageStatePath,
+        status: normalizeSessionStatus(formValue.sessionStatus),
+        validatedAt: formValue.sessionValidatedAt.trim() ? formValue.sessionValidatedAt.trim() : null,
+        notes: formValue.sessionNotes.trim() ? formValue.sessionNotes.trim() : undefined,
+      },
+    }).catch(() => undefined);
+  }
+
+  function handleRequestSessionAction(account: ChannelAccountRecord, forcedAction?: 'request_session' | 'relogin') {
+    void requestSessionAction({
+      accountId: account.id,
+      input: {
+        action: forcedAction ?? getDefaultSessionAction(account),
       },
     }).catch(() => undefined);
   }
@@ -299,7 +467,17 @@ export function ChannelAccountsPage({
         description="集中查看各渠道的凭证与登录态健康度。当前页面会直接请求 `/api/channel-accounts` 并展示返回结果或错误。"
         actions={
           <>
-            <ActionButton label="重新登录" />
+            <ActionButton
+              label="重新登录"
+              onClick={() => {
+                if (!testTarget) {
+                  reload();
+                  return;
+                }
+
+                handleRequestSessionAction(testTarget, 'relogin');
+              }}
+            />
             <ActionButton
               label={displayTestConnectionState.status === 'loading' ? '正在测试连接...' : '测试连接'}
               tone="primary"
@@ -435,6 +613,8 @@ export function ChannelAccountsPage({
                 <div style={{ display: 'grid', gap: '10px' }}>
                   {visibleAccounts.map((account) => {
                     const editForm = getEditFormValue(account);
+                    const session = getSessionSummary(account);
+                    const sessionActionLabel = getSessionActionLabel(account);
                     return (
                       <article
                         key={account.id}
@@ -449,15 +629,53 @@ export function ChannelAccountsPage({
                         <div style={{ marginTop: '6px', color: '#475569' }}>
                           {account.platform} · {account.authType} · {account.status}
                         </div>
+                        <div style={{ marginTop: '10px', display: 'grid', gap: '6px', color: '#334155' }}>
+                          <div>Session {session.hasSession ? '已关联' : '未关联'}</div>
+                          <div>Session 状态：{session.status}</div>
+                          <div>最近验证：{session.validatedAt ?? '未验证'}</div>
+                          <div>Storage Path：{session.storageStatePath ?? '未提供'}</div>
+                          {session.notes ? (
+                            <div>Session 备注：{session.notes}</div>
+                          ) : null}
+                        </div>
                         <div style={{ marginTop: '10px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                           <ActionButton label="编辑账号" onClick={() => handleStartEditing(account.id)} />
+                          <button
+                            type="button"
+                            onClick={() => handleStartEditing(account.id)}
+                            style={{
+                              borderRadius: '12px',
+                              border: '1px solid #cbd5e1',
+                              background: '#ffffff',
+                              color: '#122033',
+                              padding: '12px 16px',
+                              fontWeight: 700,
+                            }}
+                          >
+                            保存 Session 元数据
+                          </button>
+                          <button
+                            type="button"
+                            data-session-action-id={String(account.id)}
+                            onClick={() => handleRequestSessionAction(account)}
+                            style={{
+                              borderRadius: '12px',
+                              border: '1px solid #cbd5e1',
+                              background: '#ffffff',
+                              color: '#122033',
+                              padding: '12px 16px',
+                              fontWeight: 700,
+                            }}
+                          >
+                            {sessionActionLabel}
+                          </button>
                         </div>
 
                         {editingAccountId === account.id ? (
                           <div style={{ marginTop: '12px', display: 'grid', gap: '10px' }}>
                             <input
                               data-edit-display-name-id={String(account.id)}
-                              value={editForm.displayName}
+                              value={editForm.displayName ?? ''}
                               onChange={(event) =>
                                 updateEditFormValue(account.id, { displayName: event.target.value })
                               }
@@ -465,7 +683,7 @@ export function ChannelAccountsPage({
                             />
                             <input
                               data-edit-status-id={String(account.id)}
-                              value={editForm.status}
+                              value={editForm.status ?? ''}
                               onChange={(event) =>
                                 updateEditFormValue(account.id, { status: event.target.value })
                               }
@@ -473,9 +691,43 @@ export function ChannelAccountsPage({
                             />
                             <input
                               data-edit-metadata-id={String(account.id)}
-                              value={editForm.metadata}
+                              value={editForm.metadata ?? ''}
                               onChange={(event) =>
                                 updateEditFormValue(account.id, { metadata: event.target.value })
+                              }
+                              style={fieldStyle}
+                            />
+                            <input
+                              data-edit-session-storage-path-id={String(account.id)}
+                              value={editForm.sessionStorageStatePath ?? ''}
+                              onChange={(event) =>
+                                updateEditFormValue(account.id, {
+                                  sessionStorageStatePath: event.target.value,
+                                })
+                              }
+                              style={fieldStyle}
+                            />
+                            <input
+                              data-edit-session-status-id={String(account.id)}
+                              value={editForm.sessionStatus ?? ''}
+                              onChange={(event) =>
+                                updateEditFormValue(account.id, { sessionStatus: event.target.value })
+                              }
+                              style={fieldStyle}
+                            />
+                            <input
+                              data-edit-session-validated-at-id={String(account.id)}
+                              value={editForm.sessionValidatedAt ?? ''}
+                              onChange={(event) =>
+                                updateEditFormValue(account.id, { sessionValidatedAt: event.target.value })
+                              }
+                              style={fieldStyle}
+                            />
+                            <input
+                              data-edit-session-notes-id={String(account.id)}
+                              value={editForm.sessionNotes ?? ''}
+                              onChange={(event) =>
+                                updateEditFormValue(account.id, { sessionNotes: event.target.value })
                               }
                               style={fieldStyle}
                             />
@@ -494,6 +746,24 @@ export function ChannelAccountsPage({
                               }}
                             >
                               {displayUpdateState.status === 'loading' ? '正在保存账号...' : '保存账号'}
+                            </button>
+                            <button
+                              type="button"
+                              data-save-session-id={String(account.id)}
+                              onClick={() => handleSaveSession(account.id)}
+                              style={{
+                                border: '1px solid #cbd5e1',
+                                borderRadius: '12px',
+                                background: '#ffffff',
+                                color: '#122033',
+                                padding: '10px 14px',
+                                fontWeight: 700,
+                                justifySelf: 'flex-start',
+                              }}
+                            >
+                              {displaySaveSessionState.status === 'loading'
+                                ? '正在保存 Session...'
+                                : '保存 Session 元数据'}
                             </button>
                           </div>
                         ) : (
@@ -523,11 +793,35 @@ export function ChannelAccountsPage({
           {displayUpdateState.status === 'error' ? (
             <p style={{ marginTop: '12px', color: '#b91c1c' }}>更新失败：{displayUpdateState.error}</p>
           ) : null}
+          {displaySaveSessionState.status === 'loading' ? (
+            <p style={{ marginTop: '12px', color: '#334155' }}>正在保存 Session...</p>
+          ) : null}
+          {displaySaveSessionState.status === 'success' ? (
+            <p style={{ marginTop: '12px', color: '#166534' }}>Session 元数据已保存</p>
+          ) : null}
+          {displaySaveSessionState.status === 'error' ? (
+            <p style={{ marginTop: '12px', color: '#b91c1c' }}>
+              Session 保存失败：{displaySaveSessionState.error}
+            </p>
+          ) : null}
+          {displaySessionActionState.status === 'success' && displaySessionActionState.data ? (
+            <div style={{ marginTop: '12px', display: 'grid', gap: '6px', color: '#166534' }}>
+              <div>{getSessionActionLabelFromAction(displaySessionActionState.data.sessionAction.action)}请求已发送</div>
+              <div>{displaySessionActionState.data.sessionAction.message}</div>
+            </div>
+          ) : null}
+          {displaySessionActionState.status === 'error' ? (
+            <p style={{ marginTop: '12px', color: '#b91c1c' }}>
+              登录动作失败：{displaySessionActionState.error}
+            </p>
+          ) : null}
         </SectionCard>
 
         <SectionCard title="恢复动作" description="当后端未实现或返回错误时，页面会在左侧直接展示错误状态。">
           <div style={{ display: 'grid', gap: '12px', color: '#334155', lineHeight: 1.6 }}>
             <div>点击“测试连接”会优先对最近创建账号发起真实连接测试；如果当前没有目标账号，则会先刷新列表。</div>
+            <div>每个账号卡片都会显式显示 Session 是否存在、当前状态、最近验证时间和 Storage Path。</div>
+            <div>“请求登录 / 重新登录”会调用新的占位接口，“保存 Session 元数据”会把 storage path、状态、验证时间和备注直接提交到后端。</div>
             <div>如果服务端返回 404 或 500，这里不会吞掉错误，而是直接在页面中显示。</div>
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
               <ActionButton
@@ -541,4 +835,82 @@ export function ChannelAccountsPage({
       </div>
     </section>
   );
+}
+
+function normalizeChannelAccountRecord(account: ChannelAccountRecord): ChannelAccountRecord {
+  return {
+    ...account,
+    metadata: isPlainObject(account.metadata) ? account.metadata : {},
+    session: normalizeSessionSummary(account.session),
+  };
+}
+
+function normalizeSessionSummary(session: ChannelAccountRecord['session']): ChannelAccountSessionSummary {
+  if (!session) {
+    return {
+      hasSession: false,
+      status: 'missing',
+      validatedAt: null,
+      storageStatePath: null,
+    };
+  }
+
+  return {
+    hasSession: session.hasSession === true,
+    status: session.status ?? 'missing',
+    validatedAt: session.validatedAt ?? null,
+    storageStatePath: session.storageStatePath ?? null,
+    id: session.id,
+    notes: session.notes,
+  };
+}
+
+function mergeChannelAccountRecord(
+  current: ChannelAccountRecord,
+  next: ChannelAccountRecord,
+): ChannelAccountRecord {
+  return normalizeChannelAccountRecord({
+    ...current,
+    ...next,
+    metadata: isPlainObject(next.metadata) ? next.metadata : current.metadata,
+    session: next.session ?? current.session,
+  });
+}
+
+function getSessionSummary(account: ChannelAccountRecord): ChannelAccountSessionSummary {
+  return normalizeSessionSummary(account.session);
+}
+
+function normalizeSessionStatus(value: string): 'active' | 'expired' | 'missing' {
+  return value === 'expired' || value === 'missing' ? value : 'active';
+}
+
+function getDefaultSessionAction(account: ChannelAccountRecord): 'request_session' | 'relogin' {
+  return getSessionSummary(account).hasSession ? 'relogin' : 'request_session';
+}
+
+function getSessionActionLabel(account: ChannelAccountRecord): '请求登录' | '重新登录' {
+  return getDefaultSessionAction(account) === 'relogin' ? '重新登录' : '请求登录';
+}
+
+function getSessionActionLabelFromAction(action: 'request_session' | 'relogin') {
+  return action === 'relogin' ? '重新登录' : '请求登录';
+}
+
+function mergeMetadataWithSession(
+  metadata: Record<string, unknown>,
+  account: ChannelAccountRecord,
+): Record<string, unknown> {
+  if (isPlainObject(account.metadata.session)) {
+    return {
+      ...metadata,
+      session: account.metadata.session,
+    };
+  }
+
+  return metadata;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
