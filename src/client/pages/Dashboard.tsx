@@ -17,6 +17,14 @@ export interface DashboardResponse {
     items: number;
     followUps: number;
   };
+  inbox?: {
+    total: number;
+    unread: number;
+  };
+  channelAccounts?: {
+    total: number;
+    connected: number;
+  };
 }
 
 export async function loadDashboardRequest(): Promise<DashboardResponse> {
@@ -38,8 +46,12 @@ export function DashboardPage({
     monitor: { total: 1, new: 1, followUpDrafts: 1 },
     drafts: { total: 1, review: 1 },
     totals: { items: 2, followUps: 1 },
+    inbox: { total: 1, unread: 1 },
+    channelAccounts: { total: 1, connected: 1 },
   };
   const viewData = displayState.status === 'success' && displayState.data ? displayState.data : fallbackData;
+  const inboxMetrics = viewData.inbox ?? { total: 0, unread: 0 };
+  const channelAccountMetrics = viewData.channelAccounts ?? { total: 0, connected: 0 };
 
   return (
     <section>
@@ -60,6 +72,12 @@ export function DashboardPage({
           <StatCard label="待审核" value={String(viewData.drafts.review)} detail="status=review 的草稿数量" />
           <StatCard label="已跟进" value={String(viewData.monitor.followUpDrafts)} detail="由监控项生成的 follow-up 草稿" />
           <StatCard label="新线索" value={String(viewData.monitor.new)} detail="当前 monitor 中 status=new 的条目数" />
+          <StatCard label="待处理私信" value={String(inboxMetrics.unread)} detail="收件箱中尚未标记为 handled 的会话数" />
+          <StatCard
+            label="健康账号"
+            value={String(channelAccountMetrics.connected)}
+            detail="status=healthy 的渠道账号数量"
+          />
         </div>
       ) : null}
     </section>

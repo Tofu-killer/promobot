@@ -1,17 +1,74 @@
-import { loadDiscoveryRequest, type DiscoveryResponse } from '../lib/discovery';
+import { useState } from 'react';
+import { loadDiscoveryRequest, type DiscoveryItem, type DiscoveryResponse } from '../lib/discovery';
+import { getErrorMessage } from '../lib/api';
 import type { AsyncState } from '../hooks/useAsyncRequest';
 import { useAsyncQuery } from '../hooks/useAsyncRequest';
+import { ActionButton } from '../components/ActionButton';
 import { PageHeader } from '../components/PageHeader';
 import { SectionCard } from '../components/SectionCard';
 import { StatCard } from '../components/StatCard';
+import {
+  generateDraftsRequest,
+  type GenerateDraftsPayload,
+  type GenerateDraftsResponse,
+} from './Generate';
 
 interface DiscoveryPageProps {
   loadDiscoveryAction?: () => Promise<DiscoveryResponse>;
+  generateAction?: (input: GenerateDraftsPayload) => Promise<GenerateDraftsResponse>;
   stateOverride?: AsyncState<DiscoveryResponse>;
 }
 
-export function DiscoveryPage({ loadDiscoveryAction = loadDiscoveryRequest, stateOverride }: DiscoveryPageProps) {
-  const { state, reload } = useAsyncQuery(loadDiscoveryAction, [loadDiscoveryAction]);
+interface DiscoveryDraftState {
+  status: 'idle' | 'loading' | 'success' | 'error';
+  data?: GenerateDraftsResponse;
+  error?: string | null;
+}
+
+function createIdleDraftState(): DiscoveryDraftState {
+  return {
+    status: 'idle',
+    error: null,
+  };
+}
+
+function buildDraftTopic(item: DiscoveryItem) {
+  return [item.title, item.summary].filter((value) => value.trim().length > 0).join('\n\n');
+}
+
+function resolveDraftPlatform(source: string) {
+  const normalizedSource = source.trim().toLowerCase();
+
+  if (normalizedSource.includes('reddit')) {
+    return 'reddit';
+  }
+
+  if (normalizedSource === 'x' || normalizedSource.includes('twitter')) {
+    return 'x';
+  }
+
+  if (normalizedSource.includes('facebook')) {
+    return 'facebook-group';
+  }
+
+  if (normalizedSource.includes('xiaohongshu') || source.includes('小红书')) {
+    return 'xiaohongshu';
+  }
+
+  if (normalizedSource.includes('weibo') || source.includes('微博')) {
+    return 'weibo';
+  }
+
+  return 'blog';
+}
+
+export function DiscoveryPage({
+  loadDiscoveryAction = loadDiscoveryRequest,
+  generateAction = generateDraftsRequest,
+  stateOverride,
+}: DiscoveryPageProps) {
+  const { state } = useAsyncQuery(loadDiscoveryAction, [loadDiscoveryAction]);
+  const [draftStateByItemId, setDraftStateByItemId] = useState<Record<string, DiscoveryDraftState>>({});
   const displayState = stateOverride ?? state;
   const fallbackData: DiscoveryResponse = {
     items: [
@@ -32,6 +89,48 @@ export function DiscoveryPage({ loadDiscoveryAction = loadDiscoveryRequest, stat
     },
   };
   const viewData = displayState.status === 'success' && displayState.data ? displayState.data : fallbackData;
+
+  function getDraftState(itemId: string | number) {
+    return draftStateByItemId[String(itemId)] ?? createIdleDraftState();
+  }
+
+  async function handleGenerateDraft(item: DiscoveryItem) {
+    const itemKey = String(item.id);
+
+    setDraftStateByItemId((currentState) => ({
+      ...currentState,
+      [itemKey]: {
+        status: 'loading',
+        error: null,
+      },
+    }));
+
+    try {
+      const result = await generateAction({
+        topic: buildDraftTopic(item),
+        tone: 'professional',
+        platforms: [resolveDraftPlatform(item.source)],
+        saveAsDraft: true,
+      });
+
+      setDraftStateByItemId((currentState) => ({
+        ...currentState,
+        [itemKey]: {
+          status: 'success',
+          data: result,
+          error: null,
+        },
+      }));
+    } catch (error) {
+      setDraftStateByItemId((currentState) => ({
+        ...currentState,
+        [itemKey]: {
+          status: 'error',
+          error: getErrorMessage(error),
+        },
+      }));
+    }
+  }
 
   return (
     <section>
@@ -61,15 +160,57 @@ export function DiscoveryPage({ loadDiscoveryAction = loadDiscoveryRequest, stat
           </div>
 
           <div style={{ marginTop: '20px', display: 'grid', gap: '16px' }}>
-            {viewData.items.map((item) => (
-              <SectionCard
-                key={item.id}
-                title={item.title}
-                description={`${item.source} · ${item.status} · ${item.createdAt ?? 'unknown'}`}
-              >
-                <p style={{ margin: 0, color: '#475569', lineHeight: 1.6 }}>{item.summary}</p>
-              </SectionCard>
-            ))}
+            {viewData.items.map((item) => {
+              const draftState = getDraftState(item.id);
+
+              return (
+                <SectionCard
+                  key={item.id}
+                  title={item.title}
+                  description={`${item.source} · ${item.status} · ${item.createdAt ?? 'unknown'}`}
+                >
+                  <div style={{ display: 'grid', gap: '16px' }}>
+                    <p style={{ margin: 0, color: '#475569', lineHeight: 1.6 }}>{item.summary}</p>
+
+                    <div style={{ display: 'grid', gap: '12px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+                        <ActionButton
+                          label={draftState.status === 'loading' ? '正在生成草稿...' : '生成草稿'}
+                          tone="primary"
+                          onClick={() => {
+                            void handleGenerateDraft(item);
+                          }}
+                        />
+                      </div>
+
+                      {draftState.status === 'success' && draftState.data ? (
+                        <div
+                          style={{
+                            display: 'grid',
+                            gap: '8px',
+                            borderRadius: '14px',
+                            border: '1px solid #bfdbfe',
+                            background: '#eff6ff',
+                            padding: '14px',
+                          }}
+                        >
+                          <div style={{ color: '#1d4ed8', fontWeight: 700 }}>草稿已生成</div>
+                          {draftState.data.results.map((result, index) => (
+                            <div key={`${result.platform}-${result.draftId ?? index}`} style={{ color: '#1e3a8a' }}>
+                              draftId: {result.draftId ?? '未保存'} · platform: {result.platform}
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+
+                      {draftState.status === 'error' ? (
+                        <p style={{ margin: 0, color: '#b91c1c' }}>草稿生成失败：{draftState.error}</p>
+                      ) : null}
+                    </div>
+                  </div>
+                </SectionCard>
+              );
+            })}
           </div>
         </>
       ) : null}
