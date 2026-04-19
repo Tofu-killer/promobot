@@ -5,12 +5,17 @@ import { useAsyncQuery } from '../hooks/useAsyncRequest';
 import { ActionButton } from '../components/ActionButton';
 import { PageHeader } from '../components/PageHeader';
 import { SectionCard } from '../components/SectionCard';
-import type { DraftRecord, DraftsResponse, UpdateDraftResponse } from '../lib/drafts';
+import type { DraftRecord, DraftsResponse, PublishDraftResponse, UpdateDraftResponse } from '../lib/drafts';
 import { upsertDraftRecord } from '../lib/drafts';
 
 interface ReviewQueuePageProps {
   loadReviewQueueAction?: () => Promise<DraftsResponse>;
   updateReviewDraftAction?: (id: number, input: { status: 'approved' | 'draft' }) => Promise<UpdateDraftResponse>;
+  publishReviewDraftAction?: (id: number) => Promise<PublishDraftResponse>;
+  scheduleReviewDraftAction?: (
+    id: number,
+    input: { scheduledAt: string | null; status: 'scheduled' },
+  ) => Promise<UpdateDraftResponse>;
   stateOverride?: AsyncState<DraftsResponse>;
 }
 
@@ -18,6 +23,7 @@ interface ReviewActionState {
   status: 'idle' | 'loading' | 'success' | 'error';
   message: string | null;
   error: string | null;
+  action: 'review' | 'publish' | 'schedule' | null;
 }
 
 export async function loadReviewQueueRequest(): Promise<DraftsResponse> {
@@ -37,11 +43,31 @@ export async function updateReviewDraftRequest(
   });
 }
 
+export async function publishReviewDraftRequest(id: number): Promise<PublishDraftResponse> {
+  return apiRequest<PublishDraftResponse>(`/api/drafts/${id}/publish`, {
+    method: 'POST',
+  });
+}
+
+export async function scheduleReviewDraftRequest(
+  id: number,
+  input: { scheduledAt: string | null; status: 'scheduled' },
+): Promise<UpdateDraftResponse> {
+  return apiRequest<UpdateDraftResponse>(`/api/drafts/${id}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(input),
+  });
+}
+
 function createIdleActionState(): ReviewActionState {
   return {
     status: 'idle',
     message: null,
     error: null,
+    action: null,
   };
 }
 
@@ -53,13 +79,27 @@ function formatReviewActionLabel(status: 'approved' | 'draft') {
   return status === 'approved' ? '已通过' : '已退回';
 }
 
+function formatReviewActionErrorPrefix(action: ReviewActionState['action']) {
+  switch (action) {
+    case 'publish':
+      return '发布失败';
+    case 'schedule':
+      return '排程失败';
+    default:
+      return '审核动作失败';
+  }
+}
+
 export function ReviewQueuePage({
   loadReviewQueueAction = loadReviewQueueRequest,
   updateReviewDraftAction = updateReviewDraftRequest,
+  publishReviewDraftAction = publishReviewDraftRequest,
+  scheduleReviewDraftAction = scheduleReviewDraftRequest,
   stateOverride,
 }: ReviewQueuePageProps) {
   const { state, reload } = useAsyncQuery(loadReviewQueueAction, [loadReviewQueueAction]);
   const [localDrafts, setLocalDrafts] = useState<DraftRecord[]>([]);
+  const [scheduledAtById, setScheduledAtById] = useState<Record<number, string>>({});
   const [actionStateById, setActionStateById] = useState<Record<number, ReviewActionState>>({});
   const displayState = stateOverride ?? state;
 
@@ -76,6 +116,17 @@ export function ReviewQueuePage({
     }
 
     setLocalDrafts(displayState.data.drafts);
+    setScheduledAtById((currentScheduleById) => {
+      const nextScheduleById = { ...currentScheduleById };
+
+      for (const draft of displayState.data.drafts) {
+        if (!(draft.id in nextScheduleById)) {
+          nextScheduleById[draft.id] = draft.scheduledAt ?? '';
+        }
+      }
+
+      return nextScheduleById;
+    });
   }, [displayState]);
 
   async function handleReviewDraft(draftId: number, nextStatus: 'approved' | 'draft') {
@@ -92,6 +143,7 @@ export function ReviewQueuePage({
         status: 'loading',
         message: null,
         error: null,
+        action: 'review',
       },
     }));
 
@@ -106,6 +158,7 @@ export function ReviewQueuePage({
           status: 'success',
           message: `${formatReviewActionLabel(nextStatus)}：${result.draft.title ?? result.draft.platform}`,
           error: null,
+          action: 'review',
         },
       }));
     } catch (error) {
@@ -115,6 +168,103 @@ export function ReviewQueuePage({
           status: 'error',
           message: null,
           error: getErrorMessage(error),
+          action: 'review',
+        },
+      }));
+    }
+  }
+
+  async function handlePublishDraft(draftId: number) {
+    const sourceDraft =
+      visibleDrafts.find((draft) => draft.id === draftId) ?? displayState.data?.drafts.find((draft) => draft.id === draftId);
+
+    if (!sourceDraft) {
+      return;
+    }
+
+    setActionStateById((currentState) => ({
+      ...currentState,
+      [draftId]: {
+        status: 'loading',
+        message: null,
+        error: null,
+        action: 'publish',
+      },
+    }));
+
+    try {
+      const result = await publishReviewDraftAction(draftId);
+      setActionStateById((currentState) => ({
+        ...currentState,
+        [draftId]: {
+          status: result.success ? 'success' : 'error',
+          message: result.success ? `已发布：${sourceDraft.title ?? sourceDraft.platform}` : null,
+          error: result.success ? null : result.message,
+          action: 'publish',
+        },
+      }));
+    } catch (error) {
+      setActionStateById((currentState) => ({
+        ...currentState,
+        [draftId]: {
+          status: 'error',
+          message: null,
+          error: getErrorMessage(error),
+          action: 'publish',
+        },
+      }));
+    }
+  }
+
+  async function handleScheduleDraft(draftId: number) {
+    const sourceDraft =
+      visibleDrafts.find((draft) => draft.id === draftId) ?? displayState.data?.drafts.find((draft) => draft.id === draftId);
+
+    if (!sourceDraft) {
+      return;
+    }
+
+    const scheduledAt = scheduledAtById[draftId] ?? sourceDraft.scheduledAt ?? '';
+
+    setActionStateById((currentState) => ({
+      ...currentState,
+      [draftId]: {
+        status: 'loading',
+        message: null,
+        error: null,
+        action: 'schedule',
+      },
+    }));
+
+    try {
+      const result = await scheduleReviewDraftAction(draftId, {
+        scheduledAt,
+        status: 'scheduled',
+      });
+      setLocalDrafts((currentDrafts) =>
+        upsertDraftRecord(currentDrafts.length > 0 ? currentDrafts : visibleDrafts, result.draft),
+      );
+      setScheduledAtById((currentScheduleById) => ({
+        ...currentScheduleById,
+        [draftId]: result.draft.scheduledAt ?? '',
+      }));
+      setActionStateById((currentState) => ({
+        ...currentState,
+        [draftId]: {
+          status: 'success',
+          message: `已排程：${result.draft.title ?? result.draft.platform}${result.draft.scheduledAt ? `，排程时间：${result.draft.scheduledAt}` : ''}`,
+          error: null,
+          action: 'schedule',
+        },
+      }));
+    } catch (error) {
+      setActionStateById((currentState) => ({
+        ...currentState,
+        [draftId]: {
+          status: 'error',
+          message: null,
+          error: getErrorMessage(error),
+          action: 'schedule',
         },
       }));
     }
@@ -216,14 +366,80 @@ export function ReviewQueuePage({
                         >
                           退回
                         </button>
+                        <button
+                          type="button"
+                          data-review-publish-id={draft.id}
+                          onClick={() => {
+                            void handlePublishDraft(draft.id);
+                          }}
+                          style={{
+                            borderRadius: '12px',
+                            border: 'none',
+                            background: '#2563eb',
+                            color: '#ffffff',
+                            padding: '10px 14px',
+                            fontWeight: 700,
+                          }}
+                        >
+                          Publish now
+                        </button>
                       </div>
 
-                      {actionState.status === 'loading' ? <p style={{ margin: 0, color: '#334155' }}>正在提交审核动作...</p> : null}
+                      <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+                        <input
+                          type="datetime-local"
+                          data-review-scheduled-at-id={draft.id}
+                          value={scheduledAtById[draft.id] ?? draft.scheduledAt ?? ''}
+                          onChange={(event) =>
+                            setScheduledAtById((currentScheduleById) => ({
+                              ...currentScheduleById,
+                              [draft.id]: event.target.value,
+                            }))
+                          }
+                          style={{
+                            borderRadius: '12px',
+                            border: '1px solid #cbd5e1',
+                            background: '#ffffff',
+                            color: '#122033',
+                            padding: '10px 12px',
+                            font: 'inherit',
+                          }}
+                        />
+                        <button
+                          type="button"
+                          data-review-schedule-id={draft.id}
+                          onClick={() => {
+                            void handleScheduleDraft(draft.id);
+                          }}
+                          style={{
+                            borderRadius: '12px',
+                            border: '1px solid #cbd5e1',
+                            background: '#ffffff',
+                            color: '#122033',
+                            padding: '10px 14px',
+                            fontWeight: 700,
+                          }}
+                        >
+                          Schedule
+                        </button>
+                      </div>
+
+                      {actionState.status === 'loading' ? (
+                        <p style={{ margin: 0, color: '#334155' }}>
+                          {actionState.action === 'publish'
+                            ? '正在发布...'
+                            : actionState.action === 'schedule'
+                              ? '正在保存排程...'
+                              : '正在提交审核动作...'}
+                        </p>
+                      ) : null}
                       {actionState.status === 'success' && actionState.message ? (
                         <p style={{ margin: 0, color: '#166534', fontWeight: 700 }}>{actionState.message}</p>
                       ) : null}
                       {actionState.status === 'error' && actionState.error ? (
-                        <p style={{ margin: 0, color: '#b91c1c', fontWeight: 700 }}>审核动作失败：{actionState.error}</p>
+                        <p style={{ margin: 0, color: '#b91c1c', fontWeight: 700 }}>
+                          {formatReviewActionErrorPrefix(actionState.action)}：{actionState.error}
+                        </p>
                       ) : null}
                     </article>
                   );

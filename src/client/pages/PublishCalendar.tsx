@@ -69,6 +69,26 @@ function createIdleMutationState(): ScheduleMutationState {
   };
 }
 
+function normalizeScheduledAtInput(value: string): string | null {
+  return value.trim().length > 0 ? value : null;
+}
+
+function createScheduleSuccessState(scheduledAt: string | null): ScheduleMutationState {
+  return {
+    status: 'success',
+    message: scheduledAt ? '排程已保存' : '排程已清空',
+    error: null,
+  };
+}
+
+function createScheduleErrorState(error: string): ScheduleMutationState {
+  return {
+    status: 'error',
+    message: null,
+    error,
+  };
+}
+
 export function PublishCalendarPage({
   loadDraftsAction = loadPublishCalendarRequest,
   updateDraftScheduleAction = updatePublishCalendarDraftScheduleRequest,
@@ -97,8 +117,19 @@ export function PublishCalendarPage({
     return mutationStateById[draftId] ?? createIdleMutationState();
   }
 
+  function updateScheduledAtDraftInput(draftId: number, value: string) {
+    setScheduledAtById((current) => ({
+      ...current,
+      [draftId]: value,
+    }));
+    setMutationStateById((current) => ({
+      ...current,
+      [draftId]: createIdleMutationState(),
+    }));
+  }
+
   async function handleSaveSchedule(draft: DraftRecord) {
-    const scheduledAt = getScheduledAtValue(draft);
+    const scheduledAt = normalizeScheduledAtInput(getScheduledAtValue(draft));
     setMutationStateById((current) => ({
       ...current,
       [draft.id]: {
@@ -120,20 +151,12 @@ export function PublishCalendarPage({
       }));
       setMutationStateById((current) => ({
         ...current,
-        [draft.id]: {
-          status: 'success',
-          message: '排程已保存',
-          error: null,
-        },
+        [draft.id]: createScheduleSuccessState(result.draft.scheduledAt ?? null),
       }));
     } catch (error) {
       setMutationStateById((current) => ({
         ...current,
-        [draft.id]: {
-          status: 'error',
-          message: null,
-          error: getErrorMessage(error),
-        },
+        [draft.id]: createScheduleErrorState(getErrorMessage(error)),
       }));
     }
   }
@@ -223,6 +246,7 @@ export function PublishCalendarPage({
                       <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', color: '#64748b', fontSize: '14px' }}>
                         <span>平台：{draft.platform}</span>
                         <span>更新时间：{formatDraftTimestamp(draft)}</span>
+                        {draft.status === 'published' && draft.publishedAt ? <span>发布时间：{draft.publishedAt}</span> : null}
                       </div>
 
                       {draft.status === 'scheduled' ? (
@@ -232,12 +256,7 @@ export function PublishCalendarPage({
                             <input
                               data-calendar-scheduled-at-id={String(draft.id)}
                               value={scheduledAt}
-                              onChange={(event) =>
-                                setScheduledAtById((current) => ({
-                                  ...current,
-                                  [draft.id]: event.target.value,
-                                }))
-                              }
+                              onChange={(event) => updateScheduledAtDraftInput(draft.id, event.target.value)}
                               style={{
                                 width: '100%',
                                 borderRadius: '12px',
@@ -248,24 +267,42 @@ export function PublishCalendarPage({
                               }}
                             />
                           </label>
-                          <button
-                            type="button"
-                            data-calendar-save-id={String(draft.id)}
-                            onClick={() => {
-                              void handleSaveSchedule(draft);
-                            }}
-                            style={{
-                              width: 'fit-content',
-                              borderRadius: '12px',
-                              border: 'none',
-                              background: '#2563eb',
-                              color: '#ffffff',
-                              padding: '10px 14px',
-                              fontWeight: 700,
-                            }}
-                          >
-                            {mutationState.status === 'loading' ? '正在保存排程...' : '保存排程'}
-                          </button>
+                          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                            <button
+                              type="button"
+                              data-calendar-clear-id={String(draft.id)}
+                              onClick={() => updateScheduledAtDraftInput(draft.id, '')}
+                              style={{
+                                width: 'fit-content',
+                                borderRadius: '12px',
+                                border: '1px solid #cbd5e1',
+                                background: '#ffffff',
+                                color: '#334155',
+                                padding: '10px 14px',
+                                fontWeight: 700,
+                              }}
+                            >
+                              清空排程
+                            </button>
+                            <button
+                              type="button"
+                              data-calendar-save-id={String(draft.id)}
+                              onClick={() => {
+                                void handleSaveSchedule(draft);
+                              }}
+                              style={{
+                                width: 'fit-content',
+                                borderRadius: '12px',
+                                border: 'none',
+                                background: '#2563eb',
+                                color: '#ffffff',
+                                padding: '10px 14px',
+                                fontWeight: 700,
+                              }}
+                            >
+                              {mutationState.status === 'loading' ? '正在保存排程...' : '保存排程'}
+                            </button>
+                          </div>
                           {mutationState.status === 'success' ? (
                             <div style={{ color: '#166534', fontWeight: 700 }}>
                               {mutationState.message}
@@ -275,6 +312,7 @@ export function PublishCalendarPage({
                           {mutationState.status === 'error' ? (
                             <div style={{ color: '#b91c1c', fontWeight: 700 }}>
                               排程保存失败：{mutationState.error}
+                              {scheduledAt ? `。待保存时间：${scheduledAt}` : '。待保存操作：清空排程'}
                             </div>
                           ) : null}
                         </div>
