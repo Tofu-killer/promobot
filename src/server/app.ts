@@ -6,6 +6,7 @@ import { createContentRouter } from './routes/content';
 import { createDraftStore, createDraftsRouter } from './routes/drafts';
 import { inboxRouter } from './routes/inbox';
 import { monitorRouter } from './routes/monitor';
+import { createPublishRouter } from './routes/publish';
 import { projectsRouter } from './routes/projects';
 import { reputationRouter } from './routes/reputation';
 import { settingsRouter } from './routes/settings';
@@ -21,6 +22,24 @@ export function createApp(config: AppConfig = loadConfig()) {
   app.use('/api/system', systemRouter);
   app.use('/api/content', createContentRouter(draftStore));
   app.use('/api/drafts', createDraftsRouter(draftStore));
+  app.use(
+    '/api/drafts',
+    createPublishRouter({
+      lookupDraft(id) {
+        const draft = draftStore.getById(id);
+        if (!draft) {
+          return undefined;
+        }
+
+        return {
+          id: draft.id,
+          platform: draft.platform,
+          title: draft.title,
+          content: draft.content,
+        };
+      },
+    }),
+  );
   app.use('/api/projects', projectsRouter);
   app.use('/api/inbox', inboxRouter);
   app.use('/api/monitor', monitorRouter);

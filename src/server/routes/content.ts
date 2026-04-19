@@ -7,6 +7,7 @@ import { generateWeiboDraft } from '../services/generators/weibo';
 import { generateXDraft } from '../services/generators/x';
 import { generateXiaohongshuDraft } from '../services/generators/xiaohongshu';
 import type { DraftStore } from './drafts';
+import { createDraftStore } from './drafts';
 
 type SupportedPlatform =
   | 'blog'
@@ -89,4 +90,8 @@ export function createContentRouter(draftStore: DraftStore) {
   });
 
   return contentRouter;
+}
+
+export function createDefaultContentRouter() {
+  return createContentRouter(createDraftStore());
 }

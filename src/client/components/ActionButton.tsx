@@ -1,14 +1,16 @@
 interface ActionButtonProps {
   label: string;
   tone?: 'primary' | 'secondary';
+  onClick?: () => void;
 }
 
-export function ActionButton({ label, tone = 'secondary' }: ActionButtonProps) {
+export function ActionButton({ label, tone = 'secondary', onClick }: ActionButtonProps) {
   const isPrimary = tone === 'primary';
 
   return (
     <button
       type="button"
+      onClick={onClick}
       style={{
         borderRadius: '12px',
         border: isPrimary ? 'none' : '1px solid #cbd5e1',

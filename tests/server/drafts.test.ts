@@ -1,11 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../../src/server/app';
+import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
 
 const originalEnv = {
   AI_BASE_URL: process.env.AI_BASE_URL,
   AI_API_KEY: process.env.AI_API_KEY,
   AI_MODEL: process.env.AI_MODEL,
 };
+
+let activeTestDbRoot: string | undefined;
 
 async function requestApp(
   app: ReturnType<typeof createApp>,
@@ -120,6 +123,7 @@ beforeEach(() => {
   process.env.AI_BASE_URL = 'https://example.test/v1';
   process.env.AI_API_KEY = 'test-key';
   process.env.AI_MODEL = 'test-model';
+  activeTestDbRoot = createTestDatabasePath().rootDir;
 });
 
 afterEach(() => {
@@ -127,6 +131,10 @@ afterEach(() => {
   process.env.AI_API_KEY = originalEnv.AI_API_KEY;
   process.env.AI_MODEL = originalEnv.AI_MODEL;
   vi.unstubAllGlobals();
+  if (activeTestDbRoot) {
+    cleanupTestDatabasePath(activeTestDbRoot);
+    activeTestDbRoot = undefined;
+  }
 });
 
 describe('drafts api', () => {

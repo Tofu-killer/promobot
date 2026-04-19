@@ -91,40 +91,27 @@ async function requestApp(method: string, url: string, body?: unknown) {
   });
 }
 
-describe('projects api', () => {
-  it('persists created projects in SQLite', async () => {
+describe('settings api', () => {
+  it('persists allowlist and scheduler settings in SQLite', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
-      const created = await requestApp('POST', '/api/projects', {
-        name: 'AU Launch',
-        siteName: 'MyModelHub',
-        siteUrl: 'https://example.com',
-        siteDescription: 'Multi-model API gateway',
-        sellingPoints: ['Lower cost'],
+      const updated = await requestApp('PATCH', '/api/settings', {
+        allowlist: ['127.0.0.1', '10.0.0.0/24'],
+        schedulerIntervalMinutes: 30,
+        rssDefaults: ['OpenAI blog', 'Anthropic news'],
       });
 
-      expect(created.status).toBe(201);
-      expect(JSON.parse(created.body)).toEqual({
-        project: expect.objectContaining({
-          id: 1,
-          name: 'AU Launch',
-          siteName: 'MyModelHub',
+      expect(updated.status).toBe(200);
+
+      const loaded = await requestApp('GET', '/api/settings');
+
+      expect(loaded.status).toBe(200);
+      expect(JSON.parse(loaded.body)).toEqual({
+        settings: expect.objectContaining({
+          allowlist: ['127.0.0.1', '10.0.0.0/24'],
+          schedulerIntervalMinutes: 30,
+          rssDefaults: ['OpenAI blog', 'Anthropic news'],
         }),
-      });
-
-      const listed = await requestApp('GET', '/api/projects');
-
-      expect(listed.status).toBe(200);
-      expect(JSON.parse(listed.body)).toEqual({
-        projects: [
-          expect.objectContaining({
-            id: 1,
-            name: 'AU Launch',
-            siteName: 'MyModelHub',
-            siteUrl: 'https://example.com',
-            sellingPoints: ['Lower cost'],
-          }),
-        ],
       });
     } finally {
       cleanupTestDatabasePath(rootDir);

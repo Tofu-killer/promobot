@@ -1,71 +1,105 @@
+import { apiRequest } from '../lib/api';
+import type { AsyncState } from '../hooks/useAsyncRequest';
+import { useAsyncQuery } from '../hooks/useAsyncRequest';
 import { ActionButton } from '../components/ActionButton';
+import { JsonPreview } from '../components/JsonPreview';
 import { PageHeader } from '../components/PageHeader';
 import { SectionCard } from '../components/SectionCard';
-import { StatCard } from '../components/StatCard';
-import { StatusBadge } from '../components/StatusBadge';
 
-const accountRows = [
-  { channel: 'X / Twitter', mode: 'API Key 已脱敏', badgeTone: 'approved' as const, badgeLabel: 'Healthy' },
-  { channel: 'Reddit', mode: 'Refresh token 已配置', badgeTone: 'approved' as const, badgeLabel: 'Healthy' },
-  { channel: 'Facebook Group', mode: 'Playwright session 还剩 2 小时', badgeTone: 'review' as const, badgeLabel: 'Re-login Soon' }
-];
+export interface ChannelAccountsResponse {
+  channelAccounts?: Array<{
+    id: number;
+    platform: string;
+    accountKey: string;
+    displayName: string;
+    authType: string;
+    status: string;
+    metadata: Record<string, unknown>;
+    createdAt: string;
+    updatedAt: string;
+  }>;
+  [key: string]: unknown;
+}
 
-export function ChannelAccountsPage() {
+export async function loadChannelAccountsRequest(): Promise<ChannelAccountsResponse> {
+  return apiRequest<ChannelAccountsResponse>('/api/channel-accounts');
+}
+
+interface ChannelAccountsPageProps {
+  loadChannelAccountsAction?: () => Promise<ChannelAccountsResponse>;
+  stateOverride?: AsyncState<ChannelAccountsResponse>;
+}
+
+export function ChannelAccountsPage({
+  loadChannelAccountsAction = loadChannelAccountsRequest,
+  stateOverride,
+}: ChannelAccountsPageProps) {
+  const { state, reload } = useAsyncQuery(loadChannelAccountsAction, [loadChannelAccountsAction]);
+  const displayState = stateOverride ?? state;
+
   return (
     <section>
       <PageHeader
         eyebrow="Session Center"
         title="Channel Accounts"
-        description="集中查看各渠道的凭证与登录态健康度，避免调度任务在后台静默失败。"
+        description="集中查看各渠道的凭证与登录态健康度。当前页面会直接请求 `/api/channel-accounts` 并展示返回结果或错误。"
         actions={
           <>
             <ActionButton label="重新登录" />
-            <ActionButton label="测试连接" tone="primary" />
+            <ActionButton label="测试连接" tone="primary" onClick={reload} />
           </>
         }
       />
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
-        <StatCard label="在线渠道" value="5 / 6" detail="浏览器型渠道和 API 型渠道统一汇总" />
-        <StatCard label="即将过期 Session" value="1" detail="Facebook Group 登录态需要尽快刷新" />
-        <StatCard label="失败重试" value="2" detail="最近一次发帖失败后已自动进入重试队列" />
-      </div>
+      <div style={{ display: 'grid', gap: '20px', gridTemplateColumns: 'minmax(340px, 1.2fr) minmax(280px, 0.8fr)' }}>
+        <SectionCard title="连接状态" description="这是该页面的真实接口返回区域。">
+          {displayState.status === 'loading' ? <p style={{ margin: 0, color: '#334155' }}>正在加载渠道账号...</p> : null}
 
-      <div style={{ marginTop: '20px', display: 'grid', gap: '20px', gridTemplateColumns: 'minmax(340px, 1.2fr) minmax(280px, 0.8fr)' }}>
-        <SectionCard title="连接状态" description="只展示脱敏后的凭证和 session 状态，不在前端回显原始密钥。">
-          <div style={{ display: 'grid', gap: '12px' }}>
-            {accountRows.map((account) => (
-              <article
-                key={account.channel}
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  gap: '12px',
-                  borderRadius: '16px',
-                  border: '1px solid #dbe4f0',
-                  background: '#f8fafc',
-                  padding: '16px',
-                  flexWrap: 'wrap'
-                }}
-              >
-                <div>
-                  <div style={{ fontWeight: 700 }}>{account.channel}</div>
-                  <div style={{ marginTop: '8px', color: '#475569' }}>{account.mode}</div>
+          {displayState.status === 'error' ? (
+            <p style={{ margin: 0, color: '#b91c1c' }}>渠道账号加载失败：{displayState.error}</p>
+          ) : null}
+
+          {displayState.status === 'success' && displayState.data ? (
+            <div style={{ display: 'grid', gap: '12px' }}>
+              <div style={{ fontWeight: 700 }}>
+                接口返回 {Array.isArray(displayState.data.channelAccounts) ? displayState.data.channelAccounts.length : 0} 个账号
+              </div>
+              {Array.isArray(displayState.data.channelAccounts) ? (
+                <div style={{ display: 'grid', gap: '10px' }}>
+                  {displayState.data.channelAccounts.map((account) => (
+                    <article
+                      key={account.id}
+                      style={{
+                        borderRadius: '14px',
+                        border: '1px solid #dbe4f0',
+                        background: '#f8fafc',
+                        padding: '14px',
+                      }}
+                    >
+                      <div style={{ fontWeight: 700 }}>{account.displayName}</div>
+                      <div style={{ marginTop: '6px', color: '#475569' }}>
+                        {account.platform} · {account.authType} · {account.status}
+                      </div>
+                    </article>
+                  ))}
                 </div>
-                <StatusBadge tone={account.badgeTone} label={account.badgeLabel} />
-              </article>
-            ))}
-          </div>
+              ) : null}
+              <JsonPreview value={displayState.data} />
+            </div>
+          ) : null}
+
+          {displayState.status === 'idle' ? (
+            <p style={{ margin: 0, color: '#475569' }}>页面挂载后会自动请求真实渠道账号接口。</p>
+          ) : null}
         </SectionCard>
 
-        <SectionCard title="恢复动作" description="一旦 session 失效，这里会给出重新登录和连接测试入口。">
+        <SectionCard title="恢复动作" description="当后端未实现或返回错误时，页面会在左侧直接展示错误状态。">
           <div style={{ display: 'grid', gap: '12px', color: '#334155', lineHeight: 1.6 }}>
-            <div>浏览器型渠道会在 session 失效时直接亮红，并阻止新的发布作业继续排队。</div>
-            <div>API 型渠道只显示掩码后的凭证摘要，避免误暴露密钥。</div>
+            <div>点击“测试连接”会重新请求当前接口。</div>
+            <div>如果服务端返回 404 或 500，这里不会吞掉错误，而是直接在页面中显示。</div>
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
               <ActionButton label="重新登录" />
-              <ActionButton label="测试连接" tone="primary" />
+              <ActionButton label="测试连接" tone="primary" onClick={reload} />
             </div>
           </div>
         </SectionCard>

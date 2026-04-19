@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { createSQLiteDraftStore } from '../store/drafts';
 
 export type DraftStatus =
   | 'approved'
@@ -37,6 +38,7 @@ export interface UpdateDraftInput {
 
 export interface DraftStore {
   create(input: CreateDraftInput): DraftRecord;
+  getById(id: number): DraftRecord | undefined;
   list(status?: string): DraftRecord[];
   update(id: number, input: UpdateDraftInput): DraftRecord | undefined;
 }
@@ -56,55 +58,7 @@ function isDraftStatus(value: string): value is DraftStatus {
 }
 
 export function createDraftStore(): DraftStore {
-  const drafts: DraftRecord[] = [];
-  let nextId = 1;
-
-  return {
-    create(input) {
-      const timestamp = new Date().toISOString();
-      const draft: DraftRecord = {
-        id: nextId,
-        platform: input.platform,
-        title: input.title,
-        content: input.content,
-        hashtags: input.hashtags ?? [],
-        status: input.status ?? 'draft',
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      };
-
-      nextId += 1;
-      drafts.push(draft);
-      return { ...draft, hashtags: [...draft.hashtags] };
-    },
-    list(status) {
-      return drafts
-        .filter((draft) => !status || draft.status === status)
-        .map((draft) => ({ ...draft, hashtags: [...draft.hashtags] }));
-    },
-    update(id, input) {
-      const draft = drafts.find((entry) => entry.id === id);
-      if (!draft) {
-        return undefined;
-      }
-
-      if (input.title !== undefined) {
-        draft.title = input.title;
-      }
-      if (input.content !== undefined) {
-        draft.content = input.content;
-      }
-      if (input.hashtags !== undefined) {
-        draft.hashtags = [...input.hashtags];
-      }
-      if (input.status !== undefined) {
-        draft.status = input.status;
-      }
-
-      draft.updatedAt = new Date().toISOString();
-      return { ...draft, hashtags: [...draft.hashtags] };
-    },
-  };
+  return createSQLiteDraftStore();
 }
 
 export function createDraftsRouter(draftStore: DraftStore) {

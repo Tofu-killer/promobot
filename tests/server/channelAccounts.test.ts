@@ -91,38 +91,32 @@ async function requestApp(method: string, url: string, body?: unknown) {
   });
 }
 
-describe('projects api', () => {
-  it('persists created projects in SQLite', async () => {
+describe('channel accounts api', () => {
+  it('persists channel accounts in SQLite', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
-      const created = await requestApp('POST', '/api/projects', {
-        name: 'AU Launch',
-        siteName: 'MyModelHub',
-        siteUrl: 'https://example.com',
-        siteDescription: 'Multi-model API gateway',
-        sellingPoints: ['Lower cost'],
+      const created = await requestApp('POST', '/api/channel-accounts', {
+        platform: 'x',
+        accountKey: '@promobot',
+        displayName: 'PromoBot X',
+        authType: 'api',
+        status: 'healthy',
       });
 
       expect(created.status).toBe(201);
-      expect(JSON.parse(created.body)).toEqual({
-        project: expect.objectContaining({
-          id: 1,
-          name: 'AU Launch',
-          siteName: 'MyModelHub',
-        }),
-      });
 
-      const listed = await requestApp('GET', '/api/projects');
+      const listed = await requestApp('GET', '/api/channel-accounts');
 
       expect(listed.status).toBe(200);
       expect(JSON.parse(listed.body)).toEqual({
-        projects: [
+        channelAccounts: [
           expect.objectContaining({
             id: 1,
-            name: 'AU Launch',
-            siteName: 'MyModelHub',
-            siteUrl: 'https://example.com',
-            sellingPoints: ['Lower cost'],
+            platform: 'x',
+            accountKey: '@promobot',
+            displayName: 'PromoBot X',
+            authType: 'api',
+            status: 'healthy',
           }),
         ],
       });
