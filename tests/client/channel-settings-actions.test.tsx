@@ -210,10 +210,30 @@ describe('channel account follow-up actions', () => {
           test: {
             checkedAt: '2026-04-19T00:00:00.000Z',
             status: 'needs_relogin',
-            summary: '需要重新登录',
-            message: '检测到 X 浏览器 session 已过期，请重新登录后重新保存 session 元数据。',
-            action: 'relogin',
-            nextStep: '/api/channel-accounts/3/session',
+            result: {
+              label: '需要重新登录',
+            },
+            feedback: {
+              message: '检测到 X 浏览器 session 已过期，请重新登录后重新保存 session 元数据。',
+            },
+            recommendedAction: {
+              action: 'relogin',
+              label: '重新登录',
+            },
+            nextStep: {
+              path: '/api/channel-accounts/3/session',
+            },
+            details: {
+              ready: false,
+              mode: 'browser',
+              authType: 'browser',
+              session: {
+                hasSession: true,
+                status: 'expired',
+                validatedAt: '2026-04-19T00:00:00.000Z',
+                storageStatePath: 'artifacts/browser-sessions/x-secondary.json',
+              },
+            },
           },
           channelAccount: {
             id: 3,

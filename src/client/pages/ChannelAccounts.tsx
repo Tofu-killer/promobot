@@ -104,8 +104,13 @@ export interface TestChannelAccountConnectionResponse {
     summary?: string;
     message?: string;
     action?: string;
-    nextStep?: string;
+    nextStep?: string | Record<string, unknown>;
     readiness?: Record<string, unknown>;
+    details?: Record<string, unknown>;
+    result?: string | Record<string, unknown>;
+    feedback?: string | Record<string, unknown>;
+    recommendedAction?: string | Record<string, unknown>;
+    recommendation?: Record<string, unknown>;
   };
   channelAccount: ChannelAccountRecord;
 }
@@ -1031,33 +1036,98 @@ function describeConnectionTestFeedback(
   const account = response.channelAccount
     ? normalizeChannelAccountRecord(response.channelAccount)
     : fallbackAccount;
+  const detailRecord = normalizeReadinessRecord(response.test.details);
   const readiness =
     normalizeReadinessRecord(response.test.readiness) ??
+    normalizeReadinessRecord(readObjectValue(response.test.result)?.readiness) ??
+    normalizeReadinessRecord(readObjectValue(response.test.feedback)?.readiness) ??
+    normalizeReadinessRecord(readObjectValue(response.test.recommendedAction)?.readiness) ??
     (account ? normalizeReadinessRecord(account.publishReadiness) : undefined);
   const result =
-    readTextValue(response.test.summary) ??
-    (readiness ? formatReadinessStatus(readiness.status) : undefined) ??
-    formatConnectionTestStatus(response.test.status);
+    readConnectionTestResult(response.test) ??
+    resolveConnectionTestStatusResult(response.test.status, readiness);
   const message =
-    readTextValue(response.test.message) ??
+    readConnectionTestMessage(response.test) ??
+    buildConnectionTestMessageFromDetails(account, response.test.status, detailRecord) ??
     (readiness ? readTextValue(readiness.message) : undefined) ??
     buildDefaultConnectionTestMessage(account, result);
   const action =
-    readTextValue(response.test.action) ??
-    (readiness ? readTextValue(readiness.action) : undefined);
+    readConnectionTestAction(response.test) ??
+    (readiness ? readTextValue(readiness.action) : undefined) ??
+    inferConnectionTestAction(response.test.status);
+  const nextStep =
+    readConnectionTestNextStep(response.test) ??
+    inferConnectionTestNextStep(account?.id, action, response.test.status);
 
   return {
     accountLabel: account?.displayName,
     result,
     message: message === result ? undefined : message,
     action,
-    nextStep: readTextValue(response.test.nextStep),
+    nextStep,
     checkedAt: response.test.checkedAt,
   };
 }
 
+function readConnectionTestResult(test: TestChannelAccountConnectionResponse['test']) {
+  return (
+    readTextValue(test.summary) ??
+    readTextCandidate(test.result) ??
+    readTextCandidate(readObjectValue(test.feedback)?.result) ??
+    readTextCandidate(readObjectValue(test.recommendedAction)?.result)
+  );
+}
+
+function readConnectionTestMessage(test: TestChannelAccountConnectionResponse['test']) {
+  return (
+    readTextValue(test.message) ??
+    readTextCandidate(test.feedback) ??
+    readTextCandidate(readObjectValue(test.result)?.message) ??
+    readTextCandidate(readObjectValue(test.recommendation)?.message) ??
+    readTextCandidate(readObjectValue(test.recommendedAction)?.message)
+  );
+}
+
+function readConnectionTestAction(test: TestChannelAccountConnectionResponse['test']) {
+  return (
+    readActionCandidate(test.recommendedAction) ??
+    readTextValue(test.action) ??
+    readActionCandidate(readObjectValue(test.recommendation)?.action) ??
+    readActionCandidate(readObjectValue(test.feedback)?.action)
+  );
+}
+
+function readConnectionTestNextStep(test: TestChannelAccountConnectionResponse['test']) {
+  return (
+    readNextStepCandidate(test.nextStep) ??
+    readNextStepCandidate(readObjectValue(test.recommendation)?.nextStep) ??
+    readNextStepCandidate(readObjectValue(test.recommendedAction)?.nextStep) ??
+    readNextStepCandidate(readObjectValue(test.feedback)?.nextStep)
+  );
+}
+
+function resolveConnectionTestStatusResult(
+  status: unknown,
+  readiness: Record<string, unknown> | undefined,
+) {
+  if (
+    status === 'ready' ||
+    status === 'needs_config' ||
+    status === 'needs_session' ||
+    status === 'needs_relogin'
+  ) {
+    return formatConnectionTestStatus(status);
+  }
+
+  if (readiness) {
+    return formatReadinessStatus(readiness.status);
+  }
+
+  return formatConnectionTestStatus(status);
+}
+
 function formatConnectionTestStatus(value: unknown) {
-  if (value === 'healthy') return '连接正常';
+  if (value === 'healthy') return '已就绪';
   if (value === 'failed') return '连接失败';
   if (value === 'unknown') return '状态未变化';
   if (value === 'ready') return '已就绪';
@@ -1075,10 +1145,156 @@ function buildDefaultConnectionTestMessage(account: ChannelAccountRecord | null,
   return `连接检查已完成，当前结果为${result}。`;
 }
 
+function buildConnectionTestMessageFromDetails(
+  account: ChannelAccountRecord | null,
+  status: string,
+  details: Record<string, unknown> | undefined,
+) {
+  if (!details) {
+    return undefined;
+  }
+
+  const mode = readTextValue(details.mode);
+  const platformLabel = formatPlatformLabel(account?.platform);
+
+  if (mode === 'api') {
+    if (status === 'ready') {
+      return `${platformLabel} API 账号已检测到可用凭证。`;
+    }
+
+    if (account?.platform === 'x') {
+      return 'X API 账号缺少可用凭证，请配置 X_ACCESS_TOKEN 或 X_BEARER_TOKEN。';
+    }
+
+    if (account?.platform === 'reddit') {
+      return 'Reddit API 账号缺少完整 OAuth 凭证，请配置 client id/secret 和 username/password。';
+    }
+
+    return `${platformLabel} API 账号需要补充可用凭证。`;
+  }
+
+  if (mode === 'browser') {
+    if (status === 'ready') {
+      return `${platformLabel} 浏览器 session 可用，可以继续发布流程。`;
+    }
+
+    if (status === 'needs_relogin') {
+      return `${platformLabel} 浏览器 session 已过期，需要重新登录并重新保存 session 元数据。`;
+    }
+
+    if (status === 'needs_session') {
+      return `${platformLabel} 浏览器账号缺少可用 session，请先登录并保存 session 元数据。`;
+    }
+  }
+
+  return undefined;
+}
+
+function inferConnectionTestAction(status: unknown) {
+  if (status === 'needs_config') return 'configure_credentials';
+  if (status === 'needs_session') return 'request_session';
+  if (status === 'needs_relogin') return 'relogin';
+  return undefined;
+}
+
+function inferConnectionTestNextStep(accountId: number | undefined, action: string | undefined, status: unknown) {
+  if (!accountId) {
+    return undefined;
+  }
+
+  const resolvedAction = action ?? inferConnectionTestAction(status);
+
+  if (resolvedAction === 'configure_credentials') {
+    return `/api/channel-accounts/${accountId}`;
+  }
+
+  if (resolvedAction === 'request_session' || resolvedAction === 'relogin') {
+    return `/api/channel-accounts/${accountId}/session`;
+  }
+
+  return undefined;
+}
+
+function readTextCandidate(value: unknown): string | undefined {
+  const directValue = readTextValue(value);
+  if (directValue) {
+    return directValue;
+  }
+
+  const record = readObjectValue(value);
+  if (!record) {
+    return undefined;
+  }
+
+  return (
+    readTextValue(record.label) ??
+    readTextValue(record.summary) ??
+    readTextValue(record.message) ??
+    readTextValue(record.text) ??
+    readTextValue(record.title) ??
+    readTextValue(record.description) ??
+    readTextValue(record.value)
+  );
+}
+
+function readActionCandidate(value: unknown): string | undefined {
+  const directValue = readTextValue(value);
+  if (directValue) {
+    return directValue;
+  }
+
+  const record = readObjectValue(value);
+  if (!record) {
+    return undefined;
+  }
+
+  return (
+    readTextValue(record.action) ??
+    readTextValue(record.key) ??
+    readTextValue(record.type) ??
+    readTextValue(record.id) ??
+    readTextValue(record.value) ??
+    readTextValue(record.label)
+  );
+}
+
+function readNextStepCandidate(value: unknown): string | undefined {
+  const directValue = readTextValue(value);
+  if (directValue) {
+    return directValue;
+  }
+
+  const record = readObjectValue(value);
+  if (!record) {
+    return undefined;
+  }
+
+  return (
+    readTextValue(record.path) ??
+    readTextValue(record.href) ??
+    readTextValue(record.url) ??
+    readTextValue(record.route) ??
+    readTextValue(record.value) ??
+    readTextValue(record.label) ??
+    readTextValue(record.description)
+  );
+}
+
+function readObjectValue(value: unknown): Record<string, unknown> | undefined {
+  return isPlainObject(value) ? value : undefined;
+}
+
 function readTextValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function formatPlatformLabel(platform: string | undefined) {
+  if (platform === 'x') return 'X';
+  if (platform === 'reddit') return 'Reddit';
+  if (platform === 'facebookGroup') return 'Facebook Group';
+  return platform ?? '当前';
 }

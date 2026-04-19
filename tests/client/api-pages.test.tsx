@@ -978,6 +978,107 @@ describe('client API page wiring', () => {
     expect(connectionHtml).toContain('检查时间：</strong>2026-04-19T02:00:00.000Z');
   });
 
+  it('renders connection feedback from the richer channel account test contract', async () => {
+    const { ChannelAccountsPage } = await import('../../src/client/pages/ChannelAccounts');
+
+    const html = renderPage(ChannelAccountsPage, {
+      stateOverride: {
+        status: 'success',
+        data: {
+          channelAccounts: [
+            {
+              id: 1,
+              platform: 'x',
+              accountKey: 'acct-x',
+              displayName: 'X / Twitter',
+              authType: 'api',
+              status: 'healthy',
+              metadata: {},
+              session: {
+                hasSession: false,
+                status: 'missing',
+                validatedAt: null,
+                storageStatePath: null,
+              },
+              publishReadiness: {
+                platform: 'x',
+                ready: true,
+                mode: 'api',
+                status: 'ready',
+                message: 'X API token 已配置，可直接尝试发布。',
+              },
+              createdAt: '2026-04-19T00:00:00.000Z',
+              updatedAt: '2026-04-19T00:00:00.000Z',
+            },
+          ],
+        },
+      },
+      testConnectionStateOverride: {
+        status: 'success',
+        data: {
+          ok: true,
+          test: {
+            checkedAt: '2026-04-19T02:30:00.000Z',
+            status: 'needs_config',
+            result: {
+              label: '待配置',
+            },
+            feedback: {
+              message: 'X API 账号缺少可用凭证，请配置 X_ACCESS_TOKEN 或 X_BEARER_TOKEN。',
+            },
+            recommendedAction: {
+              action: 'configure_credentials',
+              label: '配置凭证',
+            },
+            nextStep: {
+              path: '/api/channel-accounts/1',
+            },
+            details: {
+              ready: false,
+              mode: 'api',
+              authType: 'api',
+              credentials: {
+                hasAccessToken: false,
+                hasBearerToken: false,
+              },
+            },
+          },
+          channelAccount: {
+            id: 1,
+            platform: 'x',
+            accountKey: 'acct-x',
+            displayName: 'X / Twitter',
+            authType: 'api',
+            status: 'healthy',
+            metadata: {},
+            session: {
+              hasSession: false,
+              status: 'missing',
+              validatedAt: null,
+              storageStatePath: null,
+            },
+            publishReadiness: {
+              platform: 'x',
+              ready: true,
+              mode: 'api',
+              status: 'ready',
+              message: 'X API token 已配置，可直接尝试发布。',
+            },
+            createdAt: '2026-04-19T00:00:00.000Z',
+            updatedAt: '2026-04-19T00:00:00.000Z',
+          },
+        },
+      },
+    });
+
+    expect(html).toContain('最近一次连接测试');
+    expect(html).toContain('连接结果：</strong>待配置');
+    expect(html).toContain('反馈：</strong>X API 账号缺少可用凭证，请配置 X_ACCESS_TOKEN 或 X_BEARER_TOKEN。');
+    expect(html).toContain('建议动作：</strong>配置凭证');
+    expect(html).toContain('下一步：</strong>/api/channel-accounts/1');
+    expect(html).toContain('检查时间：</strong>2026-04-19T02:30:00.000Z');
+  });
+
   it('renders the channel account create form and save action', async () => {
     const { ChannelAccountsPage } = await import('../../src/client/pages/ChannelAccounts');
 

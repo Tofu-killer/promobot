@@ -983,10 +983,31 @@ describe('channel account edit actions', () => {
               test: {
                 checkedAt: '2026-04-19T03:05:00.000Z',
                 status: 'needs_relogin',
-                summary: '需要重新登录',
-                message: '检测到 X 浏览器 session 已过期，请重新登录后重新保存 session 元数据。',
-                action: 'relogin',
-                nextStep: '/api/channel-accounts/7/session',
+                result: {
+                  label: '需要重新登录',
+                },
+                feedback: {
+                  message: '检测到 X 浏览器 session 已过期，请重新登录后重新保存 session 元数据。',
+                },
+                recommendedAction: {
+                  action: 'relogin',
+                  label: '重新登录',
+                },
+                nextStep: {
+                  path: '/api/channel-accounts/7/session',
+                },
+                details: {
+                  ready: false,
+                  mode: 'browser',
+                  authType: 'browser',
+                  session: {
+                    hasSession: true,
+                    status: 'expired',
+                    validatedAt: '2026-04-19T02:00:00.000Z',
+                    storageStatePath: 'artifacts/browser-sessions/acct-browser.json',
+                    id: 'x:acct-browser',
+                  },
+                },
               },
               channelAccount: {
                 id: 7,

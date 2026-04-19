@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { loadConfig, type AppConfig } from './config';
 import { ipAllowlist } from './middleware/ipAllowlist';
@@ -17,11 +20,13 @@ import type { SchedulerRuntime } from './runtime/schedulerRuntime';
 
 export interface AppDependencies {
   schedulerRuntime?: SchedulerRuntime;
+  clientDistPath?: string;
 }
 
 export function createApp(config: AppConfig = loadConfig(), dependencies: AppDependencies = {}) {
   const app = express();
   const draftStore = createDraftStore();
+  const clientBuild = resolveClientBuild(dependencies.clientDistPath);
 
   app.disable('x-powered-by');
   app.use(express.json());
@@ -56,5 +61,70 @@ export function createApp(config: AppConfig = loadConfig(), dependencies: AppDep
   app.use('/api/channel-accounts', channelAccountsRouter);
   app.use('/api/settings', createSettingsRouter({ schedulerRuntime: dependencies.schedulerRuntime }));
 
+  if (clientBuild) {
+    app.use((request, response, next) => {
+      if ((request.method !== 'GET' && request.method !== 'HEAD') || request.path.startsWith('/api')) {
+        next();
+        return;
+      }
+
+      const assetPath = resolveClientAssetPath(clientBuild, request.path);
+
+      if (assetPath) {
+        response.type(assetPath);
+        response.send(fs.readFileSync(assetPath));
+        return;
+      }
+
+      if (path.extname(request.path)) {
+        next();
+        return;
+      }
+
+      response.type('html');
+      response.send(fs.readFileSync(clientBuild.indexPath, 'utf8'));
+    });
+  }
+
   return app;
+}
+
+function resolveClientBuild(explicitClientDistPath?: string) {
+  const candidate = path.resolve(
+    explicitClientDistPath ?? fileURLToPath(new URL('../../dist/client/', import.meta.url)),
+  );
+  const indexPath = path.join(candidate, 'index.html');
+
+  if (!fs.existsSync(indexPath)) {
+    return null;
+  }
+
+  return {
+    clientDistPath: candidate,
+    clientDistPrefix: `${candidate}${path.sep}`,
+    indexPath,
+  };
+}
+
+function resolveClientAssetPath(
+  clientBuild: NonNullable<ReturnType<typeof resolveClientBuild>>,
+  requestPath: string,
+) {
+  const pathSegments = requestPath.split('/').filter(Boolean);
+
+  if (pathSegments.length === 0) {
+    return undefined;
+  }
+
+  const assetPath = path.resolve(clientBuild.clientDistPath, ...pathSegments);
+
+  if (!assetPath.startsWith(clientBuild.clientDistPrefix)) {
+    return undefined;
+  }
+
+  if (!fs.existsSync(assetPath) || !fs.statSync(assetPath).isFile()) {
+    return undefined;
+  }
+
+  return assetPath;
 }

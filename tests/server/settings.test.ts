@@ -256,4 +256,42 @@ describe('settings api', () => {
       cleanupTestDatabasePath(rootDir);
     }
   });
+
+  it('reports facebookGroup readiness as relogin when only expired browser sessions exist', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'facebookGroup',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB Group',
+        authType: 'browser',
+        status: 'unknown',
+      });
+
+      await requestApp('POST', '/api/channel-accounts/1/session', {
+        storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
+        status: 'expired',
+        validatedAt: '2026-04-19T12:34:56.000Z',
+      });
+
+      const loaded = await requestApp('GET', '/api/settings');
+
+      expect(loaded.status).toBe(200);
+      expect(JSON.parse(loaded.body)).toEqual({
+        settings: expect.any(Object),
+        platforms: expect.arrayContaining([
+          expect.objectContaining({
+            platform: 'facebookGroup',
+            ready: false,
+            mode: 'browser',
+            status: 'needs_relogin',
+            message: '已有 Facebook Group 浏览器 session，但需要重新登录刷新。',
+            action: 'relogin',
+          }),
+        ]),
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
 });

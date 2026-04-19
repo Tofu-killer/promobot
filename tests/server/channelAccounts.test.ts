@@ -333,6 +333,57 @@ describe('channel accounts api', () => {
     }
   });
 
+  it('tests an x browser account without a saved session state', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'x',
+        accountKey: '@promobot',
+        displayName: 'PromoBot X Browser',
+        authType: 'browser',
+        status: 'unknown',
+      });
+
+      const response = await requestApp('POST', '/api/channel-accounts/1/test');
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        ok: true,
+        test: {
+          checkedAt: expect.any(String),
+          status: 'needs_session',
+          summary: '需要登录会话',
+          message: 'X 浏览器 session 缺失，请先登录并保存 session 元数据。',
+          action: 'request_session',
+          nextStep: '/api/channel-accounts/1/session',
+          details: {
+            ready: false,
+            mode: 'browser',
+            authType: 'browser',
+            session: {
+              hasSession: false,
+              status: 'missing',
+              validatedAt: null,
+              storageStatePath: null,
+            },
+          },
+        },
+        channelAccount: expect.objectContaining({
+          id: 1,
+          status: 'unknown',
+          session: {
+            hasSession: false,
+            status: 'missing',
+            validatedAt: null,
+            storageStatePath: null,
+          },
+        }),
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('tests a facebookGroup browser account using saved session state', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
@@ -376,6 +427,57 @@ describe('channel accounts api', () => {
         channelAccount: expect.objectContaining({
           id: 1,
           status: 'unknown',
+        }),
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('tests a facebookGroup browser account without a saved session state', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'facebookGroup',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB Group',
+        authType: 'browser',
+        status: 'unknown',
+      });
+
+      const response = await requestApp('POST', '/api/channel-accounts/1/test');
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        ok: true,
+        test: {
+          checkedAt: expect.any(String),
+          status: 'needs_session',
+          summary: '需要登录会话',
+          message: 'Facebook Group 浏览器 session 缺失，请先登录并保存 session 元数据。',
+          action: 'request_session',
+          nextStep: '/api/channel-accounts/1/session',
+          details: {
+            ready: false,
+            mode: 'browser',
+            authType: 'browser',
+            session: {
+              hasSession: false,
+              status: 'missing',
+              validatedAt: null,
+              storageStatePath: null,
+            },
+          },
+        },
+        channelAccount: expect.objectContaining({
+          id: 1,
+          status: 'unknown',
+          session: {
+            hasSession: false,
+            status: 'missing',
+            validatedAt: null,
+            storageStatePath: null,
+          },
         }),
       });
     } finally {

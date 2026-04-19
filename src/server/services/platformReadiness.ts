@@ -2,6 +2,7 @@ import {
   buildBrowserSessionResolution,
   createSessionStore,
   type BrowserSessionAction,
+  type SessionMetadata,
 } from './browser/sessionStore';
 
 export interface PlatformReadiness {
@@ -27,12 +28,12 @@ export function listPlatformReadiness(): PlatformReadiness[] {
   const sessionStore = createSessionStore();
   const facebookSessions = sessionStore
     .listSessions()
-    .filter((session) => session.platform === 'facebookGroup');
+    .filter((session) => normalizePlatform(session.platform) === 'facebookGroup');
 
   return [
     getXReadiness(),
     getRedditReadiness(),
-    getFacebookGroupReadiness(facebookSessions.length),
+    getFacebookGroupReadiness(facebookSessions),
   ];
 }
 
@@ -42,15 +43,16 @@ export function getChannelAccountPublishReadiness(account: {
   authType?: string;
 }): PlatformReadiness {
   const platform = normalizePlatform(account.platform);
+  const browserSessionAuth = isBrowserSessionAuth(account.authType);
 
   if (platform === 'x') {
-    return account.authType === 'browser'
+    return browserSessionAuth
       ? getBrowserSessionReadiness('x', 'X', account.accountKey)
       : getXReadiness();
   }
 
   if (platform === 'reddit') {
-    return account.authType === 'browser'
+    return browserSessionAuth
       ? getBrowserSessionReadiness('reddit', 'Reddit', account.accountKey)
       : getRedditReadiness();
   }
@@ -75,8 +77,9 @@ export function evaluateChannelAccountConnection(account: {
   authType: string;
 }): ChannelAccountConnectionCheck {
   const platform = normalizePlatform(account.platform);
+  const browserSessionAuth = isBrowserSessionAuth(account.authType);
 
-  if (platform === 'x' && account.authType === 'api') {
+  if (platform === 'x' && !browserSessionAuth) {
     const hasAccessToken = Boolean(process.env.X_ACCESS_TOKEN?.trim());
     const hasBearerToken = Boolean(process.env.X_BEARER_TOKEN?.trim());
     const ready = hasAccessToken || hasBearerToken;
@@ -105,7 +108,7 @@ export function evaluateChannelAccountConnection(account: {
     };
   }
 
-  if (platform === 'reddit' && account.authType === 'api') {
+  if (platform === 'reddit' && !browserSessionAuth) {
     const hasClientId = Boolean(process.env.REDDIT_CLIENT_ID?.trim());
     const hasClientSecret = Boolean(process.env.REDDIT_CLIENT_SECRET?.trim());
     const hasUsername = Boolean(process.env.REDDIT_USERNAME?.trim());
@@ -116,8 +119,8 @@ export function evaluateChannelAccountConnection(account: {
       status: ready ? 'ready' : 'needs_config',
       summary: ready ? '可用' : '缺少配置',
       message: ready
-        ? 'Reddit API 账号已检测到完整 OAuth 凭证。'
-        : 'Reddit API 账号缺少 client id/secret 或 username/password。',
+        ? 'Reddit API 账号已检测到可用凭证。'
+        : 'Reddit API 账号缺少完整 OAuth 凭证，请配置 client id/secret 和 username/password。',
       ...(ready
         ? {}
         : {
@@ -163,7 +166,7 @@ export function evaluateChannelAccountConnection(account: {
     return {
       status: 'needs_session',
       summary: '需要登录会话',
-      message: `${label} 浏览器账号缺少可用 session，请先登录并保存 session 元数据。`,
+      message: `${label} 浏览器 session 缺失，请先登录并保存 session 元数据。`,
       action: 'request_session',
       nextStep: `/api/channel-accounts/${account.id}/session`,
       details: {
@@ -289,6 +292,10 @@ function normalizePlatform(platform: string): string {
   return platform === 'facebook-group' ? 'facebookGroup' : platform;
 }
 
+function isBrowserSessionAuth(authType?: string): boolean {
+  return authType === 'browser';
+}
+
 function formatPlatformLabel(platform: string) {
   if (platform === 'x') return 'X';
   if (platform === 'reddit') return 'Reddit';
@@ -296,19 +303,76 @@ function formatPlatformLabel(platform: string) {
   return platform;
 }
 
-function getFacebookGroupReadiness(sessionCount: number): PlatformReadiness {
+function getFacebookGroupReadiness(
+  sessions: SessionMetadata[],
+): PlatformReadiness {
+  let activeSessionCount = 0;
+  let expiredSessionCount = 0;
+  let missingSessionCount = 0;
+
+  for (const session of sessions) {
+    const resolution = buildBrowserSessionResolution(session);
+
+    if (resolution.sessionAction === null) {
+      activeSessionCount += 1;
+      continue;
+    }
+
+    if (resolution.sessionAction === 'relogin') {
+      expiredSessionCount += 1;
+      continue;
+    }
+
+    missingSessionCount += 1;
+  }
+
+  const sessionCount = sessions.length;
+
+  if (activeSessionCount > 0) {
+    return {
+      platform: 'facebookGroup',
+      ready: true,
+      mode: 'browser',
+      status: 'ready',
+      message: `Facebook Group 已检测到 ${activeSessionCount} 个可用浏览器 session。`,
+      details: {
+        sessionCount,
+        activeSessionCount,
+        expiredSessionCount,
+        missingSessionCount,
+      },
+    };
+  }
+
+  if (expiredSessionCount > 0) {
+    return {
+      platform: 'facebookGroup',
+      ready: false,
+      mode: 'browser',
+      status: 'needs_relogin',
+      message: '已有 Facebook Group 浏览器 session，但需要重新登录刷新。',
+      action: 'relogin',
+      details: {
+        sessionCount,
+        activeSessionCount,
+        expiredSessionCount,
+        missingSessionCount,
+      },
+    };
+  }
+
   return {
     platform: 'facebookGroup',
-    ready: sessionCount > 0,
+    ready: false,
     mode: 'browser',
-    status: sessionCount > 0 ? 'ready' : 'needs_session',
-    message:
-      sessionCount > 0
-        ? `Facebook Group 已检测到 ${sessionCount} 个浏览器 session。`
-        : 'Facebook Group 需要先保存浏览器 session，发布时再手动接管。',
-    ...(sessionCount > 0 ? {} : { action: 'request_session' as const }),
+    status: 'needs_session',
+    message: 'Facebook Group 需要先保存浏览器 session，发布时再手动接管。',
+    action: 'request_session',
     details: {
       sessionCount,
+      activeSessionCount,
+      expiredSessionCount,
+      missingSessionCount,
     },
   };
 }

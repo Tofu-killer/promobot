@@ -1,29 +1,35 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/server/app';
 
-async function requestApp(options: {
-  remoteAddress: string;
-  method?: string;
-  url?: string;
-  body?: unknown;
-  dependencies?: Parameters<typeof createApp>[1];
-}) {
-  const app = createApp({
-    allowedIps: ['127.0.0.1'],
-    adminPassword: 'secret',
-  }, options.dependencies);
+async function requestExistingApp(
+  app: ReturnType<typeof createApp>,
+  options: {
+    remoteAddress?: string;
+    method?: string;
+    url: string;
+    body?: unknown;
+  },
+) {
+  const appendChunk = (body: string, chunk?: string | Uint8Array) => {
+    if (chunk === undefined) {
+      return body;
+    }
+
+    return body + (typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8'));
+  };
 
   return await new Promise<{ status: number; body: string }>((resolve, reject) => {
     const req = Object.assign(Object.create(app.request), {
       app,
       method: options.method ?? 'GET',
-      url: options.url ?? '/api/system/health',
-      originalUrl: options.url ?? '/api/system/health',
+      url: options.url,
+      originalUrl: options.url,
       headers: {},
-      socket: { remoteAddress: options.remoteAddress },
-      connection: { remoteAddress: options.remoteAddress },
+      socket: { remoteAddress: options.remoteAddress ?? '127.0.0.1' },
+      connection: { remoteAddress: options.remoteAddress ?? '127.0.0.1' },
     });
 
     let body = '';
@@ -47,12 +53,12 @@ async function requestApp(options: {
         this.statusCode = statusCode;
         return this;
       },
-      write(chunk: string) {
-        body += chunk;
+      write(chunk: string | Uint8Array) {
+        body = appendChunk(body, chunk);
         return true;
       },
-      end(chunk?: string) {
-        if (chunk) body += chunk;
+      end(chunk?: string | Uint8Array) {
+        body = appendChunk(body, chunk);
         resolve({ status: this.statusCode, body });
         return this;
       },
@@ -80,8 +86,8 @@ async function requestApp(options: {
       }
     };
 
-    res.end = (chunk?: string) => {
-      if (chunk) body += chunk;
+    res.end = (chunk?: string | Uint8Array) => {
+      body = appendChunk(body, chunk);
       finish({ status: res.statusCode, body });
       return res;
     };
@@ -97,6 +103,53 @@ async function requestApp(options: {
     });
   });
 }
+
+async function requestApp(options: {
+  remoteAddress: string;
+  method?: string;
+  url?: string;
+  body?: unknown;
+  dependencies?: Parameters<typeof createApp>[1];
+}) {
+  const app = createApp({
+    allowedIps: ['127.0.0.1'],
+    adminPassword: 'secret',
+  }, options.dependencies);
+
+  return await requestExistingApp(app, {
+    remoteAddress: options.remoteAddress,
+    method: options.method,
+    url: options.url ?? '/api/system/health',
+    body: options.body,
+  });
+}
+
+function createClientBuildFixture() {
+  const clientDistPath = fs.mkdtempSync(path.join(os.tmpdir(), 'promobot-client-dist-'));
+  const indexHtml = '<!doctype html><html><body><div id="app">PromoBot SPA</div></body></html>';
+  const assetPath = path.join(clientDistPath, 'assets');
+
+  fs.mkdirSync(assetPath, { recursive: true });
+  fs.writeFileSync(path.join(clientDistPath, 'index.html'), indexHtml, 'utf8');
+  fs.writeFileSync(path.join(assetPath, 'app.js'), 'console.log("promobot-client");\n', 'utf8');
+
+  return {
+    clientDistPath,
+    indexHtml,
+    cleanup() {
+      fs.rmSync(clientDistPath, { recursive: true, force: true });
+    },
+  };
+}
+
+const activeClientBuildFixtures = new Set<{ cleanup: () => void }>();
+
+afterEach(() => {
+  for (const fixture of activeClientBuildFixtures) {
+    fixture.cleanup();
+  }
+  activeClientBuildFixtures.clear();
+});
 
 describe('bootstrap', () => {
   it('loads the app entry module', async () => {
@@ -522,5 +575,70 @@ describe('system runtime api', () => {
     });
 
     expect(actions).toEqual(['list:1', 'get:11', 'retry:11:2026-04-19T12:20:00.000Z', 'cancel:11']);
+  });
+});
+
+describe('static client hosting', () => {
+  it('serves built client files when a client dist is available', async () => {
+    const clientBuild = createClientBuildFixture();
+    activeClientBuildFixtures.add(clientBuild);
+    const app = createApp(
+      {
+        allowedIps: ['127.0.0.1'],
+        adminPassword: 'secret',
+      },
+      { clientDistPath: clientBuild.clientDistPath } as Parameters<typeof createApp>[1],
+    );
+
+    const indexResponse = await requestExistingApp(app, { url: '/' });
+    const assetResponse = await requestExistingApp(app, { url: '/assets/app.js' });
+
+    expect(indexResponse.status).toBe(200);
+    expect(indexResponse.body).toContain('PromoBot SPA');
+    expect(assetResponse.status).toBe(200);
+    expect(assetResponse.body).toContain('promobot-client');
+  });
+
+  it('falls back to index.html for unknown non-api routes when a client dist is available', async () => {
+    const clientBuild = createClientBuildFixture();
+    activeClientBuildFixtures.add(clientBuild);
+    const app = createApp(
+      {
+        allowedIps: ['127.0.0.1'],
+        adminPassword: 'secret',
+      },
+      { clientDistPath: clientBuild.clientDistPath } as Parameters<typeof createApp>[1],
+    );
+
+    const response = await requestExistingApp(app, {
+      url: '/workspace/review-queue',
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toBe(clientBuild.indexHtml);
+  });
+
+  it('keeps api routing ahead of the client fallback', async () => {
+    const clientBuild = createClientBuildFixture();
+    activeClientBuildFixtures.add(clientBuild);
+    const app = createApp(
+      {
+        allowedIps: ['127.0.0.1'],
+        adminPassword: 'secret',
+      },
+      { clientDistPath: clientBuild.clientDistPath } as Parameters<typeof createApp>[1],
+    );
+
+    const healthResponse = await requestExistingApp(app, {
+      url: '/api/system/health',
+    });
+    const missingApiResponse = await requestExistingApp(app, {
+      url: '/api/does-not-exist',
+    });
+
+    expect(healthResponse.status).toBe(200);
+    expect(JSON.parse(healthResponse.body)).toEqual({ ok: true });
+    expect(missingApiResponse.status).toBe(404);
+    expect(missingApiResponse.body).not.toContain('PromoBot SPA');
   });
 });
