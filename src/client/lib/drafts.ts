@@ -7,6 +7,8 @@ export interface DraftRecord {
   content: string;
   hashtags: string[];
   status: DraftStatus;
+  scheduledAt?: string;
+  publishedAt?: string;
   createdAt: string;
   updatedAt: string;
 }

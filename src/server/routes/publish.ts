@@ -93,7 +93,10 @@ function createPublishResultPersister() {
     });
 
     if (result.success) {
-      draftStore.update(draftId, { status: 'published' });
+      draftStore.update(draftId, {
+        status: 'published',
+        publishedAt: new Date().toISOString(),
+      });
     }
   };
 }

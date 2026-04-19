@@ -1,0 +1,477 @@
+import React, { act, createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+function jsonResponse(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  });
+}
+
+const sampleDiscoveryResponse = {
+  items: [
+    {
+      id: 101,
+      title: 'AI 短视频脚本切题',
+      summary: '近 24 小时讨论增长明显，适合做教程向内容。',
+      source: 'Reddit',
+      status: 'new',
+      score: 92,
+      createdAt: '2026-04-19T00:00:00.000Z',
+    },
+    {
+      id: 102,
+      title: '竞品推出周报模板',
+      summary: '竞品把周报模板打包成独立资源，适合做拆解复盘。',
+      source: 'Product Hunt',
+      status: 'triaged',
+      score: 78,
+      createdAt: '2026-04-19T02:30:00.000Z',
+    },
+  ],
+  total: 2,
+  stats: {
+    sources: 2,
+    averageScore: 85,
+  },
+};
+
+function renderPage(
+  Component: unknown,
+  props: {
+    stateOverride?: {
+      status: 'idle' | 'loading' | 'success' | 'error';
+      data?: unknown;
+      error?: string | null;
+    };
+  },
+) {
+  return renderToStaticMarkup(
+    createElement(Component as (properties: typeof props) => React.JSX.Element, props),
+  );
+}
+
+class FakeNode {
+  nodeType: number;
+  nodeName: string;
+  ownerDocument: FakeDocument | null;
+  parentNode: FakeNode | null;
+  childNodes: FakeNode[];
+
+  constructor(nodeType: number, nodeName: string, ownerDocument: FakeDocument | null) {
+    this.nodeType = nodeType;
+    this.nodeName = nodeName;
+    this.ownerDocument = ownerDocument;
+    this.parentNode = null;
+    this.childNodes = [];
+  }
+
+  appendChild(child: FakeNode) {
+    return this.insertBefore(child, null);
+  }
+
+  insertBefore(child: FakeNode, referenceNode: FakeNode | null) {
+    if (child.parentNode) {
+      child.parentNode.removeChild(child);
+    }
+
+    child.parentNode = this;
+    child.ownerDocument = this.nodeType === 9 ? (this as FakeDocument) : this.ownerDocument;
+
+    if (referenceNode === null) {
+      this.childNodes.push(child);
+      return child;
+    }
+
+    const index = this.childNodes.indexOf(referenceNode);
+    if (index === -1) {
+      this.childNodes.push(child);
+      return child;
+    }
+
+    this.childNodes.splice(index, 0, child);
+    return child;
+  }
+
+  removeChild(child: FakeNode) {
+    const index = this.childNodes.indexOf(child);
+    if (index === -1) {
+      throw new Error('child not found');
+    }
+
+    this.childNodes.splice(index, 1);
+    child.parentNode = null;
+    return child;
+  }
+
+  contains(node: FakeNode | null): boolean {
+    if (!node) {
+      return false;
+    }
+
+    let current: FakeNode | null = node;
+    while (current) {
+      if (current === this) {
+        return true;
+      }
+      current = current.parentNode;
+    }
+
+    return false;
+  }
+
+  get firstChild() {
+    return this.childNodes[0] ?? null;
+  }
+
+  get lastChild() {
+    return this.childNodes[this.childNodes.length - 1] ?? null;
+  }
+
+  get nextSibling() {
+    if (!this.parentNode) {
+      return null;
+    }
+
+    const index = this.parentNode.childNodes.indexOf(this);
+    return this.parentNode.childNodes[index + 1] ?? null;
+  }
+
+  get previousSibling() {
+    if (!this.parentNode) {
+      return null;
+    }
+
+    const index = this.parentNode.childNodes.indexOf(this);
+    return this.parentNode.childNodes[index - 1] ?? null;
+  }
+
+  get textContent(): string {
+    return this.childNodes.map((child) => child.textContent).join('');
+  }
+
+  set textContent(value: string) {
+    this.childNodes = [];
+
+    if (value.length > 0) {
+      this.appendChild(new FakeText(value, this.ownerDocument));
+    }
+  }
+}
+
+class FakeText extends FakeNode {
+  data: string;
+
+  constructor(data: string, ownerDocument: FakeDocument | null) {
+    super(3, '#text', ownerDocument);
+    this.data = data;
+  }
+
+  get nodeValue() {
+    return this.data;
+  }
+
+  set nodeValue(value: string | null) {
+    this.data = value ?? '';
+  }
+
+  get textContent() {
+    return this.data;
+  }
+
+  set textContent(value: string) {
+    this.data = value;
+  }
+}
+
+class FakeComment extends FakeNode {
+  data: string;
+
+  constructor(data: string, ownerDocument: FakeDocument | null) {
+    super(8, '#comment', ownerDocument);
+    this.data = data;
+  }
+
+  get nodeValue() {
+    return this.data;
+  }
+
+  set nodeValue(value: string | null) {
+    this.data = value ?? '';
+  }
+
+  get textContent() {
+    return '';
+  }
+
+  set textContent(_value: string) {}
+}
+
+class FakeElement extends FakeNode {
+  tagName: string;
+  namespaceURI: string;
+  style: Record<string, string>;
+  attributes: Map<string, string>;
+
+  constructor(tagName: string, ownerDocument: FakeDocument | null) {
+    super(1, tagName.toUpperCase(), ownerDocument);
+    this.tagName = tagName.toUpperCase();
+    this.namespaceURI = 'http://www.w3.org/1999/xhtml';
+    this.style = {};
+    this.attributes = new Map();
+  }
+
+  setAttribute(name: string, value: string) {
+    this.attributes.set(name, value);
+  }
+
+  getAttribute(name: string) {
+    return this.attributes.get(name) ?? null;
+  }
+
+  removeAttribute(name: string) {
+    this.attributes.delete(name);
+  }
+
+  setAttributeNS(_namespace: string | null, name: string, value: string) {
+    this.setAttribute(name, value);
+  }
+
+  removeAttributeNS(_namespace: string | null, name: string) {
+    this.removeAttribute(name);
+  }
+
+  addEventListener() {}
+
+  removeEventListener() {}
+
+  dispatchEvent() {
+    return true;
+  }
+
+  focus() {
+    if (this.ownerDocument) {
+      this.ownerDocument.activeElement = this;
+    }
+  }
+}
+
+class FakeWindow {
+  document: FakeDocument;
+  navigator: { userAgent: string };
+  location: { href: string };
+  HTMLElement: typeof FakeElement;
+  HTMLIFrameElement: typeof FakeElement;
+  Element: typeof FakeElement;
+  Node: typeof FakeNode;
+  Text: typeof FakeText;
+  Comment: typeof FakeComment;
+  requestAnimationFrame: (callback: (time: number) => void) => number;
+  cancelAnimationFrame: (id: number) => void;
+
+  constructor(document: FakeDocument) {
+    this.document = document;
+    this.navigator = { userAgent: 'node.js' };
+    this.location = { href: 'http://localhost/' };
+    this.HTMLElement = FakeElement;
+    this.HTMLIFrameElement = FakeElement;
+    this.Element = FakeElement;
+    this.Node = FakeNode;
+    this.Text = FakeText;
+    this.Comment = FakeComment;
+    this.requestAnimationFrame = (callback) => setTimeout(() => callback(Date.now()), 0);
+    this.cancelAnimationFrame = (id) => clearTimeout(id);
+  }
+
+  addEventListener() {}
+
+  removeEventListener() {}
+
+  dispatchEvent() {
+    return true;
+  }
+}
+
+class FakeDocument extends FakeNode {
+  defaultView!: FakeWindow;
+  documentElement: FakeElement;
+  body: FakeElement;
+  activeElement: FakeElement | null;
+
+  constructor() {
+    super(9, '#document', null);
+    this.ownerDocument = this;
+    this.documentElement = new FakeElement('html', this);
+    this.body = new FakeElement('body', this);
+    this.activeElement = this.body;
+    this.appendChild(this.documentElement);
+    this.documentElement.appendChild(this.body);
+  }
+
+  createElement(tagName: string) {
+    return new FakeElement(tagName, this);
+  }
+
+  createElementNS(_namespace: string, tagName: string) {
+    return new FakeElement(tagName, this);
+  }
+
+  createTextNode(value: string) {
+    return new FakeText(value, this);
+  }
+
+  createComment(value: string) {
+    return new FakeComment(value, this);
+  }
+
+  addEventListener() {}
+
+  removeEventListener() {}
+
+  dispatchEvent() {
+    return true;
+  }
+}
+
+function installMinimalDom() {
+  const document = new FakeDocument();
+  const window = new FakeWindow(document);
+  document.defaultView = window;
+
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+
+  vi.stubGlobal('window', window);
+  vi.stubGlobal('document', document);
+  vi.stubGlobal('navigator', window.navigator);
+  vi.stubGlobal('location', window.location);
+  vi.stubGlobal('Node', FakeNode);
+  vi.stubGlobal('Element', FakeElement);
+  vi.stubGlobal('HTMLElement', FakeElement);
+  vi.stubGlobal('HTMLIFrameElement', FakeElement);
+  vi.stubGlobal('Text', FakeText);
+  vi.stubGlobal('Comment', FakeComment);
+  vi.stubGlobal('requestAnimationFrame', window.requestAnimationFrame);
+  vi.stubGlobal('cancelAnimationFrame', window.cancelAnimationFrame);
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+
+  return { container };
+}
+
+function collectText(node: FakeNode): string {
+  if (node instanceof FakeText) {
+    return node.data;
+  }
+
+  return node.childNodes.map((child) => collectText(child)).join('');
+}
+
+async function flush() {
+  await Promise.resolve();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+
+describe('Discovery page wiring', () => {
+  it('loads discovery feed through /api/discovery', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(sampleDiscoveryResponse));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const discoveryModule = (await import('../../src/client/lib/discovery')) as Record<string, unknown>;
+
+    expect(typeof discoveryModule.loadDiscoveryRequest).toBe('function');
+
+    const loadDiscoveryRequest = discoveryModule.loadDiscoveryRequest as () => Promise<{
+      total: number;
+      stats: { sources: number; averageScore: number | null };
+      items: Array<{ id: number; title: string; source: string; score: number | null }>;
+    }>;
+
+    const result = await loadDiscoveryRequest();
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/discovery', undefined);
+    expect(result.total).toBe(2);
+    expect(result.stats.sources).toBe(2);
+    expect(result.stats.averageScore).toBe(85);
+    expect(result.items[0]?.title).toBe('AI 短视频脚本切题');
+  });
+
+  it('shows loading, error, and success states for discovery data', async () => {
+    const { DiscoveryPage } = await import('../../src/client/pages/Discovery');
+
+    expect(renderPage(DiscoveryPage, { stateOverride: { status: 'loading' } })).toContain('正在加载发现池');
+    expect(
+      renderPage(DiscoveryPage, {
+        stateOverride: {
+          status: 'error',
+          error: 'Request failed with status 500',
+        },
+      }),
+    ).toContain('发现池加载失败');
+
+    const html = renderPage(DiscoveryPage, {
+      stateOverride: {
+        status: 'success',
+        data: sampleDiscoveryResponse,
+      },
+    });
+
+    expect(html).toContain('候选条目');
+    expect(html).toContain('数据源');
+    expect(html).toContain('平均评分');
+    expect(html).toContain('AI 短视频脚本切题');
+    expect(html).toContain('竞品推出周报模板');
+    expect(html).toContain('Reddit');
+    expect(html).toContain('Product Hunt');
+  });
+
+  it('requests discovery data on mount and renders the fetched items', async () => {
+    const { container } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { DiscoveryPage } = await import('../../src/client/pages/Discovery');
+
+    let resolveLoad: ((value: typeof sampleDiscoveryResponse) => void) | null = null;
+    const loadDiscoveryAction = vi.fn(
+      () =>
+        new Promise<typeof sampleDiscoveryResponse>((resolve) => {
+          resolveLoad = resolve;
+        }),
+    );
+
+    const root = createRoot(container as never);
+
+    await act(async () => {
+      root.render(
+        createElement(DiscoveryPage as never, {
+          loadDiscoveryAction,
+        }),
+      );
+      await flush();
+    });
+
+    expect(loadDiscoveryAction).toHaveBeenCalledTimes(1);
+    expect(collectText(container)).toContain('正在加载发现池');
+
+    await act(async () => {
+      resolveLoad?.(sampleDiscoveryResponse);
+      await flush();
+    });
+
+    const renderedText = collectText(container);
+    expect(renderedText).toContain('AI 短视频脚本切题');
+    expect(renderedText).toContain('竞品推出周报模板');
+    expect(renderedText).toContain('平均评分');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+});

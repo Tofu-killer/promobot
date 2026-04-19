@@ -33,8 +33,28 @@ function insertDraft(database: DatabaseConnection, input: CreateDraftInput): Dra
   const result = database
     .prepare(
       `
-        INSERT INTO drafts (platform, title, content, hashtags, status, created_at, updated_at)
-        VALUES (@platform, @title, @content, @hashtags, @status, @created_at, @updated_at)
+        INSERT INTO drafts (
+          platform,
+          title,
+          content,
+          hashtags,
+          status,
+          scheduled_at,
+          published_at,
+          created_at,
+          updated_at
+        )
+        VALUES (
+          @platform,
+          @title,
+          @content,
+          @hashtags,
+          @status,
+          @scheduled_at,
+          @published_at,
+          @created_at,
+          @updated_at
+        )
       `,
     )
     .run({
@@ -43,6 +63,8 @@ function insertDraft(database: DatabaseConnection, input: CreateDraftInput): Dra
       content: input.content,
       hashtags,
       status,
+      scheduled_at: null,
+      published_at: null,
       created_at: now,
       updated_at: now,
     });
@@ -61,6 +83,7 @@ function listDrafts(database: DatabaseConnection, status?: string): DraftRecord[
         .prepare(
           `
             SELECT id, platform, title, content, hashtags, status,
+                   scheduled_at AS scheduledAt, published_at AS publishedAt,
                    created_at AS createdAt, updated_at AS updatedAt
             FROM drafts
             WHERE status = ?
@@ -72,6 +95,7 @@ function listDrafts(database: DatabaseConnection, status?: string): DraftRecord[
         .prepare(
           `
             SELECT id, platform, title, content, hashtags, status,
+                   scheduled_at AS scheduledAt, published_at AS publishedAt,
                    created_at AS createdAt, updated_at AS updatedAt
             FROM drafts
             ORDER BY id ASC
@@ -98,6 +122,10 @@ function updateDraft(
     content: input.content !== undefined ? input.content : current.content,
     hashtags: input.hashtags !== undefined ? [...input.hashtags] : [...current.hashtags],
     status: input.status !== undefined ? input.status : current.status,
+    scheduledAt:
+      input.scheduledAt !== undefined ? input.scheduledAt ?? undefined : current.scheduledAt,
+    publishedAt:
+      input.publishedAt !== undefined ? input.publishedAt ?? undefined : current.publishedAt,
     updatedAt: new Date().toISOString(),
   };
 
@@ -109,6 +137,8 @@ function updateDraft(
             content = @content,
             hashtags = @hashtags,
             status = @status,
+            scheduled_at = @scheduled_at,
+            published_at = @published_at,
             updated_at = @updated_at
         WHERE id = @id
       `,
@@ -119,6 +149,8 @@ function updateDraft(
       content: nextDraft.content,
       hashtags: JSON.stringify(nextDraft.hashtags),
       status: nextDraft.status,
+      scheduled_at: nextDraft.scheduledAt ?? null,
+      published_at: nextDraft.publishedAt ?? null,
       updated_at: nextDraft.updatedAt,
     });
 
@@ -130,6 +162,7 @@ function getDraftById(database: DatabaseConnection, id: number): DraftRecord | u
     .prepare(
       `
         SELECT id, platform, title, content, hashtags, status,
+               scheduled_at AS scheduledAt, published_at AS publishedAt,
                created_at AS createdAt, updated_at AS updatedAt
         FROM drafts
         WHERE id = ?
@@ -149,6 +182,8 @@ function normalizeDraftRow(row: Record<string, unknown>): DraftRecord {
     content: String(row.content),
     hashtags: Array.isArray(hashtags) ? hashtags.filter((item): item is string => typeof item === 'string') : [],
     status: String(row.status) as DraftStatus,
+    scheduledAt: typeof row.scheduledAt === 'string' ? row.scheduledAt : undefined,
+    publishedAt: typeof row.publishedAt === 'string' ? row.publishedAt : undefined,
     createdAt: String(row.createdAt),
     updatedAt: String(row.updatedAt),
   };

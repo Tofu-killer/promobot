@@ -15,6 +15,8 @@ CREATE TABLE IF NOT EXISTS drafts (
   content TEXT NOT NULL,
   hashtags TEXT NOT NULL DEFAULT '[]',
   status TEXT NOT NULL DEFAULT 'draft',
+  scheduled_at TEXT,
+  published_at TEXT,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

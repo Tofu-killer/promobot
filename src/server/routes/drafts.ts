@@ -17,6 +17,8 @@ export interface DraftRecord {
   content: string;
   hashtags: string[];
   status: DraftStatus;
+  scheduledAt?: string;
+  publishedAt?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -34,6 +36,8 @@ export interface UpdateDraftInput {
   content?: string;
   hashtags?: string[];
   status?: DraftStatus;
+  scheduledAt?: string | null;
+  publishedAt?: string | null;
 }
 
 export interface DraftStore {
@@ -96,6 +100,9 @@ export function createDraftsRouter(draftStore: DraftStore) {
         return;
       }
       patch.status = request.body.status;
+    }
+    if (typeof request.body?.scheduledAt === 'string' || request.body?.scheduledAt === null) {
+      patch.scheduledAt = request.body.scheduledAt;
     }
 
     const draft = draftStore.update(id, patch);

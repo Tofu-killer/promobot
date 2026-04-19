@@ -3,6 +3,7 @@ import { loadConfig, type AppConfig } from './config';
 import { ipAllowlist } from './middleware/ipAllowlist';
 import { channelAccountsRouter } from './routes/channelAccounts';
 import { createContentRouter } from './routes/content';
+import { discoveryRouter } from './routes/discovery';
 import { createDraftStore, createDraftsRouter } from './routes/drafts';
 import { inboxRouter } from './routes/inbox';
 import { monitorRouter } from './routes/monitor';
@@ -22,6 +23,7 @@ export function createApp(config: AppConfig = loadConfig()) {
   app.use(ipAllowlist(config.allowedIps));
   app.use('/api/system', systemRouter);
   app.use('/api/content', createContentRouter(draftStore));
+  app.use('/api/discovery', discoveryRouter);
   app.use('/api/drafts', createDraftsRouter(draftStore));
   app.use(
     '/api/drafts',

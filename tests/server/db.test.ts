@@ -37,4 +37,19 @@ describe('database schema', () => {
       db.close();
     }
   });
+
+  it('adds scheduledAt and publishedAt columns to drafts', () => {
+    const db = initDb(':memory:');
+    try {
+      const columns = db
+        .prepare("PRAGMA table_info(drafts)")
+        .all() as Array<{ name: string }>;
+
+      expect(columns.map((column) => column.name)).toEqual(
+        expect.arrayContaining(['scheduled_at', 'published_at']),
+      );
+    } finally {
+      db.close();
+    }
+  });
 });

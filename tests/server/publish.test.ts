@@ -219,7 +219,11 @@ describe('publish api', () => {
       expect.objectContaining({
         id: draft.id,
         status: 'published',
+        publishedAt: expect.any(String),
       }),
+    );
+    expect(new Date(draftStore.getById(draft.id)?.publishedAt ?? '').toString()).not.toBe(
+      'Invalid Date',
     );
     expect(readPublishLogs()).toEqual([
       expect.objectContaining({

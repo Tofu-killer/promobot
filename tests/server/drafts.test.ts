@@ -201,4 +201,31 @@ describe('drafts api', () => {
       }),
     });
   });
+
+  it('updates draft scheduledAt', async () => {
+    installFetchStub();
+    const app = createApp({
+      allowedIps: ['127.0.0.1'],
+      adminPassword: 'secret',
+    });
+
+    await requestApp(app, 'POST', '/api/content/generate', {
+      topic: 'Claude support launched',
+      platforms: ['x'],
+      tone: 'professional',
+      saveAsDraft: true,
+    });
+
+    const response = await requestApp(app, 'PATCH', '/api/drafts/1', {
+      scheduledAt: '2026-04-20T09:30:00.000Z',
+    });
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({
+      draft: expect.objectContaining({
+        id: 1,
+        scheduledAt: '2026-04-20T09:30:00.000Z',
+      }),
+    });
+  });
 });
