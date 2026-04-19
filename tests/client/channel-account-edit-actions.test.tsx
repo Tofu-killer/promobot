@@ -926,6 +926,14 @@ describe('channel account edit actions', () => {
           storageStatePath: 'artifacts/browser-sessions/acct-browser.json',
           id: 'x:acct-browser',
         },
+        publishReadiness: {
+          platform: 'x',
+          ready: false,
+          mode: 'browser',
+          status: 'needs_relogin',
+          message: '已有 X 浏览器 session，但需要重新登录刷新。',
+          action: 'relogin',
+        },
         createdAt: '2026-04-19T00:00:00.000Z',
         updatedAt: '2026-04-19T00:00:00.000Z',
       },
@@ -954,6 +962,14 @@ describe('channel account edit actions', () => {
                     storageStatePath: 'artifacts/browser-sessions/acct-browser.json',
                     id: 'x:acct-browser',
                   },
+                  publishReadiness: {
+                    platform: 'x',
+                    ready: false,
+                    mode: 'browser',
+                    status: 'needs_relogin',
+                    message: '已有 X 浏览器 session，但需要重新登录刷新。',
+                    action: 'relogin',
+                  },
                   createdAt: '2026-04-19T00:00:00.000Z',
                   updatedAt: '2026-04-19T00:00:00.000Z',
                 },
@@ -966,6 +982,11 @@ describe('channel account edit actions', () => {
       );
       await flush();
     });
+
+    expect(collectText(container)).toContain('发布就绪：需要重新登录');
+    expect(collectText(container)).toContain('发布方式：浏览器接管');
+    expect(collectText(container)).toContain('编辑账号');
+    expect(collectText(container)).toContain('保存 Session 元数据');
 
     const editButton = findElement(
       container,
@@ -1058,6 +1079,13 @@ describe('channel account edit actions', () => {
             storageStatePath: 'artifacts/browser-sessions/browser-x-fresh.json',
             notes: 'cookie refreshed in headed browser',
           },
+          publishReadiness: {
+            platform: 'x',
+            ready: true,
+            mode: 'browser',
+            status: 'ready',
+            message: 'X 浏览器发布链路已具备可用 session。',
+          },
           createdAt: '2026-04-19T00:00:00.000Z',
           updatedAt: '2026-04-19T03:00:00.000Z',
         },
@@ -1068,6 +1096,7 @@ describe('channel account edit actions', () => {
     expect(collectText(container)).toContain('Session 元数据已保存');
     expect(collectText(container)).toContain('Session 状态：active');
     expect(collectText(container)).toContain('Storage Path：artifacts/browser-sessions/browser-x-fresh.json');
+    expect(collectText(container)).toContain('发布就绪：已就绪');
 
     const reloginButton = findElement(
       container,

@@ -305,6 +305,23 @@ describe('settings save validation and feedback', () => {
             provider: 'OpenAI',
             model: 'gpt-4.1-mini',
           },
+          platformReadiness: [
+            {
+              platform: 'x',
+              ready: true,
+              status: 'ready',
+              mode: 'api',
+              message: 'X API token 已配置，可直接尝试发布。',
+            },
+            {
+              platform: 'facebookGroup',
+              ready: false,
+              status: 'needs_session',
+              mode: 'browser',
+              message: 'Facebook Group 需要先保存浏览器 session，发布时再手动接管。',
+              action: 'request_session',
+            },
+          ],
         },
       } satisfies ApiState,
       jobsStateOverride: {
@@ -354,6 +371,11 @@ describe('settings save validation and feedback', () => {
     expect(successHtml).toContain('重试');
     expect(successHtml).toContain('排程新作业');
     expect(successHtml).toContain('排程 Monitor Fetch');
+    expect(successHtml).toContain('平台就绪度');
+    expect(successHtml).toContain('发布就绪：已就绪');
+    expect(successHtml).toContain('发布就绪：需要登录会话');
+    expect(successHtml).toContain('建议动作：请求登录');
+    expect(successHtml).toContain('X API token 已配置，可直接尝试发布。');
 
     const errorHtml = renderPage(SettingsPage, {
       updateStateOverride: {
@@ -390,6 +412,23 @@ describe('settings save validation and feedback', () => {
       runtime: {
         environment: 'staging',
       },
+      platformReadiness: [
+        {
+          platform: 'x',
+          ready: true,
+          mode: 'api',
+          status: 'ready',
+          message: 'X API token 已配置，可直接尝试发布。',
+        },
+        {
+          platform: 'facebookGroup',
+          ready: false,
+          mode: 'browser',
+          status: 'needs_session',
+          message: 'Facebook Group 需要先保存浏览器 session，发布时再手动接管。',
+          action: 'request_session',
+        },
+      ],
     });
     const loadSystemJobsAction = vi.fn().mockResolvedValue({
       jobs: [],
@@ -432,6 +471,9 @@ describe('settings save validation and feedback', () => {
     expect(rssField?.value).toBe('OpenAI blog, TechCrunch');
     expect(collectText(container)).toContain('运行中');
     expect(collectText(container)).toContain('staging');
+    expect(collectText(container)).toContain('平台就绪度');
+    expect(collectText(container)).toContain('Facebook Group');
+    expect(collectText(container)).toContain('请求登录');
 
     await act(async () => {
       root.unmount();

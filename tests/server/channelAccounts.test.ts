@@ -95,6 +95,8 @@ describe('channel accounts api', () => {
   it('persists channel accounts in SQLite', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
+      process.env.X_ACCESS_TOKEN = 'x-token';
+
       const created = await requestApp('POST', '/api/channel-accounts', {
         platform: 'x',
         accountKey: '@promobot',
@@ -123,10 +125,16 @@ describe('channel accounts api', () => {
               validatedAt: null,
               storageStatePath: null,
             },
+            publishReadiness: expect.objectContaining({
+              platform: 'x',
+              ready: true,
+              status: 'ready',
+            }),
           }),
         ],
       });
     } finally {
+      delete process.env.X_ACCESS_TOKEN;
       cleanupTestDatabasePath(rootDir);
     }
   });
@@ -363,6 +371,53 @@ describe('channel accounts api', () => {
         channelAccount: expect.objectContaining({
           id: 1,
         }),
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('adds facebookGroup publish readiness based on browser session state', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'facebookGroup',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB Group',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      const listedBeforeSession = await requestApp('GET', '/api/channel-accounts');
+      expect(JSON.parse(listedBeforeSession.body)).toEqual({
+        channelAccounts: [
+          expect.objectContaining({
+            publishReadiness: expect.objectContaining({
+              platform: 'facebookGroup',
+              ready: false,
+              status: 'needs_session',
+              action: 'request_session',
+            }),
+          }),
+        ],
+      });
+
+      await requestApp('POST', '/api/channel-accounts/1/session', {
+        storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
+        status: 'active',
+      });
+
+      const listedAfterSession = await requestApp('GET', '/api/channel-accounts');
+      expect(JSON.parse(listedAfterSession.body)).toEqual({
+        channelAccounts: [
+          expect.objectContaining({
+            publishReadiness: expect.objectContaining({
+              platform: 'facebookGroup',
+              ready: true,
+              status: 'ready',
+            }),
+          }),
+        ],
       });
     } finally {
       cleanupTestDatabasePath(rootDir);

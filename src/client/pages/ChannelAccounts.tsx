@@ -16,6 +16,8 @@ export interface ChannelAccountRecord {
   status: string;
   metadata: Record<string, unknown>;
   session?: ChannelAccountSessionSummary;
+  readiness?: Record<string, unknown>;
+  publishReadiness?: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
 }
@@ -240,6 +242,55 @@ function parseMetadataInput(value: string): Record<string, unknown> {
       }
       return accumulator;
     }, {});
+}
+
+function formatReadinessValue(value: unknown) {
+  if (typeof value === 'string' && value.trim().length > 0) {
+    return value;
+  }
+
+  if (typeof value === 'boolean') {
+    return value ? '已就绪' : '未就绪';
+  }
+
+  return '未提供';
+}
+
+function formatReadinessStatus(value: unknown) {
+  if (value === 'ready') return '已就绪';
+  if (value === 'needs_config') return '待配置';
+  if (value === 'needs_session') return '需要登录会话';
+  if (value === 'needs_relogin') return '需要重新登录';
+  return formatReadinessValue(value);
+}
+
+function formatReadinessMode(value: unknown) {
+  if (value === 'api') return 'API';
+  if (value === 'browser') return '浏览器接管';
+  if (value === 'manual') return '人工处理';
+  return formatReadinessValue(value);
+}
+
+function formatReadinessAction(value: unknown) {
+  if (value === 'configure_credentials') return '配置凭证';
+  if (value === 'request_session') return '请求登录';
+  if (value === 'relogin') return '重新登录';
+  return formatReadinessValue(value);
+}
+
+function normalizeReadinessRecord(value: unknown): Record<string, unknown> | undefined {
+  return isPlainObject(value) ? value : undefined;
+}
+
+function resolvePublishReadiness(account: ChannelAccountRecord): Record<string, unknown> | undefined {
+  const metadata = isPlainObject(account.metadata) ? account.metadata : {};
+
+  return (
+    normalizeReadinessRecord(account.publishReadiness) ??
+    normalizeReadinessRecord(account.readiness) ??
+    normalizeReadinessRecord(metadata.publishReadiness) ??
+    normalizeReadinessRecord(metadata.readiness)
+  );
 }
 
 export function ChannelAccountsPage({
@@ -637,6 +688,18 @@ export function ChannelAccountsPage({
                           {session.notes ? (
                             <div>Session 备注：{session.notes}</div>
                           ) : null}
+                          <div>
+                            发布就绪：{formatReadinessStatus(account.publishReadiness?.status)}
+                          </div>
+                          <div>
+                            发布方式：{formatReadinessMode(account.publishReadiness?.mode)}
+                          </div>
+                          <div>
+                            就绪说明：{formatReadinessValue(account.publishReadiness?.message)}
+                          </div>
+                          {account.publishReadiness?.action ? (
+                            <div>建议动作：{formatReadinessAction(account.publishReadiness.action)}</div>
+                          ) : null}
                         </div>
                         <div style={{ marginTop: '10px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                           <ActionButton label="编辑账号" onClick={() => handleStartEditing(account.id)} />
@@ -842,6 +905,7 @@ function normalizeChannelAccountRecord(account: ChannelAccountRecord): ChannelAc
     ...account,
     metadata: isPlainObject(account.metadata) ? account.metadata : {},
     session: normalizeSessionSummary(account.session),
+    publishReadiness: resolvePublishReadiness(account),
   };
 }
 

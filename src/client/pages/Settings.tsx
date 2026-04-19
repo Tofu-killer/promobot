@@ -19,6 +19,9 @@ export interface SettingsResponse {
   runtime?: Record<string, unknown>;
   ai?: Record<string, unknown>;
   rss?: Record<string, unknown>;
+  platformReadiness?: Array<Record<string, unknown>>;
+  readiness?: Array<Record<string, unknown>>;
+  platforms?: Array<Record<string, unknown>>;
   [key: string]: unknown;
 }
 
@@ -323,6 +326,35 @@ function formatContractValue(value: unknown) {
   return '未提供';
 }
 
+function formatPlatformStatus(value: unknown) {
+  if (value === 'ready') return '已就绪';
+  if (value === 'needs_config') return '待配置';
+  if (value === 'needs_session') return '需要登录会话';
+  if (value === 'needs_relogin') return '需要重新登录';
+  return formatContractValue(value);
+}
+
+function formatPlatformName(value: unknown) {
+  if (value === 'x') return 'X';
+  if (value === 'reddit') return 'Reddit';
+  if (value === 'facebookGroup' || value === 'facebook-group') return 'Facebook Group';
+  return formatContractValue(value);
+}
+
+function formatPlatformMode(value: unknown) {
+  if (value === 'api') return 'API';
+  if (value === 'browser') return '浏览器接管';
+  if (value === 'manual') return '人工处理';
+  return formatContractValue(value);
+}
+
+function formatPlatformAction(value: unknown) {
+  if (value === 'configure_credentials') return '配置凭证';
+  if (value === 'request_session') return '请求登录';
+  if (value === 'relogin') return '重新登录';
+  return formatContractValue(value);
+}
+
 function readRecordArray(value: unknown): Array<Record<string, unknown>> {
   if (!Array.isArray(value)) {
     return [];
@@ -422,6 +454,14 @@ export function SettingsPage({
   const runtimeContract = asRecord(savedData?.runtime ?? loadedData?.runtime) ?? asRecord(schedulerContract?.runtime);
   const aiContract = asRecord(savedData?.ai ?? loadedData?.ai);
   const rssContract = asRecord(savedData?.rss ?? loadedData?.rss);
+  const platformReadiness = readRecordArray(
+    savedData?.platformReadiness ??
+      savedData?.readiness ??
+      savedData?.platforms ??
+      loadedData?.platformReadiness ??
+      loadedData?.readiness ??
+      loadedData?.platforms,
+  );
 
   const schedulerEnabled = readBoolean(schedulerContract?.enabled);
   const schedulerStatus = formatStatusLabel(readString(schedulerContract?.status), schedulerEnabled);
@@ -779,6 +819,36 @@ export function SettingsPage({
             { label: 'Moderation', value: formatBooleanLabel(readBoolean(aiContract?.moderationEnabled)) },
             { label: 'Fallback', value: formatBooleanLabel(readBoolean(aiContract?.allowModelFallback)) },
           ])}
+        </SectionCard>
+
+        <SectionCard title="平台就绪度" description="这里直接消费后端返回的 readiness contract，集中判断哪些平台已经具备真实执行条件。">
+          <div style={{ display: 'grid', gap: '12px' }}>
+            {platformReadiness.length > 0 ? (
+              platformReadiness.map((platform) => (
+                <div
+                  key={`${formatContractValue(platform.platform)}-${formatContractValue(platform.status)}`}
+                  style={{
+                    borderRadius: '14px',
+                    background: '#f8fafc',
+                    border: '1px solid #e2e8f0',
+                    padding: '12px 14px',
+                    display: 'grid',
+                    gap: '6px',
+                  }}
+                >
+                  <div style={{ fontWeight: 700 }}>{formatPlatformName(platform.platform)}</div>
+                  <div style={{ color: '#334155' }}>发布就绪：{formatPlatformStatus(platform.status)}</div>
+                  <div style={{ color: '#475569' }}>发布方式：{formatPlatformMode(platform.mode)}</div>
+                  <div style={{ color: '#334155' }}>就绪说明：{formatContractValue(platform.message)}</div>
+                  {platform.action ? (
+                    <div style={{ color: '#475569' }}>建议动作：{formatPlatformAction(platform.action)}</div>
+                  ) : null}
+                </div>
+              ))
+            ) : (
+              <div style={{ color: '#475569' }}>后端尚未返回平台就绪信息。</div>
+            )}
+          </div>
         </SectionCard>
 
         <SectionCard title="LAN allowlist" description="当前设置载入后会直接回填到表单，便于基于真实值继续编辑。">

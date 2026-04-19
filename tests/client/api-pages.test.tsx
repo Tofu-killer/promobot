@@ -523,6 +523,13 @@ describe('client API page wiring', () => {
               validatedAt: '2026-04-19T01:00:00.000Z',
               storageStatePath: 'artifacts/browser-sessions/acct-x.json',
             },
+            publishReadiness: {
+              platform: 'x',
+              ready: true,
+              mode: 'api',
+              status: 'ready',
+              message: 'X API token 已配置，可直接尝试发布。',
+            },
             createdAt: '2026-04-19T00:00:00.000Z',
             updatedAt: '2026-04-19T00:00:00.000Z',
           },
@@ -540,6 +547,14 @@ describe('client API page wiring', () => {
               validatedAt: null,
               storageStatePath: null,
             },
+            publishReadiness: {
+              platform: 'reddit',
+              ready: false,
+              mode: 'api',
+              status: 'needs_config',
+              message: 'Reddit 需要完整配置 client id/secret 和 username/password。',
+              action: 'configure_credentials',
+            },
             createdAt: '2026-04-19T00:00:00.000Z',
             updatedAt: '2026-04-19T00:00:00.000Z',
           },
@@ -553,13 +568,22 @@ describe('client API page wiring', () => {
     expect(typeof channelsModule.loadChannelAccountsRequest).toBe('function');
 
     const loadChannelAccountsRequest = channelsModule.loadChannelAccountsRequest as () => Promise<{
-      channelAccounts: Array<{ displayName: string; status: string }>;
+      channelAccounts: Array<{
+        displayName: string;
+        status: string;
+        publishReadiness?: {
+          ready: boolean;
+          mode: string;
+        };
+      }>;
     }>;
 
     const result = await loadChannelAccountsRequest();
 
     expect(fetchMock).toHaveBeenCalledWith('/api/channel-accounts', undefined);
     expect(result.channelAccounts).toHaveLength(2);
+    expect(result.channelAccounts[0]?.publishReadiness?.ready).toBe(true);
+    expect(result.channelAccounts[1]?.publishReadiness?.mode).toBe('api');
   });
 
   it('posts channel account session metadata through the shared API helper', async () => {
@@ -827,6 +851,13 @@ describe('client API page wiring', () => {
                 validatedAt: '2026-04-19T01:00:00.000Z',
                 storageStatePath: 'artifacts/browser-sessions/acct-x.json',
               },
+              publishReadiness: {
+                platform: 'x',
+                ready: true,
+                mode: 'api',
+                status: 'ready',
+                message: 'X API token 已配置，可直接尝试发布。',
+              },
               createdAt: '2026-04-19T00:00:00.000Z',
               updatedAt: '2026-04-19T00:00:00.000Z',
             },
@@ -844,6 +875,14 @@ describe('client API page wiring', () => {
                 validatedAt: null,
                 storageStatePath: null,
               },
+              publishReadiness: {
+                platform: 'reddit',
+                ready: false,
+                mode: 'api',
+                status: 'needs_config',
+                message: 'Reddit 需要完整配置 client id/secret 和 username/password。',
+                action: 'configure_credentials',
+              },
               createdAt: '2026-04-19T00:00:00.000Z',
               updatedAt: '2026-04-19T00:00:00.000Z',
             },
@@ -859,6 +898,9 @@ describe('client API page wiring', () => {
     expect(html).toContain('Session 状态：active');
     expect(html).toContain('最近验证：2026-04-19T01:00:00.000Z');
     expect(html).toContain('Storage Path：artifacts/browser-sessions/acct-x.json');
+    expect(html).toContain('发布就绪：已就绪');
+    expect(html).toContain('发布方式：API');
+    expect(html).toContain('建议动作：配置凭证');
     expect(html).toContain('保存 Session 元数据');
     expect(html).toContain('请求登录');
   });
@@ -883,6 +925,23 @@ describe('client API page wiring', () => {
           allowlist: ['127.0.0.1'],
           rssDefaults: ['OpenAI blog'],
         },
+        platformReadiness: [
+          {
+            platform: 'x',
+            ready: true,
+            mode: 'api',
+            status: 'ready',
+            message: 'X API token 已配置，可直接尝试发布。',
+          },
+          {
+            platform: 'facebookGroup',
+            ready: false,
+            mode: 'browser',
+            status: 'needs_session',
+            message: 'Facebook Group 需要先保存浏览器 session，发布时再手动接管。',
+            action: 'request_session',
+          },
+        ],
       }),
     );
     vi.stubGlobal('fetch', fetchMock);
@@ -896,12 +955,17 @@ describe('client API page wiring', () => {
         schedulerIntervalMinutes: number;
         allowlist: string[];
       };
+      platformReadiness?: Array<{
+        platform: string;
+        ready: boolean;
+      }>;
     }>;
 
     const result = await loadSettingsRequest();
 
     expect(fetchMock).toHaveBeenCalledWith('/api/settings', undefined);
     expect(result.settings.schedulerIntervalMinutes).toBe(15);
+    expect(result.platformReadiness?.[1]?.platform).toBe('facebookGroup');
   });
 
   it('patches settings through the shared API helper', async () => {
@@ -1228,10 +1292,43 @@ describe('client API page wiring', () => {
             model: 'gpt-4.1-mini',
             moderationEnabled: true,
           },
+          platformReadiness: [
+            {
+              platform: 'x',
+              ready: true,
+              mode: 'api',
+              status: 'ready',
+              message: 'X API token 已配置，可直接尝试发布。',
+            },
+            {
+              platform: 'facebookGroup',
+              ready: false,
+              mode: 'browser',
+              status: 'needs_session',
+              message: 'Facebook Group 需要先保存浏览器 session，发布时再手动接管。',
+              action: 'request_session',
+            },
+          ],
           rss: {
             fetchWindowMinutes: 30,
             dedupeMode: 'url',
           },
+          platforms: [
+            {
+              platform: 'x',
+              ready: true,
+              status: 'ready',
+              mode: 'api',
+              message: 'X API token 已配置，可直接尝试发布。',
+            },
+            {
+              platform: 'reddit',
+              ready: true,
+              status: 'ready',
+              mode: 'api',
+              message: 'Reddit OAuth 凭证已配置，可直接尝试发布。',
+            },
+          ],
         },
       },
       jobsStateOverride: {
@@ -1261,6 +1358,10 @@ describe('client API page wiring', () => {
     expect(html).toContain('当前生效设置');
     expect(html).toContain('调度与运行态');
     expect(html).toContain('AI 配置');
+    expect(html).toContain('平台就绪度');
+    expect(html).toContain('发布就绪：已就绪');
+    expect(html).toContain('发布就绪：需要登录会话');
+    expect(html).toContain('建议动作：请求登录');
     expect(html).toContain('RSS 默认源');
     expect(html).toContain('运行环境');
     expect(html).toContain('gpt-4.1-mini');
@@ -1273,6 +1374,8 @@ describe('client API page wiring', () => {
     expect(html).toContain('重试');
     expect(html).toContain('排程新作业');
     expect(html).toContain('排程 Monitor Fetch');
+    expect(html).toContain('平台就绪度');
+    expect(html).toContain('Facebook Group 需要先保存浏览器 session，发布时再手动接管。');
   });
 
   it('renders the settings edit form and save action', async () => {

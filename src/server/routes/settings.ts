@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { listPlatformReadiness } from '../services/platformReadiness';
 import type { SchedulerRuntime } from '../runtime/schedulerRuntime';
 import { createSettingsStore } from '../store/settings';
 
@@ -14,6 +15,7 @@ export function createSettingsRouter(dependencies: SettingsRouteDependencies = {
   settingsRouter.get('/', (_request, response) => {
     response.json({
       settings: settingsStore.get(),
+      platforms: listPlatformReadiness(),
       ...(dependencies.schedulerRuntime
         ? { runtime: dependencies.schedulerRuntime.getStatus() }
         : {}),
@@ -39,6 +41,7 @@ export function createSettingsRouter(dependencies: SettingsRouteDependencies = {
 
     response.json({
       settings,
+      platforms: listPlatformReadiness(),
       ...(dependencies.schedulerRuntime
         ? { runtime: dependencies.schedulerRuntime.reload() }
         : {}),

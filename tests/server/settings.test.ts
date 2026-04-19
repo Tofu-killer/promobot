@@ -100,6 +100,12 @@ describe('settings api', () => {
   it('persists allowlist and scheduler settings in SQLite', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
+      process.env.X_ACCESS_TOKEN = 'x-token';
+      process.env.REDDIT_CLIENT_ID = 'reddit-id';
+      process.env.REDDIT_CLIENT_SECRET = 'reddit-secret';
+      process.env.REDDIT_USERNAME = 'reddit-user';
+      process.env.REDDIT_PASSWORD = 'reddit-pass';
+
       const updated = await requestApp('PATCH', '/api/settings', {
         allowlist: ['127.0.0.1', '10.0.0.0/24'],
         schedulerIntervalMinutes: 30,
@@ -117,8 +123,30 @@ describe('settings api', () => {
           schedulerIntervalMinutes: 30,
           rssDefaults: ['OpenAI blog', 'Anthropic news'],
         }),
+        platforms: [
+          expect.objectContaining({
+            platform: 'x',
+            ready: true,
+            status: 'ready',
+          }),
+          expect.objectContaining({
+            platform: 'reddit',
+            ready: true,
+            status: 'ready',
+          }),
+          expect.objectContaining({
+            platform: 'facebookGroup',
+            ready: false,
+            status: 'needs_session',
+          }),
+        ],
       });
     } finally {
+      delete process.env.X_ACCESS_TOKEN;
+      delete process.env.REDDIT_CLIENT_ID;
+      delete process.env.REDDIT_CLIENT_SECRET;
+      delete process.env.REDDIT_USERNAME;
+      delete process.env.REDDIT_PASSWORD;
       cleanupTestDatabasePath(rootDir);
     }
   });
@@ -192,6 +220,7 @@ describe('settings api', () => {
         settings: expect.objectContaining({
           schedulerIntervalMinutes: 15,
         }),
+        platforms: expect.any(Array),
         runtime: expect.objectContaining({
           available: true,
           started: true,
@@ -216,6 +245,7 @@ describe('settings api', () => {
         settings: expect.objectContaining({
           schedulerIntervalMinutes: 30,
         }),
+        platforms: expect.any(Array),
         runtime: expect.objectContaining({
           schedulerIntervalMinutes: 30,
           pollMs: 1800000,

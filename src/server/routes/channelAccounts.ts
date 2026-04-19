@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { createChannelAccountStore } from '../store/channelAccounts';
+import { getChannelAccountPublishReadiness } from '../services/platformReadiness';
 import {
   buildSessionSummary,
   createSessionStore,
@@ -230,6 +231,10 @@ function attachSessionSummary<
   return {
     ...channelAccount,
     session: liveSession ? buildSessionSummary(liveSession) : metadataSession,
+    publishReadiness: getChannelAccountPublishReadiness({
+      platform: channelAccount.platform,
+      accountKey: channelAccount.accountKey,
+    }),
   };
 }
 
