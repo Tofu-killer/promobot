@@ -193,6 +193,14 @@ channelAccountsRouter.patch('/:id', (request, response) => {
   }
 
   const input = request.body ?? {};
+  if (
+    input.platform !== undefined &&
+    (typeof input.platform !== 'string' || !supportedChannelAccountPlatforms.has(input.platform))
+  ) {
+    response.status(400).json({ error: 'invalid channel account payload' });
+    return;
+  }
+
   const channelAccount = channelAccountStore.update(id, {
     projectId: parseOptionalProjectId(input.projectId),
     platform: typeof input.platform === 'string' ? input.platform : undefined,

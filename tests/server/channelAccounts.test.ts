@@ -228,6 +228,30 @@ describe('channel accounts api', () => {
     }
   });
 
+  it('rejects platform changes to unsupported channel account values', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'x',
+        accountKey: '@promobot',
+        displayName: 'PromoBot X',
+        authType: 'api',
+        status: 'healthy',
+      });
+
+      const response = await requestApp('PATCH', '/api/channel-accounts/1', {
+        platform: 'discord',
+      });
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'invalid channel account payload',
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('persists channel accounts in SQLite', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
