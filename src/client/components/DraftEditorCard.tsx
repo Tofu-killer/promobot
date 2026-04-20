@@ -3,7 +3,6 @@ import {
   type DraftMutationState,
   type DraftRecord,
   type DraftStatus,
-  draftStatusOptions,
 } from '../lib/drafts';
 
 interface DraftEditorCardProps {
@@ -26,6 +25,8 @@ const fieldStyle = {
   font: 'inherit',
   background: '#ffffff',
 } as const;
+
+const editableDraftStatusOptions: DraftStatus[] = ['draft', 'review', 'approved'];
 
 function renderFeedback(state: DraftMutationState, successPrefix: string) {
   if (state.status === 'loading') {
@@ -105,7 +106,7 @@ export function DraftEditorCard({
           onChange={(event) => onStatusChange(event.target.value as DraftStatus)}
           style={fieldStyle}
         >
-          {draftStatusOptions.map((statusOption) => (
+          {editableDraftStatusOptions.map((statusOption) => (
             <option key={statusOption} value={statusOption}>
               {statusOption}
             </option>

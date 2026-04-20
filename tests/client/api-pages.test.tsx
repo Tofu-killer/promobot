@@ -917,6 +917,9 @@ describe('client API page wiring', () => {
     expect(html).toContain('unsupported draft platform');
     expect(html).toContain('Updated launch thread');
     expect(html).toContain('Updated draft body');
+    expect(html).not.toContain('<option value="scheduled">');
+    expect(html).not.toContain('<option value="published">');
+    expect(html).not.toContain('<option value="failed">');
   });
 
   it('shows manual handoff feedback for draft publish contracts', async () => {
