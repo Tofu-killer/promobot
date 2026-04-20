@@ -280,6 +280,7 @@ export function MonitorPage({
             <ActionButton
               label={displayFollowUpState.status === 'loading' ? '正在生成跟进草稿...' : '生成跟进草稿'}
               tone="primary"
+              disabled={displayFollowUpState.status === 'loading'}
               onClick={handleGenerateFollowUp}
             />
           </>

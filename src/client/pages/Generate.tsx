@@ -329,6 +329,7 @@ export function GeneratePage({
             <button
               type="button"
               onClick={() => handleGenerate(false)}
+              disabled={displayState.status === 'loading'}
               style={{
                 border: 'none',
                 borderRadius: '12px',
@@ -343,6 +344,7 @@ export function GeneratePage({
             <button
               type="button"
               onClick={() => handleGenerate(true)}
+              disabled={displayState.status === 'loading'}
               style={{
                 borderRadius: '12px',
                 border: '1px solid #cbd5e1',

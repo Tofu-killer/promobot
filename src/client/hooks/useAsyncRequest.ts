@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { getErrorMessage } from '../lib/api';
 
 export type AsyncStatus = 'idle' | 'loading' | 'success' | 'error';
@@ -65,8 +65,12 @@ export function useAsyncAction<TInput, TOutput>(action: (input: TInput) => Promi
     status: 'idle',
     error: null,
   });
+  const latestRequestIdRef = useRef(0);
 
   async function run(input: TInput) {
+    const requestId = latestRequestIdRef.current + 1;
+    latestRequestIdRef.current = requestId;
+
     setState((currentState) => ({
       status: 'loading',
       data: currentState.data,
@@ -76,6 +80,10 @@ export function useAsyncAction<TInput, TOutput>(action: (input: TInput) => Promi
     try {
       const data = await action(input);
 
+      if (requestId !== latestRequestIdRef.current) {
+        return data;
+      }
+
       setState({
         status: 'success',
         data,
@@ -84,6 +92,10 @@ export function useAsyncAction<TInput, TOutput>(action: (input: TInput) => Promi
 
       return data;
     } catch (error) {
+      if (requestId !== latestRequestIdRef.current) {
+        throw error;
+      }
+
       setState((currentState) => ({
         status: 'error',
         data: currentState.data,

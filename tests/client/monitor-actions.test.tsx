@@ -1053,6 +1053,56 @@ describe('Monitor follow-up actions', () => {
     });
   });
 
+  it('disables follow-up generation while the request is in flight', async () => {
+    const { container } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { MonitorPage } = await import('../../src/client/pages/Monitor');
+
+    const stateOverride = {
+      status: 'success' as const,
+      data: {
+        items: [
+          {
+            id: 7,
+            source: 'x',
+            title: 'Competitor launched a lower tier',
+            detail: 'Observed a cheaper plan and a follow-up opportunity.',
+            status: 'new',
+            createdAt: '2026-04-19T00:00:00.000Z',
+          },
+        ],
+        total: 1,
+      },
+    };
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(MonitorPage as never, {
+          stateOverride,
+          followUpStateOverride: {
+            status: 'loading',
+            error: null,
+          },
+        }),
+      );
+      await flush();
+    });
+
+    const button = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('正在生成跟进草稿...'),
+    ) as FakeElement | null;
+
+    expect(button).not.toBeNull();
+    expect(button?.getAttribute('disabled')).toBe('');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('filters monitor items by source before generating a follow-up draft', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');

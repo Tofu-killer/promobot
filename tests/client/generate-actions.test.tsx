@@ -574,6 +574,113 @@ afterEach(() => {
 });
 
 describe('Generate review actions', () => {
+  it('keeps only the latest async action result when earlier requests resolve later', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { useAsyncAction } = await import('../../src/client/hooks/useAsyncRequest');
+
+    let resolveFirst: ((value: { label: string }) => void) | null = null;
+    let resolveSecond: ((value: { label: string }) => void) | null = null;
+    const action = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<{ label: string }>((resolve) => {
+            resolveFirst = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<{ label: string }>((resolve) => {
+            resolveSecond = resolve;
+          }),
+      );
+
+    function Harness() {
+      const { state, run } = useAsyncAction(action);
+
+      return createElement(
+        'section',
+        null,
+        createElement(
+          'button',
+          {
+            type: 'button',
+            'data-async-action': 'first',
+            onClick: () => {
+              void run('first');
+            },
+          },
+          'first',
+        ),
+        createElement(
+          'button',
+          {
+            type: 'button',
+            'data-async-action': 'second',
+            onClick: () => {
+              void run('second');
+            },
+          },
+          'second',
+        ),
+        createElement('div', { 'data-async-state': 'status' }, state.status),
+        createElement('div', { 'data-async-state': 'result' }, state.data?.label ?? ''),
+      );
+    }
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(createElement(Harness as never));
+      await flush();
+    });
+
+    const firstButton = findElement(
+      container,
+      (element) => element.getAttribute('data-async-action') === 'first',
+    );
+    const secondButton = findElement(
+      container,
+      (element) => element.getAttribute('data-async-action') === 'second',
+    );
+
+    await act(async () => {
+      firstButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      secondButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    await act(async () => {
+      resolveSecond?.({ label: 'second' });
+      await flush();
+    });
+
+    await act(async () => {
+      resolveFirst?.({ label: 'first' });
+      await flush();
+    });
+
+    const statusNode = findElement(
+      container,
+      (element) => element.getAttribute('data-async-state') === 'status',
+    );
+    const resultNode = findElement(
+      container,
+      (element) => element.getAttribute('data-async-state') === 'result',
+    );
+
+    expect(action).toHaveBeenNthCalledWith(1, 'first');
+    expect(action).toHaveBeenNthCalledWith(2, 'second');
+    expect(collectText(statusNode as never)).toContain('success');
+    expect(collectText(resultNode as never)).toContain('second');
+    expect(collectText(resultNode as never)).not.toContain('first');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('keeps only ready launch platforms selectable by default', async () => {
     const { container } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
@@ -710,6 +817,67 @@ describe('Generate review actions', () => {
       platforms: ['x', 'reddit'],
       saveAsDraft: true,
       projectId: 12,
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('disables generate controls while a generation request is in flight', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { GeneratePage } = await import('../../src/client/pages/Generate');
+
+    let resolveGeneration: ((value: { results: unknown[] }) => void) | null = null;
+    const generateAction = vi.fn().mockImplementation(
+      () =>
+        new Promise<{ results: unknown[] }>((resolve) => {
+          resolveGeneration = resolve;
+        }),
+    );
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(GeneratePage as never, {
+          generateAction,
+        }),
+      );
+      await flush();
+    });
+
+    const saveDraftButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('保存为草稿'),
+    ) as FakeElement | null;
+
+    expect(saveDraftButton).not.toBeNull();
+
+    await act(async () => {
+      saveDraftButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    const generateNowButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('正在生成草稿...'),
+    ) as FakeElement | null;
+    const saveDraftButtonWhileLoading = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('保存为草稿'),
+    ) as FakeElement | null;
+
+    expect(generateAction).toHaveBeenCalledTimes(1);
+    expect(generateNowButton).not.toBeNull();
+    expect(generateNowButton?.disabled).toBe(true);
+    expect(saveDraftButtonWhileLoading).not.toBeNull();
+    expect(saveDraftButtonWhileLoading?.disabled).toBe(true);
+
+    await act(async () => {
+      resolveGeneration?.({ results: [] });
+      await flush();
     });
 
     await act(async () => {
