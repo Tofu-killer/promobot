@@ -59,14 +59,14 @@ describe('dashboard lifecycle metrics', () => {
 
     expect(html).toContain('待发布');
     expect(html).toContain('已发布');
-    expect(html).toContain('发布失败');
+    expect(html).toContain('失败发布日志');
     expect(html).toContain('4');
     expect(html).toContain('9');
     expect(html).toContain('2');
     expect(html).toContain('项目 ID（可选）');
   });
 
-  it('falls back missing lifecycle metrics to zero when the dashboard response is partial', async () => {
+  it('surfaces missing lifecycle metrics as unavailable when the dashboard response is partial', async () => {
     const { DashboardPage } = await import('../../src/client/pages/Dashboard');
 
     const html = renderPage(DashboardPage, {
@@ -93,9 +93,9 @@ describe('dashboard lifecycle metrics', () => {
 
     expect(html).toContain('待发布');
     expect(html).toContain('已发布');
-    expect(html).toContain('发布失败');
+    expect(html).toContain('失败发布日志');
     expect(html).toContain('>4<');
-    expect(html).toContain('>0<');
+    expect(html).toContain('未提供');
     expect(html).toContain('项目 ID（可选）');
   });
 });

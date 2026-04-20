@@ -86,33 +86,17 @@ export function DashboardPage({
     [loadDashboardAction, projectId],
   );
   const displayState = stateOverride ?? state;
-  const fallbackData: DashboardResponse = {
-    monitor: { total: 1, new: 1, followUpDrafts: 1 },
-    drafts: { total: 1, review: 1, scheduled: 0, published: 0 },
-    totals: { items: 2, followUps: 1 },
-    publishLogs: { failedCount: 0 },
-    inbox: { total: 1, unread: 1 },
-    channelAccounts: { total: 1, connected: 1 },
-    jobQueue: { pending: 0, running: 0, done: 0, failed: 0, canceled: 0, duePending: 0 },
-  };
-  const viewData = displayState.status === 'success' && displayState.data ? displayState.data : fallbackData;
-  const inboxMetrics = viewData.inbox ?? { total: 0, unread: 0 };
-  const channelAccountMetrics = viewData.channelAccounts ?? { total: 0, connected: 0 };
+  const viewData = displayState.status === 'success' && displayState.data ? displayState.data : null;
+  const inboxMetrics = viewData?.inbox ?? null;
+  const channelAccountMetrics = viewData?.channelAccounts ?? null;
   const draftLifecycleMetrics = {
-    scheduled: viewData.drafts.scheduled ?? 0,
-    published: viewData.drafts.published ?? 0,
+    scheduled: viewData?.drafts.scheduled,
+    published: viewData?.drafts.published,
   };
   const publishLogMetrics = {
-    failedCount: viewData.publishLogs?.failedCount ?? 0,
+    failedCount: viewData?.publishLogs?.failedCount,
   };
-  const jobQueueMetrics = viewData.jobQueue ?? {
-    pending: 0,
-    running: 0,
-    done: 0,
-    failed: 0,
-    canceled: 0,
-    duePending: 0,
-  };
+  const jobQueueMetrics = viewData?.jobQueue ?? null;
 
   return (
     <section>
@@ -136,8 +120,13 @@ export function DashboardPage({
 
       {displayState.status === 'loading' ? <p style={{ color: '#334155' }}>正在加载仪表盘...</p> : null}
       {displayState.status === 'error' ? <p style={{ color: '#b91c1c' }}>仪表盘加载失败：{displayState.error}</p> : null}
+      {displayState.status === 'idle' ? (
+        <p style={{ color: '#92400e', fontWeight: 700 }}>
+          当前展示的是预览说明，真实仪表盘加载完成后会替换。
+        </p>
+      ) : null}
 
-      {displayState.status === 'success' || displayState.status === 'idle' ? (
+      {displayState.status === 'success' && viewData ? (
         <div style={{ display: 'grid', gap: '16px' }}>
           <section
             style={{
@@ -156,49 +145,49 @@ export function DashboardPage({
           </section>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
-            <StatCard label="今日生成" value={String(viewData.drafts.total)} detail="当前已入库的草稿总数" />
+            <StatCard label="草稿总量" value={String(viewData.drafts.total)} detail="当前已入库的草稿总数" />
             <StatCard label="待审核" value={String(viewData.drafts.review)} detail="status=review 的草稿数量" />
-            <StatCard label="已跟进" value={String(viewData.monitor.followUpDrafts)} detail="由监控项生成的 follow-up 草稿" />
+            <StatCard label="Follow-up 草稿" value={String(viewData.monitor.followUpDrafts)} detail="标题命中 follow-up 的草稿数" />
             <StatCard label="新线索" value={String(viewData.monitor.new)} detail="当前 monitor 中 status=new 的条目数" />
-            <StatCard label="待处理私信" value={String(inboxMetrics.unread)} detail="收件箱中尚未标记为 handled 的会话数" />
+            <StatCard label="未 handled 会话" value={formatOptionalMetricValue(inboxMetrics?.unread)} detail="收件箱中 status != handled 的会话数" />
             <StatCard
-              label="健康账号"
-              value={String(channelAccountMetrics.connected)}
-              detail="status=healthy 的渠道账号数量"
+              label="status=healthy 账号"
+              value={formatOptionalMetricValue(channelAccountMetrics?.connected)}
+              detail="仅统计账号状态为 healthy 的数量，不等于发布就绪"
             />
             <StatCard
               label="待发布"
-              value={String(draftLifecycleMetrics.scheduled)}
+              value={formatOptionalMetricValue(draftLifecycleMetrics.scheduled)}
               detail="已排期但尚未完成发布的草稿数量"
             />
             <StatCard
               label="已发布"
-              value={String(draftLifecycleMetrics.published)}
+              value={formatOptionalMetricValue(draftLifecycleMetrics.published)}
               detail="已完成发布的草稿数量"
             />
             <StatCard
-              label="发布失败"
-              value={String(publishLogMetrics.failedCount)}
-              detail="最近发布流水中记录的失败次数"
+              label="失败发布日志"
+              value={formatOptionalMetricValue(publishLogMetrics.failedCount)}
+              detail="发布流水中 status=failed 的记录数"
             />
             <StatCard
               label="队列待执行"
-              value={String(jobQueueMetrics.pending)}
+              value={formatOptionalMetricValue(jobQueueMetrics?.pending)}
               detail="job_queue 中 pending 的任务数量"
             />
             <StatCard
               label="队列运行中"
-              value={String(jobQueueMetrics.running)}
+              value={formatOptionalMetricValue(jobQueueMetrics?.running)}
               detail="当前被 scheduler 占用的任务数量"
             />
             <StatCard
-              label="到期待执行"
-              value={String(jobQueueMetrics.duePending)}
-              detail="已经到执行时间、等待本轮 tick 处理的任务数量"
+              label="到期待执行（pending 子集）"
+              value={formatOptionalMetricValue(jobQueueMetrics?.duePending)}
+              detail="已经到执行时间、等待本轮 tick 处理的 pending 子集"
             />
             <StatCard
               label="队列失败"
-              value={String(jobQueueMetrics.failed)}
+              value={formatOptionalMetricValue(jobQueueMetrics?.failed)}
               detail="job_queue 中 failed 的任务数量"
             />
           </div>
@@ -206,4 +195,8 @@ export function DashboardPage({
       ) : null}
     </section>
   );
+}
+
+function formatOptionalMetricValue(value: number | undefined) {
+  return typeof value === 'number' ? String(value) : '未提供';
 }

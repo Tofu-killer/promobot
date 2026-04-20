@@ -497,15 +497,18 @@ describe('client API page wiring', () => {
       },
     });
 
-    expect(html).toContain('今日生成');
+    expect(html).toContain('草稿总量');
     expect(html).toContain('待审核');
-    expect(html).toContain('已跟进');
+    expect(html).toContain('Follow-up 草稿');
     expect(html).toContain('新线索');
+    expect(html).toContain('未 handled 会话');
+    expect(html).toContain('status=healthy 账号');
     expect(html).toContain('首发运营范围');
     expect(html).toContain('X、Reddit');
     expect(html).toContain('Facebook Group（人工接管）');
     expect(html).toContain('队列待执行');
-    expect(html).toContain('队列失败');
+    expect(html).toContain('到期待执行（pending 子集）');
+    expect(html).toContain('失败发布日志');
     expect(html).toContain('项目 ID（可选）');
   });
 

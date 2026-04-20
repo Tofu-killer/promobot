@@ -26,6 +26,7 @@ describe('dashboard enhanced metrics page', () => {
     const { DashboardPage } = await import('../../src/client/pages/Dashboard');
 
     expect(renderPage(DashboardPage, { stateOverride: { status: 'loading' } })).toContain('正在加载仪表盘');
+    expect(renderPage(DashboardPage, { stateOverride: { status: 'idle' } })).toContain('当前展示的是预览说明');
     expect(
       renderPage(DashboardPage, {
         stateOverride: {
@@ -72,12 +73,12 @@ describe('dashboard enhanced metrics page', () => {
       },
     });
 
-    expect(html).toContain('待处理私信');
-    expect(html).toContain('健康账号');
+    expect(html).toContain('未 handled 会话');
+    expect(html).toContain('status=healthy 账号');
     expect(html).toContain('队列待执行');
     expect(html).toContain('队列运行中');
-    expect(html).toContain('到期待执行');
-    expect(html).toContain('队列失败');
+    expect(html).toContain('到期待执行（pending 子集）');
+    expect(html).toContain('失败发布日志');
     expect(html).toContain('首发运营范围');
     expect(html).toContain('X、Reddit');
     expect(html).toContain('Facebook Group（人工接管）');
