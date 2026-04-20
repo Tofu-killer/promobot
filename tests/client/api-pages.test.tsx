@@ -1354,7 +1354,7 @@ describe('client API page wiring', () => {
     expect(html).toContain('发布就绪：已就绪');
     expect(html).toContain('发布方式：API');
     expect(html).toContain('建议动作：配置凭证');
-    expect(html).toContain('保存 Session 元数据');
+    expect(html).toContain('编辑 Session 元数据');
     expect(html).toContain('请求登录');
     expect(html).toContain('当前目标账号：X / Twitter');
 

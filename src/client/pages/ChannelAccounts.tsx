@@ -877,7 +877,7 @@ export function ChannelAccountsPage({
                               fontWeight: 700,
                             }}
                           >
-                            保存 Session 元数据
+                            编辑 Session 元数据
                           </button>
                           <button
                             type="button"
@@ -1049,7 +1049,7 @@ export function ChannelAccountsPage({
             </div>
             <div>点击“测试连接”会优先对最近创建账号发起真实连接测试；如果当前没有目标账号，则会先刷新列表。</div>
             <div>每个账号卡片都会显式显示 Session 是否存在、当前状态、最近验证时间和 Storage Path。</div>
-            <div>“请求登录 / 重新登录”会调用新的占位接口，“保存 Session 元数据”会把 storage path、状态、验证时间和备注直接提交到后端。</div>
+            <div>“请求登录 / 重新登录”会调用新的占位接口；“编辑 Session 元数据”用于展开表单，“保存 Session 元数据”才会真正提交 storage path、状态、验证时间和备注。</div>
             <div>如果服务端返回 404 或 500，这里不会吞掉错误，而是直接在页面中显示。</div>
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
               <ActionButton

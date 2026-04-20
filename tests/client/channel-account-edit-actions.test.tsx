@@ -1109,7 +1109,7 @@ describe('channel account edit actions', () => {
     expect(collectText(container)).toContain('发布就绪：需要重新登录');
     expect(collectText(container)).toContain('发布方式：浏览器接管');
     expect(collectText(container)).toContain('编辑账号');
-    expect(collectText(container)).toContain('保存 Session 元数据');
+    expect(collectText(container)).toContain('编辑 Session 元数据');
 
     const editButton = findElement(
       container,
