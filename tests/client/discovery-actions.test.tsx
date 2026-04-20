@@ -669,12 +669,7 @@ describe('Discovery draft actions', () => {
     );
 
     expect(button).not.toBeNull();
-
-    await act(async () => {
-      button?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-      await flush();
-    });
-
+    expect(button?.getAttribute('disabled')).toBe('');
     expect(generateAction).not.toHaveBeenCalled();
     expect(collectText(container)).toContain('当前来源不在首发平台范围内');
     expect(collectText(container)).toContain('请改走人工内容流程');

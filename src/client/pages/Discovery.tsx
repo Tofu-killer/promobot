@@ -216,6 +216,8 @@ export function DiscoveryPage({
           <div style={{ marginTop: '20px', display: 'grid', gap: '16px' }}>
             {viewData.items.map((item) => {
               const draftState = getDraftState(item.id);
+              const draftPlatform = resolveDraftPlatform(item.source);
+              const canGenerateDraft = draftPlatform !== null;
 
               return (
                 <SectionCard
@@ -226,7 +228,7 @@ export function DiscoveryPage({
                   <div style={{ display: 'grid', gap: '16px' }}>
                     <p style={{ margin: 0, color: '#475569', lineHeight: 1.6 }}>{item.summary}</p>
 
-                    {resolveDraftPlatform(item.source) === null ? (
+                    {!canGenerateDraft ? (
                       <p style={{ margin: 0, color: '#92400e', fontWeight: 700 }}>
                         当前来源不在首发平台范围内，请改走人工内容流程。
                       </p>
@@ -237,6 +239,7 @@ export function DiscoveryPage({
                         <ActionButton
                           label={draftState.status === 'loading' ? '正在生成草稿...' : '生成草稿'}
                           tone="primary"
+                          disabled={!canGenerateDraft}
                           onClick={() => {
                             void handleGenerateDraft(item);
                           }}
