@@ -136,6 +136,12 @@ interface InboxPageProps {
   replySuggestionStateOverride?: AsyncState<InboxReplySuggestionResponse>;
 }
 
+interface PlaceholderActionButtonProps {
+  label: string;
+  hint: string;
+  tone?: 'primary' | 'secondary';
+}
+
 const feedbackStyle = {
   borderRadius: '16px',
   padding: '14px 16px',
@@ -149,6 +155,38 @@ const queueInputStyle = {
   font: 'inherit',
   background: '#ffffff',
 } as const;
+const placeholderActionNoteStyle = {
+  margin: 0,
+  color: '#64748b',
+  fontSize: '13px',
+  lineHeight: 1.5,
+} as const;
+
+function PlaceholderActionButton({ label, hint, tone = 'secondary' }: PlaceholderActionButtonProps) {
+  const isPrimary = tone === 'primary';
+
+  return (
+    <button
+      type="button"
+      disabled
+      aria-disabled="true"
+      title={hint}
+      style={{
+        borderRadius: '12px',
+        border: isPrimary ? 'none' : '1px solid #cbd5e1',
+        background: isPrimary ? '#bfdbfe' : '#e2e8f0',
+        color: '#475569',
+        padding: '12px 16px',
+        fontWeight: 700,
+        boxShadow: 'none',
+        cursor: 'not-allowed',
+        opacity: 0.8,
+      }}
+    >
+      {label}
+    </button>
+  );
+}
 
 export function InboxPage({
   loadInboxAction = loadInboxRequest,
@@ -401,7 +439,7 @@ export function InboxPage({
                         {item.source} · {item.author ?? 'unknown'} · {item.createdAt}
                       </div>
                       <div style={{ marginTop: '16px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                        <ActionButton label="打开原帖" />
+                        <PlaceholderActionButton label="打开原帖（人工处理）" hint="原帖跳转暂未接入，请在源站手动打开。" />
                         <ActionButton
                           label={
                             displayInboxUpdateState.status === 'loading' && item.id === selectedItemId ? '处理中...' : '标记已处理'
@@ -419,6 +457,7 @@ export function InboxPage({
                           }}
                         />
                       </div>
+                      <p style={{ ...placeholderActionNoteStyle, marginTop: '10px' }}>原帖跳转暂未接入，请在源站手动打开。</p>
                     </article>
                   ))
                 )}
@@ -446,9 +485,17 @@ export function InboxPage({
                     : suggestedReply ?? '点击“AI 生成回复”后，这里会展示最新的 AI 草稿。'}
                 </div>
                 <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                  <ActionButton label="应用建议" tone="primary" />
-                  <ActionButton label="发送回复" />
+                  <PlaceholderActionButton
+                    label="应用建议（人工复制）"
+                    tone="primary"
+                    hint="当前仅提供 AI 草稿预览；应用建议和发送回复仍需人工处理。"
+                  />
+                  <PlaceholderActionButton
+                    label="发送回复（暂未接线）"
+                    hint="当前仅提供 AI 草稿预览；应用建议和发送回复仍需人工处理。"
+                  />
                 </div>
+                <p style={placeholderActionNoteStyle}>当前仅提供 AI 草稿预览；应用建议和发送回复仍需人工处理。</p>
               </div>
             </SectionCard>
           </div>

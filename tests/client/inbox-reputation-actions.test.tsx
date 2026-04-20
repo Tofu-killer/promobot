@@ -23,6 +23,14 @@ function renderPage(Component: unknown, props: Record<string, unknown>) {
   );
 }
 
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function expectDisabledButton(html: string, label: string) {
+  expect(html).toMatch(new RegExp(`<button[^>]*disabled=""[^>]*aria-disabled="true"[^>]*>${escapeRegExp(label)}</button>`));
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -334,6 +342,106 @@ describe('Inbox action wiring', () => {
 
     expect(html).toContain('已生成最新回复建议');
     expect(html).toContain('Thanks for flagging this. We can share current APAC latency benchmarks.');
+  });
+
+  it('renders the original-post CTA as a disabled manual handoff placeholder', async () => {
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    const html = renderPage(InboxPage, {
+      stateOverride: {
+        status: 'success',
+        data: {
+          items: [
+            {
+              id: 7,
+              source: 'reddit',
+              status: 'needs_reply',
+              author: 'user123',
+              title: 'Need lower latency in APAC',
+              excerpt: 'Can you share current response times?',
+              createdAt: '2026-04-19T10:00:00.000Z',
+            },
+          ],
+          total: 1,
+          unread: 1,
+        },
+      } satisfies ApiState<unknown>,
+    });
+
+    expectDisabledButton(html, '打开原帖（人工处理）');
+    expect(html).toContain('原帖跳转暂未接入，请在源站手动打开。');
+  });
+
+  it('renders the apply-suggestion CTA as a disabled manual copy placeholder', async () => {
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    const html = renderPage(InboxPage, {
+      stateOverride: {
+        status: 'success',
+        data: {
+          items: [
+            {
+              id: 7,
+              source: 'reddit',
+              status: 'needs_reply',
+              author: 'user123',
+              title: 'Need lower latency in APAC',
+              excerpt: 'Can you share current response times?',
+              createdAt: '2026-04-19T10:00:00.000Z',
+            },
+          ],
+          total: 1,
+          unread: 1,
+        },
+      } satisfies ApiState<unknown>,
+      replySuggestionStateOverride: {
+        status: 'success',
+        data: {
+          suggestion: {
+            reply: 'Thanks for flagging this. We can share current APAC latency benchmarks.',
+          },
+        },
+      } satisfies ApiState<unknown>,
+    });
+
+    expectDisabledButton(html, '应用建议（人工复制）');
+    expect(html).toContain('当前仅提供 AI 草稿预览；应用建议和发送回复仍需人工处理。');
+  });
+
+  it('renders the send-reply CTA as a disabled not-wired placeholder', async () => {
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    const html = renderPage(InboxPage, {
+      stateOverride: {
+        status: 'success',
+        data: {
+          items: [
+            {
+              id: 7,
+              source: 'reddit',
+              status: 'needs_reply',
+              author: 'user123',
+              title: 'Need lower latency in APAC',
+              excerpt: 'Can you share current response times?',
+              createdAt: '2026-04-19T10:00:00.000Z',
+            },
+          ],
+          total: 1,
+          unread: 1,
+        },
+      } satisfies ApiState<unknown>,
+      replySuggestionStateOverride: {
+        status: 'success',
+        data: {
+          suggestion: {
+            reply: 'Thanks for flagging this. We can share current APAC latency benchmarks.',
+          },
+        },
+      } satisfies ApiState<unknown>,
+    });
+
+    expectDisabledButton(html, '发送回复（暂未接线）');
+    expect(html).toContain('当前仅提供 AI 草稿预览；应用建议和发送回复仍需人工处理。');
   });
 
   it('renders inbox fetch feedback when available', async () => {
