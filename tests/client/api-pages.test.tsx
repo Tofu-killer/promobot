@@ -1507,6 +1507,7 @@ describe('client API page wiring', () => {
           allowlist: ['127.0.0.1'],
           rssDefaults: ['OpenAI blog'],
           monitorRssFeeds: ['https://openai.com/blog/rss.xml'],
+          monitorXQueries: ['openrouter failover'],
           monitorRedditQueries: ['claude api latency'],
           monitorV2exQueries: ['llm api'],
         },
@@ -1540,6 +1541,7 @@ describe('client API page wiring', () => {
         schedulerIntervalMinutes: number;
         allowlist: string[];
         monitorRssFeeds?: string[];
+        monitorXQueries?: string[];
         monitorRedditQueries?: string[];
         monitorV2exQueries?: string[];
       };
@@ -1554,6 +1556,7 @@ describe('client API page wiring', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/settings', undefined);
     expect(result.settings.schedulerIntervalMinutes).toBe(15);
     expect(result.settings.monitorRssFeeds?.[0]).toBe('https://openai.com/blog/rss.xml');
+    expect(result.settings.monitorXQueries).toEqual(['openrouter failover']);
     expect(result.settings.monitorRedditQueries).toEqual(['claude api latency']);
     expect(result.platformReadiness?.[1]?.platform).toBe('facebookGroup');
   });
@@ -1566,6 +1569,7 @@ describe('client API page wiring', () => {
           allowlist: ['10.0.0.1'],
           rssDefaults: ['TechCrunch'],
           monitorRssFeeds: ['https://rss.techcrunch.com/feed'],
+          monitorXQueries: ['openrouter failover'],
           monitorRedditQueries: ['model routing'],
           monitorV2exQueries: ['cursor'],
         },
@@ -1582,15 +1586,17 @@ describe('client API page wiring', () => {
       schedulerIntervalMinutes: number;
       rssDefaults: string[];
       monitorRssFeeds: string[];
+      monitorXQueries: string[];
       monitorRedditQueries: string[];
       monitorV2exQueries: string[];
-    }) => Promise<{ settings: { schedulerIntervalMinutes: number; monitorV2exQueries?: string[] } }>;
+    }) => Promise<{ settings: { schedulerIntervalMinutes: number; monitorXQueries?: string[]; monitorV2exQueries?: string[] } }>;
 
     const result = await updateSettingsRequest({
       allowlist: ['10.0.0.1'],
       schedulerIntervalMinutes: 30,
       rssDefaults: ['TechCrunch'],
       monitorRssFeeds: ['https://rss.techcrunch.com/feed'],
+      monitorXQueries: ['openrouter failover'],
       monitorRedditQueries: ['model routing'],
       monitorV2exQueries: ['cursor'],
     });
@@ -1605,12 +1611,14 @@ describe('client API page wiring', () => {
           schedulerIntervalMinutes: 30,
           rssDefaults: ['TechCrunch'],
           monitorRssFeeds: ['https://rss.techcrunch.com/feed'],
+          monitorXQueries: ['openrouter failover'],
           monitorRedditQueries: ['model routing'],
           monitorV2exQueries: ['cursor'],
         }),
       }),
     );
     expect(result.settings.schedulerIntervalMinutes).toBe(30);
+    expect(result.settings.monitorXQueries).toEqual(['openrouter failover']);
     expect(result.settings.monitorV2exQueries).toEqual(['cursor']);
   });
 
@@ -1864,6 +1872,7 @@ describe('client API page wiring', () => {
             allowlist: ['127.0.0.1'],
             rssDefaults: ['OpenAI blog'],
             monitorRssFeeds: ['https://openai.com/blog/rss.xml'],
+            monitorXQueries: ['openrouter failover'],
             monitorRedditQueries: ['claude api latency'],
             monitorV2exQueries: ['llm api', 'cursor'],
           },

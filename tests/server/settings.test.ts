@@ -111,6 +111,7 @@ describe('settings api', () => {
         schedulerIntervalMinutes: 30,
         rssDefaults: ['OpenAI blog', 'Anthropic news'],
         monitorRssFeeds: ['https://openai.com/blog/rss.xml', 'https://example.com/feed.xml'],
+        monitorXQueries: ['openrouter failover', 'claude latency'],
         monitorRedditQueries: ['claude api latency', 'openrouter australia'],
         monitorV2exQueries: ['openai api', 'llm router'],
       });
@@ -126,6 +127,7 @@ describe('settings api', () => {
           schedulerIntervalMinutes: 30,
           rssDefaults: ['OpenAI blog', 'Anthropic news'],
           monitorRssFeeds: ['https://openai.com/blog/rss.xml', 'https://example.com/feed.xml'],
+          monitorXQueries: ['openrouter failover', 'claude latency'],
           monitorRedditQueries: ['claude api latency', 'openrouter australia'],
           monitorV2exQueries: ['openai api', 'llm router'],
         }),
@@ -170,6 +172,7 @@ describe('settings api', () => {
 
       const updated = await requestApp('PATCH', '/api/settings', {
         monitorRssFeeds: ['https://news.ycombinator.com/rss', 'https://example.com/alerts.xml'],
+        monitorXQueries: ['openrouter failover'],
         monitorRedditQueries: ['local llm'],
         monitorV2exQueries: ['australia saas'],
       });
@@ -181,6 +184,7 @@ describe('settings api', () => {
           schedulerIntervalMinutes: 45,
           rssDefaults: ['OpenAI blog'],
           monitorRssFeeds: ['https://news.ycombinator.com/rss', 'https://example.com/alerts.xml'],
+          monitorXQueries: ['openrouter failover'],
           monitorRedditQueries: ['local llm'],
           monitorV2exQueries: ['australia saas'],
         }),
@@ -196,6 +200,7 @@ describe('settings api', () => {
           schedulerIntervalMinutes: 45,
           rssDefaults: ['OpenAI blog'],
           monitorRssFeeds: ['https://news.ycombinator.com/rss', 'https://example.com/alerts.xml'],
+          monitorXQueries: ['openrouter failover'],
           monitorRedditQueries: ['local llm'],
           monitorV2exQueries: ['australia saas'],
         }),
@@ -275,6 +280,7 @@ describe('settings api', () => {
         settings: expect.objectContaining({
           schedulerIntervalMinutes: 15,
           monitorRssFeeds: [],
+          monitorXQueries: [],
           monitorRedditQueries: [],
           monitorV2exQueries: [],
         }),
@@ -303,6 +309,7 @@ describe('settings api', () => {
         settings: expect.objectContaining({
           schedulerIntervalMinutes: 30,
           monitorRssFeeds: [],
+          monitorXQueries: [],
           monitorRedditQueries: [],
           monitorV2exQueries: [],
         }),

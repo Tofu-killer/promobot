@@ -242,6 +242,50 @@ describe('monitor api', () => {
     }
   });
 
+  it('uses configured x monitor queries from saved settings before falling back to seed data', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      delete process.env.X_ACCESS_TOKEN;
+      delete process.env.X_BEARER_TOKEN;
+      process.env.MONITOR_X_SEARCH_SEEDS = JSON.stringify([
+        {
+          id: '1888888888888',
+          query: 'openrouter failover',
+          title: 'OpenRouter failover thread',
+          text: 'Operators comparing AU routing and warm failover.',
+          author: 'routingwatch',
+          url: 'https://x.com/routingwatch/status/1888888888888',
+        },
+      ]);
+
+      const settingsResponse = await requestApp('PATCH', '/api/settings', {
+        monitorXQueries: ['openrouter failover'],
+      });
+
+      expect(settingsResponse.status).toBe(200);
+
+      const response = await requestApp('POST', '/api/monitor/fetch');
+
+      expect(response.status).toBe(201);
+      expect(JSON.parse(response.body)).toEqual({
+        items: [
+          expect.objectContaining({
+            id: 1,
+            source: 'x',
+            title: 'OpenRouter failover thread',
+            detail:
+              '@routingwatch · matched x search seed for openrouter failover\n\nhttps://x.com/routingwatch/status/1888888888888',
+            status: 'new',
+          }),
+        ],
+        inserted: 1,
+        total: 1,
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('fetches monitor items from enabled source configs before generic seed fallback', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
@@ -752,6 +796,7 @@ describe('monitor api', () => {
       } as never,
       {
         monitorRssFeeds: [],
+        monitorXQueries: [],
         monitorRedditQueries: [],
         monitorV2exQueries: [],
       },

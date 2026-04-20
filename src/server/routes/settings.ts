@@ -40,6 +40,9 @@ export function createSettingsRouter(dependencies: SettingsRouteDependencies = {
       monitorRssFeeds: Array.isArray(input.monitorRssFeeds)
         ? input.monitorRssFeeds.filter((value: unknown): value is string => typeof value === 'string')
         : undefined,
+      monitorXQueries: Array.isArray(input.monitorXQueries)
+        ? input.monitorXQueries.filter((value: unknown): value is string => typeof value === 'string')
+        : undefined,
       monitorRedditQueries: Array.isArray(input.monitorRedditQueries)
         ? input.monitorRedditQueries.filter(
             (value: unknown): value is string => typeof value === 'string',
