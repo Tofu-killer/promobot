@@ -660,4 +660,93 @@ describe('settings save validation and feedback', () => {
       await flush();
     });
   });
+
+  it('keeps settings fields disabled until live settings finish loading and blocks premature saves', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { SettingsPage } = await import('../../src/client/pages/Settings');
+
+    let resolveSettings: ((value: unknown) => void) | null = null;
+    const loadSettingsAction = vi.fn().mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveSettings = resolve;
+        }),
+    );
+    const loadSystemJobsAction = vi.fn().mockResolvedValue({
+      jobs: [],
+      queue: {
+        pending: 0,
+        failed: 0,
+      },
+      recentJobs: [],
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(SettingsPage as never, {
+          loadSettingsAction,
+          loadSystemJobsAction,
+        }),
+      );
+      await flush();
+    });
+
+    const allowlistField = findElement(
+      container,
+      (element) => element.getAttribute('data-settings-field') === 'allowlist',
+    );
+    const schedulerField = findElement(
+      container,
+      (element) => element.getAttribute('data-settings-field') === 'schedulerIntervalMinutes',
+    );
+    const saveButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('保存设置'),
+    );
+
+    expect(allowlistField).not.toBeNull();
+    expect(schedulerField).not.toBeNull();
+    expect(saveButton).not.toBeNull();
+    expect(allowlistField?.getAttribute('disabled')).toBe('');
+    expect(schedulerField?.getAttribute('disabled')).toBe('');
+    expect(saveButton?.getAttribute('disabled')).toBe('');
+
+    await act(async () => {
+      saveButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveSettings?.({
+        settings: {
+          allowlist: ['10.0.0.1'],
+          schedulerIntervalMinutes: 45,
+          rssDefaults: ['OpenAI blog'],
+          monitorRssFeeds: ['https://openai.com/blog/rss.xml'],
+          monitorXQueries: ['openrouter failover'],
+          monitorRedditQueries: ['claude api latency'],
+          monitorV2exQueries: ['llm api'],
+        },
+      });
+      await flush();
+      await flush();
+    });
+
+    expect(allowlistField?.getAttribute('disabled')).toBeNull();
+    expect(schedulerField?.getAttribute('disabled')).toBeNull();
+    expect(saveButton?.getAttribute('disabled')).toBeNull();
+    expect((allowlistField as { value?: string } | null)?.value).toBe('10.0.0.1');
+    expect((schedulerField as { value?: string } | null)?.value).toBe('45');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
 });

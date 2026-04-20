@@ -516,6 +516,10 @@ export function SettingsPage({
   const savedData = displayUpdateState.status === 'success' ? displayUpdateState.data : undefined;
   const effectiveSettings = mergeSettingsRecords(loadedData?.settings, savedData?.settings);
   const loadedFormValues = getLoadedFormValues(effectiveSettings);
+  const canEditSettings =
+    displayState.status === 'success' &&
+    !!loadedData?.settings &&
+    displayUpdateState.status !== 'loading';
 
   const [allowlistDraft, setAllowlistDraft] = useState<string | null>(null);
   const [schedulerIntervalMinutesDraft, setSchedulerIntervalMinutesDraft] = useState<string | null>(null);
@@ -565,6 +569,10 @@ export function SettingsPage({
       : readRecordArray(runtimeContract?.recentJobs);
 
   function handleSaveSettings() {
+    if (!canEditSettings) {
+      return;
+    }
+
     void submitSettingsForm(
       {
         allowlist,
@@ -661,6 +669,7 @@ export function SettingsPage({
             <ActionButton
               label={displayUpdateState.status === 'loading' ? '正在保存设置...' : '保存设置'}
               tone="primary"
+              disabled={!canEditSettings}
               onClick={handleSaveSettings}
             />
           </>
@@ -742,6 +751,7 @@ export function SettingsPage({
               <input
                 data-settings-field="schedulerIntervalMinutes"
                 value={schedulerIntervalMinutes}
+                disabled={!canEditSettings}
                 onChange={(event) => {
                   setValidationMessage(null);
                   setSchedulerIntervalMinutesDraft(event.target.value);
@@ -987,6 +997,7 @@ export function SettingsPage({
               <input
                 data-settings-field="allowlist"
                 value={allowlist}
+                disabled={!canEditSettings}
                 onChange={(event) => {
                   setValidationMessage(null);
                   setAllowlistDraft(event.target.value);
@@ -1008,6 +1019,7 @@ export function SettingsPage({
               <input
                 data-settings-field="rssDefaults"
                 value={rssDefaults}
+                disabled={!canEditSettings}
                 onChange={(event) => {
                   setValidationMessage(null);
                   setRssDefaultsDraft(event.target.value);
@@ -1034,6 +1046,7 @@ export function SettingsPage({
               <textarea
                 data-settings-field="monitorRssFeeds"
                 value={monitorRssFeeds}
+                disabled={!canEditSettings}
                 onChange={(event) => {
                   setValidationMessage(null);
                   setMonitorRssFeedsDraft(event.target.value);
@@ -1048,6 +1061,7 @@ export function SettingsPage({
               <textarea
                 data-settings-field="monitorXQueries"
                 value={monitorXQueries}
+                disabled={!canEditSettings}
                 onChange={(event) => {
                   setValidationMessage(null);
                   setMonitorXQueriesDraft(event.target.value);
@@ -1062,6 +1076,7 @@ export function SettingsPage({
               <textarea
                 data-settings-field="monitorRedditQueries"
                 value={monitorRedditQueries}
+                disabled={!canEditSettings}
                 onChange={(event) => {
                   setValidationMessage(null);
                   setMonitorRedditQueriesDraft(event.target.value);
@@ -1076,6 +1091,7 @@ export function SettingsPage({
               <textarea
                 data-settings-field="monitorV2exQueries"
                 value={monitorV2exQueries}
+                disabled={!canEditSettings}
                 onChange={(event) => {
                   setValidationMessage(null);
                   setMonitorV2exQueriesDraft(event.target.value);

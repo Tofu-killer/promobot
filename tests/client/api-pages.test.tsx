@@ -2267,6 +2267,22 @@ describe('client API page wiring', () => {
     expect(html).toContain('保存设置');
   });
 
+  it('renders settings fields and save action as disabled until live settings load', async () => {
+    const { SettingsPage } = await import('../../src/client/pages/Settings');
+
+    const idleHtml = renderPage(SettingsPage, { stateOverride: { status: 'idle', error: null } });
+    const loadingHtml = renderPage(SettingsPage, { stateOverride: { status: 'loading', error: null } });
+
+    expect(idleHtml).toMatch(/data-settings-field="allowlist"[^>]*disabled=""/);
+    expect(idleHtml).toMatch(/data-settings-field="schedulerIntervalMinutes"[^>]*disabled=""/);
+    expect(idleHtml).toMatch(/>保存设置<\/button>/);
+    expect(idleHtml).toMatch(/disabled=""/);
+    expect(loadingHtml).toMatch(/data-settings-field="allowlist"[^>]*disabled=""/);
+    expect(loadingHtml).toMatch(/data-settings-field="schedulerIntervalMinutes"[^>]*disabled=""/);
+    expect(loadingHtml).toMatch(/>保存设置<\/button>/);
+    expect(loadingHtml).toMatch(/disabled=""/);
+  });
+
   it('loads inbox items through the shared API helper', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({
