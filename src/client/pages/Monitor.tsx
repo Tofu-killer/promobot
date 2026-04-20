@@ -49,6 +49,8 @@ export interface EnqueueMonitorFetchJobResponse {
   runtime: Record<string, unknown>;
 }
 
+const launchReadyFollowUpPlatforms = new Set(['x', 'reddit']);
+
 function parseProjectId(value: string) {
   const normalizedValue = value.trim();
 
@@ -212,10 +214,16 @@ export function MonitorPage({
       return;
     }
 
+    const followUpPlatform = resolveFollowUpPlatform(selectedItem.source);
+    if (!followUpPlatform || !launchReadyFollowUpPlatforms.has(followUpPlatform)) {
+      setFollowUpSelectionMessage('当前动态来源不在首发平台范围内');
+      return;
+    }
+
     setFollowUpSelectionMessage(null);
     void generateFollowUp({
       id: selectedItem.id,
-      platform: selectedItem.source,
+      platform: followUpPlatform,
     }).catch(() => undefined);
   }
 
@@ -412,4 +420,18 @@ function normalizeSourceFilter(source: string): MonitorSourceFilter {
   }
 
   return 'all';
+}
+
+function resolveFollowUpPlatform(source: string) {
+  const normalized = source.trim().toLowerCase();
+
+  if (normalized === 'x' || normalized.includes('twitter')) {
+    return 'x';
+  }
+
+  if (normalized.includes('reddit')) {
+    return 'reddit';
+  }
+
+  return null;
 }

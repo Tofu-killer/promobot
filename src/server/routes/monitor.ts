@@ -7,6 +7,7 @@ import { systemDashboardRouter } from './systemDashboard.js';
 export const monitorRouter = Router();
 const monitorStore = createMonitorStore();
 const draftStore = createSQLiteDraftStore();
+const supportedFollowUpPlatforms = new Set(['x', 'reddit']);
 
 monitorRouter.use(systemDashboardRouter);
 
@@ -60,10 +61,14 @@ monitorRouter.post('/:id/generate-follow-up', (request, response) => {
     return;
   }
 
+  const platform = resolveFollowUpPlatform(request.body?.platform, item.source);
+  if (!platform) {
+    response.status(400).json({ error: 'unsupported follow-up platform' });
+    return;
+  }
+
   const draft = draftStore.create({
-    platform: typeof request.body?.platform === 'string' && request.body.platform.trim()
-      ? request.body.platform.trim()
-      : item.source,
+    platform,
     title: `Follow-up: ${item.title}`,
     content: buildFollowUpContent(item),
     status: 'draft',
@@ -91,4 +96,13 @@ function parseProjectIdQuery(value: unknown) {
 
 function parseOptionalProjectId(value: unknown) {
   return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
+function resolveFollowUpPlatform(requestedPlatform: unknown, source: string) {
+  const candidate =
+    typeof requestedPlatform === 'string' && requestedPlatform.trim()
+      ? requestedPlatform.trim()
+      : source.trim();
+
+  return supportedFollowUpPlatforms.has(candidate) ? candidate : null;
 }

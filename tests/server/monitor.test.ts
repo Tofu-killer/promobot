@@ -924,6 +924,30 @@ describe('monitor api', () => {
     }
   });
 
+  it('rejects follow-up drafts when the requested platform is not launch-ready', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const monitorStore = createMonitorStore();
+      const item = monitorStore.create({
+        source: 'rss',
+        title: 'Competitor launched a lower tier',
+        detail: 'Observed a cheaper plan and a follow-up opportunity.',
+        status: 'new',
+      });
+
+      const response = await requestApp('POST', `/api/monitor/${item.id}/generate-follow-up`, {
+        platform: 'rss',
+      });
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'unsupported follow-up platform',
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('returns 404 when the monitor item is missing', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
