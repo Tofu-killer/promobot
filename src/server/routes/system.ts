@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import type { SchedulerRuntime } from '../runtime/schedulerRuntime';
+import type { SchedulerRuntime } from '../runtime/schedulerRuntime.js';
 
 export interface SystemRouteDependencies {
   schedulerRuntime?: SchedulerRuntime;

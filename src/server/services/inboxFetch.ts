@@ -1,17 +1,17 @@
-import type { InboxItemRecord } from '../store/inbox';
-import { createInboxStore } from '../store/inbox';
-import type { MonitorItemRecord } from '../store/monitor';
-import { createMonitorStore } from '../store/monitor';
-import { createSettingsStore } from '../store/settings';
-import { createSourceConfigStore, type SourceConfigRecord } from '../store/sourceConfigs';
-import { collectRedditInboxSignals } from './inbox/fetchers/reddit';
+import type { InboxItemRecord } from '../store/inbox.js';
+import { createInboxStore } from '../store/inbox.js';
+import type { MonitorItemRecord } from '../store/monitor.js';
+import { createMonitorStore } from '../store/monitor.js';
+import { createSettingsStore } from '../store/settings.js';
+import { createSourceConfigStore, type SourceConfigRecord } from '../store/sourceConfigs.js';
+import { collectRedditInboxSignals } from './inbox/fetchers/reddit.js';
 import {
   createInboxSignalFromMonitorItem,
   type InboxFetcherContext,
   type InboxSignal,
-} from './inbox/fetchers/types';
-import { collectV2exInboxSignals } from './inbox/fetchers/v2ex';
-import { collectXInboxSignals } from './inbox/fetchers/x';
+} from './inbox/fetchers/types.js';
+import { collectV2exInboxSignals } from './inbox/fetchers/v2ex.js';
+import { collectXInboxSignals } from './inbox/fetchers/x.js';
 
 export interface InboxFetchResult {
   items: InboxItemRecord[];

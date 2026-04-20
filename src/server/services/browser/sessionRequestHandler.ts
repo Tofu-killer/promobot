@@ -1,6 +1,6 @@
-import type { JobHandler } from '../../lib/jobs';
-import { createChannelAccountStore, type ChannelAccountStore } from '../../store/channelAccounts';
-import type { BrowserSessionAction } from './sessionStore';
+import type { JobHandler } from '../../lib/jobs.js';
+import { createChannelAccountStore, type ChannelAccountStore } from '../../store/channelAccounts.js';
+import type { BrowserSessionAction } from './sessionStore.js';
 
 export const channelAccountSessionRequestJobType = 'channel_account_session_request';
 

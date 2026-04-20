@@ -1,10 +1,10 @@
 import { Router } from 'express';
-import { createMonitorStore } from '../store/monitor';
-import { createSQLiteDraftStore } from '../store/drafts';
-import { createInboxStore } from '../store/inbox';
-import { createChannelAccountStore } from '../store/channelAccounts';
-import { createJobQueueStore } from '../store/jobQueue';
-import { withDatabase } from '../lib/persistence';
+import { createMonitorStore } from '../store/monitor.js';
+import { createSQLiteDraftStore } from '../store/drafts.js';
+import { createInboxStore } from '../store/inbox.js';
+import { createChannelAccountStore } from '../store/channelAccounts.js';
+import { createJobQueueStore } from '../store/jobQueue.js';
+import { withDatabase } from '../lib/persistence.js';
 
 const monitorStore = createMonitorStore();
 const draftStore = createSQLiteDraftStore();

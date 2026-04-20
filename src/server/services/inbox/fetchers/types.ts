@@ -1,4 +1,4 @@
-import type { MonitorItemRecord } from '../../../store/monitor';
+import type { MonitorItemRecord } from '../../../store/monitor.js';
 
 export interface InboxSignal {
   projectId?: number;

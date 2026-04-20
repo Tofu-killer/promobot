@@ -1,7 +1,7 @@
 import { Router } from 'express';
-import type { JobQueueEntry, JobQueueStore } from '../store/jobQueue';
-import { createJobQueueStore } from '../store/jobQueue';
-import { createSQLiteDraftStore } from '../store/drafts';
+import type { JobQueueEntry, JobQueueStore } from '../store/jobQueue.js';
+import { createJobQueueStore } from '../store/jobQueue.js';
+import { createSQLiteDraftStore } from '../store/drafts.js';
 
 export type DraftStatus =
   | 'approved'

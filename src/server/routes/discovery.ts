@@ -1,6 +1,6 @@
 import { Router } from 'express';
-import { createInboxStore } from '../store/inbox';
-import { createMonitorStore } from '../store/monitor';
+import { createInboxStore } from '../store/inbox.js';
+import { createMonitorStore } from '../store/monitor.js';
 
 export interface DiscoveryItemRecord {
   id: string;

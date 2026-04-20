@@ -1,11 +1,11 @@
-import type { MonitorItemRecord } from '../store/monitor';
-import { createMonitorRssService } from './monitor/rss';
-import { searchReddit } from './monitor/redditSearch';
-import { searchX } from './monitor/xSearch';
-import { searchV2ex } from './monitor/v2exSearch';
-import { createMonitorStore } from '../store/monitor';
-import { createSettingsStore } from '../store/settings';
-import { createSourceConfigStore, type SourceConfigRecord } from '../store/sourceConfigs';
+import type { MonitorItemRecord } from '../store/monitor.js';
+import { createMonitorRssService } from './monitor/rss.js';
+import { searchReddit } from './monitor/redditSearch.js';
+import { searchX } from './monitor/xSearch.js';
+import { searchV2ex } from './monitor/v2exSearch.js';
+import { createMonitorStore } from '../store/monitor.js';
+import { createSettingsStore } from '../store/settings.js';
+import { createSourceConfigStore, type SourceConfigRecord } from '../store/sourceConfigs.js';
 
 export interface MonitorFetchResult {
   items: MonitorItemRecord[];

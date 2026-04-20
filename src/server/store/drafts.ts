@@ -1,12 +1,12 @@
-import type { DatabaseConnection } from '../db';
-import { withDatabase } from '../lib/persistence';
+import type { DatabaseConnection } from '../db.js';
+import { withDatabase } from '../lib/persistence.js';
 import type {
   CreateDraftInput,
   DraftRecord,
   DraftStatus,
   DraftStore,
   UpdateDraftInput,
-} from '../routes/drafts';
+} from '../routes/drafts.js';
 
 export function createSQLiteDraftStore(): DraftStore {
   return {

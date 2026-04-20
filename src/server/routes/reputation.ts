@@ -1,8 +1,8 @@
 import { Router } from 'express';
-import { createReputationFetchService } from '../services/reputationFetch';
-import { selectInboxStatus } from '../services/inbox/fetchers/types';
-import { createInboxStore } from '../store/inbox';
-import { createReputationStore } from '../store/reputation';
+import { createReputationFetchService } from '../services/reputationFetch.js';
+import { selectInboxStatus } from '../services/inbox/fetchers/types.js';
+import { createInboxStore } from '../store/inbox.js';
+import { createReputationStore } from '../store/reputation.js';
 
 export const reputationRouter = Router();
 const inboxStore = createInboxStore();

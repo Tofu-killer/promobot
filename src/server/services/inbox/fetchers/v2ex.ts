@@ -2,7 +2,7 @@ import {
   createInboxSignalFromMonitorItem,
   type InboxFetcherContext,
   type InboxSignal,
-} from './types';
+} from './types.js';
 
 export function collectV2exInboxSignals(context: InboxFetcherContext): InboxSignal[] {
   const monitorSignals = context.monitorItems

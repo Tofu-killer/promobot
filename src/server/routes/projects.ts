@@ -1,6 +1,6 @@
 import { Router } from 'express';
-import { createProjectStore } from '../store/projects';
-import { createSourceConfigStore } from '../store/sourceConfigs';
+import { createProjectStore } from '../store/projects.js';
+import { createSourceConfigStore } from '../store/sourceConfigs.js';
 
 const projectStore = createProjectStore();
 const sourceConfigStore = createSourceConfigStore();

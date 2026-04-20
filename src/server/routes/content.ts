@@ -1,13 +1,13 @@
 import { Router } from 'express';
-import { generateBlogDraft } from '../services/generators/blog';
-import { generateFacebookGroupDraft } from '../services/generators/facebookGroup';
-import { generateRedditDraft } from '../services/generators/reddit';
-import type { GenerateDraftInput, GeneratedDraft } from '../services/generators/types';
-import { generateWeiboDraft } from '../services/generators/weibo';
-import { generateXDraft } from '../services/generators/x';
-import { generateXiaohongshuDraft } from '../services/generators/xiaohongshu';
-import type { DraftStore } from './drafts';
-import { createDraftStore } from './drafts';
+import { generateBlogDraft } from '../services/generators/blog.js';
+import { generateFacebookGroupDraft } from '../services/generators/facebookGroup.js';
+import { generateRedditDraft } from '../services/generators/reddit.js';
+import type { GenerateDraftInput, GeneratedDraft } from '../services/generators/types.js';
+import { generateWeiboDraft } from '../services/generators/weibo.js';
+import { generateXDraft } from '../services/generators/x.js';
+import { generateXiaohongshuDraft } from '../services/generators/xiaohongshu.js';
+import type { DraftStore } from './drafts.js';
+import { createDraftStore } from './drafts.js';
 
 type SupportedPlatform =
   | 'blog'

@@ -1,11 +1,11 @@
-import type { DatabaseConnection } from '../db';
+import type { DatabaseConnection } from '../db.js';
 import {
   createJobRecord,
   type JobRecord,
   type JobStatus,
   type JobStore,
-} from '../lib/jobs';
-import { withDatabase } from '../lib/persistence';
+} from '../lib/jobs.js';
+import { withDatabase } from '../lib/persistence.js';
 
 export interface EnqueueJobInput {
   type: string;

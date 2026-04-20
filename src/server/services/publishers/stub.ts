@@ -5,7 +5,7 @@ import type {
   PublishStatus,
   Publisher,
   PublisherPlatform,
-} from './types';
+} from './types.js';
 
 interface StubPublisherConfig {
   platform: PublisherPlatform;

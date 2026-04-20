@@ -1,8 +1,8 @@
 import { Router } from 'express';
-import { createMonitorFetchService } from '../services/monitorFetch';
-import { createMonitorStore, type MonitorItemRecord } from '../store/monitor';
-import { createSQLiteDraftStore } from '../store/drafts';
-import { systemDashboardRouter } from './systemDashboard';
+import { createMonitorFetchService } from '../services/monitorFetch.js';
+import { createMonitorStore, type MonitorItemRecord } from '../store/monitor.js';
+import { createSQLiteDraftStore } from '../store/drafts.js';
+import { systemDashboardRouter } from './systemDashboard.js';
 
 export const monitorRouter = Router();
 const monitorStore = createMonitorStore();

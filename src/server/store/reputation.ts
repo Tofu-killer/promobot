@@ -1,5 +1,5 @@
-import type { DatabaseConnection } from '../db';
-import { withDatabase } from '../lib/persistence';
+import type { DatabaseConnection } from '../db.js';
+import { withDatabase } from '../lib/persistence.js';
 
 export interface ReputationItemRecord {
   id: number;

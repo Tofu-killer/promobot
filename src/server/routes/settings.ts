@@ -1,7 +1,7 @@
 import { Router } from 'express';
-import { listPlatformReadiness } from '../services/platformReadiness';
-import type { SchedulerRuntime } from '../runtime/schedulerRuntime';
-import { createSettingsStore } from '../store/settings';
+import { listPlatformReadiness } from '../services/platformReadiness.js';
+import type { SchedulerRuntime } from '../runtime/schedulerRuntime.js';
+import { createSettingsStore } from '../store/settings.js';
 
 const settingsStore = createSettingsStore();
 

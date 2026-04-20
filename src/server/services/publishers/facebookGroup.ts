@@ -1,9 +1,9 @@
 import {
   buildBrowserSessionResolution,
   createSessionStore,
-} from '../browser/sessionStore';
-import { createStubPublisher } from './stub';
-import type { PublishRequest, PublishResult, Publisher } from './types';
+} from '../browser/sessionStore.js';
+import { createStubPublisher } from './stub.js';
+import type { PublishRequest, PublishResult, Publisher } from './types.js';
 
 const fallbackPublisher = createStubPublisher({
   platform: 'facebookGroup',

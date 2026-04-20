@@ -1,12 +1,12 @@
-import type { JobHandler } from '../lib/jobs';
-import type { DraftStatus } from '../routes/drafts';
+import type { JobHandler } from '../lib/jobs.js';
+import type { DraftStatus } from '../routes/drafts.js';
 import {
   createDraftPublishAdapter,
   type PublishableDraft,
-} from '../routes/publish';
-import type { PublishStatus } from './publishers/types';
-import { createSQLiteDraftStore } from '../store/drafts';
-import { createSQLitePublishLogStore } from '../store/publishLogs';
+} from '../routes/publish.js';
+import type { PublishStatus } from './publishers/types.js';
+import { createSQLiteDraftStore } from '../store/drafts.js';
+import { createSQLitePublishLogStore } from '../store/publishLogs.js';
 
 export interface PublishJobPayload {
   draftId?: unknown;

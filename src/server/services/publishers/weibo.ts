@@ -1,4 +1,4 @@
-import { createStubPublisher } from './stub';
+import { createStubPublisher } from './stub.js';
 
 export const publishToWeibo = createStubPublisher({
   platform: 'weibo',

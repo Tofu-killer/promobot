@@ -3,7 +3,7 @@ import {
   createSessionStore,
   type BrowserSessionAction,
   type SessionMetadata,
-} from './browser/sessionStore';
+} from './browser/sessionStore.js';
 
 export interface PlatformReadiness {
   platform: string;

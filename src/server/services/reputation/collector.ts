@@ -1,10 +1,10 @@
-import type { MonitorItemRecord } from '../../store/monitor';
-import type { CreateReputationItemInput } from '../../store/reputation';
-import type { SettingsRecord } from '../../store/settings';
+import type { MonitorItemRecord } from '../../store/monitor.js';
+import type { CreateReputationItemInput } from '../../store/reputation.js';
+import type { SettingsRecord } from '../../store/settings.js';
 import {
   createReputationSentimentService,
   type ReputationSentimentService,
-} from './sentiment';
+} from './sentiment.js';
 
 type ReputationCollectorSettings = Pick<
   SettingsRecord,

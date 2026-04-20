@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { initDb, type DatabaseConnection } from '../db';
+import { initDb, type DatabaseConnection } from '../db.js';
 
 const DEFAULT_DATABASE_PATH = path.resolve(process.cwd(), 'data/promobot.sqlite');
 

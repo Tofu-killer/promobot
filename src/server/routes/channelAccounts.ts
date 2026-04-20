@@ -1,17 +1,17 @@
 import { Router } from 'express';
-import { createChannelAccountStore } from '../store/channelAccounts';
-import { createJobQueueStore } from '../store/jobQueue';
+import { createChannelAccountStore } from '../store/channelAccounts.js';
+import { createJobQueueStore } from '../store/jobQueue.js';
 import {
   evaluateChannelAccountConnection,
   getChannelAccountPublishReadiness,
-} from '../services/platformReadiness';
+} from '../services/platformReadiness.js';
 import {
   buildSessionSummary,
   createSessionStore,
   type BrowserSessionAction,
   type SessionStatus,
   type SessionSummary,
-} from '../services/browser/sessionStore';
+} from '../services/browser/sessionStore.js';
 
 const channelAccountStore = createChannelAccountStore();
 const jobQueueStore = createJobQueueStore();

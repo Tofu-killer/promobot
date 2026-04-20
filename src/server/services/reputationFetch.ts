@@ -1,9 +1,9 @@
-import type { ReputationItemRecord } from '../store/reputation';
-import { createReputationStore } from '../store/reputation';
-import { createMonitorStore } from '../store/monitor';
-import { createSettingsStore } from '../store/settings';
-import { createSourceConfigStore, type SourceConfigRecord } from '../store/sourceConfigs';
-import { createReputationCollectorService } from './reputation/collector';
+import type { ReputationItemRecord } from '../store/reputation.js';
+import { createReputationStore } from '../store/reputation.js';
+import { createMonitorStore } from '../store/monitor.js';
+import { createSettingsStore } from '../store/settings.js';
+import { createSourceConfigStore, type SourceConfigRecord } from '../store/sourceConfigs.js';
+import { createReputationCollectorService } from './reputation/collector.js';
 
 export interface ReputationFetchResult {
   items: ReputationItemRecord[];

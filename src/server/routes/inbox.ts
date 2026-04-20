@@ -1,7 +1,7 @@
 import { Router } from 'express';
-import { createInboxStore } from '../store/inbox';
-import { chatJson } from '../services/aiClient';
-import { createInboxFetchService } from '../services/inboxFetch';
+import { createInboxStore } from '../store/inbox.js';
+import { chatJson } from '../services/aiClient.js';
+import { createInboxFetchService } from '../services/inboxFetch.js';
 
 export const inboxRouter = Router();
 const inboxStore = createInboxStore();

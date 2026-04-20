@@ -1,4 +1,4 @@
-import type { PublishRequest, PublishResult } from './types';
+import type { PublishRequest, PublishResult } from './types.js';
 import {
   FetchRetryError,
   type PublisherErrorDetails,
@@ -9,7 +9,7 @@ import {
   fetchWithRetry,
   readResponseSnippet,
   sanitizeSnippet,
-} from './http';
+} from './http.js';
 
 interface XCreateTweetResponse {
   data?: {

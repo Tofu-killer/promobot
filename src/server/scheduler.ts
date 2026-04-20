@@ -6,7 +6,7 @@ import {
   type JobHandler,
   type JobRecord,
   type JobStore,
-} from './lib/jobs';
+} from './lib/jobs.js';
 
 export interface SchedulerOptions {
   pollMs: number;

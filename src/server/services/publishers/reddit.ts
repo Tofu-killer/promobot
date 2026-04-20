@@ -1,4 +1,4 @@
-import type { PublishRequest, PublishResult, Publisher } from './types';
+import type { PublishRequest, PublishResult, Publisher } from './types.js';
 import {
   FetchRetryError,
   type PublisherErrorDetails,
@@ -9,7 +9,7 @@ import {
   fetchWithRetry,
   readResponseSnippet,
   sanitizeSnippet,
-} from './http';
+} from './http.js';
 
 const REDDIT_TOKEN_ENDPOINT = 'https://www.reddit.com/api/v1/access_token';
 const REDDIT_SUBMIT_ENDPOINT = 'https://oauth.reddit.com/api/submit';

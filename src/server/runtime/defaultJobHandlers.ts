@@ -1,12 +1,12 @@
-import type { JobHandler } from '../lib/jobs';
+import type { JobHandler } from '../lib/jobs.js';
 import {
   channelAccountSessionRequestJobType,
   createChannelAccountSessionRequestJobHandler,
-} from '../services/browser/sessionRequestHandler';
-import { createInboxFetchService } from '../services/inboxFetch';
-import { createMonitorFetchService } from '../services/monitorFetch';
-import { createPublishJobHandler } from '../services/publishQueue';
-import { createReputationFetchService } from '../services/reputationFetch';
+} from '../services/browser/sessionRequestHandler.js';
+import { createInboxFetchService } from '../services/inboxFetch.js';
+import { createMonitorFetchService } from '../services/monitorFetch.js';
+import { createPublishJobHandler } from '../services/publishQueue.js';
+import { createReputationFetchService } from '../services/reputationFetch.js';
 
 interface ProjectScopedJobPayload {
   projectId?: unknown;

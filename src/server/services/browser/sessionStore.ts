@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { getDatabasePath } from '../../lib/persistence';
+import { getDatabasePath } from '../../lib/persistence.js';
 
 export type SessionStatus = 'active' | 'expired' | 'missing';
 export type BrowserSessionAction = 'relogin' | 'request_session';

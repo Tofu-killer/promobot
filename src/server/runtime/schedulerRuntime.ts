@@ -1,14 +1,14 @@
-import { createScheduler } from '../scheduler';
-import type { JobExecutionResult, JobHandler } from '../lib/jobs';
-import type { SettingsStore } from '../store/settings';
-import { createSettingsStore } from '../store/settings';
+import { createScheduler } from '../scheduler.js';
+import type { JobExecutionResult, JobHandler } from '../lib/jobs.js';
+import type { SettingsStore } from '../store/settings.js';
+import { createSettingsStore } from '../store/settings.js';
 import type {
   EnqueueJobInput,
   JobQueueEntry,
   JobQueueStats,
   JobQueueStore,
-} from '../store/jobQueue';
-import { createJobQueueStore } from '../store/jobQueue';
+} from '../store/jobQueue.js';
+import { createJobQueueStore } from '../store/jobQueue.js';
 
 export interface SchedulerRuntimeSnapshot {
   available: boolean;

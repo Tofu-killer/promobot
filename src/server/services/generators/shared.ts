@@ -1,5 +1,5 @@
-import { chat } from '../aiClient';
-import type { GeneratedDraft, GenerateDraftInput } from './types';
+import { chat } from '../aiClient.js';
+import type { GeneratedDraft, GenerateDraftInput } from './types.js';
 
 export async function generatePlatformDraft(
   platform: string,
