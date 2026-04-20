@@ -548,12 +548,70 @@ async function flush() {
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+function collectInputs(node: FakeNode): string[] {
+  const values: string[] = [];
+
+  if (node instanceof FakeElement && node.tagName === 'INPUT') {
+    values.push(`value="${node.value}"`);
+  }
+
+  for (const child of node.childNodes) {
+    values.push(...collectInputs(child));
+  }
+
+  return values;
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
 describe('channel account edit actions', () => {
+  it('applies launch presets to the create form when a platform preset is selected', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ChannelAccountsPage } = await import('../../src/client/pages/ChannelAccounts');
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ChannelAccountsPage as never, {
+          stateOverride: {
+            status: 'idle',
+            error: null,
+          },
+        }),
+      );
+      await flush();
+    });
+
+    const redditPreset = findElement(
+      container,
+      (element) => element.getAttribute('data-create-platform-preset') === 'reddit',
+    );
+
+    expect(redditPreset).not.toBeNull();
+
+    await act(async () => {
+      redditPreset?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    const inputs = collectInputs(container);
+
+    expect(inputs).toContain('value="reddit"');
+    expect(inputs).toContain('value="reddit-main"');
+    expect(inputs).toContain('value="Reddit Primary"');
+    expect(inputs).toContain('value="oauth"');
+    expect(inputs).toContain('value="unknown"');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('patches a channel account through the shared API helper', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({

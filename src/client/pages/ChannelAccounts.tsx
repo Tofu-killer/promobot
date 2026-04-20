@@ -239,6 +239,54 @@ const createPlatformOptions = [
   { value: 'blog', label: 'Blog（暂缓首发）' },
 ] as const;
 
+const createPlatformDefaults: Record<
+  string,
+  { accountKey: string; displayName: string; authType: string; status: string; metadata: string }
+> = {
+  x: {
+    accountKey: 'x-main',
+    displayName: 'X Primary',
+    authType: 'api',
+    status: 'unknown',
+    metadata: '',
+  },
+  reddit: {
+    accountKey: 'reddit-main',
+    displayName: 'Reddit Primary',
+    authType: 'oauth',
+    status: 'unknown',
+    metadata: '',
+  },
+  facebookGroup: {
+    accountKey: 'facebook-group-main',
+    displayName: 'Facebook Group Manual',
+    authType: 'browser',
+    status: 'unknown',
+    metadata: '',
+  },
+  xiaohongshu: {
+    accountKey: 'xiaohongshu-main',
+    displayName: 'Xiaohongshu Manual',
+    authType: 'browser',
+    status: 'unknown',
+    metadata: '',
+  },
+  weibo: {
+    accountKey: 'weibo-main',
+    displayName: 'Weibo Manual',
+    authType: 'browser',
+    status: 'unknown',
+    metadata: '',
+  },
+  blog: {
+    accountKey: 'blog-main',
+    displayName: 'Blog Manual',
+    authType: 'manual',
+    status: 'unknown',
+    metadata: '',
+  },
+};
+
 function serializeMetadata(metadata: Record<string, unknown>) {
   return Object.entries(metadata)
     .filter(
@@ -450,6 +498,20 @@ export function ChannelAccountsPage({
       .catch(() => undefined);
   }
 
+  function applyCreatePreset(nextPlatform: string) {
+    const defaults = createPlatformDefaults[nextPlatform];
+    setPlatform(nextPlatform);
+    if (!defaults) {
+      return;
+    }
+
+    setAccountKey(defaults.accountKey);
+    setDisplayName(defaults.displayName);
+    setAuthType(defaults.authType);
+    setStatus(defaults.status);
+    setMetadata(defaults.metadata);
+  }
+
   function getEditFormValue(account: ChannelAccountRecord): EditFormValue {
     const session = getSessionSummary(account);
     return editFormById[account.id] ?? {
@@ -587,8 +649,11 @@ export function ChannelAccountsPage({
 
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
               {createPlatformOptions.map((option) => (
-                <span
+                <button
                   key={option.value}
+                  type="button"
+                  data-create-platform-preset={option.value}
+                  onClick={() => applyCreatePreset(option.value)}
                   style={{
                     borderRadius: '999px',
                     border: '1px solid #dbe4f0',
@@ -597,10 +662,11 @@ export function ChannelAccountsPage({
                     padding: '6px 10px',
                     fontSize: '12px',
                     fontWeight: 700,
+                    cursor: 'pointer',
                   }}
                 >
                   {option.label}
-                </span>
+                </button>
               ))}
             </div>
 
