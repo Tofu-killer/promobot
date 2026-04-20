@@ -1424,6 +1424,38 @@ describe('client API page wiring', () => {
     expect(connectionHtml).toContain('检查时间：</strong>2026-04-19T02:00:00.000Z');
   });
 
+  it('shows manual handoff next steps for newly created browser-only channel accounts', async () => {
+    const { ChannelAccountsPage } = await import('../../src/client/pages/ChannelAccounts');
+
+    const html = renderPage(ChannelAccountsPage, {
+      stateOverride: {
+        status: 'success',
+        data: {
+          channelAccounts: [],
+        },
+      },
+      createStateOverride: {
+        status: 'success',
+        data: {
+          channelAccount: {
+            id: 9,
+            platform: 'facebookGroup',
+            accountKey: 'facebook-group-main',
+            displayName: 'Facebook Group Manual',
+            authType: 'browser',
+            status: 'unknown',
+            metadata: {},
+            createdAt: '2026-04-19T00:00:00.000Z',
+            updatedAt: '2026-04-19T00:00:00.000Z',
+          },
+        },
+      },
+    } as never);
+
+    expect(html).toContain('账号已创建，下一步请准备人工接管');
+    expect(html).toContain('继续准备人工接管');
+  });
+
   it('renders connection feedback from the richer channel account test contract', async () => {
     const { ChannelAccountsPage } = await import('../../src/client/pages/ChannelAccounts');
 
@@ -2019,7 +2051,8 @@ describe('client API page wiring', () => {
       },
     });
 
-    expect(html).toContain('当前生效设置');
+    expect(html).toContain('当前加载值');
+    expect(html).toContain('最近保存返回');
     expect(html).toContain('调度与运行态');
     expect(html).toContain('AI 配置');
     expect(html).toContain('平台就绪度');

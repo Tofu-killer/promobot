@@ -268,7 +268,7 @@ describe('channel account follow-up actions', () => {
 
     expect(html).toContain('最近创建结果');
     expect(html).toContain('X Secondary');
-    expect(html).toContain('账号已创建，可继续测试连接');
+    expect(html).toContain('账号已创建，下一步请准备人工接管');
     expect(html).toContain('最近一次连接测试');
     expect(html).toContain('连接结果：</strong>需要重新登录');
     expect(html).toContain('反馈：</strong>检测到 X 浏览器 session 已过期，请重新登录后重新保存 session 元数据。');
@@ -507,7 +507,7 @@ describe('settings save validation and feedback', () => {
     });
 
     expect(successHtml).toContain('最近保存结果');
-    expect(successHtml).toContain('设置已保存');
+    expect(successHtml).toContain('设置已保存，待重载生效');
     expect(successHtml).toContain('127.0.0.1');
     expect(successHtml).toContain('AI 配置');
     expect(successHtml).toContain('调度与运行态');

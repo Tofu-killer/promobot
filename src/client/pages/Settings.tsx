@@ -668,15 +668,15 @@ export function SettingsPage({
       />
 
       <div style={cardGridStyle}>
-        <SectionCard title="设置总览" description="当前生效设置、接口兼容状态和最近一次拉取结果都会集中显示在这里。">
+        <SectionCard title="设置总览" description="这里区分当前加载值与最近保存回执，避免把“已保存”误读成“已经生效”。">
           <div style={{ display: 'grid', gap: '14px' }}>
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
               <span style={{ ...statusPillStyle, background: '#dbeafe', color: '#1d4ed8' }}>兼容接口 `/api/settings`</span>
               <span style={{ ...statusPillStyle, background: '#ecfdf5', color: '#047857' }}>
-                拉取状态：{displayState.status === 'success' ? '已同步' : displayState.status === 'error' ? '失败' : '等待同步'}
+                当前加载：{displayState.status === 'success' ? '已同步' : displayState.status === 'error' ? '失败' : '等待同步'}
               </span>
               <span style={{ ...statusPillStyle, background: '#fef3c7', color: '#92400e' }}>
-                保存状态：{displayUpdateState.status === 'success' ? '已保存' : displayUpdateState.status === 'error' ? '失败' : '未提交'}
+                保存状态：{displayUpdateState.status === 'success' ? '待重载生效' : displayUpdateState.status === 'error' ? '失败' : '未提交'}
               </span>
             </div>
 
@@ -686,36 +686,45 @@ export function SettingsPage({
               <p style={{ margin: 0, color: '#b91c1c' }}>设置加载失败：{displayState.error}</p>
             ) : null}
 
-            {effectiveSettings ? (
+            {loadedData?.settings ? (
               <div style={{ display: 'grid', gap: '8px', color: '#334155' }}>
-                <div style={{ fontWeight: 700 }}>当前生效设置</div>
-                <div>schedulerIntervalMinutes: {effectiveSettings.schedulerIntervalMinutes}</div>
-                <div>allowlist: {effectiveSettings.allowlist.length > 0 ? formatList(effectiveSettings.allowlist) : '未提供'}</div>
-                <div>rssDefaults: {effectiveSettings.rssDefaults.length > 0 ? formatList(effectiveSettings.rssDefaults) : '未提供'}</div>
+                <div style={{ fontWeight: 700 }}>当前加载值</div>
+                <div>schedulerIntervalMinutes: {loadedData.settings.schedulerIntervalMinutes}</div>
+                <div>allowlist: {loadedData.settings.allowlist.length > 0 ? formatList(loadedData.settings.allowlist) : '未提供'}</div>
+                <div>rssDefaults: {loadedData.settings.rssDefaults.length > 0 ? formatList(loadedData.settings.rssDefaults) : '未提供'}</div>
                 <div>
                   monitorRssFeeds:{' '}
-                  {readSettingsList(effectiveSettings.monitorRssFeeds).length > 0
-                    ? formatList(readSettingsList(effectiveSettings.monitorRssFeeds))
+                  {readSettingsList(loadedData.settings.monitorRssFeeds).length > 0
+                    ? formatList(readSettingsList(loadedData.settings.monitorRssFeeds))
                     : '未提供'}
                 </div>
                 <div>
                   monitorXQueries:{' '}
-                  {readSettingsList(effectiveSettings.monitorXQueries).length > 0
-                    ? formatList(readSettingsList(effectiveSettings.monitorXQueries))
+                  {readSettingsList(loadedData.settings.monitorXQueries).length > 0
+                    ? formatList(readSettingsList(loadedData.settings.monitorXQueries))
                     : '未提供'}
                 </div>
                 <div>
                   monitorRedditQueries:{' '}
-                  {readSettingsList(effectiveSettings.monitorRedditQueries).length > 0
-                    ? formatList(readSettingsList(effectiveSettings.monitorRedditQueries))
+                  {readSettingsList(loadedData.settings.monitorRedditQueries).length > 0
+                    ? formatList(readSettingsList(loadedData.settings.monitorRedditQueries))
                     : '未提供'}
                 </div>
                 <div>
                   monitorV2exQueries:{' '}
-                  {readSettingsList(effectiveSettings.monitorV2exQueries).length > 0
-                    ? formatList(readSettingsList(effectiveSettings.monitorV2exQueries))
+                  {readSettingsList(loadedData.settings.monitorV2exQueries).length > 0
+                    ? formatList(readSettingsList(loadedData.settings.monitorV2exQueries))
                     : '未提供'}
                 </div>
+              </div>
+            ) : null}
+
+            {savedData?.settings ? (
+              <div style={{ display: 'grid', gap: '8px', color: '#92400e' }}>
+                <div style={{ fontWeight: 700 }}>最近保存返回</div>
+                <div>allowlist、调度间隔等配置项可能仍需重载后才会真正生效。</div>
+                <div>schedulerIntervalMinutes: {savedData.settings.schedulerIntervalMinutes}</div>
+                <div>allowlist: {savedData.settings.allowlist.length > 0 ? formatList(savedData.settings.allowlist) : '未提供'}</div>
               </div>
             ) : null}
 
@@ -1144,7 +1153,7 @@ export function SettingsPage({
             ) : null}
             {displayUpdateState.status === 'success' ? (
               <div style={{ color: '#166534', display: 'grid', gap: '8px' }}>
-                <div style={{ fontWeight: 700 }}>设置已保存</div>
+                <div style={{ fontWeight: 700 }}>设置已保存，待重载生效</div>
                 {displayUpdateState.data?.settings ? (
                   <>
                     <div>allowlist：{displayUpdateState.data.settings.allowlist.join(', ')}</div>

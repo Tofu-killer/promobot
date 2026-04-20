@@ -722,7 +722,11 @@ export function ChannelAccountsPage({
 
           {displayCreateState.status === 'success' && latestCreatedAccount ? (
             <div style={{ display: 'grid', gap: '12px', color: '#334155' }}>
-              <div style={{ fontWeight: 700 }}>账号已创建，可继续测试连接</div>
+              <div style={{ fontWeight: 700 }}>
+                {latestCreatedAccount.authType === 'browser'
+                  ? '账号已创建，下一步请准备人工接管'
+                  : '账号已创建，可继续测试连接'}
+              </div>
               <div>
                 <strong>账号：</strong>
                 {latestCreatedAccount.displayName}
@@ -741,7 +745,13 @@ export function ChannelAccountsPage({
               </div>
               <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                 <ActionButton
-                  label={displayTestConnectionState.status === 'loading' ? '正在测试连接...' : '测试连接'}
+                  label={
+                    displayTestConnectionState.status === 'loading'
+                      ? '正在测试连接...'
+                      : latestCreatedAccount.authType === 'browser'
+                        ? '继续准备人工接管'
+                        : '测试连接'
+                  }
                   tone="primary"
                   onClick={handleTestConnection}
                 />
