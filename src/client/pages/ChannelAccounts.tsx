@@ -247,6 +247,24 @@ const disabledHeaderSecondaryButtonStyle = {
   cursor: 'not-allowed',
 } as const;
 
+const headerPrimaryButtonStyle = {
+  borderRadius: '12px',
+  border: 'none',
+  background: '#2563eb',
+  color: '#ffffff',
+  padding: '12px 16px',
+  fontWeight: 700,
+  boxShadow: '0 12px 24px rgba(37, 99, 235, 0.18)',
+} as const;
+
+const disabledHeaderPrimaryButtonStyle = {
+  ...headerPrimaryButtonStyle,
+  background: '#bfdbfe',
+  color: '#475569',
+  boxShadow: 'none',
+  cursor: 'not-allowed',
+} as const;
+
 const createPlatformOptions = [
   { value: 'x', label: 'X / Twitter（首发可用）' },
   { value: 'reddit', label: 'Reddit（首发可用）' },
@@ -496,6 +514,12 @@ export function ChannelAccountsPage({
   );
   const headerSessionActionDisabled = !actionTargetAccount;
   const headerSessionActionLabel = actionTargetAccount ? getSessionActionLabel(actionTargetAccount) : '暂无登录目标';
+  const testConnectionActionDisabled = !actionTargetAccount;
+  const testConnectionActionLabel = testConnectionActionDisabled
+    ? '暂无测试目标'
+    : displayTestConnectionState.status === 'loading'
+      ? '正在测试连接...'
+      : '测试连接';
   const testedAccount = displayTestConnectionState.data?.channelAccount
     ? normalizeChannelAccountRecord(displayTestConnectionState.data.channelAccount)
     : actionTargetAccount;
@@ -623,7 +647,6 @@ export function ChannelAccountsPage({
 
   function handleTestConnection() {
     if (!actionTargetAccount) {
-      reload();
       return;
     }
 
@@ -654,11 +677,19 @@ export function ChannelAccountsPage({
                 {headerSessionActionLabel}
               </button>
             </span>
-            <ActionButton
-              label={displayTestConnectionState.status === 'loading' ? '正在测试连接...' : '测试连接'}
-              tone="primary"
-              onClick={handleTestConnection}
-            />
+            <button
+              type="button"
+              data-header-test-connection-action="true"
+              disabled={testConnectionActionDisabled}
+              onClick={testConnectionActionDisabled ? undefined : handleTestConnection}
+              style={
+                testConnectionActionDisabled
+                  ? disabledHeaderPrimaryButtonStyle
+                  : headerPrimaryButtonStyle
+              }
+            >
+              {testConnectionActionLabel}
+            </button>
           </>
         }
       />
@@ -1117,7 +1148,7 @@ export function ChannelAccountsPage({
                 </div>
               </div>
             ) : null}
-            <div>点击“测试连接”会优先对最近创建账号发起真实连接测试；如果当前没有目标账号，则会先刷新列表。</div>
+            <div>点击“测试连接”会优先对最近创建账号发起真实连接测试；没有目标账号时，“测试连接”会禁用；先创建账号或选择动作目标账号。</div>
             <div>每个账号卡片都会显式显示 Session 是否存在、当前状态、最近验证时间和 Storage Path。</div>
             <div>
               “请求登录 / 重新登录”只会记录一个占位动作，仍需手动登录并保存 Session 元数据；“编辑
@@ -1125,11 +1156,19 @@ export function ChannelAccountsPage({
             </div>
             <div>如果服务端返回 404 或 500，这里不会吞掉错误，而是直接在页面中显示。</div>
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-              <ActionButton
-                label={displayTestConnectionState.status === 'loading' ? '正在测试连接...' : '测试连接'}
-                tone="primary"
-                onClick={handleTestConnection}
-              />
+              <button
+                type="button"
+                data-recovery-test-connection-action="true"
+                disabled={testConnectionActionDisabled}
+                onClick={testConnectionActionDisabled ? undefined : handleTestConnection}
+                style={
+                  testConnectionActionDisabled
+                    ? disabledHeaderPrimaryButtonStyle
+                    : headerPrimaryButtonStyle
+                }
+              >
+                {testConnectionActionLabel}
+              </button>
             </div>
           </div>
         </SectionCard>

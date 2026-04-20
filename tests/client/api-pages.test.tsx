@@ -1740,6 +1740,18 @@ describe('client API page wiring', () => {
     expect(html).toContain('重新登录');
   });
 
+  it('renders honest disabled no-target connection test CTAs for channel accounts', async () => {
+    const { ChannelAccountsPage } = await import('../../src/client/pages/ChannelAccounts');
+
+    const html = renderPage(ChannelAccountsPage, { stateOverride: { status: 'idle', error: null } });
+
+    expect(html).toMatch(/data-header-test-connection-action="true"[^>]*disabled=""/);
+    expect(html).toMatch(/data-recovery-test-connection-action="true"[^>]*disabled=""/);
+    expect(html).toContain('暂无测试目标');
+    expect(html).toContain('没有目标账号时，“测试连接”会禁用；先创建账号或选择动作目标账号。');
+    expect(html).not.toContain('如果当前没有目标账号，则会先刷新列表。');
+  });
+
   it('loads settings through the shared API helper', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({

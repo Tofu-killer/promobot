@@ -681,7 +681,7 @@ describe('channel account edit actions', () => {
     );
     const testConnectionButton = findElement(
       container,
-      (element) => element.tagName === 'BUTTON' && collectText(element).includes('测试连接'),
+      (element) => element.getAttribute('data-header-test-connection-action') === 'true',
     );
 
     expect(actionTargetButton).not.toBeNull();
@@ -699,6 +699,66 @@ describe('channel account edit actions', () => {
 
     expect(testChannelAccountAction).toHaveBeenCalledWith(7);
     expect(collectText(container)).toContain('当前目标账号：Reddit Ops');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('disables the no-target connection test CTAs without reloading the account list', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ChannelAccountsPage } = await import('../../src/client/pages/ChannelAccounts');
+
+    const loadChannelAccountsAction = vi.fn().mockResolvedValue({
+      channelAccounts: [],
+    });
+    const testChannelAccountAction = vi.fn();
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ChannelAccountsPage as never, {
+          loadChannelAccountsAction,
+          stateOverride: {
+            status: 'success',
+            data: {
+              channelAccounts: [],
+            },
+          },
+          testChannelAccountAction,
+        }),
+      );
+      await flush();
+    });
+
+    const headerTestConnectionButton = findElement(
+      container,
+      (element) => element.getAttribute('data-header-test-connection-action') === 'true',
+    );
+    const recoveryTestConnectionButton = findElement(
+      container,
+      (element) => element.getAttribute('data-recovery-test-connection-action') === 'true',
+    );
+
+    expect(loadChannelAccountsAction).toHaveBeenCalledTimes(1);
+    expect(headerTestConnectionButton).not.toBeNull();
+    expect(recoveryTestConnectionButton).not.toBeNull();
+    expect(collectText(headerTestConnectionButton as never)).toContain('暂无测试目标');
+    expect(collectText(recoveryTestConnectionButton as never)).toContain('暂无测试目标');
+    expect((headerTestConnectionButton as FakeElement).disabled).toBe(true);
+    expect((recoveryTestConnectionButton as FakeElement).disabled).toBe(true);
+    expect(collectText(container)).toContain('没有目标账号时，“测试连接”会禁用；先创建账号或选择动作目标账号。');
+
+    await act(async () => {
+      headerTestConnectionButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      recoveryTestConnectionButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(loadChannelAccountsAction).toHaveBeenCalledTimes(1);
+    expect(testChannelAccountAction).not.toHaveBeenCalled();
 
     await act(async () => {
       root.unmount();
