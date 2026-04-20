@@ -27,6 +27,24 @@ describe('loadConfig', () => {
     });
   });
 
+  it('throws when ALLOWED_IPS contains unsupported entries', () => {
+    expect(() =>
+      loadConfig({
+        NODE_ENV: 'production',
+        ADMIN_PASSWORD: 'super-secret',
+        ALLOWED_IPS: '10.0.0.0/24',
+      }),
+    ).toThrow('ALLOWED_IPS must contain exact IPs or *');
+
+    expect(() =>
+      loadConfig({
+        NODE_ENV: 'production',
+        ADMIN_PASSWORD: 'super-secret',
+        ALLOWED_IPS: 'not-an-ip',
+      }),
+    ).toThrow('ALLOWED_IPS must contain exact IPs or *');
+  });
+
   it('throws in production when admin password is left at the default value', () => {
     expect(() =>
       loadConfig({

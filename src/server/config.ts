@@ -1,3 +1,5 @@
+import { isIP } from 'node:net';
+
 export type AppConfig = {
   allowedIps: string[];
   adminPassword: string;
@@ -13,6 +15,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     .filter(Boolean);
   const adminPassword = env.ADMIN_PASSWORD?.trim() || DEFAULT_ADMIN_PASSWORD;
 
+  if (allowedIps.some((value) => !isSupportedAllowlistValue(value))) {
+    throw new Error('ALLOWED_IPS must contain exact IPs or *');
+  }
+
   if (env.NODE_ENV === 'production' && adminPassword === DEFAULT_ADMIN_PASSWORD) {
     throw new Error('ADMIN_PASSWORD must be set to a non-default value in production');
   }
@@ -21,4 +27,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     allowedIps: allowedIps.length > 0 ? allowedIps : DEFAULT_ALLOWED_IPS,
     adminPassword,
   };
+}
+
+function isSupportedAllowlistValue(value: string) {
+  return value === '*' || isIP(normalizeIp(value)) !== 0;
+}
+
+function normalizeIp(value: string) {
+  return value.startsWith('::ffff:') ? value.slice('::ffff:'.length) : value;
 }
