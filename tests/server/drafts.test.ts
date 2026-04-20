@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../../src/server/app';
 import { initDb } from '../../src/server/db';
+import { createSQLiteDraftStore } from '../../src/server/store/drafts';
 import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
 
 const originalEnv = {
@@ -171,6 +172,50 @@ function readJobQueue() {
 }
 
 describe('drafts api', () => {
+  it('preserves projectId through draft store create list and update', () => {
+    const store = createSQLiteDraftStore();
+
+    const created = store.create({
+      platform: 'x',
+      content: 'x-draft-content',
+      projectId: 7,
+    });
+
+    expect(created).toEqual(
+      expect.objectContaining({
+        id: 1,
+        platform: 'x',
+        content: 'x-draft-content',
+        projectId: 7,
+      }),
+    );
+    expect(store.list()).toEqual([
+      expect.objectContaining({
+        id: 1,
+        projectId: 7,
+      }),
+    ]);
+
+    const updated = store.update(created.id, {
+      content: 'updated-x-draft-content',
+      projectId: 9,
+    });
+
+    expect(updated).toEqual(
+      expect.objectContaining({
+        id: 1,
+        content: 'updated-x-draft-content',
+        projectId: 9,
+      }),
+    );
+    expect(store.getById(created.id)).toEqual(
+      expect.objectContaining({
+        id: 1,
+        projectId: 9,
+      }),
+    );
+  });
+
   it('lists drafts saved from content generation', async () => {
     installFetchStub();
     const app = createApp({
@@ -195,29 +240,82 @@ describe('drafts api', () => {
           platform: 'x',
           content: 'x-draft-content',
           hashtags: [],
+          projectId: null,
           status: 'draft',
         }),
       ],
     });
   });
 
-  it('updates draft content and status', async () => {
-    installFetchStub();
+  it('filters drafts by query projectId and keeps legacy list behavior when omitted', async () => {
+    const store = createSQLiteDraftStore();
+    store.create({
+      platform: 'x',
+      content: 'project-11-draft',
+      projectId: 11,
+    });
+    store.create({
+      platform: 'reddit',
+      content: 'project-22-draft',
+      projectId: 22,
+    });
+    store.create({
+      platform: 'blog',
+      content: 'legacy-draft',
+    });
     const app = createApp({
       allowedIps: ['127.0.0.1'],
       adminPassword: 'secret',
     });
 
-    await requestApp(app, 'POST', '/api/content/generate', {
-      topic: 'Claude support launched',
-      platforms: ['reddit'],
-      tone: 'professional',
-      saveAsDraft: true,
+    const filtered = await requestApp(app, 'GET', '/api/drafts?projectId=11');
+    const unfiltered = await requestApp(app, 'GET', '/api/drafts');
+
+    expect(filtered.status).toBe(200);
+    expect(JSON.parse(filtered.body)).toEqual({
+      drafts: [
+        expect.objectContaining({
+          id: 1,
+          projectId: 11,
+          content: 'project-11-draft',
+        }),
+      ],
+    });
+
+    expect(unfiltered.status).toBe(200);
+    expect(JSON.parse(unfiltered.body)).toEqual({
+      drafts: [
+        expect.objectContaining({
+          id: 1,
+          projectId: 11,
+        }),
+        expect.objectContaining({
+          id: 2,
+          projectId: 22,
+        }),
+        expect.objectContaining({
+          id: 3,
+          projectId: null,
+        }),
+      ],
+    });
+  });
+
+  it('updates draft content and status', async () => {
+    const store = createSQLiteDraftStore();
+    store.create({
+      platform: 'reddit',
+      content: 'reddit-draft-content',
+    });
+    const app = createApp({
+      allowedIps: ['127.0.0.1'],
+      adminPassword: 'secret',
     });
 
     const response = await requestApp(app, 'PATCH', '/api/drafts/1', {
       content: 'updated-reddit-draft',
       hashtags: ['#launch'],
+      projectId: 12,
       status: 'review',
       title: 'Updated Reddit Draft',
     });
@@ -230,6 +328,7 @@ describe('drafts api', () => {
         title: 'Updated Reddit Draft',
         content: 'updated-reddit-draft',
         hashtags: ['#launch'],
+        projectId: 12,
         status: 'review',
       }),
     });

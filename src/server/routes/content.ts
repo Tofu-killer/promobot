@@ -18,6 +18,7 @@ type SupportedPlatform =
   | 'xiaohongshu';
 
 type PlatformGenerator = (input: GenerateDraftInput) => Promise<GeneratedDraft>;
+type DraftCreateInput = Parameters<DraftStore['create']>[0] & { projectId?: number };
 
 const platformGenerators: Record<SupportedPlatform, PlatformGenerator> = {
   blog: generateBlogDraft,
@@ -30,6 +31,10 @@ const platformGenerators: Record<SupportedPlatform, PlatformGenerator> = {
 
 function isSupportedPlatform(platform: string): platform is SupportedPlatform {
   return platform in platformGenerators;
+}
+
+function parseOptionalProjectId(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined;
 }
 
 export function createContentRouter(draftStore: DraftStore) {
@@ -63,6 +68,7 @@ export function createContentRouter(draftStore: DraftStore) {
       siteContext: request.body?.siteContext,
     };
     const shouldSaveAsDraft = request.body?.saveAsDraft === true;
+    const projectId = shouldSaveAsDraft ? parseOptionalProjectId(request.body?.projectId) : undefined;
 
     const results = await Promise.all(
       platforms.map(async (platform: SupportedPlatform) => {
@@ -72,12 +78,15 @@ export function createContentRouter(draftStore: DraftStore) {
           return generatedDraft;
         }
 
-        const savedDraft = draftStore.create({
+        const draftInput: DraftCreateInput = {
           platform: generatedDraft.platform,
           title: generatedDraft.title,
           content: generatedDraft.content,
           hashtags: generatedDraft.hashtags,
-        });
+          ...(projectId !== undefined ? { projectId } : {}),
+        };
+
+        const savedDraft = draftStore.create(draftInput);
 
         return {
           ...generatedDraft,

@@ -14,6 +14,7 @@ export type DraftStatus =
 
 export interface DraftRecord {
   id: number;
+  projectId: number | null;
   platform: string;
   title?: string;
   content: string;
@@ -26,6 +27,7 @@ export interface DraftRecord {
 }
 
 export interface CreateDraftInput {
+  projectId?: number;
   platform: string;
   title?: string;
   content: string;
@@ -34,6 +36,7 @@ export interface CreateDraftInput {
 }
 
 export interface UpdateDraftInput {
+  projectId?: number;
   title?: string;
   content?: string;
   hashtags?: string[];
@@ -45,7 +48,7 @@ export interface UpdateDraftInput {
 export interface DraftStore {
   create(input: CreateDraftInput): DraftRecord;
   getById(id: number): DraftRecord | undefined;
-  list(status?: string): DraftRecord[];
+  list(status?: string, projectId?: number): DraftRecord[];
   update(id: number, input: UpdateDraftInput): DraftRecord | undefined;
 }
 
@@ -80,13 +83,19 @@ export function createDraftsRouter(
 
   draftsRouter.get('/', (request, response) => {
     const status = typeof request.query.status === 'string' ? request.query.status : undefined;
+    const projectId = parseProjectIdQuery(request.query.projectId);
 
     if (status && !isDraftStatus(status)) {
       response.status(400).json({ error: 'invalid draft status' });
       return;
     }
 
-    response.json({ drafts: draftStore.list(status) });
+    if (request.query.projectId !== undefined && projectId === undefined) {
+      response.status(400).json({ error: 'invalid project id' });
+      return;
+    }
+
+    response.json({ drafts: draftStore.list(status, projectId) });
   });
 
   draftsRouter.patch('/:id', (request, response) => {
@@ -104,6 +113,9 @@ export function createDraftsRouter(
     }
     if (typeof request.body?.content === 'string') {
       patch.content = request.body.content;
+    }
+    if (Number.isInteger(request.body?.projectId) && request.body.projectId > 0) {
+      patch.projectId = request.body.projectId;
     }
     if (Array.isArray(request.body?.hashtags)) {
       patch.hashtags = request.body.hashtags.filter(
@@ -152,6 +164,15 @@ function normalizeDraftPatch(currentDraft: DraftRecord, patch: UpdateDraftInput)
   }
 
   return nextPatch;
+}
+
+function parseProjectIdQuery(value: unknown) {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const projectId = Number(value);
+  return Number.isInteger(projectId) && projectId > 0 ? projectId : undefined;
 }
 
 function syncDraftSchedule(

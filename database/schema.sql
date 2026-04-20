@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS projects (
 
 CREATE TABLE IF NOT EXISTS drafts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id INTEGER,
   platform TEXT NOT NULL,
   title TEXT,
   content TEXT NOT NULL,

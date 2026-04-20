@@ -1,5 +1,8 @@
+import express from 'express';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../../src/server/app';
+import { createContentRouter } from '../../src/server/routes/content';
+import type { DraftRecord, DraftStore } from '../../src/server/routes/drafts';
 import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
 
 const originalEnv = {
@@ -10,12 +13,12 @@ const originalEnv = {
 
 let activeTestDbRoot: string | undefined;
 
-async function requestApp(method: string, url: string, body?: unknown) {
-  const app = createApp({
-    allowedIps: ['127.0.0.1'],
-    adminPassword: 'secret',
-  });
-
+async function requestExpressApp(
+  app: express.Express,
+  method: string,
+  url: string,
+  body?: unknown,
+) {
   return await new Promise<{ status: number; body: string }>((resolve, reject) => {
     const req = Object.assign(Object.create(app.request), {
       app,
@@ -99,6 +102,42 @@ async function requestApp(method: string, url: string, body?: unknown) {
   });
 }
 
+async function requestApp(method: string, url: string, body?: unknown) {
+  const app = createApp({
+    allowedIps: ['127.0.0.1'],
+    adminPassword: 'secret',
+  });
+
+  return requestExpressApp(app, method, url, body);
+}
+
+function installFetchStub() {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+      const payload = JSON.parse(String(init?.body)) as {
+        messages: Array<{ role: string; content: string }>;
+      };
+      const userPrompt = payload.messages.find((message) => message.role === 'user')?.content ?? '';
+      const platform = userPrompt.match(/Platform: ([^\n]+)/)?.[1] ?? 'unknown';
+
+      return {
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: `${platform}-draft-content` } }],
+        }),
+      };
+    }),
+  );
+}
+
+function createContentApp(draftStore: DraftStore) {
+  const app = express();
+  app.use(express.json());
+  app.use('/api/content', createContentRouter(draftStore));
+  return app;
+}
+
 beforeEach(() => {
   process.env.AI_BASE_URL = 'https://example.test/v1';
   process.env.AI_API_KEY = 'test-key';
@@ -119,23 +158,7 @@ afterEach(() => {
 
 describe('content generation api', () => {
   it('returns generated drafts for selected platforms in request order', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
-        const payload = JSON.parse(String(init?.body)) as {
-          messages: Array<{ role: string; content: string }>;
-        };
-        const userPrompt = payload.messages.find((message) => message.role === 'user')?.content ?? '';
-        const platform = userPrompt.match(/Platform: ([^\n]+)/)?.[1] ?? 'unknown';
-
-        return {
-          ok: true,
-          json: async () => ({
-            choices: [{ message: { content: `${platform}-draft-content` } }],
-          }),
-        };
-      }),
-    );
+    installFetchStub();
 
     const response = await requestApp('POST', '/api/content/generate', {
       topic: 'Claude support launched',
@@ -164,23 +187,7 @@ describe('content generation api', () => {
   });
 
   it('saves drafts durably when saveAsDraft is true', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
-        const payload = JSON.parse(String(init?.body)) as {
-          messages: Array<{ role: string; content: string }>;
-        };
-        const userPrompt = payload.messages.find((message) => message.role === 'user')?.content ?? '';
-        const platform = userPrompt.match(/Platform: ([^\n]+)/)?.[1] ?? 'unknown';
-
-        return {
-          ok: true,
-          json: async () => ({
-            choices: [{ message: { content: `${platform}-draft-content` } }],
-          }),
-        };
-      }),
-    );
+    installFetchStub();
 
     await requestApp('POST', '/api/content/generate', {
       topic: 'Durable draft',
@@ -194,62 +201,7 @@ describe('content generation api', () => {
       adminPassword: 'secret',
     });
 
-    const response = await new Promise<{ status: number; body: string }>((resolve, reject) => {
-      const req = Object.assign(Object.create(secondApp.request), {
-        app: secondApp,
-        method: 'GET',
-        url: '/api/drafts',
-        originalUrl: '/api/drafts',
-        headers: { 'x-admin-password': 'secret' },
-        socket: { remoteAddress: '127.0.0.1' },
-        connection: { remoteAddress: '127.0.0.1' },
-      });
-
-      let responseBody = '';
-      const res = Object.create(secondApp.response);
-      Object.assign(res, {
-        app: secondApp,
-        req,
-        locals: {},
-        statusCode: 200,
-        setHeader() {},
-        getHeader() {
-          return undefined;
-        },
-        removeHeader() {},
-        writeHead(statusCode: number) {
-          this.statusCode = statusCode;
-          return this;
-        },
-        write(chunk: string) {
-          responseBody += chunk;
-          return true;
-        },
-        end(chunk?: string) {
-          if (chunk) responseBody += chunk;
-          resolve({ status: this.statusCode, body: responseBody });
-          return this;
-        },
-      });
-      Object.defineProperty(res, 'headersSent', {
-        configurable: true,
-        enumerable: true,
-        get() {
-          return false;
-        },
-      });
-
-      req.res = res;
-      res.socket = req.socket;
-
-      secondApp.handle(req, res, (error?: unknown) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        resolve({ status: 404, body: responseBody });
-      });
-    });
+    const response = await requestExpressApp(secondApp, 'GET', '/api/drafts');
 
     expect(response.status).toBe(200);
     expect(JSON.parse(response.body)).toEqual({
@@ -261,5 +213,68 @@ describe('content generation api', () => {
         }),
       ],
     });
+  });
+
+  it('passes projectId to draft creation when saving generated drafts', async () => {
+    installFetchStub();
+
+    type DraftRecordWithProjectId = DraftRecord & { projectId?: number };
+
+    const savedDrafts: DraftRecordWithProjectId[] = [];
+    const draftStore: DraftStore = {
+      create(input) {
+        const now = new Date().toISOString();
+        const savedDraft: DraftRecordWithProjectId = {
+          id: savedDrafts.length + 1,
+          platform: input.platform,
+          title: input.title,
+          content: input.content,
+          hashtags: [...(input.hashtags ?? [])],
+          status: 'draft',
+          createdAt: now,
+          updatedAt: now,
+          projectId:
+            typeof (input as { projectId?: unknown }).projectId === 'number'
+              ? ((input as { projectId?: number }).projectId)
+              : undefined,
+        };
+
+        savedDrafts.push(savedDraft);
+        return savedDraft;
+      },
+      getById(id) {
+        return savedDrafts.find((draft) => draft.id === id);
+      },
+      list() {
+        return savedDrafts;
+      },
+      update() {
+        return undefined;
+      },
+    };
+
+    const response = await requestExpressApp(
+      createContentApp(draftStore),
+      'POST',
+      '/api/content/generate',
+      {
+        topic: 'Project scoped draft',
+        platforms: ['x'],
+        tone: 'professional',
+        saveAsDraft: true,
+        projectId: 42,
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(savedDrafts).toEqual([
+      expect.objectContaining({
+        id: 1,
+        platform: 'x',
+        content: 'x-draft-content',
+        hashtags: [],
+        projectId: 42,
+      }),
+    ]);
   });
 });
