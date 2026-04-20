@@ -7,7 +7,7 @@ PromoBot 现在不是“只有 spec 的空仓库”了。
 ## 当前已实现的能力
 
 - 项目管理：`/api/projects` 支持创建、读取、更新项目站点上下文。
-- 内容生成：`/api/content/generate` 可为 `blog`、`facebook-group`、`reddit`、`weibo`、`x`、`xiaohongshu` 生成草稿，可选择直接写入草稿库。
+- 内容生成：`/api/content/generate` 仍支持多平台草稿生成，但当前前端首发默认只把 `x` / `reddit` 作为可直接操作平台，其它平台走人工接管或暂缓首发语义。
 - 草稿工作流：`/api/drafts` 支持读取、编辑、送审、排程、发布，状态覆盖 `draft`、`review`、`approved`、`scheduled`、`queued`、`published`、`failed`。
 - 发布队列：后端内置 scheduler runtime 和 SQLite job queue，支持 enqueue、tick、reload、retry、cancel。
 - 运营数据页：Dashboard、Discovery Pool、Social Inbox、Competitor Monitor、Reputation、Channel Accounts、Settings、System Queue 都有对应页面和 API。
@@ -21,7 +21,7 @@ PromoBot 现在不是“只有 spec 的空仓库”了。
 - `weibo`、`xiaohongshu`：目前只有 `manual_required` 的 stub 发布器。
 - `blog`：目前只有 manual stub，没有真实博客平台集成。
 
-这意味着当前“成功发布”语义已经比之前更可靠：未配凭证的 `x` / `reddit` 会直接失败；但 `facebook-group`、`weibo`、`xiaohongshu`、`blog` 仍主要停留在 manual / handoff 路径。
+这意味着当前“成功发布”语义已经比之前更可靠：未配凭证的 `x` / `reddit` 会直接失败；但 `facebook-group`、`weibo`、`xiaohongshu`、`blog` 仍主要停留在 manual / handoff 路径。当前首发运营范围应理解为：`X + Reddit + Facebook Group（人工接管）`。
 
 ## 数据与运行时
 
@@ -38,6 +38,7 @@ PromoBot 现在不是“只有 spec 的空仓库”了。
 - `ADMIN_PASSWORD` 现在通过 `x-admin-password` 请求头接入后端 API；前端首次进入时会要求输入管理员密码，并保存在浏览器本地存储中用于后续请求。
 - Settings 页里保存的 `allowlist` 会写进 SQLite，但不会更新已经启动的 Express IP 中间件；真正生效的还是进程启动时读取的 `ALLOWED_IPS`。
 - `monitor/fetch` 已支持 RSS、V2EX、Reddit search；`inbox/fetch` 与 `reputation/fetch` 会优先消费已落库的 monitor 信号，再退回 monitor 查询配置生成骨架项，尚未形成各自独立的实时抓取器。
+- `monitor / inbox / reputation` 在生产环境下已禁用 demo / seed 数据回退；没有真实配置或真实信号时会返回空态。
 - 浏览器 session 的采集 / relogin 还没接自动化，只能手动登记 storage state 路径和状态元数据。
 - `.env.example` 只是参考文件，当前脚本不会自动加载 `.env`，`pm2.config.js` 也只会继承启动它的 shell 环境。
 

@@ -253,10 +253,12 @@ pm2 stop promobot
   - 仍然是浏览器 handoff 合同，不会自动发帖
 - `weibo`、`xiaohongshu`、`blog`
   - 仍主要停留在 manual / stub 路径
+- 当前首发范围建议收敛为：`X`、`Reddit`、`Facebook Group（人工接管）`
 - `monitor`、`inbox`、`reputation`
   - `monitor/fetch` 已支持 RSS、V2EX、Reddit search
   - `inbox/fetch` 与 `reputation/fetch` 目前优先复用已落库的 monitor 信号
-  - 当 monitor 还没有命中时，会退回 monitor 查询配置生成骨架项
+  - 在开发/测试环境下，当 monitor 还没有命中时，仍可能退回骨架项或 seed 数据以支撑原型视图
+  - 在生产环境下，这些 demo / seed fallback 已禁用；没有真实配置或真实信号时会返回空态
   - 还没有形成各自独立的实时网络抓取器，也没有去重层
 - `settings`
   - 写入的 allowlist 不会热更新现有中间件
