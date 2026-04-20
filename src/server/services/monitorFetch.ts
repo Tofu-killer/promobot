@@ -19,12 +19,13 @@ export function createMonitorFetchService() {
   const sourceConfigStore = createSourceConfigStore();
 
   return {
-    async fetchNow(now: Date = new Date()): Promise<MonitorFetchResult> {
-      const settings = settingsStore.get();
+    async fetchNow(projectId?: number, now: Date = new Date()): Promise<MonitorFetchResult> {
+      const settings = projectId === undefined ? settingsStore.get() : emptyMonitorSettings();
+      const sourceConfigs = filterSourceConfigsByProject(sourceConfigStore.listEnabled(), projectId);
       const collected = await collectConfiguredSignals(
         rssService,
         settings,
-        sourceConfigStore.listEnabled(),
+        sourceConfigs,
       );
       if (collected.length > 0) {
         const items = collected.map((item) =>
@@ -40,6 +41,13 @@ export function createMonitorFetchService() {
         return {
           items,
           inserted: items.length,
+        };
+      }
+
+      if (projectId !== undefined) {
+        return {
+          items: [],
+          inserted: 0,
         };
       }
 
@@ -74,6 +82,23 @@ export function createMonitorFetchService() {
         inserted: items.length,
       };
     },
+  };
+}
+
+function filterSourceConfigsByProject(sourceConfigs: SourceConfigRecord[], projectId?: number) {
+  if (projectId === undefined) {
+    return sourceConfigs;
+  }
+
+  return sourceConfigs.filter((sourceConfig) => sourceConfig.projectId === projectId);
+}
+
+function emptyMonitorSettings() {
+  return {
+    monitorRssFeeds: [],
+    monitorRedditQueries: [],
+    monitorXQueries: [],
+    monitorV2exQueries: [],
   };
 }
 

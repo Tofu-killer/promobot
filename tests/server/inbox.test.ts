@@ -405,6 +405,171 @@ describe('inbox api', () => {
     }
   });
 
+  it('filters inbox items by optional projectId query', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const inboxStore = createInboxStore();
+      inboxStore.create({
+        source: 'reddit',
+        status: 'needs_reply',
+        author: 'legacy-user',
+        title: 'Legacy inbox item',
+        excerpt: 'No project id attached.',
+      });
+      inboxStore.create({
+        projectId: 1,
+        source: 'x',
+        status: 'handled',
+        author: 'project-one-handled',
+        title: 'Project 1 handled item',
+        excerpt: 'Handled detail.',
+      });
+      const projectOneUnreadItem = inboxStore.create({
+        projectId: 1,
+        source: 'reddit',
+        status: 'needs_reply',
+        author: 'project-one-unread',
+        title: 'Project 1 unread item',
+        excerpt: 'Unread detail.',
+      });
+      inboxStore.create({
+        projectId: 2,
+        source: 'v2ex',
+        status: 'needs_reply',
+        author: 'project-two',
+        title: 'Project 2 item',
+        excerpt: 'Project 2 detail.',
+      });
+
+      const response = await requestApp('GET', '/api/inbox?projectId=1');
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        items: [
+          expect.objectContaining({
+            projectId: 1,
+            title: 'Project 1 handled item',
+          }),
+          expect.objectContaining({
+            id: projectOneUnreadItem.id,
+            projectId: 1,
+            title: 'Project 1 unread item',
+          }),
+        ],
+        total: 2,
+        unread: 1,
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('fetches inbox items for only the requested projectId', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const inboxStore = createInboxStore();
+      const monitorStore = createMonitorStore();
+
+      inboxStore.create({
+        source: 'reddit',
+        status: 'needs_reply',
+        author: 'legacy-user',
+        title: 'Legacy inbox item',
+        excerpt: 'No project id attached.',
+      });
+      inboxStore.create({
+        projectId: 2,
+        source: 'reddit',
+        status: 'needs_reply',
+        author: 'project-two',
+        title: 'Project 2 existing inbox item',
+        excerpt: 'Project 2 inbox detail.',
+      });
+
+      monitorStore.create({
+        projectId: 2,
+        source: 'reddit',
+        title: 'Project 2 monitor signal',
+        detail: 'r/LocalLLaMA · project-two\n\nhttps://www.reddit.com/r/test/comments/project2',
+        status: 'new',
+      });
+
+      const projectPayload = {
+        siteName: 'PromoBot',
+        siteUrl: 'https://example.com',
+        siteDescription: 'Scoped inbox workspace',
+        sellingPoints: ['fast'],
+      };
+      expect(
+        (await requestApp('POST', '/api/projects', { ...projectPayload, name: 'Project One' })).status,
+      ).toBe(201);
+      expect(
+        (await requestApp('POST', '/api/projects', { ...projectPayload, name: 'Project Two' })).status,
+      ).toBe(201);
+
+      expect(
+        (
+          await requestApp('POST', '/api/projects/1/source-configs', {
+            projectId: 1,
+            sourceType: 'keyword+reddit',
+            platform: 'reddit',
+            label: 'Project 1 Reddit',
+            configJson: { keywords: ['project one query'] },
+            enabled: true,
+            pollIntervalMinutes: 30,
+          })
+        ).status,
+      ).toBe(201);
+      expect(
+        (
+          await requestApp('POST', '/api/projects/2/source-configs', {
+            projectId: 2,
+            sourceType: 'keyword+reddit',
+            platform: 'reddit',
+            label: 'Project 2 Reddit',
+            configJson: { keywords: ['project two query'] },
+            enabled: true,
+            pollIntervalMinutes: 30,
+          })
+        ).status,
+      ).toBe(201);
+
+      const response = await requestApp('POST', '/api/inbox/fetch', {
+        projectId: 1,
+      });
+
+      expect(response.status).toBe(201);
+      expect(JSON.parse(response.body)).toEqual({
+        items: [
+          expect.objectContaining({
+            projectId: 1,
+            source: 'reddit',
+            status: 'needs_reply',
+            title: 'Inbox follow-up for project one query',
+            excerpt: 'Derived from source config "Project 1 Reddit" before live fetch results arrive.',
+          }),
+        ],
+        inserted: 1,
+        total: 1,
+        unread: 1,
+      });
+      expect(inboxStore.list(1)).toEqual([
+        expect.objectContaining({
+          projectId: 1,
+          title: 'Inbox follow-up for project one query',
+        }),
+      ]);
+      expect(inboxStore.list(2)).toEqual([
+        expect.objectContaining({
+          projectId: 2,
+          title: 'Project 2 existing inbox item',
+        }),
+      ]);
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('returns inbox items with total and unread counts from SQLite', async () => {
     const { rootDir } = createTestDatabasePath();
     try {

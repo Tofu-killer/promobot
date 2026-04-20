@@ -10,23 +10,37 @@ const draftStore = createSQLiteDraftStore();
 
 monitorRouter.use(systemDashboardRouter);
 
-monitorRouter.get('/feed', (_request, response) => {
-  const items = monitorStore.list();
+monitorRouter.get('/feed', (request, response) => {
+  const projectId = parseProjectIdQuery(request.query.projectId);
+
+  if (request.query.projectId !== undefined && projectId === undefined) {
+    response.status(400).json({ error: 'invalid project id' });
+    return;
+  }
+
+  const items = monitorStore.list(projectId);
   response.json({
     items,
     total: items.length,
   });
 });
 
-monitorRouter.post('/fetch', async (_request, response, next) => {
+monitorRouter.post('/fetch', async (request, response, next) => {
+  const projectId = parseOptionalProjectId(request.body?.projectId);
+
+  if (request.body?.projectId !== undefined && projectId === undefined) {
+    response.status(400).json({ error: 'invalid project id' });
+    return;
+  }
+
   try {
     const monitorFetchService = createMonitorFetchService();
-    const result = await monitorFetchService.fetchNow();
+    const result = await monitorFetchService.fetchNow(projectId);
 
     response.status(201).json({
       items: result.items,
       inserted: result.inserted,
-      total: monitorStore.list().length,
+      total: monitorStore.list(projectId).length,
     });
   } catch (error) {
     next(error);
@@ -64,4 +78,17 @@ function buildFollowUpContent(item: MonitorItemRecord) {
     `Signal: ${item.title}`,
     item.detail,
   ].join('\n\n');
+}
+
+function parseProjectIdQuery(value: unknown) {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const projectId = Number(value);
+  return Number.isInteger(projectId) && projectId > 0 ? projectId : undefined;
+}
+
+function parseOptionalProjectId(value: unknown) {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined;
 }

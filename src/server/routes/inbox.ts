@@ -13,8 +13,15 @@ function isAllowedStatus(value: string): boolean {
   return allowedStatuses.has(value);
 }
 
-inboxRouter.get('/', (_request, response) => {
-  const items = inboxStore.list();
+inboxRouter.get('/', (request, response) => {
+  const projectId = parseProjectIdQuery(request.query.projectId);
+
+  if (request.query.projectId !== undefined && projectId === undefined) {
+    response.status(400).json({ error: 'invalid project id' });
+    return;
+  }
+
+  const items = inboxStore.list(projectId);
   response.json({
     items,
     total: items.length,
@@ -22,9 +29,16 @@ inboxRouter.get('/', (_request, response) => {
   });
 });
 
-inboxRouter.post('/fetch', (_request, response) => {
-  const result = inboxFetchService.fetchNow();
-  const items = inboxStore.list();
+inboxRouter.post('/fetch', (request, response) => {
+  const projectId = parseOptionalProjectId(request.body?.projectId);
+
+  if (request.body?.projectId !== undefined && projectId === undefined) {
+    response.status(400).json({ error: 'invalid project id' });
+    return;
+  }
+
+  const result = inboxFetchService.fetchNow(projectId);
+  const items = inboxStore.list(projectId);
 
   response.status(201).json({
     items: result.items,
@@ -79,3 +93,16 @@ inboxRouter.post('/:id/suggest-reply', async (request, response) => {
 
   response.json({ suggestion: { reply: suggestion.reply } });
 });
+
+function parseProjectIdQuery(value: unknown) {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const projectId = Number(value);
+  return Number.isInteger(projectId) && projectId > 0 ? projectId : undefined;
+}
+
+function parseOptionalProjectId(value: unknown) {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined;
+}

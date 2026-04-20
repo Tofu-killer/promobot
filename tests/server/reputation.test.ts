@@ -272,6 +272,52 @@ describe('reputation api', () => {
     });
   });
 
+  it('fetches reputation only for the requested projectId monitor items', async () => {
+    const monitorStore = createMonitorStore();
+    monitorStore.create({
+      projectId: 1,
+      source: 'reddit',
+      title: 'Project 1 praise',
+      detail: 'Project 1 reputation detail.',
+      status: 'new',
+    });
+    monitorStore.create({
+      projectId: 2,
+      source: 'v2ex',
+      title: 'Project 2 complaint',
+      detail: 'Project 2 reputation detail.',
+      status: 'new',
+    });
+
+    const fetchResponse = await requestApp('POST', '/api/reputation/fetch', {
+      projectId: 1,
+    });
+
+    expect(fetchResponse.status).toBe(201);
+    expect(JSON.parse(fetchResponse.body)).toEqual({
+      items: [
+        expect.objectContaining({
+          id: 1,
+          projectId: 1,
+          source: 'reddit',
+          title: 'Project 1 praise',
+        }),
+      ],
+      inserted: 1,
+      total: 1,
+    });
+
+    const reputationStore = createReputationStore();
+    expect(reputationStore.getStats(1).items).toEqual([
+      expect.objectContaining({
+        id: 1,
+        projectId: 1,
+        title: 'Project 1 praise',
+      }),
+    ]);
+    expect(reputationStore.getStats(2).items).toEqual([]);
+  });
+
   it('falls back to configured monitor queries when reputation feed has no monitor items yet', async () => {
     const settingsResponse = await requestApp('PATCH', '/api/settings', {
       monitorRedditQueries: ['brand latency'],
@@ -439,6 +485,90 @@ describe('reputation api', () => {
     });
   });
 
+  it('fetches reputation fallback only from source configs for the requested projectId', async () => {
+    const settingsResponse = await requestApp('PATCH', '/api/settings', {
+      monitorRedditQueries: ['global reddit query'],
+      monitorV2exQueries: ['global v2ex query'],
+    });
+
+    expect(settingsResponse.status).toBe(200);
+
+    const firstProjectResponse = await requestApp('POST', '/api/projects', {
+      name: 'Project One',
+      siteName: 'PromoBot',
+      siteUrl: 'https://one.example.com',
+      siteDescription: 'Project one workspace',
+      sellingPoints: ['fast'],
+    });
+    expect(firstProjectResponse.status).toBe(201);
+
+    const secondProjectResponse = await requestApp('POST', '/api/projects', {
+      name: 'Project Two',
+      siteName: 'PromoBot',
+      siteUrl: 'https://two.example.com',
+      siteDescription: 'Project two workspace',
+      sellingPoints: ['clear'],
+    });
+    expect(secondProjectResponse.status).toBe(201);
+
+    const projectOneConfigResponse = await requestApp('POST', '/api/projects/1/source-configs', {
+      projectId: 1,
+      sourceType: 'keyword+reddit',
+      platform: 'reddit',
+      label: 'Project 1 Reddit mentions',
+      configJson: {
+        keywords: ['project one reddit'],
+      },
+      enabled: true,
+      pollIntervalMinutes: 30,
+    });
+    expect(projectOneConfigResponse.status).toBe(201);
+
+    const projectTwoConfigResponse = await requestApp('POST', '/api/projects/2/source-configs', {
+      projectId: 2,
+      sourceType: 'v2ex_search',
+      platform: 'v2ex',
+      label: 'Project 2 V2EX mentions',
+      configJson: {
+        query: 'project two v2ex',
+      },
+      enabled: true,
+      pollIntervalMinutes: 30,
+    });
+    expect(projectTwoConfigResponse.status).toBe(201);
+
+    const fetchResponse = await requestApp('POST', '/api/reputation/fetch', {
+      projectId: 2,
+    });
+
+    expect(fetchResponse.status).toBe(201);
+    expect(JSON.parse(fetchResponse.body)).toEqual({
+      items: [
+        expect.objectContaining({
+          id: 1,
+          projectId: 2,
+          source: 'v2ex',
+          sentiment: 'neutral',
+          status: 'new',
+          title: 'Watching reputation query: project two v2ex',
+          detail: 'Derived from source config "Project 2 V2EX mentions" before live mentions arrive.',
+        }),
+      ],
+      inserted: 1,
+      total: 1,
+    });
+
+    const reputationStore = createReputationStore();
+    expect(reputationStore.getStats(1).items).toEqual([]);
+    expect(reputationStore.getStats(2).items).toEqual([
+      expect.objectContaining({
+        id: 1,
+        projectId: 2,
+        title: 'Watching reputation query: project two v2ex',
+      }),
+    ]);
+  });
+
   it('filters reputation stats by optional projectId without breaking legacy rows', async () => {
     const reputationStore = createReputationStore();
     reputationStore.create({
@@ -506,6 +636,70 @@ describe('reputation api', () => {
         expect.objectContaining({
           projectId: 2,
           title: 'Project 2 mention',
+        }),
+      ],
+    });
+  });
+
+  it('filters reputation feed and stats by optional projectId query', async () => {
+    const reputationStore = createReputationStore();
+    reputationStore.create({
+      source: 'facebook-group',
+      sentiment: 'negative',
+      status: 'escalate',
+      title: 'Legacy complaint',
+      detail: 'No project id attached.',
+    });
+    reputationStore.create({
+      projectId: 1,
+      source: 'reddit',
+      sentiment: 'positive',
+      status: 'new',
+      title: 'Project 1 praise',
+      detail: 'Project 1 detail.',
+    });
+    reputationStore.create({
+      projectId: 2,
+      source: 'x',
+      sentiment: 'neutral',
+      status: 'handled',
+      title: 'Project 2 mention',
+      detail: 'Project 2 detail.',
+    });
+
+    const feedResponse = await requestApp('GET', '/api/reputation/feed?projectId=1');
+
+    expect(feedResponse.status).toBe(200);
+    expect(JSON.parse(feedResponse.body)).toEqual({
+      items: [
+        expect.objectContaining({
+          id: 2,
+          projectId: 1,
+          title: 'Project 1 praise',
+        }),
+      ],
+      total: 1,
+    });
+
+    const statsResponse = await requestApp('GET', '/api/reputation/stats?projectId=1');
+
+    expect(statsResponse.status).toBe(200);
+    expect(JSON.parse(statsResponse.body)).toEqual({
+      total: 1,
+      positive: 1,
+      neutral: 0,
+      negative: 0,
+      trend: [
+        { label: '正向', value: 1 },
+        { label: '中性', value: 0 },
+        { label: '负向', value: 0 },
+      ],
+      items: [
+        expect.objectContaining({
+          id: 2,
+          projectId: 1,
+          sentiment: 'positive',
+          title: 'Project 1 praise',
         }),
       ],
     });

@@ -18,15 +18,25 @@ export function createReputationFetchService() {
   const collectorService = createReputationCollectorService();
 
   return {
-    fetchNow(): ReputationFetchResult {
-      const monitorItems = monitorStore.list();
-      const sourceConfigs = sourceConfigStore.listEnabled();
+    fetchNow(projectId?: number): ReputationFetchResult {
+      const monitorItems = monitorStore.list(projectId);
+      const sourceConfigs = filterSourceConfigsByProject(sourceConfigStore.listEnabled(), projectId);
+      const globalSettings = projectId === undefined ? settingsStore.get() : emptyReputationSettings();
       const sourceConfigSignals = createSourceConfigFallbackSignals(sourceConfigs);
-      const mergedSettings = mergeReputationSettings(settingsStore.get(), sourceConfigs);
+      const mergedSettings = mergeReputationSettings(globalSettings, sourceConfigs);
+      const nonRssMonitorItemCount = monitorItems.filter((item) => item.source !== 'rss').length;
+
+      if (projectId !== undefined && nonRssMonitorItemCount === 0 && sourceConfigSignals.length === 0) {
+        return {
+          items: [],
+          inserted: 0,
+        };
+      }
+
       const signals =
-        monitorItems.filter((item) => item.source !== 'rss').length === 0 &&
-        (settingsStore.get().monitorRedditQueries?.length ?? 0) === 0 &&
-        (settingsStore.get().monitorV2exQueries?.length ?? 0) === 0 &&
+        nonRssMonitorItemCount === 0 &&
+        (globalSettings.monitorRedditQueries?.length ?? 0) === 0 &&
+        (globalSettings.monitorV2exQueries?.length ?? 0) === 0 &&
         sourceConfigSignals.length > 0
           ? sourceConfigSignals
           : collectorService.collect({
@@ -41,6 +51,14 @@ export function createReputationFetchService() {
       };
     },
   };
+}
+
+function filterSourceConfigsByProject(sourceConfigs: SourceConfigRecord[], projectId?: number) {
+  if (projectId === undefined) {
+    return sourceConfigs;
+  }
+
+  return sourceConfigs.filter((sourceConfig) => sourceConfig.projectId === projectId);
 }
 
 function createSourceConfigFallbackSignals(sourceConfigs: SourceConfigRecord[]) {
@@ -135,6 +153,13 @@ function mergeReputationSettings(
   return {
     monitorRedditQueries: dedupeStrings(redditQueries),
     monitorV2exQueries: dedupeStrings(v2exQueries),
+  };
+}
+
+function emptyReputationSettings() {
+  return {
+    monitorRedditQueries: [],
+    monitorV2exQueries: [],
   };
 }
 

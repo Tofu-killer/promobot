@@ -532,6 +532,165 @@ describe('monitor api', () => {
     }
   });
 
+  it('filters the monitor feed by optional projectId query', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const monitorStore = createMonitorStore();
+      monitorStore.create({
+        source: 'rss',
+        title: 'Legacy signal',
+        detail: 'No project id attached.',
+        status: 'new',
+      });
+      const projectOneItem = monitorStore.create({
+        projectId: 1,
+        source: 'reddit',
+        title: 'Project 1 signal',
+        detail: 'Project 1 detail.',
+        status: 'new',
+      });
+      monitorStore.create({
+        projectId: 2,
+        source: 'x',
+        title: 'Project 2 signal',
+        detail: 'Project 2 detail.',
+        status: 'new',
+      });
+
+      const response = await requestApp('GET', '/api/monitor/feed?projectId=1');
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        items: [
+          expect.objectContaining({
+            id: projectOneItem.id,
+            projectId: 1,
+            title: 'Project 1 signal',
+          }),
+        ],
+        total: 1,
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('fetches monitor items for only the requested projectId', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      delete process.env.X_ACCESS_TOKEN;
+      delete process.env.X_BEARER_TOKEN;
+      delete process.env.MONITOR_X_QUERIES;
+      process.env.MONITOR_X_SEARCH_SEEDS = JSON.stringify([
+        {
+          id: '1001',
+          query: 'project one query',
+          title: 'Project 1 X signal',
+          text: 'Project 1 content.',
+          author: 'projectone',
+          url: 'https://x.com/projectone/status/1001',
+        },
+        {
+          id: '2002',
+          query: 'project two query',
+          title: 'Project 2 X signal',
+          text: 'Project 2 content.',
+          author: 'projecttwo',
+          url: 'https://x.com/projecttwo/status/2002',
+        },
+      ]);
+
+      const monitorStore = createMonitorStore();
+      monitorStore.create({
+        source: 'rss',
+        title: 'Legacy signal',
+        detail: 'No project id attached.',
+        status: 'new',
+      });
+      monitorStore.create({
+        projectId: 2,
+        source: 'reddit',
+        title: 'Project 2 existing signal',
+        detail: 'Project 2 existing detail.',
+        status: 'new',
+      });
+
+      const projectPayload = {
+        siteName: 'PromoBot',
+        siteUrl: 'https://example.com',
+        siteDescription: 'Scoped monitor workspace',
+        sellingPoints: ['fast'],
+      };
+      expect(
+        (await requestApp('POST', '/api/projects', { ...projectPayload, name: 'Project One' })).status,
+      ).toBe(201);
+      expect(
+        (await requestApp('POST', '/api/projects', { ...projectPayload, name: 'Project Two' })).status,
+      ).toBe(201);
+
+      expect(
+        (
+          await requestApp('POST', '/api/projects/1/source-configs', {
+            projectId: 1,
+            sourceType: 'keyword+x',
+            platform: 'x',
+            label: 'Project 1 X',
+            configJson: { keywords: ['project one query'] },
+            enabled: true,
+            pollIntervalMinutes: 15,
+          })
+        ).status,
+      ).toBe(201);
+      expect(
+        (
+          await requestApp('POST', '/api/projects/2/source-configs', {
+            projectId: 2,
+            sourceType: 'keyword+x',
+            platform: 'x',
+            label: 'Project 2 X',
+            configJson: { keywords: ['project two query'] },
+            enabled: true,
+            pollIntervalMinutes: 15,
+          })
+        ).status,
+      ).toBe(201);
+
+      const response = await requestApp('POST', '/api/monitor/fetch', {
+        projectId: 1,
+      });
+
+      expect(response.status).toBe(201);
+      expect(JSON.parse(response.body)).toEqual({
+        items: [
+          expect.objectContaining({
+            projectId: 1,
+            source: 'x',
+            title: 'Project 1 X signal',
+            detail:
+              '@projectone · matched x search seed for project one query\n\nhttps://x.com/projectone/status/1001',
+            status: 'new',
+          }),
+        ],
+        inserted: 1,
+        total: 1,
+      });
+      expect(monitorStore.list(1)).toEqual([
+        expect.objectContaining({
+          projectId: 1,
+          title: 'Project 1 X signal',
+        }),
+      ]);
+      expect(monitorStore.list(2)).toEqual([
+        expect.objectContaining({
+          projectId: 2,
+          title: 'Project 2 existing signal',
+        }),
+      ]);
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('falls back to configured x search seeds when no x token is available', async () => {
     delete process.env.X_ACCESS_TOKEN;
     delete process.env.X_BEARER_TOKEN;

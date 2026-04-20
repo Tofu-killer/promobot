@@ -6,8 +6,15 @@ export const reputationRouter = Router();
 const reputationStore = createReputationStore();
 const reputationFetchService = createReputationFetchService();
 
-reputationRouter.get('/feed', (_request, response) => {
-  const stats = reputationStore.getStats();
+reputationRouter.get('/feed', (request, response) => {
+  const projectId = parseProjectIdQuery(request.query.projectId);
+
+  if (request.query.projectId !== undefined && projectId === undefined) {
+    response.status(400).json({ error: 'invalid project id' });
+    return;
+  }
+
+  const stats = reputationStore.getStats(projectId);
 
   response.json({
     items: stats.items,
@@ -15,13 +22,27 @@ reputationRouter.get('/feed', (_request, response) => {
   });
 });
 
-reputationRouter.get('/stats', (_request, response) => {
-  response.json(reputationStore.getStats());
+reputationRouter.get('/stats', (request, response) => {
+  const projectId = parseProjectIdQuery(request.query.projectId);
+
+  if (request.query.projectId !== undefined && projectId === undefined) {
+    response.status(400).json({ error: 'invalid project id' });
+    return;
+  }
+
+  response.json(reputationStore.getStats(projectId));
 });
 
-reputationRouter.post('/fetch', (_request, response) => {
-  const result = reputationFetchService.fetchNow();
-  const stats = reputationStore.getStats();
+reputationRouter.post('/fetch', (request, response) => {
+  const projectId = parseOptionalProjectId(request.body?.projectId);
+
+  if (request.body?.projectId !== undefined && projectId === undefined) {
+    response.status(400).json({ error: 'invalid project id' });
+    return;
+  }
+
+  const result = reputationFetchService.fetchNow(projectId);
+  const stats = reputationStore.getStats(projectId);
 
   response.status(201).json({
     items: result.items,
@@ -52,3 +73,16 @@ reputationRouter.patch('/:id', (request, response) => {
 
   response.json({ item });
 });
+
+function parseProjectIdQuery(value: unknown) {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const projectId = Number(value);
+  return Number.isInteger(projectId) && projectId > 0 ? projectId : undefined;
+}
+
+function parseOptionalProjectId(value: unknown) {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined;
+}

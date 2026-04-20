@@ -88,7 +88,7 @@ function getMonitorItemById(database: DatabaseConnection, id: number): MonitorIt
   const row = database
     .prepare(
       `
-        SELECT id, source, title, detail, status, created_at AS createdAt
+        SELECT id, project_id AS projectId, source, title, detail, status, created_at AS createdAt
         FROM monitor_items
         WHERE id = ?
       `,

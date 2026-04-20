@@ -24,11 +24,17 @@ export function createInboxFetchService() {
   const sourceConfigStore = createSourceConfigStore();
 
   return {
-    fetchNow(): InboxFetchResult {
-      const signals = collectInboxSignals(
-        monitorStore.list(),
-        settingsStore.get(),
+    fetchNow(projectId?: number): InboxFetchResult {
+      const monitorItems = monitorStore.list(projectId);
+      const sourceConfigs = filterSourceConfigsByProject(
         sourceConfigStore.listEnabled(),
+        projectId,
+      );
+      const settings = projectId === undefined ? settingsStore.get() : emptyInboxSettings();
+      const signals = collectInboxSignals(
+        monitorItems,
+        settings,
+        sourceConfigs,
       );
       const items = signals.map((signal) => inboxStore.create(signal));
 
@@ -38,6 +44,14 @@ export function createInboxFetchService() {
       };
     },
   };
+}
+
+function filterSourceConfigsByProject(sourceConfigs: SourceConfigRecord[], projectId?: number) {
+  if (projectId === undefined) {
+    return sourceConfigs;
+  }
+
+  return sourceConfigs.filter((sourceConfig) => sourceConfig.projectId === projectId);
 }
 
 function collectInboxSignals(
@@ -92,6 +106,10 @@ function collectInboxSignals(
     return sourceConfigSignals;
   }
 
+  if (sourceConfigs.length > 0) {
+    return [];
+  }
+
   return [
     {
       source: 'reddit',
@@ -108,6 +126,13 @@ function collectInboxSignals(
       excerpt: 'Asking for model routing plus retry behaviour without paying OpenRouter pricing.',
     },
   ];
+}
+
+function emptyInboxSettings() {
+  return {
+    monitorRedditQueries: [],
+    monitorV2exQueries: [],
+  };
 }
 
 function collectUnhandledMonitorSignals(monitorItems: MonitorItemRecord[]): InboxSignal[] {

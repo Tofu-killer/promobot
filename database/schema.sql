@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS publish_logs (
 
 CREATE TABLE IF NOT EXISTS inbox_items (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id INTEGER,
   source TEXT NOT NULL,
   status TEXT NOT NULL,
   author TEXT,
@@ -44,6 +45,7 @@ CREATE TABLE IF NOT EXISTS inbox_items (
 
 CREATE TABLE IF NOT EXISTS monitor_items (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id INTEGER,
   source TEXT NOT NULL,
   title TEXT NOT NULL,
   detail TEXT NOT NULL,
@@ -53,6 +55,7 @@ CREATE TABLE IF NOT EXISTS monitor_items (
 
 CREATE TABLE IF NOT EXISTS reputation_items (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id INTEGER,
   source TEXT NOT NULL,
   sentiment TEXT NOT NULL,
   status TEXT NOT NULL,
