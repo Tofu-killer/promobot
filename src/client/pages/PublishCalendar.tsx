@@ -81,6 +81,14 @@ function formatCalendarStatusLabel(status: CalendarDraftStatus) {
   return status === 'scheduled' ? '已排程' : '已发布';
 }
 
+function formatCalendarPhaseLabel(draft: DraftRecord, scheduledAt: string) {
+  if (draft.status === 'published') {
+    return '已发布';
+  }
+
+  return scheduledAt.length > 0 ? '已排程' : '待补排程';
+}
+
 function formatDraftTimestamp(draft: DraftRecord) {
   return draft.updatedAt.length > 0 ? draft.updatedAt : draft.createdAt;
 }
@@ -173,12 +181,18 @@ export function PublishCalendarPage({
     displayState.status === 'success' && displayState.data
       ? displayState.data.drafts.filter((draft) => isCalendarDraftStatus(draft.status))
       : [];
-  const scheduledDrafts = calendarDrafts.filter((draft) => draft.status === 'scheduled');
-  const publishedDrafts = calendarDrafts.filter((draft) => draft.status === 'published');
 
   function getScheduledAtValue(draft: DraftRecord) {
     return scheduledAtById[draft.id] ?? draft.scheduledAt ?? '';
   }
+
+  const scheduledDrafts = calendarDrafts.filter(
+    (draft) => draft.status === 'scheduled' && getScheduledAtValue(draft).trim().length > 0,
+  );
+  const pendingScheduleDrafts = calendarDrafts.filter(
+    (draft) => draft.status === 'scheduled' && getScheduledAtValue(draft).trim().length === 0,
+  );
+  const publishedDrafts = calendarDrafts.filter((draft) => draft.status === 'published');
 
   function getMutationState(draftId: number) {
     return mutationStateById[draftId] ?? createIdleMutationState();
@@ -274,6 +288,18 @@ export function PublishCalendarPage({
                   minWidth: '140px',
                   borderRadius: '16px',
                   padding: '14px 16px',
+                  background: '#fef3c7',
+                  color: '#92400e',
+                  fontWeight: 700,
+                }}
+              >
+                待补排程 {pendingScheduleDrafts.length}
+              </div>
+              <div
+                style={{
+                  minWidth: '140px',
+                  borderRadius: '16px',
+                  padding: '14px 16px',
                   background: '#ecfdf5',
                   color: '#047857',
                   fontWeight: 700,
@@ -310,12 +336,22 @@ export function PublishCalendarPage({
                           style={{
                             borderRadius: '999px',
                             padding: '4px 10px',
-                            background: draft.status === 'scheduled' ? '#dbeafe' : '#dcfce7',
-                            color: draft.status === 'scheduled' ? '#1d4ed8' : '#047857',
+                            background:
+                              draft.status === 'published'
+                                ? '#dcfce7'
+                                : scheduledAt.length > 0
+                                  ? '#dbeafe'
+                                  : '#fef3c7',
+                            color:
+                              draft.status === 'published'
+                                ? '#047857'
+                                : scheduledAt.length > 0
+                                  ? '#1d4ed8'
+                                  : '#92400e',
                             fontWeight: 700,
                           }}
                         >
-                          {formatCalendarStatusLabel(draft.status)}
+                          {formatCalendarPhaseLabel(draft, scheduledAt)}
                         </span>
                       </div>
 

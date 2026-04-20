@@ -680,11 +680,44 @@ describe('Publish Calendar lifecycle', () => {
       scheduledAt: null,
     });
     expect(collectText(container)).toContain('排程已清空');
+    expect(collectText(container)).toContain('待补排程 1');
+    expect(collectText(container)).toContain('当前排程状态：尚未提供 scheduledAt');
 
     await act(async () => {
       root.unmount();
       await flush();
     });
+  });
+
+  it('surfaces scheduled drafts without scheduledAt as pending scheduling instead of scheduled', async () => {
+    const { PublishCalendarPage } = await import('../../src/client/pages/PublishCalendar');
+
+    const html = renderToStaticMarkup(
+      createElement(PublishCalendarPage as never, {
+        stateOverride: {
+          status: 'success',
+          data: {
+            drafts: [
+              {
+                id: 31,
+                platform: 'x',
+                title: 'Needs schedule time',
+                content: 'Queue but no timestamp yet',
+                hashtags: ['#launch'],
+                status: 'scheduled',
+                scheduledAt: null,
+                createdAt: '2026-04-19T08:00:00.000Z',
+                updatedAt: '2026-04-19T08:10:00.000Z',
+              },
+            ],
+          },
+        },
+      }),
+    );
+
+    expect(html).toContain('已排程 0');
+    expect(html).toContain('待补排程 1');
+    expect(html).toContain('当前排程状态：尚未提供 scheduledAt');
   });
 
   it('shows attempted scheduledAt in failure feedback when save fails', async () => {
