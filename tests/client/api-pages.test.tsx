@@ -2330,6 +2330,8 @@ describe('client API page wiring', () => {
     const { ReputationPage } = await import('../../src/client/pages/Reputation');
 
     expect(renderApiPage(ReputationPage, { status: 'loading' })).toContain('正在加载口碑数据');
+    expect(renderApiPage(ReputationPage, { status: 'idle' })).toContain('Billing confusion mention');
+    expect(renderApiPage(ReputationPage, { status: 'idle' })).toContain('x');
     expect(
       renderApiPage(ReputationPage, {
         status: 'error',

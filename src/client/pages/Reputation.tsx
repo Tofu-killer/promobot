@@ -195,11 +195,11 @@ export function ReputationPage({
     items: [
       {
         id: 1,
-        source: 'facebook-group',
+        source: 'x',
         sentiment: 'negative',
         status: 'escalate',
-        title: 'Session expired complaint',
-        detail: 'Users report being logged out unexpectedly.',
+        title: 'Billing confusion mention',
+        detail: 'Agency buyers asked whether billing and usage caps are transparent enough.',
         createdAt: 'preview',
       },
     ],
