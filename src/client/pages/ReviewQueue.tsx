@@ -120,6 +120,14 @@ function formatReviewActionErrorPrefix(action: ReviewActionState['action']) {
   }
 }
 
+const manualHandoffReviewPlatforms = new Set([
+  'facebook-group',
+  'facebookGroup',
+  'xiaohongshu',
+  'weibo',
+  'blog',
+]);
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -598,7 +606,7 @@ export function ReviewQueuePage({
                             fontWeight: 700,
                           }}
                         >
-                          立即发布
+                          {manualHandoffReviewPlatforms.has(draft.platform) ? '转入人工接管' : '立即发布'}
                         </button>
                       </div>
 

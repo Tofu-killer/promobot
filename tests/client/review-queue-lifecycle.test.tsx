@@ -928,6 +928,7 @@ describe('Review Queue lifecycle actions', () => {
     );
 
     expect(publishButton).not.toBeNull();
+    expect(collectText(publishButton as unknown as FakeNode)).toContain('转入人工接管');
 
     await act(async () => {
       publishButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
