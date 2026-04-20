@@ -1014,4 +1014,64 @@ describe('Review Queue lifecycle actions', () => {
       await flush();
     });
   });
+
+  it('shows queued publish feedback when publish returns queued', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ReviewQueuePage } = await import('../../src/client/pages/ReviewQueue');
+
+    const loadReviewQueueAction = vi.fn().mockResolvedValue({
+      drafts: [
+        {
+          id: 51,
+          platform: 'x',
+          title: 'Queued launch thread',
+          content: 'Draft body',
+          hashtags: ['#launch'],
+          status: 'review',
+          createdAt: '2026-04-19T00:00:00.000Z',
+          updatedAt: '2026-04-19T00:00:00.000Z',
+        },
+      ],
+    });
+    const publishReviewDraftAction = vi.fn().mockResolvedValue({
+      success: false,
+      status: 'queued',
+      publishUrl: null,
+      message: 'queued for downstream publisher',
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ReviewQueuePage as never, {
+          loadReviewQueueAction,
+          publishReviewDraftAction,
+        }),
+      );
+      await flush();
+    });
+
+    const publishButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-review-publish-id') === '51',
+    );
+
+    expect(publishButton).not.toBeNull();
+
+    await act(async () => {
+      publishButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(publishReviewDraftAction).toHaveBeenCalledWith(51);
+    expect(collectText(container)).toContain('已入队等待发布：Queued launch thread');
+    expect(collectText(container)).toContain('回执状态：已入队');
+    expect(collectText(container)).toContain('回执消息：queued for downstream publisher');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
 });

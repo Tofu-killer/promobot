@@ -239,12 +239,17 @@ export function DraftsPage({
         ...currentState,
         [draftId]: {
           status:
-            result.success || result.status === 'manual_required'
+            result.success || result.status === 'manual_required' || result.status === 'queued'
               ? 'success'
               : 'error',
           message:
             result.success
               ? result.message
+              : result.status === 'queued'
+                ? `已入队等待发布：${
+                    visibleDrafts.find((draft) => draft.id === draftId)?.title ??
+                    `Draft #${draftId}`
+                  }`
               : result.status === 'manual_required'
                 ? `已转入人工接管：${
                     visibleDrafts.find((draft) => draft.id === draftId)?.title ??
@@ -252,7 +257,7 @@ export function DraftsPage({
                   }`
                 : null,
           error:
-            result.success || result.status === 'manual_required'
+            result.success || result.status === 'manual_required' || result.status === 'queued'
               ? null
               : result.message,
           publishUrl: result.publishUrl,

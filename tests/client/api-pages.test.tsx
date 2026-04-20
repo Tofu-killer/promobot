@@ -958,6 +958,40 @@ describe('client API page wiring', () => {
     expect(html).toContain('发起人工接管');
   });
 
+  it('shows queued publish feedback for draft publish contracts', async () => {
+    const { DraftsPage } = await import('../../src/client/pages/Drafts');
+
+    const html = renderPage(DraftsPage, {
+      stateOverride: {
+        status: 'success',
+        data: {
+          drafts: [
+            {
+              id: 8,
+              platform: 'x',
+              title: 'Queued launch thread',
+              content: 'Draft body',
+              hashtags: ['#launch'],
+              status: 'draft',
+              createdAt: '2026-04-19T00:00:00.000Z',
+              updatedAt: '2026-04-19T00:00:00.000Z',
+            },
+          ],
+        },
+      },
+      draftInteractionStateOverride: {
+        publishStateById: {
+          8: {
+            status: 'success',
+            message: '已入队等待发布：Queued launch thread',
+          },
+        },
+      },
+    });
+
+    expect(html).toContain('已入队等待发布：Queued launch thread');
+  });
+
   it('loads channel accounts through the shared API helper', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({

@@ -207,6 +207,9 @@ function formatPublishContractStatus(draft: DraftRecord, actionState: ReviewActi
     }
 
     if (actionState.status === 'success') {
+      if (actionState.contractStatus === 'queued') {
+        return '已入队';
+      }
       if (actionState.contractStatus === 'manual_required') {
         return '人工接管';
       }
@@ -371,17 +374,19 @@ export function ReviewQueuePage({
         ...currentState,
         [draftId]: {
           status:
-            result.success || result.status === 'manual_required'
+            result.success || result.status === 'manual_required' || result.status === 'queued'
               ? 'success'
               : 'error',
           message:
             result.success
               ? `已发布：${sourceDraft.title ?? sourceDraft.platform}`
+              : result.status === 'queued'
+                ? `已入队等待发布：${sourceDraft.title ?? sourceDraft.platform}`
               : result.status === 'manual_required'
                 ? `已转入人工接管：${sourceDraft.title ?? sourceDraft.platform}`
                 : null,
           error:
-            result.success || result.status === 'manual_required'
+            result.success || result.status === 'manual_required' || result.status === 'queued'
               ? null
               : result.message,
           action: 'publish',
