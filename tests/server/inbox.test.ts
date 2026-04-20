@@ -8,6 +8,7 @@ const originalEnv = {
   AI_BASE_URL: process.env.AI_BASE_URL,
   AI_API_KEY: process.env.AI_API_KEY,
   AI_MODEL: process.env.AI_MODEL,
+  NODE_ENV: process.env.NODE_ENV,
 };
 
 async function requestApp(method: string, url: string, body?: unknown) {
@@ -104,6 +105,7 @@ afterEach(() => {
   process.env.AI_BASE_URL = originalEnv.AI_BASE_URL;
   process.env.AI_API_KEY = originalEnv.AI_API_KEY;
   process.env.AI_MODEL = originalEnv.AI_MODEL;
+  process.env.NODE_ENV = originalEnv.NODE_ENV;
 });
 
 function installFetchStub(replyText: string) {
@@ -130,6 +132,25 @@ function installFetchStub(replyText: string) {
 }
 
 describe('inbox api', () => {
+  it('returns an empty inbox feed in production when no signals or configs are available', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      process.env.NODE_ENV = 'production';
+
+      const response = await requestApp('POST', '/api/inbox/fetch');
+
+      expect(response.status).toBe(201);
+      expect(JSON.parse(response.body)).toEqual({
+        items: [],
+        inserted: 0,
+        total: 0,
+        unread: 0,
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('collects source-specific inbox signals so one fetcher can use monitor items while another falls back to config', async () => {
     const { rootDir } = createTestDatabasePath();
     try {

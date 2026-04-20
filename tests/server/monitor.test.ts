@@ -94,6 +94,7 @@ async function requestApp(method: string, url: string, body?: unknown) {
 }
 
 const originalEnv = {
+  NODE_ENV: process.env.NODE_ENV,
   REDDIT_CLIENT_ID: process.env.REDDIT_CLIENT_ID,
   REDDIT_CLIENT_SECRET: process.env.REDDIT_CLIENT_SECRET,
   REDDIT_USERNAME: process.env.REDDIT_USERNAME,
@@ -106,6 +107,7 @@ const originalEnv = {
 };
 
 afterEach(() => {
+  restoreEnv('NODE_ENV', originalEnv.NODE_ENV);
   restoreEnv('REDDIT_CLIENT_ID', originalEnv.REDDIT_CLIENT_ID);
   restoreEnv('REDDIT_CLIENT_SECRET', originalEnv.REDDIT_CLIENT_SECRET);
   restoreEnv('REDDIT_USERNAME', originalEnv.REDDIT_USERNAME);
@@ -129,6 +131,24 @@ function restoreEnv(key: string, value: string | undefined) {
 }
 
 describe('monitor api', () => {
+  it('returns an empty monitor feed in production when no real sources are configured', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      process.env.NODE_ENV = 'production';
+
+      const response = await requestApp('POST', '/api/monitor/fetch');
+
+      expect(response.status).toBe(201);
+      expect(JSON.parse(response.body)).toEqual({
+        items: [],
+        inserted: 0,
+        total: 0,
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('fetches monitor items into SQLite through the manual fetch endpoint', async () => {
     const { rootDir } = createTestDatabasePath();
     try {

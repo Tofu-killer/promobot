@@ -51,6 +51,13 @@ export function createMonitorFetchService() {
         };
       }
 
+      if (shouldDisableSeedDataInProduction()) {
+        return {
+          items: [],
+          inserted: 0,
+        };
+      }
+
       const minuteStamp = now.toISOString();
       const seeds = [
         {
@@ -83,6 +90,10 @@ export function createMonitorFetchService() {
       };
     },
   };
+}
+
+function shouldDisableSeedDataInProduction() {
+  return process.env.NODE_ENV === 'production';
 }
 
 function filterSourceConfigsByProject(sourceConfigs: SourceConfigRecord[], projectId?: number) {

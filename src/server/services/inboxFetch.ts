@@ -113,6 +113,10 @@ function collectInboxSignals(
     return [];
   }
 
+  if (shouldDisableSeedDataInProduction()) {
+    return [];
+  }
+
   return [
     {
       source: 'reddit',
@@ -129,6 +133,10 @@ function collectInboxSignals(
       excerpt: 'Asking for model routing plus retry behaviour without paying OpenRouter pricing.',
     },
   ];
+}
+
+function shouldDisableSeedDataInProduction() {
+  return process.env.NODE_ENV === 'production';
 }
 
 function emptyInboxSettings() {

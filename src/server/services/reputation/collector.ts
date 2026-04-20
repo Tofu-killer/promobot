@@ -76,6 +76,10 @@ export function createReputationCollectorService(
         return configuredSignals;
       }
 
+      if (shouldDisableSeedDataInProduction()) {
+        return [];
+      }
+
       return buildSeedSignals();
     },
   };
@@ -98,4 +102,8 @@ function buildSeedSignals(): CreateReputationItemInput[] {
       detail: 'A prospect asked whether usage caps and billing are transparent enough for agency workflows.',
     },
   ];
+}
+
+function shouldDisableSeedDataInProduction() {
+  return process.env.NODE_ENV === 'production';
 }

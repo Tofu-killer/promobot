@@ -6,6 +6,7 @@ import { createReputationStore } from '../../src/server/store/reputation';
 import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
 
 let activeTestDbRoot: string | undefined;
+const originalNodeEnv = process.env.NODE_ENV;
 
 async function requestApp(method: string, url: string, body?: unknown) {
   const app = createApp({
@@ -101,6 +102,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  process.env.NODE_ENV = originalNodeEnv;
   if (activeTestDbRoot) {
     cleanupTestDatabasePath(activeTestDbRoot);
     activeTestDbRoot = undefined;
@@ -214,6 +216,19 @@ describe('reputation services', () => {
 });
 
 describe('reputation api', () => {
+  it('returns an empty reputation feed in production when no real signals or configs are available', async () => {
+    process.env.NODE_ENV = 'production';
+
+    const fetchResponse = await requestApp('POST', '/api/reputation/fetch');
+
+    expect(fetchResponse.status).toBe(201);
+    expect(JSON.parse(fetchResponse.body)).toEqual({
+      items: [],
+      inserted: 0,
+      total: 0,
+    });
+  });
+
   it('maps existing monitor signals into the reputation feed before seed fallback', async () => {
     const monitorStore = createMonitorStore();
     monitorStore.create({
