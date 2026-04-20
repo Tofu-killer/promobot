@@ -1,33 +1,10 @@
 import { createApp } from './app';
 import { loadConfig } from './config';
-import { createInboxFetchService } from './services/inboxFetch';
-import { createMonitorFetchService } from './services/monitorFetch';
-import {
-  createChannelAccountSessionRequestJobHandler,
-  channelAccountSessionRequestJobType,
-} from './services/browser/sessionRequestHandler';
-import { createPublishJobHandler } from './services/publishQueue';
-import { createReputationFetchService } from './services/reputationFetch';
+import { createDefaultJobHandlers } from './runtime/defaultJobHandlers';
 import { createSchedulerRuntime } from './runtime/schedulerRuntime';
 
-const monitorFetchService = createMonitorFetchService();
-const inboxFetchService = createInboxFetchService();
-const reputationFetchService = createReputationFetchService();
-
 const schedulerRuntime = createSchedulerRuntime({
-  handlers: {
-    inbox_fetch: async () => {
-      inboxFetchService.fetchNow();
-    },
-    monitor_fetch: async () => {
-      await monitorFetchService.fetchNow();
-    },
-    [channelAccountSessionRequestJobType]: createChannelAccountSessionRequestJobHandler(),
-    publish: createPublishJobHandler(),
-    reputation_fetch: async () => {
-      reputationFetchService.fetchNow();
-    },
-  },
+  handlers: createDefaultJobHandlers(),
 });
 schedulerRuntime.reload();
 
