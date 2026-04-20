@@ -21,7 +21,7 @@ const platformOptions: PlatformOption[] = [
 ];
 
 const defaultLaunchPlatforms = platformOptions
-  .filter((platform) => platform.launchStatus !== 'later')
+  .filter((platform) => platform.launchStatus === 'ready')
   .map((platform) => platform.value);
 
 const toneOptions = [
@@ -294,6 +294,7 @@ export function GeneratePage({
                 <input
                   type="checkbox"
                   checked={selectedPlatforms.includes(platform.value)}
+                  disabled={platform.launchStatus !== 'ready'}
                   onChange={() => togglePlatform(platform.value)}
                 />
                 <span style={{ fontWeight: 600 }}>{platform.label}</span>

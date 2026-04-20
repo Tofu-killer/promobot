@@ -12,6 +12,9 @@ describe('Generate page', () => {
     expect(html).toContain('例如 12');
     expect(html).toContain('语气');
     expect(html).toContain('选择渠道');
+    expect(html).toContain('首发可用');
+    expect(html).toContain('人工接管');
+    expect(html).toContain('暂缓首发');
     expect(html).toContain('一键生成');
     expect(html).toContain('生成结果将在这里出现');
   });
