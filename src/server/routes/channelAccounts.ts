@@ -16,6 +16,15 @@ import {
 const channelAccountStore = createChannelAccountStore();
 const jobQueueStore = createJobQueueStore();
 const channelAccountSessionRequestJobType = 'channel_account_session_request';
+const supportedChannelAccountPlatforms = new Set([
+  'x',
+  'reddit',
+  'facebookGroup',
+  'facebook-group',
+  'xiaohongshu',
+  'weibo',
+  'blog',
+]);
 
 export const channelAccountsRouter = Router();
 
@@ -41,6 +50,7 @@ channelAccountsRouter.post('/', (request, response) => {
 
   if (
     typeof platform !== 'string' ||
+    !supportedChannelAccountPlatforms.has(platform) ||
     typeof accountKey !== 'string' ||
     typeof displayName !== 'string' ||
     typeof authType !== 'string' ||

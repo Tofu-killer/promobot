@@ -93,6 +93,26 @@ async function requestApp(method: string, url: string, body?: unknown) {
 }
 
 describe('channel accounts api', () => {
+  it('rejects channel account creation when the platform is not supported', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const response = await requestApp('POST', '/api/channel-accounts', {
+        platform: 'discord',
+        accountKey: '@promobot',
+        displayName: 'PromoBot Discord',
+        authType: 'api',
+        status: 'healthy',
+      });
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'invalid channel account payload',
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('creates and lists a channel account with an optional projectId binding', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
