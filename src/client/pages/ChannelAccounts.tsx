@@ -230,6 +230,23 @@ const fieldStyle = {
   background: '#ffffff',
 } as const;
 
+const headerSecondaryButtonStyle = {
+  borderRadius: '12px',
+  border: '1px solid #cbd5e1',
+  background: '#ffffff',
+  color: '#122033',
+  padding: '12px 16px',
+  fontWeight: 700,
+  boxShadow: 'none',
+} as const;
+
+const disabledHeaderSecondaryButtonStyle = {
+  ...headerSecondaryButtonStyle,
+  background: '#f8fafc',
+  color: '#94a3b8',
+  cursor: 'not-allowed',
+} as const;
+
 const createPlatformOptions = [
   { value: 'x', label: 'X / Twitter（首发可用）' },
   { value: 'reddit', label: 'Reddit（首发可用）' },
@@ -477,6 +494,8 @@ export function ChannelAccountsPage({
     actionTargetAccountId,
     latestCreatedAccount,
   );
+  const headerSessionActionDisabled = !actionTargetAccount;
+  const headerSessionActionLabel = actionTargetAccount ? getSessionActionLabel(actionTargetAccount) : '暂无登录目标';
   const testedAccount = displayTestConnectionState.data?.channelAccount
     ? normalizeChannelAccountRecord(displayTestConnectionState.data.channelAccount)
     : actionTargetAccount;
@@ -620,17 +639,20 @@ export function ChannelAccountsPage({
         actions={
           <>
             <span data-header-session-action="true">
-              <ActionButton
-                label={actionTargetAccount ? getSessionActionLabel(actionTargetAccount) : '请求登录'}
-                onClick={() => {
-                  if (!actionTargetAccount) {
-                    reload();
-                    return;
-                  }
-
-                  handleRequestSessionAction(actionTargetAccount);
-                }}
-              />
+              <button
+                type="button"
+                disabled={headerSessionActionDisabled}
+                onClick={
+                  actionTargetAccount ? () => handleRequestSessionAction(actionTargetAccount) : undefined
+                }
+                style={
+                  headerSessionActionDisabled
+                    ? disabledHeaderSecondaryButtonStyle
+                    : headerSecondaryButtonStyle
+                }
+              >
+                {headerSessionActionLabel}
+              </button>
             </span>
             <ActionButton
               label={displayTestConnectionState.status === 'loading' ? '正在测试连接...' : '测试连接'}
@@ -1036,8 +1058,8 @@ export function ChannelAccountsPage({
             </p>
           ) : null}
           {displaySessionActionState.status === 'success' && displaySessionActionState.data ? (
-            <div style={{ marginTop: '12px', display: 'grid', gap: '6px', color: '#166534' }}>
-              <div>{getSessionActionLabelFromAction(displaySessionActionState.data.sessionAction.action)}请求已发送</div>
+            <div style={{ marginTop: '12px', display: 'grid', gap: '6px', color: '#334155' }}>
+              <div>{getSessionActionLabelFromAction(displaySessionActionState.data.sessionAction.action)}占位已记录</div>
               <div>{displaySessionActionState.data.sessionAction.message}</div>
             </div>
           ) : null}
@@ -1097,7 +1119,10 @@ export function ChannelAccountsPage({
             ) : null}
             <div>点击“测试连接”会优先对最近创建账号发起真实连接测试；如果当前没有目标账号，则会先刷新列表。</div>
             <div>每个账号卡片都会显式显示 Session 是否存在、当前状态、最近验证时间和 Storage Path。</div>
-            <div>“请求登录 / 重新登录”会调用新的占位接口；“编辑 Session 元数据”用于展开表单，“保存 Session 元数据”才会真正提交 storage path、状态、验证时间和备注。</div>
+            <div>
+              “请求登录 / 重新登录”只会记录一个占位动作，仍需手动登录并保存 Session 元数据；“编辑
+              Session 元数据”用于展开表单，“保存 Session 元数据”才会真正提交 storage path、状态、验证时间和备注。
+            </div>
             <div>如果服务端返回 404 或 500，这里不会吞掉错误，而是直接在页面中显示。</div>
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
               <ActionButton

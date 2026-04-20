@@ -827,7 +827,56 @@ describe('channel account edit actions', () => {
     expect(requestChannelAccountSessionAction).not.toHaveBeenCalledWith(7, {
       action: 'relogin',
     });
-    expect(collectText(container)).toContain('请求登录请求已发送');
+    expect(collectText(container)).toContain('请求登录占位已记录');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('disables the header session CTA when no target account is available', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ChannelAccountsPage } = await import('../../src/client/pages/ChannelAccounts');
+
+    const requestChannelAccountSessionAction = vi.fn();
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ChannelAccountsPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              channelAccounts: [],
+            },
+          },
+          requestChannelAccountSessionAction,
+        }),
+      );
+      await flush();
+    });
+
+    const headerSessionButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.parentNode instanceof FakeElement &&
+        element.parentNode.getAttribute('data-header-session-action') === 'true',
+    );
+
+    expect(headerSessionButton).not.toBeNull();
+    expect(collectText(headerSessionButton as never)).toContain('暂无登录目标');
+    expect((headerSessionButton as FakeElement).disabled).toBe(true);
+    expect(collectText(container)).toContain('当前目标账号：未选定');
+
+    await act(async () => {
+      headerSessionButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(requestChannelAccountSessionAction).not.toHaveBeenCalled();
 
     await act(async () => {
       root.unmount();
@@ -1457,7 +1506,7 @@ describe('channel account edit actions', () => {
     expect(requestChannelAccountSessionAction).toHaveBeenCalledWith(7, {
       action: 'relogin',
     });
-    expect(collectText(container)).toContain('重新登录请求已发送');
+    expect(collectText(container)).toContain('重新登录占位已记录');
     expect(collectText(container)).toContain('Refresh the login manually');
 
     await act(async () => {

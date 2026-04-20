@@ -1518,6 +1518,72 @@ describe('client API page wiring', () => {
     expect(headerActionHtml).toContain('当前目标账号：Reddit');
   });
 
+  it('renders the header session CTA as disabled when there is no target account', async () => {
+    const { ChannelAccountsPage } = await import('../../src/client/pages/ChannelAccounts');
+
+    const html = renderPage(ChannelAccountsPage, {
+      stateOverride: {
+        status: 'success',
+        data: {
+          channelAccounts: [],
+        },
+      },
+    } as never);
+
+    expect(html).toContain('data-header-session-action="true"');
+    expect(html).toContain('暂无登录目标');
+    expect(html).toContain('disabled=""');
+    expect(html).toContain('当前目标账号：未选定');
+  });
+
+  it('renders placeholder session action success copy without implying a live login request', async () => {
+    const { ChannelAccountsPage } = await import('../../src/client/pages/ChannelAccounts');
+
+    const html = renderPage(ChannelAccountsPage, {
+      stateOverride: {
+        status: 'success',
+        data: {
+          channelAccounts: [],
+        },
+      },
+      sessionActionStateOverride: {
+        status: 'success',
+        data: {
+          ok: true,
+          sessionAction: {
+            action: 'request_session',
+            accountId: 7,
+            status: 'pending',
+            requestedAt: '2026-04-19T03:10:00.000Z',
+            message: 'Browser login is still a placeholder; capture the session manually.',
+            nextStep: '/api/channel-accounts/7/session',
+          },
+          channelAccount: {
+            id: 7,
+            platform: 'reddit',
+            accountKey: 'acct-reddit',
+            displayName: 'Reddit Ops',
+            authType: 'oauth',
+            status: 'healthy',
+            metadata: {},
+            session: {
+              hasSession: false,
+              status: 'missing',
+              validatedAt: null,
+              storageStatePath: null,
+            },
+            createdAt: '2026-04-19T00:00:00.000Z',
+            updatedAt: '2026-04-19T00:00:00.000Z',
+          },
+        },
+      },
+    } as never);
+
+    expect(html).toContain('请求登录占位已记录');
+    expect(html).not.toContain('请求登录请求已发送');
+    expect(html).toContain('Browser login is still a placeholder; capture the session manually.');
+  });
+
   it('shows manual handoff next steps for newly created browser-only channel accounts', async () => {
     const { ChannelAccountsPage } = await import('../../src/client/pages/ChannelAccounts');
 
