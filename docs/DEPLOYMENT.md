@@ -244,10 +244,10 @@ pm2 stop promobot
 
 - `x`
   - 配置 token 时会尝试真实 API
-  - 否则回退 stub
+  - 未配置凭证时会返回失败，不会伪造成功发布
 - `reddit`
   - 配齐 OAuth 变量时会尝试真实 API
-  - 否则回退 stub
+  - 未配置凭证时会返回失败，不会伪造成功发布
 - `facebook-group`
   - 仍然是浏览器 handoff 合同，不会自动发帖
 - `weibo`、`xiaohongshu`、`blog`

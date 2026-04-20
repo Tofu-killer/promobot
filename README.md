@@ -15,13 +15,13 @@ PromoBot 现在不是“只有 spec 的空仓库”了。
 
 ## 当前真实发布行为
 
-- `x`：配置 `X_ACCESS_TOKEN` 或 `X_BEARER_TOKEN` 时会调用 X API；未配置时会退回 stub publisher，返回“成功发布”的占位结果。
-- `reddit`：配置完整 OAuth 环境变量时会调用 Reddit API；未配置时也会退回 stub publisher，返回占位结果。
+- `x`：配置 `X_ACCESS_TOKEN` 或 `X_BEARER_TOKEN` 时会调用 X API；未配置时会返回明确失败，不会再伪造 `published` 结果。
+- `reddit`：配置完整 OAuth 环境变量时会调用 Reddit API；未配置时也会返回明确失败，不会再伪造 `published` 结果。
 - `facebook-group`：不会自动发帖，只会根据已保存的 session 元数据返回 manual handoff / manual review 合同。
 - `weibo`、`xiaohongshu`：目前只有 `manual_required` 的 stub 发布器。
 - `blog`：目前只有 manual stub，没有真实博客平台集成。
 
-这意味着“发布成功”并不总是代表已经打到真实平台，尤其是未配凭证的 `x` / `reddit` 和所有 stub / manual 平台。
+这意味着当前“成功发布”语义已经比之前更可靠：未配凭证的 `x` / `reddit` 会直接失败；但 `facebook-group`、`weibo`、`xiaohongshu`、`blog` 仍主要停留在 manual / handoff 路径。
 
 ## 数据与运行时
 
