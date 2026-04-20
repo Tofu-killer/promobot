@@ -7,16 +7,22 @@ import { SectionCard } from '../components/SectionCard';
 interface PlatformOption {
   label: string;
   value: string;
+  launchStatus: 'ready' | 'manual' | 'later';
+  launchBadge: string;
 }
 
 const platformOptions: PlatformOption[] = [
-  { label: 'X / Twitter', value: 'x' },
-  { label: 'Reddit', value: 'reddit' },
-  { label: 'Facebook Group', value: 'facebook-group' },
-  { label: '小红书', value: 'xiaohongshu' },
-  { label: '微博', value: 'weibo' },
-  { label: 'Blog', value: 'blog' },
+  { label: 'X / Twitter', value: 'x', launchStatus: 'ready', launchBadge: '首发可用' },
+  { label: 'Reddit', value: 'reddit', launchStatus: 'ready', launchBadge: '首发可用' },
+  { label: 'Facebook Group', value: 'facebook-group', launchStatus: 'manual', launchBadge: '人工接管' },
+  { label: '小红书', value: 'xiaohongshu', launchStatus: 'later', launchBadge: '暂缓首发' },
+  { label: '微博', value: 'weibo', launchStatus: 'later', launchBadge: '暂缓首发' },
+  { label: 'Blog', value: 'blog', launchStatus: 'later', launchBadge: '暂缓首发' },
 ];
+
+const defaultLaunchPlatforms = platformOptions
+  .filter((platform) => platform.launchStatus !== 'later')
+  .map((platform) => platform.value);
 
 const toneOptions = [
   { label: '专业', value: 'professional' },
@@ -125,7 +131,7 @@ export function GeneratePage({
   const [projectIdDraft, setProjectIdDraft] = useState('');
   const projectId = parseProjectId(projectIdDraft);
   const [tone, setTone] = useState<(typeof toneOptions)[number]['value']>('professional');
-  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>(platformOptions.map((platform) => platform.value));
+  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>(defaultLaunchPlatforms);
   const [reviewStateByDraftId, setReviewStateByDraftId] = useState<Record<number, ReviewMutationState>>({});
   const { state, run } = useAsyncAction(generateAction);
 
@@ -268,10 +274,14 @@ export function GeneratePage({
           }}
         >
           <h3 style={{ marginTop: 0, marginBottom: '16px', fontSize: '20px' }}>选择渠道</h3>
+          <p style={{ margin: '0 0 16px', color: '#475569', lineHeight: 1.6 }}>
+            当前首发默认勾选真实可运营或人工接管链路；暂缓首发的平台仍可手动勾选生成文案，但不建议作为首发发布路径。
+          </p>
           <div style={{ display: 'grid', gap: '10px' }}>
             {platformOptions.map((platform) => (
               <label
                 key={platform.value}
+                data-generate-platform={platform.value}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -286,7 +296,30 @@ export function GeneratePage({
                   checked={selectedPlatforms.includes(platform.value)}
                   onChange={() => togglePlatform(platform.value)}
                 />
-                <span>{platform.label}</span>
+                <span style={{ fontWeight: 600 }}>{platform.label}</span>
+                <span
+                  style={{
+                    marginLeft: 'auto',
+                    borderRadius: '999px',
+                    padding: '4px 8px',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    background:
+                      platform.launchStatus === 'ready'
+                        ? '#dcfce7'
+                        : platform.launchStatus === 'manual'
+                          ? '#fef3c7'
+                          : '#e2e8f0',
+                    color:
+                      platform.launchStatus === 'ready'
+                        ? '#166534'
+                        : platform.launchStatus === 'manual'
+                          ? '#92400e'
+                          : '#475569',
+                  }}
+                >
+                  {platform.launchBadge}
+                </span>
               </label>
             ))}
           </div>

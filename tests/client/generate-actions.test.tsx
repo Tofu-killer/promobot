@@ -597,7 +597,7 @@ describe('Generate review actions', () => {
     expect(generateAction).toHaveBeenCalledWith({
       topic: 'We added a cheaper Claude-compatible endpoint for Australian customers.',
       tone: 'professional',
-      platforms: ['x', 'reddit', 'facebook-group', 'xiaohongshu', 'weibo', 'blog'],
+      platforms: ['x', 'reddit', 'facebook-group'],
       saveAsDraft: true,
     });
 
@@ -649,7 +649,7 @@ describe('Generate review actions', () => {
     expect(generateAction).toHaveBeenCalledWith({
       topic: 'We added a cheaper Claude-compatible endpoint for Australian customers.',
       tone: 'professional',
-      platforms: ['x', 'reddit', 'facebook-group', 'xiaohongshu', 'weibo', 'blog'],
+      platforms: ['x', 'reddit', 'facebook-group'],
       saveAsDraft: true,
       projectId: 12,
     });
