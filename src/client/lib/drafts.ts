@@ -29,6 +29,7 @@ export interface UpdateDraftResponse {
 
 export interface PublishDraftResponse {
   success: boolean;
+  status?: string;
   publishUrl: string | null;
   message: string;
 }

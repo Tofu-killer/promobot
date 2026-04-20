@@ -884,4 +884,64 @@ describe('Review Queue lifecycle actions', () => {
       await flush();
     });
   });
+
+  it('shows manual handoff feedback when publish returns manual_required', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ReviewQueuePage } = await import('../../src/client/pages/ReviewQueue');
+
+    const loadReviewQueueAction = vi.fn().mockResolvedValue({
+      drafts: [
+        {
+          id: 31,
+          platform: 'facebook-group',
+          title: 'Community handoff',
+          content: 'Draft body',
+          hashtags: ['#community'],
+          status: 'review',
+          createdAt: '2026-04-19T00:00:00.000Z',
+          updatedAt: '2026-04-19T00:00:00.000Z',
+        },
+      ],
+    });
+    const publishReviewDraftAction = vi.fn().mockResolvedValue({
+      success: false,
+      status: 'manual_required',
+      publishUrl: null,
+      message: 'facebookGroup draft 31 is ready for manual browser handoff with the saved session.',
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ReviewQueuePage as never, {
+          loadReviewQueueAction,
+          publishReviewDraftAction,
+        }),
+      );
+      await flush();
+    });
+
+    const publishButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-review-publish-id') === '31',
+    );
+
+    expect(publishButton).not.toBeNull();
+
+    await act(async () => {
+      publishButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(publishReviewDraftAction).toHaveBeenCalledWith(31);
+    expect(collectText(container)).toContain('已转入人工接管：Community handoff');
+    expect(collectText(container)).toContain('回执状态：人工接管');
+    expect(collectText(container)).toContain('回执消息：facebookGroup draft 31 is ready for manual browser handoff with the saved session.');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
 });

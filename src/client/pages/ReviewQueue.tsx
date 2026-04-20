@@ -26,6 +26,7 @@ interface ReviewActionState {
   action: 'review' | 'publish' | 'schedule' | null;
   publishUrl: string | null;
   contractMessage: string | null;
+  contractStatus: string | null;
 }
 
 function parseProjectId(value: string) {
@@ -96,6 +97,7 @@ function createIdleActionState(): ReviewActionState {
     action: null,
     publishUrl: null,
     contractMessage: null,
+    contractStatus: null,
   };
 }
 
@@ -195,6 +197,9 @@ function formatPublishContractStatus(draft: DraftRecord, actionState: ReviewActi
     }
 
     if (actionState.status === 'success') {
+      if (actionState.contractStatus === 'manual_required') {
+        return '人工接管';
+      }
       return '已确认';
     }
 
@@ -295,6 +300,7 @@ export function ReviewQueuePage({
         action: 'review',
         publishUrl: null,
         contractMessage: null,
+        contractStatus: null,
       },
     }));
 
@@ -354,12 +360,24 @@ export function ReviewQueuePage({
       setActionStateById((currentState) => ({
         ...currentState,
         [draftId]: {
-          status: result.success ? 'success' : 'error',
-          message: result.success ? `已发布：${sourceDraft.title ?? sourceDraft.platform}` : null,
-          error: result.success ? null : result.message,
+          status:
+            result.success || result.status === 'manual_required'
+              ? 'success'
+              : 'error',
+          message:
+            result.success
+              ? `已发布：${sourceDraft.title ?? sourceDraft.platform}`
+              : result.status === 'manual_required'
+                ? `已转入人工接管：${sourceDraft.title ?? sourceDraft.platform}`
+                : null,
+          error:
+            result.success || result.status === 'manual_required'
+              ? null
+              : result.message,
           action: 'publish',
           publishUrl: result.publishUrl,
           contractMessage: result.message,
+          contractStatus: result.status ?? null,
         },
       }));
     } catch (error) {
@@ -372,6 +390,7 @@ export function ReviewQueuePage({
           action: 'publish',
           publishUrl: null,
           contractMessage: getErrorMessage(error),
+          contractStatus: 'failed',
         },
       }));
     }
@@ -396,6 +415,7 @@ export function ReviewQueuePage({
         action: 'schedule',
         publishUrl: null,
         contractMessage: null,
+        contractStatus: null,
       },
     }));
 
@@ -420,6 +440,7 @@ export function ReviewQueuePage({
           action: 'schedule',
           publishUrl: null,
           contractMessage: null,
+          contractStatus: null,
         },
       }));
     } catch (error) {
@@ -432,6 +453,7 @@ export function ReviewQueuePage({
           action: 'schedule',
           publishUrl: null,
           contractMessage: null,
+          contractStatus: null,
         },
       }));
     }
