@@ -6,6 +6,8 @@ import {
   type PublishRouteDependencies,
 } from '../../src/server/routes/publish';
 import { initDb } from '../../src/server/db';
+import type { SessionMetadata } from '../../src/server/services/browser/sessionStore';
+import * as sessionStoreModule from '../../src/server/services/browser/sessionStore';
 import { createSQLiteDraftStore } from '../../src/server/store/drafts';
 import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
 
@@ -888,7 +890,7 @@ describe('publish api', () => {
       message: 'reddit oauth failed with status 401',
       publishedAt: null,
       details: {
-        subreddit: 'promobot',
+        subreddit: 'LocalLLaMA',
         error: {
           category: 'auth',
           retriable: false,
@@ -914,6 +916,87 @@ describe('publish api', () => {
         message: 'reddit oauth failed with status 401',
       }),
     ]);
+  });
+
+  it('reuses persisted accountKey metadata for facebookGroup manual handoff contracts', async () => {
+    const session: SessionMetadata = {
+      id: 'facebookGroup:launch-campaign',
+      platform: 'facebookGroup',
+      accountKey: 'launch-campaign',
+      storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
+      status: 'active',
+      createdAt: '2026-04-19T10:00:00.000Z',
+      updatedAt: '2026-04-19T10:30:00.000Z',
+      lastValidatedAt: '2026-04-19T10:25:00.000Z',
+    };
+    vi.spyOn(sessionStoreModule, 'createSessionStore').mockReturnValue({
+      getSession: vi.fn().mockReturnValue(session),
+    } as unknown as sessionStoreModule.SessionStore);
+
+    const testDatabase = createTestDatabasePath();
+    activeTestDbRoot = testDatabase.rootDir;
+    activeTestDatabasePath = testDatabase.databasePath;
+    const draftStore = createSQLiteDraftStore();
+    const draft = draftStore.create({
+      platform: 'facebook-group',
+      title: 'Community update',
+      content: 'Needs browser handoff',
+      target: 'group-123',
+      metadata: {
+        accountKey: 'launch-campaign',
+      },
+    });
+    const app = createTestApp(
+      {
+        lookupDraft(id) {
+          const storedDraft = draftStore.getById(id);
+          if (!storedDraft) {
+            return undefined;
+          }
+
+          return {
+            id: storedDraft.id,
+            platform: storedDraft.platform,
+            title: storedDraft.title,
+            content: storedDraft.content,
+            target: storedDraft.target,
+            metadata: storedDraft.metadata,
+          };
+        },
+      },
+      { useDefaultPersistence: true },
+    );
+
+    const response = await requestApp(app, 'POST', `/api/drafts/${draft.id}/publish`);
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({
+      draftId: draft.id,
+      draftStatus: 'review',
+      platform: 'facebookGroup',
+      mode: 'browser',
+      status: 'manual_required',
+      success: false,
+      publishUrl: null,
+      externalId: null,
+      message: 'facebookGroup draft 1 is ready for manual browser handoff with the saved session.',
+      publishedAt: null,
+      details: {
+        target: 'group-123',
+        accountKey: 'launch-campaign',
+        browserHandoff: {
+          readiness: 'ready',
+          session: {
+            hasSession: true,
+            id: 'facebookGroup:launch-campaign',
+            status: 'active',
+            validatedAt: '2026-04-19T10:25:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
+          },
+          sessionAction: null,
+        },
+      },
+    });
   });
 
   it('returns 400 for an invalid draft id', async () => {

@@ -54,6 +54,8 @@ export function createApp(config: AppConfig = loadConfig(), dependencies: AppDep
           platform: draft.platform,
           title: draft.title,
           content: draft.content,
+          target: draft.target,
+          metadata: draft.metadata,
         };
       },
     }),

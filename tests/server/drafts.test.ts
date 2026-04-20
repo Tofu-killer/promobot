@@ -179,6 +179,11 @@ describe('drafts api', () => {
       platform: 'x',
       content: 'x-draft-content',
       projectId: 7,
+      target: '@launchpad',
+      metadata: {
+        campaign: 'spring-launch',
+        channel: 'organic',
+      },
     });
 
     expect(created).toEqual(
@@ -187,18 +192,33 @@ describe('drafts api', () => {
         platform: 'x',
         content: 'x-draft-content',
         projectId: 7,
+        target: '@launchpad',
+        metadata: {
+          campaign: 'spring-launch',
+          channel: 'organic',
+        },
       }),
     );
     expect(store.list()).toEqual([
       expect.objectContaining({
         id: 1,
         projectId: 7,
+        target: '@launchpad',
+        metadata: {
+          campaign: 'spring-launch',
+          channel: 'organic',
+        },
       }),
     ]);
 
     const updated = store.update(created.id, {
       content: 'updated-x-draft-content',
       projectId: 9,
+      target: '@growth',
+      metadata: {
+        campaign: 'spring-launch',
+        channel: 'paid',
+      },
     });
 
     expect(updated).toEqual(
@@ -206,12 +226,22 @@ describe('drafts api', () => {
         id: 1,
         content: 'updated-x-draft-content',
         projectId: 9,
+        target: '@growth',
+        metadata: {
+          campaign: 'spring-launch',
+          channel: 'paid',
+        },
       }),
     );
     expect(store.getById(created.id)).toEqual(
       expect.objectContaining({
         id: 1,
         projectId: 9,
+        target: '@growth',
+        metadata: {
+          campaign: 'spring-launch',
+          channel: 'paid',
+        },
       }),
     );
   });
@@ -242,6 +272,7 @@ describe('drafts api', () => {
           hashtags: [],
           projectId: null,
           status: 'draft',
+          metadata: {},
         }),
       ],
     });
@@ -278,6 +309,7 @@ describe('drafts api', () => {
           id: 1,
           projectId: 11,
           content: 'project-11-draft',
+          metadata: {},
         }),
       ],
     });
@@ -288,24 +320,31 @@ describe('drafts api', () => {
         expect.objectContaining({
           id: 1,
           projectId: 11,
+          metadata: {},
         }),
         expect.objectContaining({
           id: 2,
           projectId: 22,
+          metadata: {},
         }),
         expect.objectContaining({
           id: 3,
           projectId: null,
+          metadata: {},
         }),
       ],
     });
   });
 
-  it('updates draft content and status', async () => {
+  it('updates draft content status target and metadata', async () => {
     const store = createSQLiteDraftStore();
     store.create({
       platform: 'reddit',
       content: 'reddit-draft-content',
+      target: 'r/promobot',
+      metadata: {
+        flair: 'launch',
+      },
     });
     const app = createApp({
       allowedIps: ['127.0.0.1'],
@@ -318,6 +357,11 @@ describe('drafts api', () => {
       projectId: 12,
       status: 'review',
       title: 'Updated Reddit Draft',
+      target: 'r/growth',
+      metadata: {
+        flair: 'case-study',
+        nsfw: false,
+      },
     });
 
     expect(response.status).toBe(200);
@@ -330,6 +374,11 @@ describe('drafts api', () => {
         hashtags: ['#launch'],
         projectId: 12,
         status: 'review',
+        target: 'r/growth',
+        metadata: {
+          flair: 'case-study',
+          nsfw: false,
+        },
       }),
     });
   });

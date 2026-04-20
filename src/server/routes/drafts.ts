@@ -18,6 +18,8 @@ export interface DraftRecord {
   platform: string;
   title?: string;
   content: string;
+  target?: string;
+  metadata: Record<string, unknown>;
   hashtags: string[];
   status: DraftStatus;
   scheduledAt?: string;
@@ -31,6 +33,8 @@ export interface CreateDraftInput {
   platform: string;
   title?: string;
   content: string;
+  target?: string;
+  metadata?: Record<string, unknown>;
   hashtags?: string[];
   status?: DraftStatus;
 }
@@ -39,6 +43,8 @@ export interface UpdateDraftInput {
   projectId?: number;
   title?: string;
   content?: string;
+  target?: string;
+  metadata?: Record<string, unknown>;
   hashtags?: string[];
   status?: DraftStatus;
   scheduledAt?: string | null;
@@ -114,6 +120,12 @@ export function createDraftsRouter(
     if (typeof request.body?.content === 'string') {
       patch.content = request.body.content;
     }
+    if (typeof request.body?.target === 'string') {
+      patch.target = request.body.target;
+    }
+    if (isPlainObject(request.body?.metadata)) {
+      patch.metadata = request.body.metadata;
+    }
     if (Number.isInteger(request.body?.projectId) && request.body.projectId > 0) {
       patch.projectId = request.body.projectId;
     }
@@ -144,6 +156,10 @@ export function createDraftsRouter(
   });
 
   return draftsRouter;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function normalizeDraftPatch(currentDraft: DraftRecord, patch: UpdateDraftInput): UpdateDraftInput {

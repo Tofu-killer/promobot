@@ -12,25 +12,25 @@ export function createSQLiteDraftStore(): DraftStore {
   return {
     create(input) {
       return withDatabase((database) => {
-        ensureDraftsProjectIdColumn(database);
+        ensureDraftsSchemaColumns(database);
         return insertDraft(database, input);
       });
     },
     getById(id) {
       return withDatabase((database) => {
-        ensureDraftsProjectIdColumn(database);
+        ensureDraftsSchemaColumns(database);
         return getDraftById(database, id);
       });
     },
     list(status, projectId) {
       return withDatabase((database) => {
-        ensureDraftsProjectIdColumn(database);
+        ensureDraftsSchemaColumns(database);
         return listDrafts(database, status, projectId);
       });
     },
     update(id, input) {
       return withDatabase((database) => {
-        ensureDraftsProjectIdColumn(database);
+        ensureDraftsSchemaColumns(database);
         return updateDraft(database, id, input);
       });
     },
@@ -50,6 +50,8 @@ function insertDraft(database: DatabaseConnection, input: CreateDraftInput): Dra
           platform,
           title,
           content,
+          target,
+          metadata,
           hashtags,
           status,
           scheduled_at,
@@ -62,6 +64,8 @@ function insertDraft(database: DatabaseConnection, input: CreateDraftInput): Dra
           @platform,
           @title,
           @content,
+          @target,
+          @metadata,
           @hashtags,
           @status,
           @scheduled_at,
@@ -76,6 +80,8 @@ function insertDraft(database: DatabaseConnection, input: CreateDraftInput): Dra
       platform: input.platform,
       title: input.title ?? null,
       content: input.content,
+      target: input.target ?? null,
+      metadata: JSON.stringify(input.metadata ?? {}),
       hashtags,
       status,
       scheduled_at: null,
@@ -109,7 +115,7 @@ function listDrafts(database: DatabaseConnection, status?: string, projectId?: n
   const rows = database
     .prepare(
       `
-        SELECT id, project_id AS projectId, platform, title, content, hashtags, status,
+        SELECT id, project_id AS projectId, platform, title, content, target, metadata, hashtags, status,
                scheduled_at AS scheduledAt, published_at AS publishedAt,
                created_at AS createdAt, updated_at AS updatedAt
         FROM drafts
@@ -137,6 +143,8 @@ function updateDraft(
     projectId: input.projectId ?? current.projectId,
     title: input.title !== undefined ? input.title : current.title,
     content: input.content !== undefined ? input.content : current.content,
+    target: input.target !== undefined ? input.target : current.target,
+    metadata: input.metadata !== undefined ? { ...input.metadata } : { ...current.metadata },
     hashtags: input.hashtags !== undefined ? [...input.hashtags] : [...current.hashtags],
     status: input.status !== undefined ? input.status : current.status,
     scheduledAt:
@@ -153,6 +161,8 @@ function updateDraft(
         SET project_id = @project_id,
             title = @title,
             content = @content,
+            target = @target,
+            metadata = @metadata,
             hashtags = @hashtags,
             status = @status,
             scheduled_at = @scheduled_at,
@@ -166,6 +176,8 @@ function updateDraft(
       project_id: nextDraft.projectId,
       title: nextDraft.title ?? null,
       content: nextDraft.content,
+      target: nextDraft.target ?? null,
+      metadata: JSON.stringify(nextDraft.metadata ?? {}),
       hashtags: JSON.stringify(nextDraft.hashtags),
       status: nextDraft.status,
       scheduled_at: nextDraft.scheduledAt ?? null,
@@ -180,7 +192,7 @@ function getDraftById(database: DatabaseConnection, id: number): DraftRecord | u
   const row = database
     .prepare(
       `
-        SELECT id, project_id AS projectId, platform, title, content, hashtags, status,
+        SELECT id, project_id AS projectId, platform, title, content, target, metadata, hashtags, status,
                scheduled_at AS scheduledAt, published_at AS publishedAt,
                created_at AS createdAt, updated_at AS updatedAt
         FROM drafts
@@ -200,6 +212,8 @@ function normalizeDraftRow(row: Record<string, unknown>): DraftRecord {
     platform: String(row.platform),
     title: typeof row.title === 'string' ? row.title : undefined,
     content: String(row.content),
+    target: typeof row.target === 'string' ? row.target : undefined,
+    metadata: parseJsonObject(row.metadata),
     hashtags: Array.isArray(hashtags) ? hashtags.filter((item): item is string => typeof item === 'string') : [],
     status: String(row.status) as DraftStatus,
     scheduledAt: typeof row.scheduledAt === 'string' ? row.scheduledAt : undefined,
@@ -209,16 +223,22 @@ function normalizeDraftRow(row: Record<string, unknown>): DraftRecord {
   };
 }
 
-function ensureDraftsProjectIdColumn(database: DatabaseConnection) {
+function ensureDraftsSchemaColumns(database: DatabaseConnection) {
   const columns = database
     .prepare('PRAGMA table_info(drafts)')
     .all() as Array<{ name?: unknown }>;
 
-  if (columns.some((column) => column.name === 'project_id')) {
-    return;
+  if (!columns.some((column) => column.name === 'project_id')) {
+    database.exec('ALTER TABLE drafts ADD COLUMN project_id INTEGER');
   }
 
-  database.exec('ALTER TABLE drafts ADD COLUMN project_id INTEGER');
+  if (!columns.some((column) => column.name === 'target')) {
+    database.exec('ALTER TABLE drafts ADD COLUMN target TEXT');
+  }
+
+  if (!columns.some((column) => column.name === 'metadata')) {
+    database.exec(`ALTER TABLE drafts ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}'`);
+  }
 }
 
 function parseOptionalInteger(value: unknown): number | null {
@@ -244,5 +264,20 @@ function parseJsonArray(value: unknown): unknown[] {
     return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
+  }
+}
+
+function parseJsonObject(value: unknown) {
+  if (typeof value !== 'string') {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
   }
 }

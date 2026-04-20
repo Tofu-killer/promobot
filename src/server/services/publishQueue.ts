@@ -95,6 +95,8 @@ function toPublishableDraft(draft: {
   platform: string;
   title?: string;
   content: string;
+  target?: string;
+  metadata?: Record<string, unknown>;
 }): PublishableDraft {
   return {
     id: draft.id,
@@ -102,6 +104,8 @@ function toPublishableDraft(draft: {
     platform: draft.platform,
     title: draft.title,
     content: draft.content,
+    target: draft.target,
+    metadata: draft.metadata,
   };
 }
 
