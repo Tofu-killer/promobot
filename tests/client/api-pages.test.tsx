@@ -1975,8 +1975,8 @@ describe('client API page wiring', () => {
     expect(html).toContain('AI 配置');
     expect(html).toContain('平台就绪度');
     expect(html).toContain('发布就绪：已就绪');
-    expect(html).toContain('发布就绪：需要登录会话');
-    expect(html).toContain('建议动作：请求登录');
+    expect(html).toContain('发布就绪：人工接管待准备');
+    expect(html).toContain('建议动作：准备人工接管');
     expect(html).toContain('RSS 默认源');
     expect(html).toContain('监控来源配置');
     expect(html).toContain('Monitor RSS 源');

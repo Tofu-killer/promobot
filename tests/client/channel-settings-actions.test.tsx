@@ -521,8 +521,8 @@ describe('settings save validation and feedback', () => {
     expect(successHtml).toContain('排程 Monitor Fetch');
     expect(successHtml).toContain('平台就绪度');
     expect(successHtml).toContain('发布就绪：已就绪');
-    expect(successHtml).toContain('发布就绪：需要登录会话');
-    expect(successHtml).toContain('建议动作：请求登录');
+    expect(successHtml).toContain('发布就绪：人工接管待准备');
+    expect(successHtml).toContain('建议动作：准备人工接管');
     expect(successHtml).toContain('X API token 已配置，可直接尝试发布。');
     expect(successHtml).toContain('监控来源配置');
     expect(successHtml).toContain('https://openai.com/blog/rss.xml');
@@ -652,7 +652,7 @@ describe('settings save validation and feedback', () => {
     expect(collectText(container)).toContain('staging');
     expect(collectText(container)).toContain('平台就绪度');
     expect(collectText(container)).toContain('Facebook Group');
-    expect(collectText(container)).toContain('请求登录');
+    expect(collectText(container)).toContain('准备人工接管');
 
     await act(async () => {
       root.unmount();

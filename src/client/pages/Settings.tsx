@@ -366,8 +366,8 @@ function formatContractValue(value: unknown) {
 function formatPlatformStatus(value: unknown) {
   if (value === 'ready') return '已就绪';
   if (value === 'needs_config') return '待配置';
-  if (value === 'needs_session') return '需要登录会话';
-  if (value === 'needs_relogin') return '需要重新登录';
+  if (value === 'needs_session') return '人工接管待准备';
+  if (value === 'needs_relogin') return '人工接管需重登';
   return formatContractValue(value);
 }
 
@@ -380,15 +380,15 @@ function formatPlatformName(value: unknown) {
 
 function formatPlatformMode(value: unknown) {
   if (value === 'api') return 'API';
-  if (value === 'browser') return '浏览器接管';
+  if (value === 'browser') return '人工浏览器接管';
   if (value === 'manual') return '人工处理';
   return formatContractValue(value);
 }
 
 function formatPlatformAction(value: unknown) {
   if (value === 'configure_credentials') return '配置凭证';
-  if (value === 'request_session') return '请求登录';
-  if (value === 'relogin') return '重新登录';
+  if (value === 'request_session') return '准备人工接管';
+  if (value === 'relogin') return '刷新接管会话';
   return formatContractValue(value);
 }
 
@@ -938,7 +938,7 @@ export function SettingsPage({
           ])}
         </SectionCard>
 
-        <SectionCard title="平台就绪度" description="这里直接消费后端返回的 readiness contract，集中判断哪些平台已经具备真实执行条件。">
+        <SectionCard title="平台就绪度" description="这里直接消费后端返回的 readiness contract，集中判断哪些平台已经具备真实执行或人工接管条件。">
           <div style={{ display: 'grid', gap: '12px' }}>
             {platformReadiness.length > 0 ? (
               platformReadiness.map((platform) => (
