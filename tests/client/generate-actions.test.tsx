@@ -530,6 +530,15 @@ function findElement(node: FakeNode, matcher: (element: FakeElement) => boolean)
   return null;
 }
 
+function findPlatformCheckbox(container: FakeNode, platformValue: string) {
+  const platformCard = findElement(
+    container,
+    (element) => element.getAttribute('data-generate-platform') === platformValue,
+  );
+
+  return platformCard ? findElement(platformCard, (element) => element.tagName === 'INPUT') : null;
+}
+
 function updateFieldValue(element: FakeElement | null, value: string, window: FakeWindow) {
   if (!element) {
     throw new Error('expected form field');
@@ -565,6 +574,55 @@ afterEach(() => {
 });
 
 describe('Generate review actions', () => {
+  it('keeps only ready launch platforms selectable by default', async () => {
+    const { container } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { GeneratePage } = await import('../../src/client/pages/Generate');
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(createElement(GeneratePage as never));
+      await flush();
+    });
+
+    const xCheckbox = findPlatformCheckbox(container, 'x') as (FakeElement & { checked?: boolean }) | null;
+    const redditCheckbox = findPlatformCheckbox(container, 'reddit') as (FakeElement & { checked?: boolean }) | null;
+    const facebookGroupCheckbox = findPlatformCheckbox(container, 'facebook-group') as (FakeElement & {
+      checked?: boolean;
+    }) | null;
+    const xiaohongshuCheckbox = findPlatformCheckbox(container, 'xiaohongshu') as (FakeElement & {
+      checked?: boolean;
+    }) | null;
+    const weiboCheckbox = findPlatformCheckbox(container, 'weibo') as (FakeElement & { checked?: boolean }) | null;
+    const blogCheckbox = findPlatformCheckbox(container, 'blog') as (FakeElement & { checked?: boolean }) | null;
+
+    expect(xCheckbox).not.toBeNull();
+    expect(redditCheckbox).not.toBeNull();
+    expect(facebookGroupCheckbox).not.toBeNull();
+    expect(xiaohongshuCheckbox).not.toBeNull();
+    expect(weiboCheckbox).not.toBeNull();
+    expect(blogCheckbox).not.toBeNull();
+
+    expect(xCheckbox?.checked).toBe(true);
+    expect(redditCheckbox?.checked).toBe(true);
+    expect(facebookGroupCheckbox?.checked).toBe(false);
+    expect(xiaohongshuCheckbox?.checked).toBe(false);
+    expect(weiboCheckbox?.checked).toBe(false);
+    expect(blogCheckbox?.checked).toBe(false);
+
+    expect(xCheckbox?.disabled).toBe(false);
+    expect(redditCheckbox?.disabled).toBe(false);
+    expect(facebookGroupCheckbox?.disabled).toBe(true);
+    expect(xiaohongshuCheckbox?.disabled).toBe(true);
+    expect(weiboCheckbox?.disabled).toBe(true);
+    expect(blogCheckbox?.disabled).toBe(true);
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('keeps the legacy generate payload when projectId is omitted', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');

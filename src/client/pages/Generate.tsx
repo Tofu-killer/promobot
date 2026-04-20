@@ -275,7 +275,7 @@ export function GeneratePage({
         >
           <h3 style={{ marginTop: 0, marginBottom: '16px', fontSize: '20px' }}>选择渠道</h3>
           <p style={{ margin: '0 0 16px', color: '#475569', lineHeight: 1.6 }}>
-            当前首发默认勾选真实可运营或人工接管链路；暂缓首发的平台仍可手动勾选生成文案，但不建议作为首发发布路径。
+            当前仅开放首发可用渠道生成文案；人工接管和暂缓首发的平台仅展示当前首发范围，暂不支持在此页勾选。
           </p>
           <div style={{ display: 'grid', gap: '10px' }}>
             {platformOptions.map((platform) => (
