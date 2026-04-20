@@ -281,10 +281,7 @@ export function ProjectsPage({
   );
 
   const loadedProjects = useMemo(
-    () =>
-      displayProjectsState.status === 'success' && displayProjectsState.data
-        ? displayProjectsState.data.projects
-        : [],
+    () => displayProjectsState.data?.projects ?? [],
     [displayProjectsState],
   );
 
@@ -714,7 +711,7 @@ export function ProjectsPage({
         {displayProjectsState.status === 'error' ? <p style={{ margin: 0, color: '#b91c1c' }}>项目列表加载失败：{displayProjectsState.error}</p> : null}
         {saveMessage ? <p style={{ margin: '0 0 12px', color: '#166534' }}>{saveMessage}</p> : null}
 
-        {projects.length === 0 ? (
+        {displayProjectsState.status === 'success' && projects.length === 0 ? (
           <p style={{ margin: 0, color: '#475569' }}>暂无项目</p>
         ) : (
           <div style={{ display: 'grid', gap: '16px' }}>

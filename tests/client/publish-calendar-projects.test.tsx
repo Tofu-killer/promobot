@@ -799,6 +799,57 @@ describe('PublishCalendar and Projects pages', () => {
     expect(html).toContain('Source Configs');
   });
 
+  it('keeps cached projects visible during project list loading and error states', async () => {
+    const { ProjectsPage } = await import('../../src/client/pages/Projects');
+
+    const loadingHtml = renderComponent(ProjectsPage, {
+      stateOverride: { status: 'idle' },
+      projectsStateOverride: {
+        status: 'loading',
+        data: {
+          projects: [
+            {
+              id: 7,
+              name: 'Acme Launch',
+              siteName: 'Acme',
+              siteUrl: 'https://acme.test',
+              siteDescription: 'Launch week campaign',
+              sellingPoints: ['Cheap', 'Fast'],
+            },
+          ],
+        },
+      },
+    });
+
+    expect(loadingHtml).toContain('正在加载项目列表');
+    expect(loadingHtml).toContain('Acme Launch');
+    expect(loadingHtml).not.toContain('暂无项目');
+
+    const errorHtml = renderComponent(ProjectsPage, {
+      stateOverride: { status: 'idle' },
+      projectsStateOverride: {
+        status: 'error',
+        error: 'Request failed with status 500',
+        data: {
+          projects: [
+            {
+              id: 7,
+              name: 'Acme Launch',
+              siteName: 'Acme',
+              siteUrl: 'https://acme.test',
+              siteDescription: 'Launch week campaign',
+              sellingPoints: ['Cheap', 'Fast'],
+            },
+          ],
+        },
+      },
+    });
+
+    expect(errorHtml).toContain('项目列表加载失败');
+    expect(errorHtml).toContain('Acme Launch');
+    expect(errorHtml).not.toContain('暂无项目');
+  });
+
   it('shows source config loading, error, and success states inside loaded projects', async () => {
     const { ProjectsPage } = await import('../../src/client/pages/Projects');
 
@@ -892,6 +943,95 @@ describe('PublishCalendar and Projects pages', () => {
     expect(html).toContain('Reddit mentions');
     expect(html).toContain('keyword+reddit');
     expect(html).toContain('30 分钟');
+  });
+
+  it('keeps cached source configs visible during loading and error states', async () => {
+    const { ProjectsPage } = await import('../../src/client/pages/Projects');
+
+    const loadingHtml = renderComponent(ProjectsPage, {
+      stateOverride: { status: 'idle' },
+      projectsStateOverride: {
+        status: 'success',
+        data: {
+          projects: [
+            {
+              id: 7,
+              name: 'Acme Launch',
+              siteName: 'Acme',
+              siteUrl: 'https://acme.test',
+              siteDescription: 'Launch week campaign',
+              sellingPoints: ['Cheap', 'Fast'],
+            },
+          ],
+        },
+      },
+      sourceConfigsStateOverride: {
+        status: 'loading',
+        data: {
+          sourceConfigsByProject: {
+            7: [
+              {
+                id: 3,
+                projectId: 7,
+                sourceType: 'keyword+reddit',
+                platform: 'reddit',
+                label: 'Reddit mentions',
+                configJson: { keywords: ['claude latency australia'] },
+                enabled: true,
+                pollIntervalMinutes: 30,
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    expect(loadingHtml).toContain('正在加载 SourceConfig');
+    expect(loadingHtml).toContain('Reddit mentions');
+    expect(loadingHtml).not.toContain('暂无 SourceConfig');
+
+    const errorHtml = renderComponent(ProjectsPage, {
+      stateOverride: { status: 'idle' },
+      projectsStateOverride: {
+        status: 'success',
+        data: {
+          projects: [
+            {
+              id: 7,
+              name: 'Acme Launch',
+              siteName: 'Acme',
+              siteUrl: 'https://acme.test',
+              siteDescription: 'Launch week campaign',
+              sellingPoints: ['Cheap', 'Fast'],
+            },
+          ],
+        },
+      },
+      sourceConfigsStateOverride: {
+        status: 'error',
+        error: 'Request failed with status 500',
+        data: {
+          sourceConfigsByProject: {
+            7: [
+              {
+                id: 3,
+                projectId: 7,
+                sourceType: 'keyword+reddit',
+                platform: 'reddit',
+                label: 'Reddit mentions',
+                configJson: { keywords: ['claude latency australia'] },
+                enabled: true,
+                pollIntervalMinutes: 30,
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    expect(errorHtml).toContain('SourceConfig 加载失败');
+    expect(errorHtml).toContain('Reddit mentions');
+    expect(errorHtml).not.toContain('暂无 SourceConfig');
   });
 
   it('keeps create project working and appends the created project to the list', async () => {
