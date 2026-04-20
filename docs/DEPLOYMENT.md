@@ -46,6 +46,7 @@ set +a
   - 中间件会把 `::ffff:1.2.3.4` 规范化为 `1.2.3.4`
 - `ADMIN_PASSWORD`
   - 进程启动时会读取
+  - 在 `NODE_ENV=production` 下，若仍是默认值 `change-me`，服务会拒绝启动
   - 除 `/api/system/health` 外，其它 `/api/*` 请求都需要提供匹配的管理员密码
   - 当前前端会把登录时输入的密码保存在浏览器本地存储，并自动附加到后续 API 请求
 - `PROMOBOT_DB_PATH`

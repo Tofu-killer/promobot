@@ -11,9 +11,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     .split(',')
     .map((value) => value.trim())
     .filter(Boolean);
+  const adminPassword = env.ADMIN_PASSWORD?.trim() || DEFAULT_ADMIN_PASSWORD;
+
+  if (env.NODE_ENV === 'production' && adminPassword === DEFAULT_ADMIN_PASSWORD) {
+    throw new Error('ADMIN_PASSWORD must be set to a non-default value in production');
+  }
 
   return {
     allowedIps: allowedIps.length > 0 ? allowedIps : DEFAULT_ALLOWED_IPS,
-    adminPassword: env.ADMIN_PASSWORD?.trim() || DEFAULT_ADMIN_PASSWORD,
+    adminPassword,
   };
 }
