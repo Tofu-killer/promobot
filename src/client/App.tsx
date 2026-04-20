@@ -33,10 +33,19 @@ const navItems: NavItem[] = [
   { id: 'settings', label: 'Settings', description: '系统配置与安全策略' }
 ];
 
-function renderRoute(route: AppRoute) {
+function renderRoute(
+  route: AppRoute,
+  sharedProjectIdDraft: string,
+  onProjectIdDraftChange: (value: string) => void,
+) {
   switch (route) {
     case 'dashboard':
-      return <DashboardPage />;
+      return (
+        <DashboardPage
+          projectIdDraftOverride={sharedProjectIdDraft}
+          onProjectIdDraftChange={onProjectIdDraftChange}
+        />
+      );
     case 'queue':
       return <SystemQueuePage />;
     case 'projects':
@@ -44,7 +53,12 @@ function renderRoute(route: AppRoute) {
     case 'discovery':
       return <DiscoveryPage />;
     case 'generate':
-      return <GeneratePage />;
+      return (
+        <GeneratePage
+          projectIdDraftOverride={sharedProjectIdDraft}
+          onProjectIdDraftChange={onProjectIdDraftChange}
+        />
+      );
     case 'drafts':
       return <DraftsPage />;
     case 'review':
@@ -54,7 +68,12 @@ function renderRoute(route: AppRoute) {
     case 'inbox':
       return <InboxPage />;
     case 'monitor':
-      return <MonitorPage />;
+      return (
+        <MonitorPage
+          projectIdDraftOverride={sharedProjectIdDraft}
+          onProjectIdDraftChange={onProjectIdDraftChange}
+        />
+      );
     case 'reputation':
       return <ReputationPage />;
     case 'channels':
@@ -62,7 +81,12 @@ function renderRoute(route: AppRoute) {
     case 'settings':
       return <SettingsPage />;
     default:
-      return <DashboardPage />;
+      return (
+        <DashboardPage
+          projectIdDraftOverride={sharedProjectIdDraft}
+          onProjectIdDraftChange={onProjectIdDraftChange}
+        />
+      );
   }
 }
 
@@ -73,6 +97,7 @@ interface AppProps {
 
 export default function App({ initialRoute = 'dashboard', initialAdminPassword = null }: AppProps) {
   const [activeRoute, setActiveRoute] = useState<AppRoute>(initialRoute);
+  const [sharedProjectIdDraft, setSharedProjectIdDraft] = useState('');
   const [adminPassword, setAdminPassword] = useState<string | null>(
     typeof window === 'undefined' ? initialAdminPassword : initialAdminPassword,
   );
@@ -124,7 +149,7 @@ export default function App({ initialRoute = 'dashboard', initialAdminPassword =
 
   return (
     <Layout activeRoute={activeRoute} navItems={navItems} onNavigate={setActiveRoute}>
-      {renderRoute(activeRoute)}
+      {renderRoute(activeRoute, sharedProjectIdDraft, setSharedProjectIdDraft)}
     </Layout>
   );
 }

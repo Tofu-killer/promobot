@@ -132,6 +132,8 @@ interface MonitorPageProps {
   followUpStateOverride?: AsyncState<FollowUpDraftResponse>;
   fetchStateOverride?: AsyncState<FetchMonitorFeedResponse>;
   enqueueStateOverride?: AsyncState<EnqueueMonitorFetchJobResponse>;
+  projectIdDraftOverride?: string;
+  onProjectIdDraftChange?: (value: string) => void;
 }
 
 type MonitorSourceFilter = 'all' | 'x' | 'rss' | 'reddit' | 'product-hunt';
@@ -162,9 +164,12 @@ export function MonitorPage({
   followUpStateOverride,
   fetchStateOverride,
   enqueueStateOverride,
+  projectIdDraftOverride,
+  onProjectIdDraftChange,
 }: MonitorPageProps) {
   const resolvedEnqueueAction = enqueueMonitorAction ?? enqueueFetchJobAction ?? enqueueMonitorFetchJobRequest;
-  const [projectIdDraft, setProjectIdDraft] = useState('');
+  const [localProjectIdDraft, setLocalProjectIdDraft] = useState('');
+  const projectIdDraft = projectIdDraftOverride ?? localProjectIdDraft;
   const projectId = parseProjectId(projectIdDraft);
   const { state, reload } = useAsyncQuery(
     () => (projectId === undefined ? loadMonitorAction() : loadMonitorAction(projectId)),
@@ -287,6 +292,21 @@ export function MonitorPage({
         }
       />
 
+      <label style={{ display: 'grid', gap: '8px', marginBottom: '20px' }}>
+        <span style={{ fontWeight: 700 }}>项目 ID（可选）</span>
+        <input
+          value={projectIdDraft}
+          onChange={(event) => {
+            if (projectIdDraftOverride === undefined) {
+              setLocalProjectIdDraft(event.target.value);
+            }
+            onProjectIdDraftChange?.(event.target.value);
+          }}
+          placeholder="例如 12"
+          style={queueInputStyle}
+        />
+      </label>
+
       {displayState.status === 'loading' ? <p style={{ color: '#334155' }}>正在加载监控动态...</p> : null}
       {displayState.status === 'error' ? <p style={{ color: '#b91c1c' }}>监控动态加载失败：{displayState.error}</p> : null}
       {displayState.status === 'idle' ? (
@@ -336,16 +356,6 @@ export function MonitorPage({
         <>
           <SectionCard title="抓取排程" description="留空表示立即入队，也可以填写 ISO 时间，作为定时抓取的 runAt。">
             <div style={{ display: 'grid', gap: '16px' }}>
-              <label style={{ display: 'grid', gap: '8px' }}>
-                <span style={{ fontWeight: 700 }}>项目 ID（可选）</span>
-                <input
-                  value={projectIdDraft}
-                  onChange={(event) => setProjectIdDraft(event.target.value)}
-                  placeholder="例如 12"
-                  style={queueInputStyle}
-                />
-              </label>
-
               <label style={{ display: 'grid', gap: '8px' }}>
                 <span style={{ fontWeight: 700 }}>计划抓取时间（可选）</span>
                 <input

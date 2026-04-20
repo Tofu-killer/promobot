@@ -971,7 +971,7 @@ describe('Monitor follow-up actions', () => {
     });
   });
 
-  it('passes the active projectId into follow-up generation for selected monitor items', async () => {
+  it('reloads the selected monitor project scope before generating a follow-up draft', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
     const { MonitorPage } = await import('../../src/client/pages/Monitor');

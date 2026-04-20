@@ -111,6 +111,8 @@ interface GeneratePageProps {
   generateAction?: (input: GenerateDraftsPayload) => Promise<GenerateDraftsResponse>;
   sendDraftToReviewAction?: (id: number) => Promise<SendDraftToReviewResponse>;
   stateOverride?: AsyncState<GenerateDraftsResponse>;
+  projectIdDraftOverride?: string;
+  onProjectIdDraftChange?: (value: string) => void;
 }
 
 function createIdleReviewMutationState(): ReviewMutationState {
@@ -126,9 +128,12 @@ export function GeneratePage({
   generateAction = generateDraftsRequest,
   sendDraftToReviewAction = sendDraftToReviewRequest,
   stateOverride,
+  projectIdDraftOverride,
+  onProjectIdDraftChange,
 }: GeneratePageProps) {
   const [topic, setTopic] = useState('We added a cheaper Claude-compatible endpoint for Australian customers.');
-  const [projectIdDraft, setProjectIdDraft] = useState('');
+  const [localProjectIdDraft, setLocalProjectIdDraft] = useState('');
+  const projectIdDraft = projectIdDraftOverride ?? localProjectIdDraft;
   const projectId = parseProjectId(projectIdDraft);
   const [tone, setTone] = useState<(typeof toneOptions)[number]['value']>('professional');
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>(defaultLaunchPlatforms);
@@ -236,7 +241,12 @@ export function GeneratePage({
             <span style={{ fontWeight: 700 }}>项目 ID（可选）</span>
             <input
               value={projectIdDraft}
-              onChange={(event) => setProjectIdDraft(event.target.value)}
+              onChange={(event) => {
+                if (projectIdDraftOverride === undefined) {
+                  setLocalProjectIdDraft(event.target.value);
+                }
+                onProjectIdDraftChange?.(event.target.value);
+              }}
               placeholder="例如 12"
               style={projectInputStyle}
             />
