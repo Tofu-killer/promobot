@@ -3,6 +3,7 @@ import { withDatabase } from '../lib/persistence';
 
 export interface ChannelAccountRecord {
   id: number;
+  projectId: number | null;
   platform: string;
   accountKey: string;
   displayName: string;
@@ -14,6 +15,7 @@ export interface ChannelAccountRecord {
 }
 
 export interface CreateChannelAccountInput {
+  projectId?: number;
   platform: string;
   accountKey: string;
   displayName: string;
@@ -23,6 +25,7 @@ export interface CreateChannelAccountInput {
 }
 
 export interface UpdateChannelAccountInput {
+  projectId?: number;
   platform?: string;
   accountKey?: string;
   displayName?: string;
@@ -45,19 +48,34 @@ export interface ChannelAccountStore {
 export function createChannelAccountStore(): ChannelAccountStore {
   return {
     create(input) {
-      return withDatabase((database) => insertChannelAccount(database, input));
+      return withDatabase((database) => {
+        ensureChannelAccountsProjectIdColumn(database);
+        return insertChannelAccount(database, input);
+      });
     },
     getById(id) {
-      return withDatabase((database) => getChannelAccountById(database, id));
+      return withDatabase((database) => {
+        ensureChannelAccountsProjectIdColumn(database);
+        return getChannelAccountById(database, id);
+      });
     },
     list() {
-      return withDatabase((database) => listChannelAccounts(database));
+      return withDatabase((database) => {
+        ensureChannelAccountsProjectIdColumn(database);
+        return listChannelAccounts(database);
+      });
     },
     update(id, input) {
-      return withDatabase((database) => updateChannelAccount(database, id, input));
+      return withDatabase((database) => {
+        ensureChannelAccountsProjectIdColumn(database);
+        return updateChannelAccount(database, id, input);
+      });
     },
     test(id, input) {
-      return withDatabase((database) => testChannelAccount(database, id, input));
+      return withDatabase((database) => {
+        ensureChannelAccountsProjectIdColumn(database);
+        return testChannelAccount(database, id, input);
+      });
     },
   };
 }
@@ -70,11 +88,12 @@ function insertChannelAccount(
   const result = database
     .prepare(
       `
-        INSERT INTO channel_accounts (platform, account_key, display_name, auth_type, status, metadata, created_at, updated_at)
-        VALUES (@platform, @account_key, @display_name, @auth_type, @status, @metadata, @created_at, @updated_at)
+        INSERT INTO channel_accounts (project_id, platform, account_key, display_name, auth_type, status, metadata, created_at, updated_at)
+        VALUES (@project_id, @platform, @account_key, @display_name, @auth_type, @status, @metadata, @created_at, @updated_at)
       `,
     )
     .run({
+      project_id: input.projectId ?? null,
       platform: input.platform,
       account_key: input.accountKey,
       display_name: input.displayName,
@@ -97,7 +116,7 @@ function listChannelAccounts(database: DatabaseConnection): ChannelAccountRecord
   return database
     .prepare(
       `
-        SELECT id, platform, account_key AS accountKey, display_name AS displayName,
+        SELECT id, project_id AS projectId, platform, account_key AS accountKey, display_name AS displayName,
                auth_type AS authType, status, metadata,
                created_at AS createdAt, updated_at AS updatedAt
         FROM channel_accounts
@@ -120,6 +139,7 @@ function updateChannelAccount(
 
   const nextRecord: ChannelAccountRecord = {
     ...current,
+    projectId: input.projectId ?? current.projectId,
     platform: input.platform ?? current.platform,
     accountKey: input.accountKey ?? current.accountKey,
     displayName: input.displayName ?? current.displayName,
@@ -133,7 +153,8 @@ function updateChannelAccount(
     .prepare(
       `
         UPDATE channel_accounts
-        SET platform = @platform,
+        SET project_id = @project_id,
+            platform = @platform,
             account_key = @account_key,
             display_name = @display_name,
             auth_type = @auth_type,
@@ -145,6 +166,7 @@ function updateChannelAccount(
     )
     .run({
       id,
+      project_id: nextRecord.projectId,
       platform: nextRecord.platform,
       account_key: nextRecord.accountKey,
       display_name: nextRecord.displayName,
@@ -177,7 +199,7 @@ function getChannelAccountById(
   const row = database
     .prepare(
       `
-        SELECT id, platform, account_key AS accountKey, display_name AS displayName,
+        SELECT id, project_id AS projectId, platform, account_key AS accountKey, display_name AS displayName,
                auth_type AS authType, status, metadata,
                created_at AS createdAt, updated_at AS updatedAt
         FROM channel_accounts
@@ -193,6 +215,7 @@ function normalizeChannelAccountRow(row: Record<string, unknown>): ChannelAccoun
   const metadata = parseJsonObject(row.metadata);
   return {
     id: Number(row.id),
+    projectId: parseOptionalInteger(row.projectId),
     platform: String(row.platform),
     accountKey: String(row.accountKey),
     displayName: String(row.displayName),
@@ -202,6 +225,27 @@ function normalizeChannelAccountRow(row: Record<string, unknown>): ChannelAccoun
     createdAt: String(row.createdAt),
     updatedAt: String(row.updatedAt),
   };
+}
+
+function ensureChannelAccountsProjectIdColumn(database: DatabaseConnection) {
+  const columns = database
+    .prepare('PRAGMA table_info(channel_accounts)')
+    .all() as Array<{ name?: unknown }>;
+
+  if (columns.some((column) => column.name === 'project_id')) {
+    return;
+  }
+
+  database.exec('ALTER TABLE channel_accounts ADD COLUMN project_id INTEGER');
+}
+
+function parseOptionalInteger(value: unknown): number | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  const parsed = Number(value);
+  return Number.isInteger(parsed) ? parsed : null;
 }
 
 function parseJsonObject(value: unknown): Record<string, unknown> {

@@ -99,17 +99,34 @@ const originalEnv = {
   REDDIT_USERNAME: process.env.REDDIT_USERNAME,
   REDDIT_PASSWORD: process.env.REDDIT_PASSWORD,
   REDDIT_USER_AGENT: process.env.REDDIT_USER_AGENT,
+  X_ACCESS_TOKEN: process.env.X_ACCESS_TOKEN,
+  X_BEARER_TOKEN: process.env.X_BEARER_TOKEN,
+  MONITOR_X_QUERIES: process.env.MONITOR_X_QUERIES,
+  MONITOR_X_SEARCH_SEEDS: process.env.MONITOR_X_SEARCH_SEEDS,
 };
 
 afterEach(() => {
-  process.env.REDDIT_CLIENT_ID = originalEnv.REDDIT_CLIENT_ID;
-  process.env.REDDIT_CLIENT_SECRET = originalEnv.REDDIT_CLIENT_SECRET;
-  process.env.REDDIT_USERNAME = originalEnv.REDDIT_USERNAME;
-  process.env.REDDIT_PASSWORD = originalEnv.REDDIT_PASSWORD;
-  process.env.REDDIT_USER_AGENT = originalEnv.REDDIT_USER_AGENT;
+  restoreEnv('REDDIT_CLIENT_ID', originalEnv.REDDIT_CLIENT_ID);
+  restoreEnv('REDDIT_CLIENT_SECRET', originalEnv.REDDIT_CLIENT_SECRET);
+  restoreEnv('REDDIT_USERNAME', originalEnv.REDDIT_USERNAME);
+  restoreEnv('REDDIT_PASSWORD', originalEnv.REDDIT_PASSWORD);
+  restoreEnv('REDDIT_USER_AGENT', originalEnv.REDDIT_USER_AGENT);
+  restoreEnv('X_ACCESS_TOKEN', originalEnv.X_ACCESS_TOKEN);
+  restoreEnv('X_BEARER_TOKEN', originalEnv.X_BEARER_TOKEN);
+  restoreEnv('MONITOR_X_QUERIES', originalEnv.MONITOR_X_QUERIES);
+  restoreEnv('MONITOR_X_SEARCH_SEEDS', originalEnv.MONITOR_X_SEARCH_SEEDS);
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
+
+function restoreEnv(key: string, value: string | undefined) {
+  if (value === undefined) {
+    delete process.env[key];
+    return;
+  }
+
+  process.env[key] = value;
+}
 
 describe('monitor api', () => {
   it('fetches monitor items into SQLite through the manual fetch endpoint', async () => {
@@ -223,6 +240,82 @@ describe('monitor api', () => {
     } finally {
       cleanupTestDatabasePath(rootDir);
     }
+  });
+
+  it('falls back to configured x search seeds when no x token is available', async () => {
+    delete process.env.X_ACCESS_TOKEN;
+    delete process.env.X_BEARER_TOKEN;
+    process.env.MONITOR_X_SEARCH_SEEDS = JSON.stringify([
+      {
+        id: '1888888888888',
+        query: 'openrouter failover',
+        title: 'OpenRouter failover thread',
+        text: 'Operators comparing AU routing and warm failover.',
+        author: 'routingwatch',
+        url: 'https://x.com/routingwatch/status/1888888888888',
+      },
+    ]);
+
+    const { searchX } = await import('../../src/server/services/monitor/xSearch');
+    const items = await searchX('openrouter failover');
+
+    expect(items).toEqual([
+      expect.objectContaining({
+        externalId: '1888888888888',
+        source: 'x',
+        sourceType: 'x_search',
+        title: 'OpenRouter failover thread',
+        detail: '@routingwatch · matched x search seed for openrouter failover',
+        content: 'Operators comparing AU routing and warm failover.',
+        summary: 'OpenRouter failover thread',
+        url: 'https://x.com/routingwatch/status/1888888888888',
+        matchedKeywords: ['openrouter failover'],
+        metadata: expect.objectContaining({
+          mode: 'seed',
+          searchQuery: 'openrouter failover',
+        }),
+      }),
+    ]);
+  });
+
+  it('collects x search signals through monitorFetch before generic seed fallback', async () => {
+    delete process.env.X_ACCESS_TOKEN;
+    delete process.env.X_BEARER_TOKEN;
+    process.env.MONITOR_X_QUERIES = 'openrouter failover';
+    process.env.MONITOR_X_SEARCH_SEEDS = JSON.stringify([
+      {
+        id: '1888888888888',
+        query: 'openrouter failover',
+        title: 'OpenRouter failover thread',
+        text: 'Operators comparing AU routing and warm failover.',
+        author: 'routingwatch',
+        url: 'https://x.com/routingwatch/status/1888888888888',
+      },
+    ]);
+
+    const { collectConfiguredSignals } = await import('../../src/server/services/monitorFetch');
+    const signals = await collectConfiguredSignals(
+      {
+        fetchFeeds: vi.fn().mockResolvedValue({
+          items: [],
+          failures: [],
+        }),
+      } as never,
+      {
+        monitorRssFeeds: [],
+        monitorRedditQueries: [],
+        monitorV2exQueries: [],
+      },
+    );
+
+    expect(signals).toEqual([
+      {
+        source: 'x',
+        title: 'OpenRouter failover thread',
+        detail:
+          '@routingwatch · matched x search seed for openrouter failover\n\nhttps://x.com/routingwatch/status/1888888888888',
+      },
+    ]);
   });
 
   it('creates a follow-up draft from a monitor item', async () => {

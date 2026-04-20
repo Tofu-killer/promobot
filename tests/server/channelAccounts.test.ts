@@ -92,6 +92,121 @@ async function requestApp(method: string, url: string, body?: unknown) {
 }
 
 describe('channel accounts api', () => {
+  it('creates and lists a channel account with an optional projectId binding', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/projects', {
+        name: 'AU Launch',
+        siteName: 'MyModelHub',
+        siteUrl: 'https://example.com',
+        siteDescription: 'Multi-model API gateway',
+        sellingPoints: ['Lower cost'],
+      });
+
+      const created = await requestApp('POST', '/api/channel-accounts', {
+        projectId: 1,
+        platform: 'x',
+        accountKey: '@promobot',
+        displayName: 'PromoBot X',
+        authType: 'api',
+        status: 'healthy',
+      });
+
+      expect(created.status).toBe(201);
+      expect(JSON.parse(created.body)).toEqual({
+        channelAccount: expect.objectContaining({
+          id: 1,
+          projectId: 1,
+          platform: 'x',
+          accountKey: '@promobot',
+        }),
+      });
+
+      const listed = await requestApp('GET', '/api/channel-accounts');
+
+      expect(listed.status).toBe(200);
+      expect(JSON.parse(listed.body)).toEqual({
+        channelAccounts: [
+          expect.objectContaining({
+            id: 1,
+            projectId: 1,
+            platform: 'x',
+            accountKey: '@promobot',
+          }),
+        ],
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('preserves and updates projectId bindings when patching a channel account', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/projects', {
+        name: 'AU Launch',
+        siteName: 'MyModelHub',
+        siteUrl: 'https://example.com',
+        siteDescription: 'Multi-model API gateway',
+        sellingPoints: ['Lower cost'],
+      });
+      await requestApp('POST', '/api/projects', {
+        name: 'US Launch',
+        siteName: 'MyModelHub US',
+        siteUrl: 'https://us.example.com',
+        siteDescription: 'Multi-model API gateway',
+        sellingPoints: ['Faster response'],
+      });
+      await requestApp('POST', '/api/channel-accounts', {
+        projectId: 1,
+        platform: 'x',
+        accountKey: '@promobot',
+        displayName: 'PromoBot X',
+        authType: 'api',
+        status: 'healthy',
+      });
+
+      const preserved = await requestApp('PATCH', '/api/channel-accounts/1', {
+        displayName: 'PromoBot X Ops',
+      });
+
+      expect(preserved.status).toBe(200);
+      expect(JSON.parse(preserved.body)).toEqual({
+        channelAccount: expect.objectContaining({
+          id: 1,
+          projectId: 1,
+          displayName: 'PromoBot X Ops',
+        }),
+      });
+
+      const rebound = await requestApp('PATCH', '/api/channel-accounts/1', {
+        projectId: 2,
+      });
+
+      expect(rebound.status).toBe(200);
+      expect(JSON.parse(rebound.body)).toEqual({
+        channelAccount: expect.objectContaining({
+          id: 1,
+          projectId: 2,
+          displayName: 'PromoBot X Ops',
+        }),
+      });
+
+      const listed = await requestApp('GET', '/api/channel-accounts');
+      expect(JSON.parse(listed.body)).toEqual({
+        channelAccounts: [
+          expect.objectContaining({
+            id: 1,
+            projectId: 2,
+            displayName: 'PromoBot X Ops',
+          }),
+        ],
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('persists channel accounts in SQLite', async () => {
     const { rootDir } = createTestDatabasePath();
     try {

@@ -27,6 +27,7 @@ channelAccountsRouter.get('/', (_request, response) => {
 
 channelAccountsRouter.post('/', (request, response) => {
   const {
+    projectId,
     platform,
     accountKey,
     displayName,
@@ -47,6 +48,7 @@ channelAccountsRouter.post('/', (request, response) => {
   }
 
   const channelAccount = channelAccountStore.create({
+    projectId: parseOptionalProjectId(projectId),
     platform,
     accountKey,
     displayName,
@@ -160,6 +162,7 @@ channelAccountsRouter.patch('/:id', (request, response) => {
 
   const input = request.body ?? {};
   const channelAccount = channelAccountStore.update(id, {
+    projectId: parseOptionalProjectId(input.projectId),
     platform: typeof input.platform === 'string' ? input.platform : undefined,
     accountKey: typeof input.accountKey === 'string' ? input.accountKey : undefined,
     displayName: typeof input.displayName === 'string' ? input.displayName : undefined,
@@ -226,6 +229,10 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 function isSessionStatus(value: string): value is SessionStatus {
   return value === 'active' || value === 'expired' || value === 'missing';
+}
+
+function parseOptionalProjectId(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined;
 }
 
 function attachSessionSummary<

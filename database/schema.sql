@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS reputation_items (
 
 CREATE TABLE IF NOT EXISTS channel_accounts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id INTEGER,
   platform TEXT NOT NULL,
   account_key TEXT NOT NULL,
   display_name TEXT NOT NULL,

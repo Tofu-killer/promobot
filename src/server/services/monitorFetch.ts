@@ -1,6 +1,7 @@
 import type { MonitorItemRecord } from '../store/monitor';
 import { createMonitorRssService } from './monitor/rss';
 import { searchReddit } from './monitor/redditSearch';
+import { searchX } from './monitor/xSearch';
 import { searchV2ex } from './monitor/v2exSearch';
 import { createMonitorStore } from '../store/monitor';
 import { createSettingsStore } from '../store/settings';
@@ -69,17 +70,18 @@ export function createMonitorFetchService() {
   };
 }
 
-interface CollectedSignal {
+export interface CollectedSignal {
   source: string;
   title: string;
   detail: string;
 }
 
-async function collectConfiguredSignals(
+export async function collectConfiguredSignals(
   rssService: ReturnType<typeof createMonitorRssService>,
   settings: {
     monitorRssFeeds?: string[];
     monitorRedditQueries?: string[];
+    monitorXQueries?: string[];
     monitorV2exQueries?: string[];
   },
 ): Promise<CollectedSignal[]> {
@@ -92,6 +94,10 @@ async function collectConfiguredSignals(
     settings.monitorRedditQueries && settings.monitorRedditQueries.length > 0
       ? settings.monitorRedditQueries
       : parseList(process.env.MONITOR_REDDIT_QUERIES);
+  const xQueries =
+    settings.monitorXQueries && settings.monitorXQueries.length > 0
+      ? settings.monitorXQueries
+      : parseList(process.env.MONITOR_X_QUERIES);
   const v2exQueries =
     settings.monitorV2exQueries && settings.monitorV2exQueries.length > 0
       ? settings.monitorV2exQueries
@@ -130,6 +136,25 @@ async function collectConfiguredSignals(
       results.push({
         source: 'reddit',
         title: `Reddit fetch failed: ${query}`,
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  for (const query of xQueries) {
+    try {
+      const items = await searchX(query);
+      for (const item of items) {
+        results.push({
+          source: item.source,
+          title: item.title,
+          detail: item.url ? `${item.detail}\n\n${item.url}` : item.detail,
+        });
+      }
+    } catch (error) {
+      results.push({
+        source: 'x',
+        title: `X fetch failed: ${query}`,
         detail: error instanceof Error ? error.message : String(error),
       });
     }
