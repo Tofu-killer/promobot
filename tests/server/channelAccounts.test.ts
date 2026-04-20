@@ -1,6 +1,7 @@
 import express from 'express';
 import { describe, expect, it } from 'vitest';
 import { channelAccountsRouter } from '../../src/server/routes/channelAccounts';
+import { createJobQueueStore } from '../../src/server/store/jobQueue';
 import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
 
 async function requestApp(method: string, url: string, body?: unknown) {
@@ -680,9 +681,11 @@ describe('channel accounts api', () => {
     }
   });
 
-  it('returns a placeholder contract for request-session and relogin actions', async () => {
+  it('enqueues traceable session-request jobs for request-session and relogin actions', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
+      const jobQueueStore = createJobQueueStore();
+
       await requestApp('POST', '/api/channel-accounts', {
         platform: 'x',
         accountKey: '@promobot',
@@ -697,20 +700,80 @@ describe('channel accounts api', () => {
       );
 
       expect(requestSessionResponse.status).toBe(200);
-      expect(JSON.parse(requestSessionResponse.body)).toEqual({
+      const requestSessionBody = JSON.parse(requestSessionResponse.body) as {
+        ok: boolean;
+        job: {
+          id: number;
+          type: string;
+          status: string;
+          attempts: number;
+          runAt: string;
+          payload: {
+            accountId: number;
+            platform: string;
+            accountKey: string;
+            action: string;
+          };
+        };
+        sessionAction: {
+          action: string;
+          accountId: number;
+          status: string;
+          requestedAt: string;
+          message: string;
+          nextStep: string;
+          jobId: number;
+          jobStatus: string;
+        };
+        channelAccount: { id: number };
+      };
+
+      expect(requestSessionBody).toEqual({
         ok: true,
+        job: {
+          id: expect.any(Number),
+          type: 'channel_account_session_request',
+          status: 'pending',
+          attempts: 0,
+          runAt: expect.any(String),
+          payload: {
+            accountId: 1,
+            platform: 'x',
+            accountKey: '@promobot',
+            action: 'request_session',
+          },
+        },
         sessionAction: {
           action: 'request_session',
           accountId: 1,
           status: 'pending',
           requestedAt: expect.any(String),
-          message:
-            'Browser session capture is not wired yet. Complete login manually and attach session metadata.',
+          message: 'Browser session request queued. Complete login manually and attach session metadata after the browser lane picks up the job.',
           nextStep: '/api/channel-accounts/1/session',
+          jobId: expect.any(Number),
+          jobStatus: 'pending',
         },
         channelAccount: expect.objectContaining({
           id: 1,
         }),
+      });
+
+      expect(requestSessionBody.sessionAction.jobId).toBe(requestSessionBody.job.id);
+      expect(requestSessionBody.sessionAction.requestedAt).toBe(requestSessionBody.job.runAt);
+
+      expect(jobQueueStore.list({ limit: 10 })).toEqual([
+        expect.objectContaining({
+          id: requestSessionBody.job.id,
+          type: 'channel_account_session_request',
+          status: 'pending',
+          attempts: 0,
+        }),
+      ]);
+      expect(JSON.parse(jobQueueStore.list({ limit: 10 })[0]?.payload ?? '{}')).toEqual({
+        accountId: 1,
+        platform: 'x',
+        accountKey: '@promobot',
+        action: 'request_session',
       });
 
       await requestApp('POST', '/api/channel-accounts/1/session', {
@@ -723,21 +786,101 @@ describe('channel accounts api', () => {
       });
 
       expect(reloginResponse.status).toBe(200);
-      expect(JSON.parse(reloginResponse.body)).toEqual({
+      const reloginBody = JSON.parse(reloginResponse.body) as {
+        ok: boolean;
+        job: {
+          id: number;
+          type: string;
+          status: string;
+          attempts: number;
+          runAt: string;
+          payload: {
+            accountId: number;
+            platform: string;
+            accountKey: string;
+            action: string;
+          };
+        };
+        sessionAction: {
+          action: string;
+          accountId: number;
+          status: string;
+          requestedAt: string;
+          message: string;
+          nextStep: string;
+          jobId: number;
+          jobStatus: string;
+        };
+        channelAccount: { id: number };
+      };
+
+      expect(reloginBody).toEqual({
         ok: true,
+        job: {
+          id: expect.any(Number),
+          type: 'channel_account_session_request',
+          status: 'pending',
+          attempts: 0,
+          runAt: expect.any(String),
+          payload: {
+            accountId: 1,
+            platform: 'x',
+            accountKey: '@promobot',
+            action: 'relogin',
+          },
+        },
         sessionAction: {
           action: 'relogin',
           accountId: 1,
           status: 'pending',
           requestedAt: expect.any(String),
-          message:
-            'Browser relogin is not wired yet. Refresh the login manually and attach updated session metadata.',
+          message: 'Browser relogin request queued. Refresh login manually and attach updated session metadata after the browser lane picks up the job.',
           nextStep: '/api/channel-accounts/1/session',
+          jobId: expect.any(Number),
+          jobStatus: 'pending',
         },
         channelAccount: expect.objectContaining({
           id: 1,
         }),
       });
+
+      expect(reloginBody.job.id).not.toBe(requestSessionBody.job.id);
+      expect(reloginBody.sessionAction.jobId).toBe(reloginBody.job.id);
+      expect(reloginBody.sessionAction.requestedAt).toBe(reloginBody.job.runAt);
+
+      const queuedJobs = jobQueueStore.list({ limit: 10 });
+      expect(queuedJobs).toHaveLength(2);
+      expect(queuedJobs).toEqual([
+        expect.objectContaining({
+          id: requestSessionBody.job.id,
+          type: 'channel_account_session_request',
+          status: 'pending',
+        }),
+        expect.objectContaining({
+          id: reloginBody.job.id,
+          type: 'channel_account_session_request',
+          status: 'pending',
+        }),
+      ]);
+      expect(queuedJobs.map((job) => JSON.parse(job.payload))).toEqual([
+        {
+          accountId: 1,
+          platform: 'x',
+          accountKey: '@promobot',
+          action: 'request_session',
+        },
+        {
+          accountId: 1,
+          platform: 'x',
+          accountKey: '@promobot',
+          action: 'relogin',
+        },
+      ]);
+      expect(reloginBody.channelAccount).toEqual(
+        expect.objectContaining({
+          id: 1,
+        }),
+      );
     } finally {
       cleanupTestDatabasePath(rootDir);
     }

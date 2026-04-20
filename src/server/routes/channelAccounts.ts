@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { createChannelAccountStore } from '../store/channelAccounts';
+import { createJobQueueStore } from '../store/jobQueue';
 import {
   evaluateChannelAccountConnection,
   getChannelAccountPublishReadiness,
@@ -13,6 +14,8 @@ import {
 } from '../services/browser/sessionStore';
 
 const channelAccountStore = createChannelAccountStore();
+const jobQueueStore = createJobQueueStore();
+const channelAccountSessionRequestJobType = 'channel_account_session_request';
 
 export const channelAccountsRouter = Router();
 
@@ -84,19 +87,38 @@ channelAccountsRouter.post('/:id/session/request', (request, response) => {
   }
 
   const action = (input.action as BrowserSessionAction | undefined) ?? 'request_session';
+  const payload = {
+    accountId: channelAccount.id,
+    platform: channelAccount.platform,
+    accountKey: channelAccount.accountKey,
+    action,
+  };
+  const requestedAt = new Date().toISOString();
+  const job = jobQueueStore.enqueue({
+    type: channelAccountSessionRequestJobType,
+    payload,
+    runAt: requestedAt,
+  });
 
   response.json({
     ok: true,
+    job: {
+      id: job.id,
+      type: job.type,
+      status: job.status,
+      attempts: job.attempts,
+      runAt: job.runAt,
+      payload,
+    },
     sessionAction: {
       action,
       accountId: channelAccount.id,
-      status: 'pending',
-      requestedAt: new Date().toISOString(),
-      message:
-        action === 'relogin'
-          ? 'Browser relogin is not wired yet. Refresh the login manually and attach updated session metadata.'
-          : 'Browser session capture is not wired yet. Complete login manually and attach session metadata.',
+      status: job.status,
+      requestedAt: job.runAt,
+      message: getSessionRequestMessage(action),
       nextStep: `/api/channel-accounts/${channelAccount.id}/session`,
+      jobId: job.id,
+      jobStatus: job.status,
     },
     channelAccount: attachSessionSummary(channelAccount, createSessionStore()),
   });
@@ -233,6 +255,14 @@ function isSessionStatus(value: string): value is SessionStatus {
 
 function parseOptionalProjectId(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
+function getSessionRequestMessage(action: BrowserSessionAction) {
+  if (action === 'relogin') {
+    return 'Browser relogin request queued. Refresh login manually and attach updated session metadata after the browser lane picks up the job.';
+  }
+
+  return 'Browser session request queued. Complete login manually and attach session metadata after the browser lane picks up the job.';
 }
 
 function attachSessionSummary<

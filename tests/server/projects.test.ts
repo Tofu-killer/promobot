@@ -130,4 +130,127 @@ describe('projects api', () => {
       cleanupTestDatabasePath(rootDir);
     }
   });
+
+  it('creates, lists, and updates project source configs in SQLite', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const projectResponse = await requestApp('POST', '/api/projects', {
+        name: 'Monitoring Workspace',
+        siteName: 'PromoBot',
+        siteUrl: 'https://example.com',
+        siteDescription: 'Brand monitoring',
+        sellingPoints: ['Fast iteration'],
+      });
+
+      expect(projectResponse.status).toBe(201);
+
+      const created = await requestApp('POST', '/api/projects/1/source-configs', {
+        projectId: 1,
+        sourceType: 'keyword',
+        platform: 'reddit',
+        label: 'Competitor mentions',
+        configJson: {
+          keywords: ['promobot', 'openai'],
+          subreddit: 'LocalLLaMA',
+        },
+        enabled: true,
+        pollIntervalMinutes: 30,
+      });
+
+      expect(created.status).toBe(201);
+      expect(JSON.parse(created.body)).toEqual({
+        sourceConfig: expect.objectContaining({
+          id: 1,
+          projectId: 1,
+          sourceType: 'keyword',
+          platform: 'reddit',
+          label: 'Competitor mentions',
+          configJson: {
+            keywords: ['promobot', 'openai'],
+            subreddit: 'LocalLLaMA',
+          },
+          enabled: true,
+          pollIntervalMinutes: 30,
+          createdAt: expect.any(String),
+          updatedAt: expect.any(String),
+        }),
+      });
+
+      const listed = await requestApp('GET', '/api/projects/1/source-configs');
+
+      expect(listed.status).toBe(200);
+      expect(JSON.parse(listed.body)).toEqual({
+        sourceConfigs: [
+          expect.objectContaining({
+            id: 1,
+            projectId: 1,
+            sourceType: 'keyword',
+            platform: 'reddit',
+            label: 'Competitor mentions',
+            configJson: {
+              keywords: ['promobot', 'openai'],
+              subreddit: 'LocalLLaMA',
+            },
+            enabled: true,
+            pollIntervalMinutes: 30,
+          }),
+        ],
+      });
+
+      const updated = await requestApp('PATCH', '/api/projects/1/source-configs/1', {
+        label: 'Brand mentions',
+        configJson: {
+          keywords: ['promobot'],
+          subreddit: 'r/LocalLLaMA',
+        },
+        enabled: false,
+        pollIntervalMinutes: 60,
+      });
+
+      expect(updated.status).toBe(200);
+      expect(JSON.parse(updated.body)).toEqual({
+        sourceConfig: expect.objectContaining({
+          id: 1,
+          projectId: 1,
+          sourceType: 'keyword',
+          platform: 'reddit',
+          label: 'Brand mentions',
+          configJson: {
+            keywords: ['promobot'],
+            subreddit: 'r/LocalLLaMA',
+          },
+          enabled: false,
+          pollIntervalMinutes: 60,
+          createdAt: expect.any(String),
+          updatedAt: expect.any(String),
+        }),
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('returns 404 for source config operations when the project is missing', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const listed = await requestApp('GET', '/api/projects/999/source-configs');
+      expect(listed.status).toBe(404);
+      expect(JSON.parse(listed.body)).toEqual({ error: 'project not found' });
+
+      const created = await requestApp('POST', '/api/projects/999/source-configs', {
+        projectId: 999,
+        sourceType: 'rss',
+        platform: 'blog',
+        label: 'Competitor RSS',
+        configJson: { url: 'https://example.com/feed.xml' },
+        enabled: true,
+        pollIntervalMinutes: 15,
+      });
+
+      expect(created.status).toBe(404);
+      expect(JSON.parse(created.body)).toEqual({ error: 'project not found' });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
 });
