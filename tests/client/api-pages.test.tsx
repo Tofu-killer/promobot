@@ -954,7 +954,7 @@ describe('client API page wiring', () => {
     });
 
     expect(html).toContain('已转入人工接管：Community handoff');
-    expect(html).toContain('触发发布');
+    expect(html).toContain('发起人工接管');
   });
 
   it('loads channel accounts through the shared API helper', async () => {

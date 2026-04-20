@@ -27,6 +27,7 @@ const fieldStyle = {
 } as const;
 
 const editableDraftStatusOptions: DraftStatus[] = ['draft', 'review', 'approved'];
+const manualHandoffPlatforms = new Set(['facebook-group', 'facebookGroup', 'xiaohongshu', 'weibo', 'blog']);
 
 function renderFeedback(state: DraftMutationState, successPrefix: string) {
   if (state.status === 'loading') {
@@ -65,6 +66,7 @@ export function DraftEditorCard({
   onPublish,
 }: DraftEditorCardProps) {
   const titleLabel = formValues.title.trim().length > 0 ? formValues.title : draft.title ?? `Draft #${draft.id}`;
+  const publishLabel = manualHandoffPlatforms.has(draft.platform) ? '发起人工接管' : '触发发布';
 
   return (
     <article
@@ -145,7 +147,7 @@ export function DraftEditorCard({
             opacity: publishState.status === 'loading' ? 0.72 : 1,
           }}
         >
-          {publishState.status === 'loading' ? '正在发布...' : '触发发布'}
+          {publishState.status === 'loading' ? '正在发布...' : publishLabel}
         </button>
       </div>
 
