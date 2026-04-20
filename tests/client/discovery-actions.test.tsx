@@ -511,6 +511,29 @@ function findElement(node: FakeNode, matcher: (element: FakeElement) => boolean)
   return null;
 }
 
+function updateFieldValue(element: FakeElement | null, value: string, window: FakeWindow) {
+  if (!element) {
+    throw new Error('expected form field');
+  }
+
+  (element as unknown as { value?: string }).value = value;
+
+  const reactPropsKey = Object.keys(element).find((key) => key.startsWith('__reactProps'));
+  const reactProps = reactPropsKey
+    ? ((element as unknown as Record<string, unknown>)[reactPropsKey] as {
+        onChange?: (event: { target: { value: string } }) => void;
+      })
+    : null;
+
+  if (reactProps?.onChange) {
+    reactProps.onChange({ target: { value } });
+    return;
+  }
+
+  element.dispatchEvent(new window.Event('input', { bubbles: true }));
+  element.dispatchEvent(new window.Event('change', { bubbles: true }));
+}
+
 async function flush() {
   await Promise.resolve();
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -655,6 +678,95 @@ describe('Discovery draft actions', () => {
     expect(generateAction).not.toHaveBeenCalled();
     expect(collectText(container)).toContain('当前来源不在首发平台范围内');
     expect(collectText(container)).toContain('请改走人工内容流程');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('passes the active projectId into generated discovery drafts', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { DiscoveryPage } = await import('../../src/client/pages/Discovery');
+
+    const stateOverride = {
+      status: 'success' as const,
+      data: {
+        items: [
+          {
+            id: 103,
+            source: 'Reddit',
+            title: 'Claude latency discussion',
+            summary: '适合做一次针对 APAC 线路的回应稿。',
+            status: 'new',
+            score: 88,
+            createdAt: '2026-04-19T03:00:00.000Z',
+          },
+        ],
+        total: 1,
+        stats: {
+          sources: 1,
+          averageScore: 88,
+        },
+      },
+    };
+    const loadDiscoveryAction = vi.fn().mockResolvedValue(stateOverride.data);
+    const generateAction = vi.fn().mockResolvedValue({
+      results: [
+        {
+          platform: 'reddit',
+          title: 'Scoped Reddit launch angle',
+          content: 'Draft body',
+          hashtags: ['#claude'],
+          draftId: 99,
+        },
+      ],
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(DiscoveryPage as never, {
+          loadDiscoveryAction,
+          stateOverride,
+          generateAction,
+        }),
+      );
+      await flush();
+    });
+
+    const projectIdInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    );
+    const button = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('生成草稿'),
+    );
+
+    expect(projectIdInput).not.toBeNull();
+    expect(button).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(projectIdInput, '12', window);
+      await flush();
+      await flush();
+    });
+
+    await act(async () => {
+      button?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(loadDiscoveryAction).toHaveBeenLastCalledWith(12);
+    expect(generateAction).toHaveBeenCalledWith({
+      topic: 'Claude latency discussion\n\n适合做一次针对 APAC 线路的回应稿。',
+      tone: 'professional',
+      platforms: ['reddit'],
+      saveAsDraft: true,
+      projectId: 12,
+    });
 
     await act(async () => {
       root.unmount();

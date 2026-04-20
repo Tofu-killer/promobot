@@ -149,6 +149,7 @@ export function DiscoveryPage({
         tone: 'professional',
         platforms: [platform],
         saveAsDraft: true,
+        ...(projectId === undefined ? {} : { projectId }),
       });
 
       setDraftStateByItemId((currentState) => ({
