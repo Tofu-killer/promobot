@@ -12,7 +12,10 @@ import { SystemQueuePage } from '../../src/client/pages/SystemQueue';
 
 function renderAppRoute(route: AppRoute) {
   return renderToStaticMarkup(
-    createElement(App as unknown as (props: { initialRoute: AppRoute }) => React.JSX.Element, { initialRoute: route })
+    createElement(
+      App as unknown as (props: { initialRoute: AppRoute; initialAdminPassword: string }) => React.JSX.Element,
+      { initialRoute: route, initialAdminPassword: 'secret' },
+    )
   );
 }
 

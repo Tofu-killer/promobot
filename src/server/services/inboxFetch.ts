@@ -3,6 +3,13 @@ import { createInboxStore } from '../store/inbox';
 import type { MonitorItemRecord } from '../store/monitor';
 import { createMonitorStore } from '../store/monitor';
 import { createSettingsStore } from '../store/settings';
+import { collectRedditInboxSignals } from './inbox/fetchers/reddit';
+import {
+  createInboxSignalFromMonitorItem,
+  type InboxFetcherContext,
+  type InboxSignal,
+} from './inbox/fetchers/types';
+import { collectV2exInboxSignals } from './inbox/fetchers/v2ex';
 
 export interface InboxFetchResult {
   items: InboxItemRecord[];
@@ -34,37 +41,19 @@ function collectInboxSignals(
     monitorV2exQueries?: string[];
   },
 ) {
-  const monitorSignals = monitorItems
-    .filter((item) => item.source !== 'rss')
-    .map((item) => ({
-      source: item.source,
-      status: selectInboxStatus(item.source),
-      ...(extractAuthor(item.detail) ? { author: extractAuthor(item.detail) } : {}),
-      title: item.title,
-      excerpt: item.detail,
-    }));
+  const context: InboxFetcherContext = {
+    monitorItems,
+    settings,
+  };
 
-  if (monitorSignals.length > 0) {
-    return monitorSignals;
-  }
-
-  const configuredSignals = [
-    ...(settings.monitorRedditQueries ?? []).map((query) => ({
-      source: 'reddit',
-      status: 'needs_reply',
-      title: `Inbox follow-up for ${query}`,
-      excerpt: 'Configured from monitorRedditQueries before live fetch results arrive.',
-    })),
-    ...(settings.monitorV2exQueries ?? []).map((query) => ({
-      source: 'v2ex',
-      status: 'needs_reply',
-      title: `Inbox follow-up for ${query}`,
-      excerpt: 'Configured from monitorV2exQueries before live fetch results arrive.',
-    })),
+  const collectedSignals = [
+    ...collectRedditInboxSignals(context),
+    ...collectV2exInboxSignals(context),
+    ...collectUnhandledMonitorSignals(monitorItems),
   ];
 
-  if (configuredSignals.length > 0) {
-    return configuredSignals;
+  if (collectedSignals.length > 0) {
+    return collectedSignals;
   }
 
   return [
@@ -85,22 +74,8 @@ function collectInboxSignals(
   ];
 }
 
-function selectInboxStatus(source: string) {
-  return source === 'reddit' || source === 'v2ex' || source === 'facebook-group'
-    ? 'needs_reply'
-    : 'needs_review';
-}
-
-function extractAuthor(detail: string) {
-  const firstLine = detail.split('\n')[0]?.trim();
-  if (!firstLine) {
-    return undefined;
-  }
-
-  const segments = firstLine
-    .split('·')
-    .map((segment) => segment.trim())
-    .filter((segment) => segment.length > 0);
-
-  return segments.length >= 2 ? segments[1] : undefined;
+function collectUnhandledMonitorSignals(monitorItems: MonitorItemRecord[]): InboxSignal[] {
+  return monitorItems
+    .filter((item) => item.source !== 'rss' && item.source !== 'reddit' && item.source !== 'v2ex')
+    .map((item) => createInboxSignalFromMonitorItem(item));
 }

@@ -74,7 +74,7 @@ interface AppProps {
 export default function App({ initialRoute = 'dashboard', initialAdminPassword = null }: AppProps) {
   const [activeRoute, setActiveRoute] = useState<AppRoute>(initialRoute);
   const [adminPassword, setAdminPassword] = useState<string | null>(
-    typeof window === 'undefined' ? initialAdminPassword ?? 'server-render' : initialAdminPassword,
+    typeof window === 'undefined' ? initialAdminPassword : initialAdminPassword,
   );
   const [authError, setAuthError] = useState<string | null>(null);
 

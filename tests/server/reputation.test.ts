@@ -106,6 +106,112 @@ afterEach(() => {
   }
 });
 
+describe('reputation services', () => {
+  it('classifies sentiment and follow-up status from mention copy', async () => {
+    const { createReputationSentimentService } = await import(
+      '../../src/server/services/reputation/sentiment'
+    );
+
+    const sentimentService = createReputationSentimentService();
+
+    expect(
+      sentimentService.analyze({
+        title: 'Lower APAC latency praise',
+        detail: 'Users praised lower Claude routing latency from Perth.',
+      }),
+    ).toEqual({
+      sentiment: 'positive',
+      status: 'new',
+    });
+
+    expect(
+      sentimentService.analyze({
+        title: 'Billing confusion mention',
+        detail: 'Agency buyers asked whether billing and usage caps are transparent enough.',
+      }),
+    ).toEqual({
+      sentiment: 'negative',
+      status: 'escalate',
+    });
+
+    expect(
+      sentimentService.analyze({
+        title: 'Watching reputation query: brand latency',
+        detail: 'Configured from monitorRedditQueries before live mentions arrive.',
+      }),
+    ).toEqual({
+      sentiment: 'neutral',
+      status: 'new',
+    });
+  });
+
+  it('collects non-rss monitor items before configured reputation fallbacks', async () => {
+    const { createReputationCollectorService } = await import(
+      '../../src/server/services/reputation/collector'
+    );
+
+    const collector = createReputationCollectorService({
+      sentimentService: {
+        analyze({ title }: { title: string; detail: string }) {
+          return title.includes('Billing')
+            ? { sentiment: 'negative', status: 'escalate' }
+            : { sentiment: 'positive', status: 'new' };
+        },
+      },
+    });
+
+    expect(
+      collector.collect({
+        monitorItems: [
+          {
+            id: 1,
+            source: 'rss',
+            title: 'RSS should be ignored',
+            detail: 'This should not appear in reputation.',
+            status: 'new',
+            createdAt: '2026-04-20T00:00:00.000Z',
+          },
+          {
+            id: 2,
+            source: 'reddit',
+            title: 'Lower APAC latency praise',
+            detail: 'Observed strong praise from Australia buyers.',
+            status: 'new',
+            createdAt: '2026-04-20T00:00:00.000Z',
+          },
+          {
+            id: 3,
+            source: 'v2ex',
+            title: 'Billing confusion mention',
+            detail: 'Need pricing clarity before procurement.',
+            status: 'new',
+            createdAt: '2026-04-20T00:00:00.000Z',
+          },
+        ],
+        settings: {
+          monitorRedditQueries: ['brand latency'],
+          monitorV2exQueries: ['billing transparency'],
+        },
+      }),
+    ).toEqual([
+      {
+        source: 'reddit',
+        sentiment: 'positive',
+        status: 'new',
+        title: 'Lower APAC latency praise',
+        detail: 'Observed strong praise from Australia buyers.',
+      },
+      {
+        source: 'v2ex',
+        sentiment: 'negative',
+        status: 'escalate',
+        title: 'Billing confusion mention',
+        detail: 'Need pricing clarity before procurement.',
+      },
+    ]);
+  });
+});
+
 describe('reputation api', () => {
   it('maps existing monitor signals into the reputation feed before seed fallback', async () => {
     const monitorStore = createMonitorStore();

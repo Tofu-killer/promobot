@@ -130,21 +130,21 @@ function installFetchStub(replyText: string) {
 }
 
 describe('inbox api', () => {
-  it('prefers existing monitor signals when fetching inbox items', async () => {
+  it('collects source-specific inbox signals so one fetcher can use monitor items while another falls back to config', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
+      const settingsResponse = await requestApp('PATCH', '/api/settings', {
+        monitorV2exQueries: ['cursor api'],
+      });
+
+      expect(settingsResponse.status).toBe(200);
+
       const monitorStore = createMonitorStore();
       monitorStore.create({
         source: 'reddit',
         title: 'Claude latency in Australia',
         detail:
           'r/LocalLLaMA · latencywatch\n\nhttps://www.reddit.com/r/LocalLLaMA/comments/abc123/claude_latency_in_australia/',
-        status: 'new',
-      });
-      monitorStore.create({
-        source: 'v2ex',
-        title: '澳洲节点下 Claude API 延迟如何',
-        detail: 'V2EX OpenAI · nodehunter · 4 replies\n\nhttps://www.v2ex.com/t/123456',
         status: 'new',
       });
 
@@ -165,8 +165,8 @@ describe('inbox api', () => {
             id: 2,
             source: 'v2ex',
             status: 'needs_reply',
-            title: '澳洲节点下 Claude API 延迟如何',
-            excerpt: 'V2EX OpenAI · nodehunter · 4 replies\n\nhttps://www.v2ex.com/t/123456',
+            title: 'Inbox follow-up for cursor api',
+            excerpt: 'Configured from monitorV2exQueries before live fetch results arrive.',
           }),
         ],
         inserted: 2,

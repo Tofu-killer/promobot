@@ -3,8 +3,8 @@ import { describe, expect, it } from 'vitest';
 import App from '../../src/client/App';
 
 describe('App shell', () => {
-  it('renders the PromoBot navigation shell', () => {
-    const html = renderToStaticMarkup(<App />);
+  it('renders the PromoBot navigation shell when admin auth is satisfied', () => {
+    const html = renderToStaticMarkup(<App initialAdminPassword="secret" />);
 
     expect(html).toContain('PromoBot');
     expect(html).toContain('Dashboard');
@@ -16,5 +16,12 @@ describe('App shell', () => {
     expect(html).toContain('Competitor Monitor');
     expect(html).toContain('Channel Accounts');
     expect(html).toContain('Settings');
+  });
+
+  it('renders the admin login page when no admin password is present', () => {
+    const html = renderToStaticMarkup(<App initialAdminPassword={null} />);
+
+    expect(html).toContain('Admin Login');
+    expect(html).not.toContain('Dashboard');
   });
 });
