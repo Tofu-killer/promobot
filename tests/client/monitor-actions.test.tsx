@@ -810,7 +810,7 @@ describe('Monitor follow-up actions', () => {
     expect(result.draft.title).toContain('Follow-up');
   });
 
-  it('shows generated draft feedback after clicking the action', async () => {
+  it('does not default to the first new monitor item when no item is selected', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
     const { MonitorPage } = await import('../../src/client/pages/Monitor');
@@ -827,16 +827,24 @@ describe('Monitor follow-up actions', () => {
             status: 'new',
             createdAt: '2026-04-19T00:00:00.000Z',
           },
+          {
+            id: 9,
+            source: 'reddit',
+            title: 'Users are asking about APAC latency',
+            detail: 'A follow-up draft should mention recent infra work.',
+            status: 'new',
+            createdAt: '2026-04-19T01:00:00.000Z',
+          },
         ],
-        total: 1,
+        total: 2,
       },
     };
     const generateFollowUpAction = vi.fn().mockResolvedValue({
       draft: {
         id: 42,
         platform: 'x',
-        title: 'Follow-up: Competitor launched a lower tier',
-        content: 'Follow-up draft for x.\n\nSignal: Competitor launched a lower tier',
+        title: 'Follow-up draft',
+        content: 'unused',
         status: 'draft',
       },
     });
@@ -865,11 +873,212 @@ describe('Monitor follow-up actions', () => {
       await flush();
     });
 
-    expect(generateFollowUpAction).toHaveBeenCalledWith(7, 'x');
+    expect(generateFollowUpAction).not.toHaveBeenCalled();
+    expect(collectText(container)).toContain('请先从当前列表中选择一条动态');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('shows generated draft feedback after selecting a monitor item and clicking the action', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { MonitorPage } = await import('../../src/client/pages/Monitor');
+
+    const stateOverride = {
+      status: 'success' as const,
+      data: {
+        items: [
+          {
+            id: 7,
+            source: 'x',
+            title: 'Competitor launched a lower tier',
+            detail: 'Observed a cheaper plan and a follow-up opportunity.',
+            status: 'new',
+            createdAt: '2026-04-19T00:00:00.000Z',
+          },
+          {
+            id: 8,
+            source: 'reddit',
+            title: 'Users are asking about APAC latency',
+            detail: 'A follow-up draft should mention recent infra work.',
+            status: 'new',
+            createdAt: '2026-04-19T01:00:00.000Z',
+          },
+        ],
+        total: 2,
+      },
+    };
+    const generateFollowUpAction = vi.fn().mockResolvedValue({
+      draft: {
+        id: 42,
+        platform: 'reddit',
+        title: 'Follow-up: Users are asking about APAC latency',
+        content: 'Follow-up draft for reddit.\n\nSignal: Users are asking about APAC latency',
+        status: 'draft',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(MonitorPage as never, {
+          loadMonitorAction: async () => stateOverride.data,
+          stateOverride,
+          generateFollowUpAction,
+        }),
+      );
+      await flush();
+    });
+
+    const selectedItem = findElement(
+      container,
+      (element) => element.getAttribute('data-monitor-item-id') === '8',
+    );
+
+    expect(selectedItem).not.toBeNull();
+
+    await act(async () => {
+      selectedItem?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(selectedItem?.getAttribute('data-monitor-item-selected')).toBe('true');
+
+    const button = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('生成跟进草稿'),
+    );
+
+    expect(button).not.toBeNull();
+
+    await act(async () => {
+      button?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(generateFollowUpAction).toHaveBeenCalledWith(8, 'reddit');
     expect(collectText(container)).toContain('跟进草稿已生成');
-    expect(collectText(container)).toContain('Follow-up: Competitor launched a lower tier');
+    expect(collectText(container)).toContain('Follow-up: Users are asking about APAC latency');
     expect(collectText(container)).toContain('draftId: 42');
     expect(collectText(container)).toContain('status: draft');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('filters monitor items by source before generating a follow-up draft', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { MonitorPage } = await import('../../src/client/pages/Monitor');
+
+    const stateOverride = {
+      status: 'success' as const,
+      data: {
+        items: [
+          {
+            id: 7,
+            source: 'x',
+            title: 'Competitor launched a lower tier',
+            detail: 'Observed a cheaper plan and a follow-up opportunity.',
+            status: 'new',
+            createdAt: '2026-04-19T00:00:00.000Z',
+          },
+          {
+            id: 9,
+            source: 'reddit',
+            title: 'Users are asking about APAC latency',
+            detail: 'A follow-up draft should mention recent infra work.',
+            status: 'new',
+            createdAt: '2026-04-19T01:00:00.000Z',
+          },
+          {
+            id: 10,
+            source: 'rss',
+            title: 'RSS pricing watch',
+            detail: 'Tracked a competitor pricing update.',
+            status: 'new',
+            createdAt: '2026-04-19T02:00:00.000Z',
+          },
+        ],
+        total: 3,
+      },
+    };
+    const generateFollowUpAction = vi.fn().mockResolvedValue({
+      draft: {
+        id: 77,
+        platform: 'reddit',
+        title: 'Follow-up: Users are asking about APAC latency',
+        content: 'Follow-up draft for reddit.',
+        status: 'draft',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(MonitorPage as never, {
+          loadMonitorAction: async () => stateOverride.data,
+          stateOverride,
+          generateFollowUpAction,
+        }),
+      );
+      await flush();
+    });
+
+    const redditFilter = findElement(
+      container,
+      (element) => element.getAttribute('data-monitor-filter-source') === 'reddit',
+    );
+
+    expect(redditFilter).not.toBeNull();
+
+    await act(async () => {
+      redditFilter?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(redditFilter?.getAttribute('aria-pressed')).toBe('true');
+    expect(collectText(container)).toContain('Users are asking about APAC latency');
+    expect(collectText(container)).not.toContain('Competitor launched a lower tier');
+    expect(collectText(container)).not.toContain('RSS pricing watch');
+
+    const generateButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('生成跟进草稿'),
+    );
+
+    await act(async () => {
+      generateButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(generateFollowUpAction).not.toHaveBeenCalled();
+
+    const redditItem = findElement(
+      container,
+      (element) => element.getAttribute('data-monitor-item-id') === '9',
+    );
+
+    expect(redditItem).not.toBeNull();
+
+    await act(async () => {
+      redditItem?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(redditItem?.getAttribute('data-monitor-item-selected')).toBe('true');
+
+    await act(async () => {
+      generateButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(generateFollowUpAction).toHaveBeenCalledWith(9, 'reddit');
 
     await act(async () => {
       root.unmount();
@@ -1144,6 +1353,18 @@ describe('Monitor follow-up actions', () => {
           generateFollowUpAction,
         }),
       );
+      await flush();
+    });
+
+    const selectedItem = findElement(
+      container,
+      (element) => element.getAttribute('data-monitor-item-id') === '9',
+    );
+
+    expect(selectedItem).not.toBeNull();
+
+    await act(async () => {
+      selectedItem?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
       await flush();
     });
 

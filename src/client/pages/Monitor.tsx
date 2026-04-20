@@ -132,7 +132,15 @@ interface MonitorPageProps {
   enqueueStateOverride?: AsyncState<EnqueueMonitorFetchJobResponse>;
 }
 
-const sourceFilters = ['全部来源', 'X / Twitter', 'RSS', 'Reddit', 'Product Hunt'];
+type MonitorSourceFilter = 'all' | 'x' | 'rss' | 'reddit' | 'product-hunt';
+
+const sourceFilters: Array<{ id: MonitorSourceFilter; label: string }> = [
+  { id: 'all', label: '全部来源' },
+  { id: 'x', label: 'X / Twitter' },
+  { id: 'rss', label: 'RSS' },
+  { id: 'reddit', label: 'Reddit' },
+  { id: 'product-hunt', label: 'Product Hunt' },
+];
 const queueInputStyle = {
   width: '100%',
   borderRadius: '14px',
@@ -171,6 +179,9 @@ export function MonitorPage({
     ({ id, platform }: { id: number; platform: string }) => generateFollowUpAction(id, platform),
   );
   const [enqueueRunAtDraft, setEnqueueRunAtDraft] = useState('');
+  const [activeSourceFilter, setActiveSourceFilter] = useState<MonitorSourceFilter>('all');
+  const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
+  const [followUpSelectionMessage, setFollowUpSelectionMessage] = useState<string | null>(null);
   const displayState = stateOverride ?? state;
   const displayFollowUpState = followUpStateOverride ?? followUpState;
   const displayFetchState = fetchStateOverride ?? fetchState;
@@ -189,16 +200,22 @@ export function MonitorPage({
     total: 1,
   };
   const viewData = displayState.status === 'success' && displayState.data ? displayState.data : fallbackData;
+  const filteredItems =
+    activeSourceFilter === 'all'
+      ? viewData.items
+      : viewData.items.filter((item) => normalizeSourceFilter(item.source) === activeSourceFilter);
+  const selectedItem = filteredItems.find((item) => item.id === selectedItemId) ?? null;
 
   function handleGenerateFollowUp() {
-    const nextItem = viewData.items.find((item) => item.status === 'new') ?? viewData.items[0];
-    if (!nextItem) {
+    if (!selectedItem) {
+      setFollowUpSelectionMessage('请先从当前列表中选择一条动态');
       return;
     }
 
+    setFollowUpSelectionMessage(null);
     void generateFollowUp({
-      id: nextItem.id,
-      platform: nextItem.source,
+      id: selectedItem.id,
+      platform: selectedItem.source,
     }).catch(() => undefined);
   }
 
@@ -219,6 +236,17 @@ export function MonitorPage({
         reload();
       })
       .catch(() => undefined);
+  }
+
+  function handleSelectSourceFilter(filter: MonitorSourceFilter) {
+    setActiveSourceFilter(filter);
+    setFollowUpSelectionMessage(null);
+    setSelectedItemId(null);
+  }
+
+  function handleSelectItem(item: MonitorItem) {
+    setSelectedItemId(item.id);
+    setFollowUpSelectionMessage(null);
   }
 
   return (
@@ -283,6 +311,9 @@ export function MonitorPage({
       {displayFollowUpState.status === 'error' ? (
         <p style={{ color: '#b91c1c' }}>跟进草稿生成失败：{displayFollowUpState.error}</p>
       ) : null}
+      {followUpSelectionMessage ? (
+        <p style={{ color: '#b45309', fontWeight: 700 }}>{followUpSelectionMessage}</p>
+      ) : null}
 
       {displayState.status === 'success' || displayState.status === 'idle' ? (
         <>
@@ -325,29 +356,60 @@ export function MonitorPage({
               <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                 {sourceFilters.map((filter, index) => (
                   <button
-                    key={filter}
+                    key={filter.id}
                     type="button"
+                    data-monitor-filter-source={filter.id}
+                    aria-pressed={activeSourceFilter === filter.id ? 'true' : 'false'}
+                    onClick={() => {
+                      handleSelectSourceFilter(filter.id);
+                    }}
                     style={{
                       borderRadius: '999px',
                       border: '1px solid #cbd5e1',
-                      background: index === 0 ? '#dbeafe' : '#ffffff',
-                      color: index === 0 ? '#1d4ed8' : '#334155',
+                      background: activeSourceFilter === filter.id ? '#dbeafe' : '#ffffff',
+                      color: activeSourceFilter === filter.id ? '#1d4ed8' : '#334155',
                       padding: '8px 12px',
                       fontWeight: 700,
                     }}
                   >
-                    {filter}
+                    {filter.label}
                   </button>
                 ))}
               </div>
             </SectionCard>
 
-            <SectionCard title="最新动态" description={`已抓取 ${viewData.total} 条监控动态`}>
-              <MonitorFeed items={viewData.items} />
+            <SectionCard title="最新动态" description={`当前筛选下 ${filteredItems.length} 条 / 总计 ${viewData.total} 条监控动态`}>
+              <MonitorFeed
+                items={filteredItems}
+                selectedItemId={selectedItemId}
+                onSelectItem={handleSelectItem}
+              />
             </SectionCard>
           </div>
         </>
       ) : null}
     </section>
   );
+}
+
+function normalizeSourceFilter(source: string): MonitorSourceFilter {
+  const normalized = source.trim().toLowerCase();
+
+  if (normalized === 'x' || normalized === 'x / twitter' || normalized === 'twitter') {
+    return 'x';
+  }
+
+  if (normalized === 'rss') {
+    return 'rss';
+  }
+
+  if (normalized === 'reddit') {
+    return 'reddit';
+  }
+
+  if (normalized === 'product hunt' || normalized === 'product-hunt') {
+    return 'product-hunt';
+  }
+
+  return 'all';
 }
