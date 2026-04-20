@@ -1,4 +1,3 @@
-import { createStubPublisher } from './stub';
 import type { PublishRequest, PublishResult } from './types';
 import {
   FetchRetryError,
@@ -12,11 +11,6 @@ import {
   sanitizeSnippet,
 } from './http';
 
-const stubPublisher = createStubPublisher({
-  platform: 'x',
-  mode: 'api',
-});
-
 interface XCreateTweetResponse {
   data?: {
     id?: string;
@@ -26,7 +20,21 @@ interface XCreateTweetResponse {
 export async function publishToX(request: PublishRequest): Promise<PublishResult> {
   const accessToken = getAccessToken();
   if (!accessToken) {
-    return await stubPublisher(request);
+    return createFailedPublishResult(request, {
+      message: 'missing x credentials: configure X_ACCESS_TOKEN or X_BEARER_TOKEN',
+      retry: {
+        publish: {
+          attempts: 0,
+          maxAttempts: 0,
+          stage: 'publish',
+        },
+      },
+      error: {
+        category: 'auth',
+        retriable: false,
+        stage: 'publish',
+      },
+    });
   }
 
   let publishRequest;

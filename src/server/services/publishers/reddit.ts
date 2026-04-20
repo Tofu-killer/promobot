@@ -1,4 +1,3 @@
-import { createStubPublisher } from './stub';
 import type { PublishRequest, PublishResult, Publisher } from './types';
 import {
   FetchRetryError,
@@ -11,11 +10,6 @@ import {
   readResponseSnippet,
   sanitizeSnippet,
 } from './http';
-
-const stubPublisher = createStubPublisher({
-  platform: 'reddit',
-  mode: 'api',
-});
 
 const REDDIT_TOKEN_ENDPOINT = 'https://www.reddit.com/api/v1/access_token';
 const REDDIT_SUBMIT_ENDPOINT = 'https://oauth.reddit.com/api/submit';
@@ -45,12 +39,27 @@ type RedditAccessTokenResult =
 export const publishToReddit: Publisher = async (
   request: PublishRequest,
 ): Promise<PublishResult> => {
+  const subreddit = normalizeSubreddit(request.target);
   const config = readRedditConfig();
   if (!config) {
-    return stubPublisher(request);
+    return createFailedPublishResult(request, subreddit, {
+      message:
+        'missing reddit credentials: configure REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USERNAME, and REDDIT_PASSWORD',
+      retry: {
+        oauth: {
+          attempts: 0,
+          maxAttempts: 0,
+          stage: 'oauth',
+        },
+      },
+      error: {
+        category: 'auth',
+        retriable: false,
+        stage: 'oauth',
+      },
+    });
   }
 
-  const subreddit = normalizeSubreddit(request.target);
   const accessTokenResult = await getAccessToken(config, subreddit);
   if (isAccessTokenFailure(accessTokenResult)) {
     return accessTokenResult.failure;

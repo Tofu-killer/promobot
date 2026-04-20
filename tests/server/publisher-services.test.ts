@@ -73,7 +73,7 @@ describe('SessionStore', () => {
 });
 
 describe('publishers', () => {
-  it('returns the shared publish result contract for X drafts', async () => {
+  it('returns a failed publish result contract for X drafts when credentials are missing', async () => {
     const result = await publishToX({
       content: 'Claude 3.5 Sonnet is now available with lower pricing.',
       draftId: 42,
@@ -83,12 +83,19 @@ describe('publishers', () => {
     expect(result).toMatchObject({
       platform: 'x',
       mode: 'api',
-      status: 'published',
-      success: true,
-      publishUrl: 'https://x.com/promobot/status/42',
-      externalId: 'x-42',
+      status: 'failed',
+      success: false,
+      publishUrl: null,
+      externalId: null,
+      details: {
+        error: {
+          category: 'auth',
+          retriable: false,
+          stage: 'publish',
+        },
+      },
     });
-    expect(result.message).toContain('stub');
-    expect(result.publishedAt).toBeTypeOf('string');
+    expect(result.message).toContain('missing x credentials');
+    expect(result.publishedAt).toBeNull();
   });
 });

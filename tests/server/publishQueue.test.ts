@@ -5,7 +5,7 @@ import { createSQLitePublishLogStore } from '../../src/server/store/publishLogs'
 import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
 
 describe('publish queue handler', () => {
-  it('publishes queued x drafts and persists both draft and log state', async () => {
+  it('marks queued x drafts as failed when x credentials are missing and persists the failure log', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
       const draftStore = createSQLiteDraftStore();
@@ -18,22 +18,25 @@ describe('publish queue handler', () => {
         status: 'scheduled',
       });
 
-      await createPublishJobHandler()({ draftId: draft.id });
+      await expect(createPublishJobHandler()({ draftId: draft.id })).rejects.toThrow(
+        'missing x credentials: configure X_ACCESS_TOKEN or X_BEARER_TOKEN',
+      );
 
       expect(draftStore.getById(draft.id)).toEqual(
         expect.objectContaining({
           id: draft.id,
-          status: 'published',
+          status: 'failed',
           scheduledAt: undefined,
-          publishedAt: expect.any(String),
+          publishedAt: undefined,
         }),
       );
       expect(publishLogStore.listByDraftId(draft.id)).toEqual([
         expect.objectContaining({
           draftId: draft.id,
           projectId: 88,
-          status: 'published',
-          publishUrl: `https://x.com/promobot/status/${draft.id}`,
+          status: 'failed',
+          publishUrl: undefined,
+          message: 'missing x credentials: configure X_ACCESS_TOKEN or X_BEARER_TOKEN',
         }),
       ]);
     } finally {

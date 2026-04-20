@@ -53,9 +53,13 @@ export function createPublishJobHandler(): JobHandler {
       });
 
       if (result.status === 'failed') {
-        throw new Error(result.message);
+        throw new PublishJobResultError(result.message);
       }
     } catch (error) {
+      if (error instanceof PublishJobResultError) {
+        throw error;
+      }
+
       draftStore.update(draftId, {
         status: 'failed',
         scheduledAt: null,
@@ -72,6 +76,13 @@ export function createPublishJobHandler(): JobHandler {
       throw error;
     }
   };
+}
+
+class PublishJobResultError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PublishJobResultError';
+  }
 }
 
 function isPublishJobPayload(value: unknown): value is PublishJobPayload {

@@ -101,12 +101,15 @@ describe('reddit publisher', () => {
     });
   });
 
-  it('falls back to the stub contract when reddit credentials are missing', async () => {
+  it('returns a failed contract when reddit credentials are missing', async () => {
     process.env.REDDIT_CLIENT_ID = '';
     process.env.REDDIT_CLIENT_SECRET = '';
     process.env.REDDIT_USERNAME = '';
     process.env.REDDIT_PASSWORD = '';
     process.env.REDDIT_USER_AGENT = '';
+
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
 
     const result = await publishToReddit({
       draftId: 3,
@@ -116,12 +119,29 @@ describe('reddit publisher', () => {
     expect(result).toMatchObject({
       platform: 'reddit',
       mode: 'api',
-      status: 'published',
-      success: true,
-      publishUrl: 'https://reddit.com/r/promobot/comments/3',
-      externalId: 'reddit-3',
+      status: 'failed',
+      success: false,
+      publishUrl: null,
+      externalId: null,
+      message: 'missing reddit credentials: configure REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USERNAME, and REDDIT_PASSWORD',
+      publishedAt: null,
+      details: {
+        subreddit: 'promobot',
+        retry: {
+          oauth: {
+            attempts: 0,
+            maxAttempts: 0,
+            stage: 'oauth',
+          },
+        },
+        error: {
+          category: 'auth',
+          retriable: false,
+          stage: 'oauth',
+        },
+      },
     });
-    expect(result.message).toContain('stub');
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('retries transient reddit submit failures and reports retry details on success', async () => {

@@ -239,7 +239,7 @@ function insertPendingPublishJob(draftId: number, runAt: string) {
 }
 
 describe('publish api', () => {
-  it('publishes an x draft through the default stub adapter and returns the enriched publish contract', async () => {
+  it('returns a failed x publish contract when x credentials are missing', async () => {
     const lookupDraft = vi.fn().mockResolvedValue({
       id: 42,
       platform: 'x',
@@ -254,16 +254,28 @@ describe('publish api', () => {
     expect(response.status).toBe(200);
     expect(JSON.parse(response.body)).toEqual({
       draftId: 42,
-      draftStatus: 'published',
+      draftStatus: 'failed',
       platform: 'x',
       mode: 'api',
-      status: 'published',
-      success: true,
-      publishUrl: 'https://x.com/promobot/status/42',
-      externalId: 'x-42',
-      message: 'x stub publisher accepted draft 42',
-      publishedAt: expect.any(String),
+      status: 'failed',
+      success: false,
+      publishUrl: null,
+      externalId: null,
+      message: 'missing x credentials: configure X_ACCESS_TOKEN or X_BEARER_TOKEN',
+      publishedAt: null,
       details: {
+        error: {
+          category: 'auth',
+          retriable: false,
+          stage: 'publish',
+        },
+        retry: {
+          publish: {
+            attempts: 0,
+            maxAttempts: 0,
+            stage: 'publish',
+          },
+        },
         target: '@promobot',
       },
     });
@@ -300,7 +312,7 @@ describe('publish api', () => {
     });
   });
 
-  it('persists a publish log and updates the draft status after a successful publish', async () => {
+  it('persists a failed publish log and updates the draft status when x credentials are missing', async () => {
     const testDatabase = createTestDatabasePath();
     activeTestDbRoot = testDatabase.rootDir;
     activeTestDatabasePath = testDatabase.databasePath;
@@ -340,27 +352,24 @@ describe('publish api', () => {
     expect(draftStore.getById(draft.id)).toEqual(
       expect.objectContaining({
         id: draft.id,
-        status: 'published',
+        status: 'failed',
         scheduledAt: undefined,
-        publishedAt: expect.any(String),
+        publishedAt: undefined,
       }),
-    );
-    expect(new Date(draftStore.getById(draft.id)?.publishedAt ?? '').toString()).not.toBe(
-      'Invalid Date',
     );
     expect(readPublishLogs()).toEqual([
       expect.objectContaining({
         draftId: draft.id,
         projectId: null,
-        status: 'published',
-        publishUrl: `https://x.com/promobot/status/${draft.id}`,
-        message: `x stub publisher accepted draft ${draft.id}`,
+        status: 'failed',
+        publishUrl: null,
+        message: 'missing x credentials: configure X_ACCESS_TOKEN or X_BEARER_TOKEN',
       }),
     ]);
     expect(readJobQueue()).toEqual([]);
   });
 
-  it('persists projectId on publish logs when publishing a project-aware draft', async () => {
+  it('persists projectId on failed publish logs for project-aware x drafts', async () => {
     const testDatabase = createTestDatabasePath();
     activeTestDbRoot = testDatabase.rootDir;
     activeTestDatabasePath = testDatabase.databasePath;
@@ -398,8 +407,9 @@ describe('publish api', () => {
       expect.objectContaining({
         draftId: draft.id,
         projectId: 77,
-        status: 'published',
-        publishUrl: `https://x.com/promobot/status/${draft.id}`,
+        status: 'failed',
+        publishUrl: null,
+        message: 'missing x credentials: configure X_ACCESS_TOKEN or X_BEARER_TOKEN',
       }),
     ]);
   });

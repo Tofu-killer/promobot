@@ -68,7 +68,7 @@ describe('x publisher', () => {
     });
   });
 
-  it('falls back to the stub contract when x credentials are missing', async () => {
+  it('returns a failed contract when x credentials are missing', async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
 
@@ -81,12 +81,26 @@ describe('x publisher', () => {
     expect(result).toMatchObject({
       platform: 'x',
       mode: 'api',
-      status: 'published',
-      success: true,
-      publishUrl: 'https://x.com/promobot/status/7',
-      externalId: 'x-7',
+      status: 'failed',
+      success: false,
+      publishUrl: null,
+      externalId: null,
+      details: {
+        error: {
+          category: 'auth',
+          retriable: false,
+          stage: 'publish',
+        },
+        retry: {
+          publish: {
+            attempts: 0,
+            maxAttempts: 0,
+            stage: 'publish',
+          },
+        },
+      },
     });
-    expect(result.message).toContain('stub');
+    expect(result.message).toContain('missing x credentials');
   });
 
   it('retries transient x api failures and reports retry details on success', async () => {
