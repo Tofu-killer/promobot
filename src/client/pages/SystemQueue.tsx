@@ -124,7 +124,7 @@ export function SystemQueuePage({
   const displayState = stateOverride ?? state;
   const displayMutationState = mutationStateOverride ?? mutationState;
   const [enqueueType, setEnqueueType] = useState('monitor_fetch');
-  const [enqueueRunAt, setEnqueueRunAt] = useState('2026-04-20T09:00');
+  const [enqueueRunAt, setEnqueueRunAt] = useState('');
 
   const fallbackData: SystemQueueResponse = {
     jobs: [],
@@ -158,7 +158,6 @@ export function SystemQueuePage({
     void mutateQueue({
       mode: 'retry',
       jobId: job.id,
-      runAt: enqueueRunAt.trim().length > 0 ? enqueueRunAt.trim() : undefined,
     })
       .then(() => {
         reload();

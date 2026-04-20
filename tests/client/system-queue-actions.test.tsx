@@ -154,6 +154,42 @@ describe('System Queue actions', () => {
     );
   });
 
+  it('posts queue retry without a runAt payload by default', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        job: {
+          id: 11,
+          type: 'publish',
+          status: 'pending',
+          runAt: '2026-04-19T12:20:00.000Z',
+          attempts: 1,
+        },
+        runtime: { available: true },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const queueModule = (await import('../../src/client/pages/SystemQueue')) as Record<string, unknown>;
+
+    expect(typeof queueModule.retrySystemQueueJobRequest).toBe('function');
+
+    const retrySystemQueueJobRequest = queueModule.retrySystemQueueJobRequest as (
+      jobId: number,
+      runAt?: string,
+    ) => Promise<unknown>;
+
+    await retrySystemQueueJobRequest(11);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/system/jobs/11/retry',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      }),
+    );
+  });
+
   it('renders queue metrics, jobs, and create controls', async () => {
     const { SystemQueuePage } = await import('../../src/client/pages/SystemQueue');
 
@@ -206,5 +242,28 @@ describe('System Queue actions', () => {
     expect(html).toContain('#11 · publish');
     expect(html).toContain('lastError: boom');
     expect(html).toContain('重试');
+  });
+
+  it('renders the create-job runAt field as blank by default', async () => {
+    const { SystemQueuePage } = await import('../../src/client/pages/SystemQueue');
+
+    const html = renderPage(SystemQueuePage, {
+      stateOverride: {
+        status: 'success',
+        data: {
+          jobs: [],
+          queue: {
+            pending: 0,
+            running: 0,
+            failed: 0,
+            duePending: 0,
+          },
+          recentJobs: [],
+        },
+      },
+    });
+
+    expect(html).toContain('data-system-queue-field="runAt"');
+    expect(html).not.toContain('value="2026-04-20T09:00"');
   });
 });
