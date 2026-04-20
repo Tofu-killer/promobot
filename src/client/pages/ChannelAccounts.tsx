@@ -230,6 +230,15 @@ const fieldStyle = {
   background: '#ffffff',
 } as const;
 
+const createPlatformOptions = [
+  { value: 'x', label: 'X / Twitter（首发可用）' },
+  { value: 'reddit', label: 'Reddit（首发可用）' },
+  { value: 'facebookGroup', label: 'Facebook Group（人工接管）' },
+  { value: 'xiaohongshu', label: '小红书（暂缓首发）' },
+  { value: 'weibo', label: '微博（暂缓首发）' },
+  { value: 'blog', label: 'Blog（暂缓首发）' },
+] as const;
+
 function serializeMetadata(metadata: Record<string, unknown>) {
   return Object.entries(metadata)
     .filter(
@@ -575,6 +584,25 @@ export function ChannelAccountsPage({
               <span style={{ fontWeight: 700 }}>平台</span>
               <input value={platform} onChange={(event) => setPlatform(event.target.value)} style={fieldStyle} />
             </label>
+
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              {createPlatformOptions.map((option) => (
+                <span
+                  key={option.value}
+                  style={{
+                    borderRadius: '999px',
+                    border: '1px solid #dbe4f0',
+                    background: option.value === platform ? '#dbeafe' : '#f8fafc',
+                    color: option.value === platform ? '#1d4ed8' : '#475569',
+                    padding: '6px 10px',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                  }}
+                >
+                  {option.label}
+                </span>
+              ))}
+            </div>
 
             <label style={{ display: 'grid', gap: '8px' }}>
               <span style={{ fontWeight: 700 }}>账号 Key</span>
