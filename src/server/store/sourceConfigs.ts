@@ -35,6 +35,7 @@ export interface UpdateSourceConfigInput {
 
 export interface SourceConfigStore {
   create(input: CreateSourceConfigInput): SourceConfigRecord;
+  listEnabled(): SourceConfigRecord[];
   listByProject(projectId: number): SourceConfigRecord[];
   update(projectId: number, id: number, input: UpdateSourceConfigInput): SourceConfigRecord | undefined;
 }
@@ -44,6 +45,9 @@ export function createSourceConfigStore(): SourceConfigStore {
     create(input) {
       return withDatabase((database) => insertSourceConfig(database, input));
     },
+    listEnabled() {
+      return withDatabase((database) => listEnabledSourceConfigs(database));
+    },
     listByProject(projectId) {
       return withDatabase((database) => listSourceConfigsByProject(database, projectId));
     },
@@ -51,6 +55,22 @@ export function createSourceConfigStore(): SourceConfigStore {
       return withDatabase((database) => updateSourceConfig(database, projectId, id, input));
     },
   };
+}
+
+function listEnabledSourceConfigs(database: DatabaseConnection): SourceConfigRecord[] {
+  return database
+    .prepare(
+      `
+        SELECT id, project_id AS projectId, source_type AS sourceType, platform, label,
+               config_json AS configJson, enabled, poll_interval_minutes AS pollIntervalMinutes,
+               created_at AS createdAt, updated_at AS updatedAt
+        FROM source_configs
+        WHERE enabled = 1
+        ORDER BY project_id ASC, id ASC
+      `,
+    )
+    .all()
+    .map((row) => normalizeSourceConfigRow(row as Record<string, unknown>));
 }
 
 function insertSourceConfig(

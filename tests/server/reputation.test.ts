@@ -303,6 +303,120 @@ describe('reputation api', () => {
     });
   });
 
+  it('falls back to enabled source configs when monitor items and global settings are absent', async () => {
+    const projectResponse = await requestApp('POST', '/api/projects', {
+      name: 'Reputation Signals',
+      siteName: 'PromoBot',
+      siteUrl: 'https://example.com',
+      siteDescription: 'Reputation workspace',
+      sellingPoints: ['fast'],
+    });
+
+    expect(projectResponse.status).toBe(201);
+
+    const sourceConfigs = [
+      {
+        projectId: 1,
+        sourceType: 'rss',
+        platform: 'blog',
+        label: 'Competitor RSS',
+        configJson: {
+          url: 'https://feeds.example.com/monitor.xml',
+        },
+        enabled: true,
+        pollIntervalMinutes: 45,
+      },
+      {
+        projectId: 1,
+        sourceType: 'keyword+reddit',
+        platform: 'reddit',
+        label: 'Reddit mentions',
+        configJson: {
+          keywords: ['brand latency'],
+        },
+        enabled: true,
+        pollIntervalMinutes: 45,
+      },
+      {
+        projectId: 1,
+        sourceType: 'keyword+x',
+        platform: 'x',
+        label: 'X mentions',
+        configJson: {
+          keywords: ['billing transparency'],
+        },
+        enabled: true,
+        pollIntervalMinutes: 45,
+      },
+      {
+        projectId: 1,
+        sourceType: 'v2ex_search',
+        platform: 'v2ex',
+        label: 'V2EX mentions',
+        configJson: {
+          query: 'cursor api',
+        },
+        enabled: true,
+        pollIntervalMinutes: 45,
+      },
+      {
+        projectId: 1,
+        sourceType: 'keyword+reddit',
+        platform: 'reddit',
+        label: 'Disabled Reddit mentions',
+        configJson: {
+          keywords: ['disabled query'],
+        },
+        enabled: false,
+        pollIntervalMinutes: 45,
+      },
+    ];
+
+    for (const sourceConfig of sourceConfigs) {
+      const sourceConfigResponse = await requestApp(
+        'POST',
+        '/api/projects/1/source-configs',
+        sourceConfig,
+      );
+
+      expect(sourceConfigResponse.status).toBe(201);
+    }
+
+    const fetchResponse = await requestApp('POST', '/api/reputation/fetch');
+
+    expect(fetchResponse.status).toBe(201);
+    expect(JSON.parse(fetchResponse.body)).toEqual({
+      items: [
+        expect.objectContaining({
+          id: 1,
+          source: 'reddit',
+          sentiment: 'neutral',
+          status: 'new',
+          title: 'Watching reputation query: brand latency',
+          detail: 'Derived from source config "Reddit mentions" before live mentions arrive.',
+        }),
+        expect.objectContaining({
+          id: 2,
+          source: 'x',
+          sentiment: 'neutral',
+          status: 'new',
+          title: 'Watching reputation query: billing transparency',
+          detail: 'Derived from source config "X mentions" before live mentions arrive.',
+        }),
+        expect.objectContaining({
+          id: 3,
+          source: 'v2ex',
+          sentiment: 'neutral',
+          status: 'new',
+          title: 'Watching reputation query: cursor api',
+          detail: 'Derived from source config "V2EX mentions" before live mentions arrive.',
+        }),
+      ],
+      inserted: 3,
+      total: 3,
+    });
+  });
+
   it('returns aggregated reputation stats and items from SQLite', async () => {
     const reputationStore = createReputationStore();
     reputationStore.create({

@@ -5,6 +5,7 @@ import { searchX } from './monitor/xSearch';
 import { searchV2ex } from './monitor/v2exSearch';
 import { createMonitorStore } from '../store/monitor';
 import { createSettingsStore } from '../store/settings';
+import { createSourceConfigStore, type SourceConfigRecord } from '../store/sourceConfigs';
 
 export interface MonitorFetchResult {
   items: MonitorItemRecord[];
@@ -15,11 +16,16 @@ export function createMonitorFetchService() {
   const monitorStore = createMonitorStore();
   const rssService = createMonitorRssService();
   const settingsStore = createSettingsStore();
+  const sourceConfigStore = createSourceConfigStore();
 
   return {
     async fetchNow(now: Date = new Date()): Promise<MonitorFetchResult> {
       const settings = settingsStore.get();
-      const collected = await collectConfiguredSignals(rssService, settings);
+      const collected = await collectConfiguredSignals(
+        rssService,
+        settings,
+        sourceConfigStore.listEnabled(),
+      );
       if (collected.length > 0) {
         const items = collected.map((item) =>
           monitorStore.create({
@@ -84,26 +90,36 @@ export async function collectConfiguredSignals(
     monitorXQueries?: string[];
     monitorV2exQueries?: string[];
   },
+  sourceConfigs: SourceConfigRecord[] = [],
 ): Promise<CollectedSignal[]> {
   const results: CollectedSignal[] = [];
+  const sourceConfigInputs = resolveSourceConfigInputs(sourceConfigs);
   const rssFeeds =
     settings.monitorRssFeeds && settings.monitorRssFeeds.length > 0
-      ? settings.monitorRssFeeds
+      ? [...settings.monitorRssFeeds, ...sourceConfigInputs.rssFeeds]
+      : sourceConfigInputs.rssFeeds.length > 0
+        ? sourceConfigInputs.rssFeeds
       : parseList(process.env.MONITOR_RSS_FEEDS);
   const redditQueries =
     settings.monitorRedditQueries && settings.monitorRedditQueries.length > 0
-      ? settings.monitorRedditQueries
+      ? [...settings.monitorRedditQueries, ...sourceConfigInputs.redditQueries]
+      : sourceConfigInputs.redditQueries.length > 0
+        ? sourceConfigInputs.redditQueries
       : parseList(process.env.MONITOR_REDDIT_QUERIES);
   const xQueries =
     settings.monitorXQueries && settings.monitorXQueries.length > 0
-      ? settings.monitorXQueries
+      ? [...settings.monitorXQueries, ...sourceConfigInputs.xQueries]
+      : sourceConfigInputs.xQueries.length > 0
+        ? sourceConfigInputs.xQueries
       : parseList(process.env.MONITOR_X_QUERIES);
   const v2exQueries =
     settings.monitorV2exQueries && settings.monitorV2exQueries.length > 0
-      ? settings.monitorV2exQueries
+      ? [...settings.monitorV2exQueries, ...sourceConfigInputs.v2exQueries]
+      : sourceConfigInputs.v2exQueries.length > 0
+        ? sourceConfigInputs.v2exQueries
       : parseList(process.env.MONITOR_V2EX_QUERIES);
 
-  for (const feed of rssFeeds) {
+  for (const feed of dedupeStrings(rssFeeds)) {
     const result = await rssService.fetchFeeds([feed]);
     for (const failure of result.failures) {
       results.push({
@@ -122,7 +138,7 @@ export async function collectConfiguredSignals(
     }
   }
 
-  for (const query of redditQueries) {
+  for (const query of dedupeStrings(redditQueries)) {
     try {
       const items = await searchReddit(query);
       for (const item of items) {
@@ -141,7 +157,7 @@ export async function collectConfiguredSignals(
     }
   }
 
-  for (const query of xQueries) {
+  for (const query of dedupeStrings(xQueries)) {
     try {
       const items = await searchX(query);
       for (const item of items) {
@@ -160,7 +176,7 @@ export async function collectConfiguredSignals(
     }
   }
 
-  for (const query of v2exQueries) {
+  for (const query of dedupeStrings(v2exQueries)) {
     try {
       const items = await searchV2ex(query);
       for (const item of items) {
@@ -187,4 +203,80 @@ function parseList(value: string | undefined) {
     .split(',')
     .map((entry) => entry.trim())
     .filter((entry) => entry.length > 0);
+}
+
+function resolveSourceConfigInputs(sourceConfigs: SourceConfigRecord[]) {
+  const rssFeeds: string[] = [];
+  const redditQueries: string[] = [];
+  const xQueries: string[] = [];
+  const v2exQueries: string[] = [];
+
+  for (const sourceConfig of sourceConfigs) {
+    if (sourceConfig.sourceType === 'rss') {
+      const feedUrl = readString(sourceConfig.configJson.feedUrl) ?? readString(sourceConfig.configJson.url);
+      if (feedUrl) {
+        rssFeeds.push(feedUrl);
+      }
+      continue;
+    }
+
+    if (
+      sourceConfig.sourceType === 'keyword' ||
+      sourceConfig.sourceType === 'keyword+reddit' ||
+      sourceConfig.sourceType === 'keyword+x'
+    ) {
+      const queries = readQueryList(sourceConfig.configJson);
+      if (queries.length === 0) {
+        continue;
+      }
+
+      if (sourceConfig.platform === 'reddit') {
+        redditQueries.push(...queries);
+      } else if (sourceConfig.platform === 'x') {
+        xQueries.push(...queries);
+      }
+      continue;
+    }
+
+    if (sourceConfig.sourceType === 'v2ex_search') {
+      const query = readString(sourceConfig.configJson.query);
+      if (query) {
+        v2exQueries.push(query);
+      }
+    }
+  }
+
+  return {
+    rssFeeds,
+    redditQueries,
+    xQueries,
+    v2exQueries,
+  };
+}
+
+function readString(value: unknown) {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+function readQueryList(configJson: Record<string, unknown>) {
+  const queries = [];
+  const directQuery = readString(configJson.query);
+  if (directQuery) {
+    queries.push(directQuery);
+  }
+
+  if (Array.isArray(configJson.keywords)) {
+    for (const value of configJson.keywords) {
+      const query = readString(value);
+      if (query) {
+        queries.push(query);
+      }
+    }
+  }
+
+  return dedupeStrings(queries);
+}
+
+function dedupeStrings(values: string[]) {
+  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
 }

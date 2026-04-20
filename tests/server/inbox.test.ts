@@ -217,6 +217,121 @@ describe('inbox api', () => {
     }
   });
 
+  it('falls back to enabled source configs when monitor items and global settings are absent', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const projectResponse = await requestApp('POST', '/api/projects', {
+        name: 'Inbox Signals',
+        siteName: 'PromoBot',
+        siteUrl: 'https://example.com',
+        siteDescription: 'Inbox workspace',
+        sellingPoints: ['fast'],
+      });
+      expect(projectResponse.status).toBe(201);
+
+      const sourceConfigs = [
+        {
+          projectId: 1,
+          sourceType: 'rss',
+          platform: 'blog',
+          label: 'Competitor RSS',
+          configJson: {
+            url: 'https://feeds.example.com/monitor.xml',
+          },
+          enabled: true,
+          pollIntervalMinutes: 30,
+        },
+        {
+          projectId: 1,
+          sourceType: 'keyword+reddit',
+          platform: 'reddit',
+          label: 'Reddit mentions',
+          configJson: {
+            keywords: ['claude latency australia'],
+          },
+          enabled: true,
+          pollIntervalMinutes: 30,
+        },
+        {
+          projectId: 1,
+          sourceType: 'keyword+x',
+          platform: 'x',
+          label: 'X mentions',
+          configJson: {
+            keywords: ['openrouter failover'],
+          },
+          enabled: true,
+          pollIntervalMinutes: 30,
+        },
+        {
+          projectId: 1,
+          sourceType: 'v2ex_search',
+          platform: 'v2ex',
+          label: 'V2EX mentions',
+          configJson: {
+            query: 'cursor api',
+          },
+          enabled: true,
+          pollIntervalMinutes: 30,
+        },
+        {
+          projectId: 1,
+          sourceType: 'keyword+x',
+          platform: 'x',
+          label: 'Disabled X mentions',
+          configJson: {
+            keywords: ['disabled query'],
+          },
+          enabled: false,
+          pollIntervalMinutes: 30,
+        },
+      ];
+
+      for (const sourceConfig of sourceConfigs) {
+        const sourceConfigResponse = await requestApp(
+          'POST',
+          '/api/projects/1/source-configs',
+          sourceConfig,
+        );
+        expect(sourceConfigResponse.status).toBe(201);
+      }
+
+      const response = await requestApp('POST', '/api/inbox/fetch');
+
+      expect(response.status).toBe(201);
+      expect(JSON.parse(response.body)).toEqual({
+        items: [
+          expect.objectContaining({
+            id: 1,
+            source: 'reddit',
+            status: 'needs_reply',
+            title: 'Inbox follow-up for claude latency australia',
+            excerpt: 'Derived from source config "Reddit mentions" before live fetch results arrive.',
+          }),
+          expect.objectContaining({
+            id: 2,
+            source: 'x',
+            status: 'needs_review',
+            title: 'Inbox follow-up for openrouter failover',
+            excerpt: 'Derived from source config "X mentions" before live fetch results arrive.',
+          }),
+          expect.objectContaining({
+            id: 3,
+            source: 'v2ex',
+            status: 'needs_reply',
+            title: 'Inbox follow-up for cursor api',
+            excerpt: 'Derived from source config "V2EX mentions" before live fetch results arrive.',
+          }),
+        ],
+        inserted: 3,
+        total: 3,
+        unread: 3,
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('returns inbox items with total and unread counts from SQLite', async () => {
     const { rootDir } = createTestDatabasePath();
     try {

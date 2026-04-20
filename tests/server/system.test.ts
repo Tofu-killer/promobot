@@ -3,6 +3,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/server/app';
+import { createSchedulerRuntime } from '../../src/server/runtime/schedulerRuntime';
+import { createChannelAccountSessionRequestJobHandler } from '../../src/server/services/browser/sessionRequestHandler';
+import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
 
 async function requestExistingApp(
   app: ReturnType<typeof createApp>,
@@ -683,6 +686,122 @@ describe('system runtime api', () => {
     });
 
     expect(actions).toEqual(['list:1', 'get:11', 'retry:11:2026-04-19T12:20:00.000Z', 'cancel:11']);
+  });
+
+  it('wires channel_account_session_request into runtime handlers and records a stable browser-lane failure', async () => {
+    const { rootDir } = createTestDatabasePath();
+    const schedulerRuntime = createSchedulerRuntime({
+      handlers: {
+        channel_account_session_request: createChannelAccountSessionRequestJobHandler(),
+      },
+    });
+
+    try {
+      schedulerRuntime.reload();
+
+      const app = createApp(
+        {
+          allowedIps: ['127.0.0.1'],
+          adminPassword: 'secret',
+        },
+        { schedulerRuntime },
+      );
+
+      const createChannelAccountResponse = await requestExistingApp(app, {
+        method: 'POST',
+        url: '/api/channel-accounts',
+        body: {
+          platform: 'x',
+          accountKey: '@promobot',
+          displayName: 'PromoBot X',
+          authType: 'browser',
+          status: 'healthy',
+        },
+      });
+      expect(createChannelAccountResponse.status).toBe(201);
+
+      const requestSessionResponse = await requestExistingApp(app, {
+        method: 'POST',
+        url: '/api/channel-accounts/1/session/request',
+        body: {
+          action: 'request_session',
+        },
+      });
+      expect(requestSessionResponse.status).toBe(200);
+
+      const requestSessionBody = JSON.parse(requestSessionResponse.body) as {
+        job: {
+          id: number;
+        };
+      };
+
+      const runtimeResponse = await requestExistingApp(app, {
+        url: '/api/system/runtime',
+      });
+      expect(runtimeResponse.status).toBe(200);
+      expect(JSON.parse(runtimeResponse.body)).toEqual({
+        runtime: expect.objectContaining({
+          available: true,
+          handlers: ['channel_account_session_request'],
+          queue: expect.objectContaining({
+            pending: 1,
+            failed: 0,
+          }),
+        }),
+      });
+
+      const tickResponse = await requestExistingApp(app, {
+        method: 'POST',
+        url: '/api/system/runtime/tick',
+      });
+      expect(tickResponse.status).toBe(200);
+      expect(JSON.parse(tickResponse.body)).toEqual({
+        results: [
+          {
+            jobId: requestSessionBody.job.id,
+            type: 'channel_account_session_request',
+            outcome: 'failed',
+            reason:
+              'browser_lane_unavailable: channel account 1 request_session requires manual completion via /api/channel-accounts/1/session',
+          },
+        ],
+        runtime: expect.objectContaining({
+          available: true,
+          handlers: ['channel_account_session_request'],
+          lastTickResults: [
+            {
+              jobId: requestSessionBody.job.id,
+              type: 'channel_account_session_request',
+              outcome: 'failed',
+              reason:
+                'browser_lane_unavailable: channel account 1 request_session requires manual completion via /api/channel-accounts/1/session',
+            },
+          ],
+          queue: expect.objectContaining({
+            pending: 0,
+            failed: 1,
+          }),
+        }),
+      });
+
+      const jobResponse = await requestExistingApp(app, {
+        url: `/api/system/jobs/${requestSessionBody.job.id}`,
+      });
+      expect(jobResponse.status).toBe(200);
+      expect(JSON.parse(jobResponse.body)).toEqual({
+        job: expect.objectContaining({
+          id: requestSessionBody.job.id,
+          type: 'channel_account_session_request',
+          status: 'failed',
+          attempts: 1,
+          lastError:
+            'browser_lane_unavailable: channel account 1 request_session requires manual completion via /api/channel-accounts/1/session',
+        }),
+      });
+    } finally {
+      schedulerRuntime.stop();
+      cleanupTestDatabasePath(rootDir);
+    }
   });
 });
 

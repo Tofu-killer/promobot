@@ -242,6 +242,227 @@ describe('monitor api', () => {
     }
   });
 
+  it('fetches monitor items from enabled source configs before generic seed fallback', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      process.env.REDDIT_CLIENT_ID = 'reddit-id';
+      process.env.REDDIT_CLIENT_SECRET = 'reddit-secret';
+      process.env.REDDIT_USERNAME = 'reddit-user';
+      process.env.REDDIT_PASSWORD = 'reddit-pass';
+      process.env.REDDIT_USER_AGENT = 'promobot/test';
+      delete process.env.X_ACCESS_TOKEN;
+      delete process.env.X_BEARER_TOKEN;
+      process.env.MONITOR_X_SEARCH_SEEDS = JSON.stringify([
+        {
+          id: '1888888888888',
+          query: 'openrouter failover',
+          title: 'OpenRouter failover thread',
+          text: 'Operators comparing AU routing and warm failover.',
+          author: 'routingwatch',
+          url: 'https://x.com/routingwatch/status/1888888888888',
+        },
+      ]);
+
+      const projectResponse = await requestApp('POST', '/api/projects', {
+        name: 'Monitor Signals',
+        siteName: 'PromoBot',
+        siteUrl: 'https://example.com',
+        siteDescription: 'Monitoring workspace',
+        sellingPoints: ['fast'],
+      });
+      expect(projectResponse.status).toBe(201);
+
+      const sourceConfigs = [
+        {
+          projectId: 1,
+          sourceType: 'rss',
+          platform: 'blog',
+          label: 'Competitor RSS',
+          configJson: { url: 'https://feeds.example.com/monitor.xml' },
+          enabled: true,
+          pollIntervalMinutes: 15,
+        },
+        {
+          projectId: 1,
+          sourceType: 'keyword+reddit',
+          platform: 'reddit',
+          label: 'Reddit mentions',
+          configJson: { keywords: ['claude latency australia'] },
+          enabled: true,
+          pollIntervalMinutes: 15,
+        },
+        {
+          projectId: 1,
+          sourceType: 'keyword+x',
+          platform: 'x',
+          label: 'X mentions',
+          configJson: { keywords: ['openrouter failover'] },
+          enabled: true,
+          pollIntervalMinutes: 15,
+        },
+        {
+          projectId: 1,
+          sourceType: 'v2ex_search',
+          platform: 'v2ex',
+          label: 'V2EX mentions',
+          configJson: { query: 'cursor api' },
+          enabled: true,
+          pollIntervalMinutes: 15,
+        },
+        {
+          projectId: 1,
+          sourceType: 'keyword+reddit',
+          platform: 'reddit',
+          label: 'Disabled Reddit mentions',
+          configJson: { keywords: ['should stay disabled'] },
+          enabled: false,
+          pollIntervalMinutes: 15,
+        },
+      ];
+
+      for (const sourceConfig of sourceConfigs) {
+        const sourceConfigResponse = await requestApp(
+          'POST',
+          '/api/projects/1/source-configs',
+          sourceConfig,
+        );
+        expect(sourceConfigResponse.status).toBe(201);
+      }
+
+      const requestedUrls: string[] = [];
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation(async (input: string | URL | Request) => {
+          const url =
+            typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+          requestedUrls.push(url);
+
+          if (url === 'https://feeds.example.com/monitor.xml') {
+            return new Response(
+              `<?xml version="1.0" encoding="UTF-8"?>
+              <rss version="2.0">
+                <channel>
+                  <title>Example Feed</title>
+                  <item>
+                    <title>AU pricing update</title>
+                    <description>Tracked pricing change for APAC buyers.</description>
+                    <link>https://example.com/posts/au-pricing</link>
+                  </item>
+                </channel>
+              </rss>`,
+              {
+                status: 200,
+                headers: { 'Content-Type': 'application/rss+xml' },
+              },
+            );
+          }
+
+          if (url === 'https://www.reddit.com/api/v1/access_token') {
+            return new Response(JSON.stringify({ access_token: 'reddit-access-token' }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            });
+          }
+
+          if (url.startsWith('https://oauth.reddit.com/search?')) {
+            expect(new URL(url).searchParams.get('q')).toBe('claude latency australia');
+
+            return new Response(
+              JSON.stringify({
+                data: {
+                  children: [
+                    {
+                      data: {
+                        id: 'abc123',
+                        title: 'Claude latency in Australia',
+                        selftext: 'Operators comparing AU routing for Claude requests.',
+                        permalink:
+                          '/r/LocalLLaMA/comments/abc123/claude_latency_in_australia/',
+                        subreddit_name_prefixed: 'r/LocalLLaMA',
+                        author: 'latencywatch',
+                      },
+                    },
+                  ],
+                },
+              }),
+              {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+              },
+            );
+          }
+
+          if (url.startsWith('https://www.v2ex.com/search?')) {
+            expect(new URL(url).searchParams.get('q')).toBe('cursor api');
+
+            return new Response(
+              `
+              <div class="cell item">
+                <span class="item_title">
+                  <a href="/t/123456">Cursor API pricing discussion</a>
+                </span>
+                <a class="node" href="/go/openai">OpenAI</a>
+                <a href="/member/builder">builder</a>
+                <a class="count_livid" href="/t/123456#reply3">3 replies</a>
+              </div>
+              `,
+              {
+                status: 200,
+                headers: { 'Content-Type': 'text/html' },
+              },
+            );
+          }
+
+          throw new Error(`unexpected fetch url: ${url}`);
+        }),
+      );
+
+      const response = await requestApp('POST', '/api/monitor/fetch');
+
+      expect(response.status).toBe(201);
+      expect(JSON.parse(response.body)).toEqual({
+        items: [
+          expect.objectContaining({
+            id: 1,
+            source: 'rss',
+            title: 'AU pricing update',
+            detail: 'Tracked pricing change for APAC buyers.\n\nhttps://example.com/posts/au-pricing',
+            status: 'new',
+          }),
+          expect.objectContaining({
+            id: 2,
+            source: 'reddit',
+            title: 'Claude latency in Australia',
+            detail:
+              'r/LocalLLaMA · latencywatch\n\nhttps://www.reddit.com/r/LocalLLaMA/comments/abc123/claude_latency_in_australia/',
+            status: 'new',
+          }),
+          expect.objectContaining({
+            id: 3,
+            source: 'x',
+            title: 'OpenRouter failover thread',
+            detail:
+              '@routingwatch · matched x search seed for openrouter failover\n\nhttps://x.com/routingwatch/status/1888888888888',
+            status: 'new',
+          }),
+          expect.objectContaining({
+            id: 4,
+            source: 'v2ex',
+            title: 'Cursor API pricing discussion',
+            detail:
+              'V2EX OpenAI · builder · 3 replies\n\nhttps://www.v2ex.com/t/123456',
+            status: 'new',
+          }),
+        ],
+        inserted: 4,
+        total: 4,
+      });
+      expect(requestedUrls.join('\n')).not.toContain('should%20stay%20disabled');
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('falls back to configured x search seeds when no x token is available', async () => {
     delete process.env.X_ACCESS_TOKEN;
     delete process.env.X_BEARER_TOKEN;
@@ -316,6 +537,66 @@ describe('monitor api', () => {
           '@routingwatch · matched x search seed for openrouter failover\n\nhttps://x.com/routingwatch/status/1888888888888',
       },
     ]);
+  });
+
+  it('uses enabled source configs to drive monitor fetch when env settings are absent', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      delete process.env.MONITOR_X_QUERIES;
+      delete process.env.MONITOR_X_SEARCH_SEEDS;
+      process.env.MONITOR_X_SEARCH_SEEDS = JSON.stringify([
+        {
+          id: '1777777777777',
+          query: 'router failover',
+          title: 'Router failover mention',
+          text: 'Comparing failover setups for APAC traffic.',
+          author: 'queuewatch',
+          url: 'https://x.com/queuewatch/status/1777777777777',
+        },
+      ]);
+
+      const projectResponse = await requestApp('POST', '/api/projects', {
+        name: 'Signals',
+        siteName: 'PromoBot',
+        siteUrl: 'https://example.com',
+        siteDescription: 'Signals workspace',
+        sellingPoints: ['fast'],
+      });
+      expect(projectResponse.status).toBe(201);
+
+      const sourceConfigResponse = await requestApp('POST', '/api/projects/1/source-configs', {
+        projectId: 1,
+        sourceType: 'keyword',
+        platform: 'x',
+        label: 'X failover',
+        configJson: {
+          query: 'router failover',
+        },
+        enabled: true,
+        pollIntervalMinutes: 15,
+      });
+      expect(sourceConfigResponse.status).toBe(201);
+
+      const response = await requestApp('POST', '/api/monitor/fetch');
+
+      expect(response.status).toBe(201);
+      expect(JSON.parse(response.body)).toEqual({
+        items: [
+          expect.objectContaining({
+            id: 1,
+            source: 'x',
+            title: 'Router failover mention',
+            detail:
+              '@queuewatch · matched x search seed for router failover\n\nhttps://x.com/queuewatch/status/1777777777777',
+            status: 'new',
+          }),
+        ],
+        inserted: 1,
+        total: 1,
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
   });
 
   it('creates a follow-up draft from a monitor item', async () => {

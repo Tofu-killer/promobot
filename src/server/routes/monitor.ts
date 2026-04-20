@@ -6,7 +6,6 @@ import { systemDashboardRouter } from './systemDashboard';
 
 export const monitorRouter = Router();
 const monitorStore = createMonitorStore();
-const monitorFetchService = createMonitorFetchService();
 const draftStore = createSQLiteDraftStore();
 
 monitorRouter.use(systemDashboardRouter);
@@ -21,6 +20,7 @@ monitorRouter.get('/feed', (_request, response) => {
 
 monitorRouter.post('/fetch', async (_request, response, next) => {
   try {
+    const monitorFetchService = createMonitorFetchService();
     const result = await monitorFetchService.fetchNow();
 
     response.status(201).json({
