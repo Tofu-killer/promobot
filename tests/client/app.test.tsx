@@ -144,6 +144,8 @@ describe('App shell', () => {
       await flush();
     });
 
+    expect(collectText(container)).toContain('话题输入');
+
     const generateProjectInput = findElement(
       container,
       (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
@@ -169,6 +171,8 @@ describe('App shell', () => {
       await flush();
     });
 
+    expect(collectText(container)).toContain('抓取排程');
+
     const monitorProjectInput = findElement(
       container,
       (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
@@ -188,6 +192,8 @@ describe('App shell', () => {
       await flush();
       await flush();
     });
+
+    expect(collectText(container)).toContain('先看今天的内容运营节奏');
 
     const rerenderedDashboardProjectInput = findElement(
       container,

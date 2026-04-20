@@ -971,7 +971,7 @@ describe('Monitor follow-up actions', () => {
     });
   });
 
-  it('reloads the selected monitor project scope before generating a follow-up draft', async () => {
+  it('reloads the selected monitor project scope before generating a follow-up draft without changing follow-up args', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
     const { MonitorPage } = await import('../../src/client/pages/Monitor');
@@ -1024,10 +1024,12 @@ describe('Monitor follow-up actions', () => {
     expect(generateButton).not.toBeNull();
 
     await act(async () => {
-      updateFieldValue(projectIdInput, '12', window);
+      updateFieldValue(projectIdInput, ' 0012 ', window);
       await flush();
       await flush();
     });
+
+    expect((projectIdInput as FakeElement & { value?: string }).value).toBe(' 0012 ');
 
     await act(async () => {
       const monitorItem = findElement(
@@ -1626,10 +1628,11 @@ describe('Monitor follow-up actions', () => {
     expect(projectIdInput).not.toBeNull();
 
     await act(async () => {
-      updateFieldValue(projectIdInput, '12', window);
+      updateFieldValue(projectIdInput, ' 0012 ', window);
       await flush();
     });
 
+    expect(projectIdInput.value).toBe(' 0012 ');
     expect(loadMonitorAction).toHaveBeenCalledTimes(2);
     expect(loadMonitorAction).toHaveBeenLastCalledWith(12);
 
@@ -1655,6 +1658,68 @@ describe('Monitor follow-up actions', () => {
     });
 
     expect(enqueueMonitorAction).toHaveBeenCalledWith(undefined, 12);
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('prefers a controlled projectId draft prop for monitor-scoped actions', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { MonitorPage } = await import('../../src/client/pages/Monitor');
+
+    const loadMonitorAction = vi.fn().mockResolvedValue({
+      items: [],
+      total: 0,
+    });
+    const fetchMonitorAction = vi.fn().mockResolvedValue({
+      items: [],
+      inserted: 1,
+      total: 1,
+    });
+    const onProjectIdDraftChange = vi.fn();
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(MonitorPage as never, {
+          loadMonitorAction,
+          fetchMonitorAction,
+          projectIdDraft: ' 0012 ',
+          onProjectIdDraftChange,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const projectIdInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    ) as FakeElement & { value?: string };
+    const fetchButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('抓取新动态'),
+    );
+
+    expect(projectIdInput.value).toBe(' 0012 ');
+    expect(loadMonitorAction).toHaveBeenLastCalledWith(12);
+
+    await act(async () => {
+      fetchButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(fetchMonitorAction).toHaveBeenCalledWith(12);
+
+    await act(async () => {
+      updateFieldValue(projectIdInput, ' 0042 ', window);
+      await flush();
+    });
+
+    expect(onProjectIdDraftChange).toHaveBeenCalledWith(' 0042 ');
 
     await act(async () => {
       root.unmount();

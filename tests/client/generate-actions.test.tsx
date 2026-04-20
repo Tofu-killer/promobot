@@ -772,7 +772,7 @@ describe('Generate review actions', () => {
     });
   });
 
-  it('passes the optional projectId when saving generated drafts', async () => {
+  it('parses the optional projectId from the raw draft string when saving generated drafts', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
     const { GeneratePage } = await import('../../src/client/pages/Generate');
@@ -802,9 +802,11 @@ describe('Generate review actions', () => {
     expect(saveDraftButton).not.toBeNull();
 
     await act(async () => {
-      updateFieldValue(projectIdInput, '12', window);
+      updateFieldValue(projectIdInput, ' 0012 ', window);
       await flush();
     });
+
+    expect((projectIdInput as FakeElement & { value?: string }).value).toBe(' 0012 ');
 
     await act(async () => {
       saveDraftButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
@@ -818,6 +820,64 @@ describe('Generate review actions', () => {
       saveAsDraft: true,
       projectId: 12,
     });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('prefers a controlled projectId draft prop and reports raw string changes', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { GeneratePage } = await import('../../src/client/pages/Generate');
+
+    const generateAction = vi.fn().mockResolvedValue({ results: [] });
+    const onProjectIdDraftChange = vi.fn();
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(GeneratePage as never, {
+          generateAction,
+          projectIdDraft: ' 0012 ',
+          onProjectIdDraftChange,
+        }),
+      );
+      await flush();
+    });
+
+    const projectIdInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    );
+    const saveDraftButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('保存为草稿'),
+    );
+
+    expect((projectIdInput as FakeElement & { value?: string } | null)?.value).toBe(' 0012 ');
+    expect(saveDraftButton).not.toBeNull();
+
+    await act(async () => {
+      saveDraftButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(generateAction).toHaveBeenCalledWith({
+      topic: 'We added a cheaper Claude-compatible endpoint for Australian customers.',
+      tone: 'professional',
+      platforms: ['x', 'reddit'],
+      saveAsDraft: true,
+      projectId: 12,
+    });
+
+    await act(async () => {
+      updateFieldValue(projectIdInput, ' 0042 ', window);
+      await flush();
+    });
+
+    expect(onProjectIdDraftChange).toHaveBeenCalledWith(' 0042 ');
 
     await act(async () => {
       root.unmount();
