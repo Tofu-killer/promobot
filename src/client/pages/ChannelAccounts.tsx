@@ -390,6 +390,7 @@ export function ChannelAccountsPage({
   const [authType, setAuthType] = useState('api');
   const [status, setStatus] = useState('unknown');
   const [metadata, setMetadata] = useState('');
+  const [actionTargetAccountId, setActionTargetAccountId] = useState<string>('');
   const [editingAccountId, setEditingAccountId] = useState<number | null>(null);
   const [editFormById, setEditFormById] = useState<Record<number, EditFormValue>>({});
   const { state: createState, run: createChannelAccount } = useAsyncAction(createChannelAccountAction);
@@ -472,7 +473,10 @@ export function ChannelAccountsPage({
 
   const latestCreatedAccount = createdAccount;
   const fallbackTestTarget = visibleAccounts[0] ?? null;
-  const testTarget = latestCreatedAccount ?? fallbackTestTarget;
+  const testTarget =
+    visibleAccounts.find((account) => String(account.id) === actionTargetAccountId) ??
+    latestCreatedAccount ??
+    fallbackTestTarget;
   const testedAccount = displayTestConnectionState.data?.channelAccount
     ? normalizeChannelAccountRecord(displayTestConnectionState.data.channelAccount)
     : testTarget;
@@ -1047,6 +1051,48 @@ export function ChannelAccountsPage({
             <div>
               当前目标账号：{testTarget?.displayName ?? '未选定'}
             </div>
+            {visibleAccounts.length > 0 ? (
+              <div style={{ display: 'grid', gap: '8px', maxWidth: '420px' }}>
+                <span style={{ fontWeight: 700 }}>动作目标账号</span>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    data-action-target-account=""
+                    onClick={() => setActionTargetAccountId('')}
+                    style={{
+                      borderRadius: '999px',
+                      border: '1px solid #dbe4f0',
+                      background: actionTargetAccountId === '' ? '#dbeafe' : '#f8fafc',
+                      color: actionTargetAccountId === '' ? '#1d4ed8' : '#475569',
+                      padding: '6px 10px',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                    }}
+                  >
+                    自动选择最近目标
+                  </button>
+                  {visibleAccounts.map((account) => (
+                    <button
+                      key={account.id}
+                      type="button"
+                      data-action-target-account={String(account.id)}
+                      onClick={() => setActionTargetAccountId(String(account.id))}
+                      style={{
+                        borderRadius: '999px',
+                        border: '1px solid #dbe4f0',
+                        background: actionTargetAccountId === String(account.id) ? '#dbeafe' : '#f8fafc',
+                        color: actionTargetAccountId === String(account.id) ? '#1d4ed8' : '#475569',
+                        padding: '6px 10px',
+                        fontSize: '12px',
+                        fontWeight: 700,
+                      }}
+                    >
+                      {account.displayName}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             <div>点击“测试连接”会优先对最近创建账号发起真实连接测试；如果当前没有目标账号，则会先刷新列表。</div>
             <div>每个账号卡片都会显式显示 Session 是否存在、当前状态、最近验证时间和 Storage Path。</div>
             <div>“请求登录 / 重新登录”会调用新的占位接口；“编辑 Session 元数据”用于展开表单，“保存 Session 元数据”才会真正提交 storage path、状态、验证时间和备注。</div>

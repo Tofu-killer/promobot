@@ -612,6 +612,100 @@ describe('channel account edit actions', () => {
     });
   });
 
+  it('uses the explicitly selected target account for header connection actions', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ChannelAccountsPage } = await import('../../src/client/pages/ChannelAccounts');
+
+    const testChannelAccountAction = vi.fn().mockResolvedValue({
+      ok: true,
+      test: {
+        checkedAt: '2026-04-19T02:00:00.000Z',
+        status: 'healthy',
+      },
+      channelAccount: {
+        id: 7,
+        platform: 'reddit',
+        accountKey: 'acct-reddit',
+        displayName: 'Reddit Ops',
+        authType: 'oauth',
+        status: 'healthy',
+        metadata: {},
+        createdAt: '2026-04-19T00:00:00.000Z',
+        updatedAt: '2026-04-19T00:00:00.000Z',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ChannelAccountsPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              channelAccounts: [
+                {
+                  id: 3,
+                  platform: 'x',
+                  accountKey: 'acct-x',
+                  displayName: 'X / Twitter',
+                  authType: 'api',
+                  status: 'healthy',
+                  metadata: {},
+                  createdAt: '2026-04-19T00:00:00.000Z',
+                  updatedAt: '2026-04-19T00:00:00.000Z',
+                },
+                {
+                  id: 7,
+                  platform: 'reddit',
+                  accountKey: 'acct-reddit',
+                  displayName: 'Reddit Ops',
+                  authType: 'oauth',
+                  status: 'healthy',
+                  metadata: {},
+                  createdAt: '2026-04-19T00:00:00.000Z',
+                  updatedAt: '2026-04-19T00:00:00.000Z',
+                },
+              ],
+            },
+          },
+          testChannelAccountAction,
+        }),
+      );
+      await flush();
+    });
+
+    const actionTargetButton = findElement(
+      container,
+      (element) => element.getAttribute('data-action-target-account') === '7',
+    );
+    const testConnectionButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('测试连接'),
+    );
+
+    expect(actionTargetButton).not.toBeNull();
+    expect(testConnectionButton).not.toBeNull();
+
+    await act(async () => {
+      actionTargetButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    await act(async () => {
+      testConnectionButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(testChannelAccountAction).toHaveBeenCalledWith(7);
+    expect(collectText(container)).toContain('当前目标账号：Reddit Ops');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('patches a channel account through the shared API helper', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({
