@@ -913,6 +913,41 @@ describe('client API page wiring', () => {
     expect(html).toContain('Updated draft body');
   });
 
+  it('shows manual handoff feedback for draft publish contracts', async () => {
+    const { DraftsPage } = await import('../../src/client/pages/Drafts');
+
+    const html = renderPage(DraftsPage, {
+      stateOverride: {
+        status: 'success',
+        data: {
+          drafts: [
+            {
+              id: 7,
+              platform: 'facebook-group',
+              title: 'Community handoff',
+              content: 'Draft body',
+              hashtags: ['#community'],
+              status: 'draft',
+              createdAt: '2026-04-19T00:00:00.000Z',
+              updatedAt: '2026-04-19T00:00:00.000Z',
+            },
+          ],
+        },
+      },
+      draftInteractionStateOverride: {
+        publishStateById: {
+          7: {
+            status: 'success',
+            message: '已转入人工接管：Community handoff',
+          },
+        },
+      },
+    });
+
+    expect(html).toContain('已转入人工接管：Community handoff');
+    expect(html).toContain('触发发布');
+  });
+
   it('loads channel accounts through the shared API helper', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({

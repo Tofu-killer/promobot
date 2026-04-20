@@ -238,9 +238,23 @@ export function DraftsPage({
       setPublishStateById((currentState) => ({
         ...currentState,
         [draftId]: {
-          status: result.success ? 'success' : 'error',
-          message: result.success ? result.message : null,
-          error: result.success ? null : result.message,
+          status:
+            result.success || result.status === 'manual_required'
+              ? 'success'
+              : 'error',
+          message:
+            result.success
+              ? result.message
+              : result.status === 'manual_required'
+                ? `已转入人工接管：${
+                    visibleDrafts.find((draft) => draft.id === draftId)?.title ??
+                    `Draft #${draftId}`
+                  }`
+                : null,
+          error:
+            result.success || result.status === 'manual_required'
+              ? null
+              : result.message,
           publishUrl: result.publishUrl,
         },
       }));
