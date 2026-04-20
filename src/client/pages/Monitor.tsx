@@ -132,7 +132,7 @@ interface MonitorPageProps {
   followUpStateOverride?: AsyncState<FollowUpDraftResponse>;
   fetchStateOverride?: AsyncState<FetchMonitorFeedResponse>;
   enqueueStateOverride?: AsyncState<EnqueueMonitorFetchJobResponse>;
-  projectIdDraftOverride?: string;
+  projectIdDraft?: string;
   onProjectIdDraftChange?: (value: string) => void;
 }
 
@@ -164,13 +164,13 @@ export function MonitorPage({
   followUpStateOverride,
   fetchStateOverride,
   enqueueStateOverride,
-  projectIdDraftOverride,
+  projectIdDraft,
   onProjectIdDraftChange,
 }: MonitorPageProps) {
   const resolvedEnqueueAction = enqueueMonitorAction ?? enqueueFetchJobAction ?? enqueueMonitorFetchJobRequest;
   const [localProjectIdDraft, setLocalProjectIdDraft] = useState('');
-  const projectIdDraft = projectIdDraftOverride ?? localProjectIdDraft;
-  const projectId = parseProjectId(projectIdDraft);
+  const activeProjectIdDraft = projectIdDraft ?? localProjectIdDraft;
+  const projectId = parseProjectId(activeProjectIdDraft);
   const { state, reload } = useAsyncQuery(
     () => (projectId === undefined ? loadMonitorAction() : loadMonitorAction(projectId)),
     [loadMonitorAction, projectId],
@@ -295,9 +295,9 @@ export function MonitorPage({
       <label style={{ display: 'grid', gap: '8px', marginBottom: '20px' }}>
         <span style={{ fontWeight: 700 }}>项目 ID（可选）</span>
         <input
-          value={projectIdDraft}
+          value={activeProjectIdDraft}
           onChange={(event) => {
-            if (projectIdDraftOverride === undefined) {
+            if (projectIdDraft === undefined) {
               setLocalProjectIdDraft(event.target.value);
             }
             onProjectIdDraftChange?.(event.target.value);

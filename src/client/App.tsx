@@ -42,7 +42,7 @@ function renderRoute(
     case 'dashboard':
       return (
         <DashboardPage
-          projectIdDraftOverride={sharedProjectIdDraft}
+          projectIdDraft={sharedProjectIdDraft}
           onProjectIdDraftChange={onProjectIdDraftChange}
         />
       );
@@ -55,7 +55,7 @@ function renderRoute(
     case 'generate':
       return (
         <GeneratePage
-          projectIdDraftOverride={sharedProjectIdDraft}
+          projectIdDraft={sharedProjectIdDraft}
           onProjectIdDraftChange={onProjectIdDraftChange}
         />
       );
@@ -70,7 +70,7 @@ function renderRoute(
     case 'monitor':
       return (
         <MonitorPage
-          projectIdDraftOverride={sharedProjectIdDraft}
+          projectIdDraft={sharedProjectIdDraft}
           onProjectIdDraftChange={onProjectIdDraftChange}
         />
       );
@@ -83,7 +83,7 @@ function renderRoute(
     default:
       return (
         <DashboardPage
-          projectIdDraftOverride={sharedProjectIdDraft}
+          projectIdDraft={sharedProjectIdDraft}
           onProjectIdDraftChange={onProjectIdDraftChange}
         />
       );

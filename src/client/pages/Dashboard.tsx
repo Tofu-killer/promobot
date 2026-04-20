@@ -73,19 +73,19 @@ export async function loadDashboardRequest(projectId?: number): Promise<Dashboar
 interface DashboardPageProps {
   loadDashboardAction?: (projectId?: number) => Promise<DashboardResponse>;
   stateOverride?: AsyncState<DashboardResponse>;
-  projectIdDraftOverride?: string;
+  projectIdDraft?: string;
   onProjectIdDraftChange?: (value: string) => void;
 }
 
 export function DashboardPage({
   loadDashboardAction = loadDashboardRequest,
   stateOverride,
-  projectIdDraftOverride,
+  projectIdDraft,
   onProjectIdDraftChange,
 }: DashboardPageProps) {
   const [localProjectIdDraft, setLocalProjectIdDraft] = useState('');
-  const projectIdDraft = projectIdDraftOverride ?? localProjectIdDraft;
-  const projectId = parseProjectId(projectIdDraft);
+  const activeProjectIdDraft = projectIdDraft ?? localProjectIdDraft;
+  const projectId = parseProjectId(activeProjectIdDraft);
   const { state } = useAsyncQuery(
     () => (projectId === undefined ? loadDashboardAction() : loadDashboardAction(projectId)),
     [loadDashboardAction, projectId],
@@ -116,9 +116,9 @@ export function DashboardPage({
       <label style={{ display: 'grid', gap: '8px', marginBottom: '20px' }}>
         <span style={{ fontWeight: 700 }}>项目 ID（可选）</span>
         <input
-          value={projectIdDraft}
+          value={activeProjectIdDraft}
           onChange={(event) => {
-            if (projectIdDraftOverride === undefined) {
+            if (projectIdDraft === undefined) {
               setLocalProjectIdDraft(event.target.value);
             }
             onProjectIdDraftChange?.(event.target.value);

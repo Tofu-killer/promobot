@@ -111,7 +111,7 @@ interface GeneratePageProps {
   generateAction?: (input: GenerateDraftsPayload) => Promise<GenerateDraftsResponse>;
   sendDraftToReviewAction?: (id: number) => Promise<SendDraftToReviewResponse>;
   stateOverride?: AsyncState<GenerateDraftsResponse>;
-  projectIdDraftOverride?: string;
+  projectIdDraft?: string;
   onProjectIdDraftChange?: (value: string) => void;
 }
 
@@ -128,13 +128,13 @@ export function GeneratePage({
   generateAction = generateDraftsRequest,
   sendDraftToReviewAction = sendDraftToReviewRequest,
   stateOverride,
-  projectIdDraftOverride,
+  projectIdDraft,
   onProjectIdDraftChange,
 }: GeneratePageProps) {
   const [topic, setTopic] = useState('We added a cheaper Claude-compatible endpoint for Australian customers.');
   const [localProjectIdDraft, setLocalProjectIdDraft] = useState('');
-  const projectIdDraft = projectIdDraftOverride ?? localProjectIdDraft;
-  const projectId = parseProjectId(projectIdDraft);
+  const activeProjectIdDraft = projectIdDraft ?? localProjectIdDraft;
+  const projectId = parseProjectId(activeProjectIdDraft);
   const [tone, setTone] = useState<(typeof toneOptions)[number]['value']>('professional');
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>(defaultLaunchPlatforms);
   const [reviewStateByDraftId, setReviewStateByDraftId] = useState<Record<number, ReviewMutationState>>({});
@@ -240,9 +240,9 @@ export function GeneratePage({
           <label style={{ marginTop: '18px', display: 'grid', gap: '8px' }}>
             <span style={{ fontWeight: 700 }}>项目 ID（可选）</span>
             <input
-              value={projectIdDraft}
+              value={activeProjectIdDraft}
               onChange={(event) => {
-                if (projectIdDraftOverride === undefined) {
+                if (projectIdDraft === undefined) {
                   setLocalProjectIdDraft(event.target.value);
                 }
                 onProjectIdDraftChange?.(event.target.value);
