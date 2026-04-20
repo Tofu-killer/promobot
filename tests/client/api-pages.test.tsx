@@ -564,22 +564,74 @@ describe('client API page wiring', () => {
       tone: string;
       platforms: string[];
       saveAsDraft?: boolean;
+      projectId?: number;
     }) => Promise<{ results: Array<{ platform: string; title?: string; content: string }> }>;
 
-    const result = await generateDraftsRequest({
+    const payload = {
       topic: 'Cheaper Claude-compatible endpoint',
       tone: 'professional',
       platforms: ['x'],
-    });
+    };
+
+    const result = await generateDraftsRequest(payload);
 
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/content/generate',
       expect.objectContaining({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
       }),
     );
     expect(result.results[0]?.platform).toBe('x');
+  });
+
+  it('posts content generation with an optional projectId through the shared API helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        results: [
+          {
+            platform: 'reddit',
+            title: 'Launch post',
+            content: 'Draft body',
+            hashtags: ['#launch'],
+          },
+        ],
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const generateModule = (await import('../../src/client/pages/Generate')) as Record<string, unknown>;
+
+    expect(typeof generateModule.generateDraftsRequest).toBe('function');
+
+    const generateDraftsRequest = generateModule.generateDraftsRequest as (input: {
+      topic: string;
+      tone: string;
+      platforms: string[];
+      saveAsDraft?: boolean;
+      projectId?: number;
+    }) => Promise<{ results: Array<{ platform: string; title?: string; content: string }> }>;
+
+    const payload = {
+      topic: 'Cheaper Claude-compatible endpoint',
+      tone: 'professional',
+      platforms: ['reddit'],
+      saveAsDraft: true,
+      projectId: 12,
+    };
+
+    const result = await generateDraftsRequest(payload);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/content/generate',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }),
+    );
+    expect(result.results[0]?.platform).toBe('reddit');
   });
 
   it('shows generate loading, error, and success states', async () => {
@@ -645,7 +697,7 @@ describe('client API page wiring', () => {
 
     expect(typeof draftsModule.loadDraftsRequest).toBe('function');
 
-    const loadDraftsRequest = draftsModule.loadDraftsRequest as () => Promise<{
+    const loadDraftsRequest = draftsModule.loadDraftsRequest as (projectId?: number) => Promise<{
       drafts: Array<{ id: number; title?: string; status: string }>;
     }>;
 
@@ -654,6 +706,40 @@ describe('client API page wiring', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/drafts', undefined);
     expect(result.drafts).toHaveLength(1);
     expect(result.drafts[0]?.title).toBe('Launch thread');
+  });
+
+  it('loads drafts with a projectId filter through the shared API helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        drafts: [
+          {
+            id: 2,
+            platform: 'reddit',
+            title: 'Project launch post',
+            content: 'Draft body',
+            hashtags: ['#launch'],
+            status: 'draft',
+            createdAt: '2026-04-19T00:00:00.000Z',
+            updatedAt: '2026-04-19T00:00:00.000Z',
+          },
+        ],
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const draftsModule = (await import('../../src/client/pages/Drafts')) as Record<string, unknown>;
+
+    expect(typeof draftsModule.loadDraftsRequest).toBe('function');
+
+    const loadDraftsRequest = draftsModule.loadDraftsRequest as (projectId?: number) => Promise<{
+      drafts: Array<{ id: number; title?: string; status: string }>;
+    }>;
+
+    const result = await loadDraftsRequest(12);
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/drafts?projectId=12', undefined);
+    expect(result.drafts).toHaveLength(1);
+    expect(result.drafts[0]?.title).toBe('Project launch post');
   });
 
   it('patches draft updates through the shared API helper', async () => {
@@ -769,6 +855,7 @@ describe('client API page wiring', () => {
       },
     });
 
+    expect(html).toContain('项目 ID（可选）');
     expect(html).toContain('已加载 1 条草稿');
     expect(html).toContain('Launch thread');
     expect(html).toContain('draft');

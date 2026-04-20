@@ -16,7 +16,7 @@ export interface UpdatePublishCalendarDraftScheduleResponse {
 }
 
 interface PublishCalendarPageProps {
-  loadDraftsAction?: () => Promise<DraftsResponse>;
+  loadDraftsAction?: (projectId?: number) => Promise<DraftsResponse>;
   updateDraftScheduleAction?: (
     id: number,
     input: { scheduledAt: string | null },
@@ -32,8 +32,32 @@ interface ScheduleMutationState {
 
 const calendarStatuses: CalendarDraftStatus[] = ['scheduled', 'published'];
 
-export async function loadPublishCalendarRequest(): Promise<DraftsResponse> {
-  return apiRequest<DraftsResponse>('/api/drafts');
+function parseProjectId(value: string) {
+  const normalizedValue = value.trim();
+  if (normalizedValue.length === 0) {
+    return undefined;
+  }
+
+  const projectId = Number(normalizedValue);
+  return Number.isInteger(projectId) && projectId > 0 ? projectId : undefined;
+}
+
+function buildPublishCalendarPath(projectId?: number) {
+  return projectId === undefined ? '/api/drafts' : `/api/drafts?projectId=${projectId}`;
+}
+
+const projectInputStyle = {
+  width: '100%',
+  maxWidth: '240px',
+  borderRadius: '14px',
+  border: '1px solid #cbd5e1',
+  padding: '12px 14px',
+  font: 'inherit',
+  background: '#ffffff',
+} as const;
+
+export async function loadPublishCalendarRequest(projectId?: number): Promise<DraftsResponse> {
+  return apiRequest<DraftsResponse>(buildPublishCalendarPath(projectId));
 }
 
 export async function updatePublishCalendarDraftScheduleRequest(
@@ -132,7 +156,12 @@ export function PublishCalendarPage({
   updateDraftScheduleAction = updatePublishCalendarDraftScheduleRequest,
   stateOverride,
 }: PublishCalendarPageProps) {
-  const { state, reload } = useAsyncQuery(loadDraftsAction, [loadDraftsAction]);
+  const [projectIdDraft, setProjectIdDraft] = useState('');
+  const projectId = parseProjectId(projectIdDraft);
+  const { state, reload } = useAsyncQuery(
+    () => (projectId === undefined ? loadDraftsAction() : loadDraftsAction(projectId)),
+    [loadDraftsAction, projectId],
+  );
   const { run: updateSchedule } = useAsyncAction(
     ({ id, scheduledAt }: { id: number; scheduledAt: string | null }) =>
       updateDraftScheduleAction(id, { scheduledAt }),
@@ -207,6 +236,16 @@ export function PublishCalendarPage({
         description="页面直接读取真实 `/api/drafts` 数据，只聚焦 scheduled 与 published 两类发布状态，方便核对队列与已发结果。"
         actions={<ActionButton label="重新加载" onClick={reload} />}
       />
+
+      <label style={{ display: 'grid', gap: '8px', marginBottom: '20px' }}>
+        <span style={{ fontWeight: 700 }}>项目 ID（可选）</span>
+        <input
+          value={projectIdDraft}
+          onChange={(event) => setProjectIdDraft(event.target.value)}
+          placeholder="例如 12"
+          style={projectInputStyle}
+        />
+      </label>
 
       <SectionCard title="发布状态" description="日历视图当前先用真实草稿数据落地排程与已发信息。">
         {displayState.status === 'loading' ? <p style={{ margin: 0, color: '#334155' }}>正在加载发布日历...</p> : null}

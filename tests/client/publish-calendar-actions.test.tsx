@@ -534,6 +534,41 @@ afterEach(() => {
 });
 
 describe('Publish Calendar schedule actions', () => {
+  it('loads publish calendar drafts with a projectId filter through the shared API helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        drafts: [
+          {
+            id: 5,
+            platform: 'x',
+            title: 'Scheduled launch thread',
+            content: 'Queued for later',
+            hashtags: ['#launch'],
+            status: 'scheduled',
+            scheduledAt: '2026-04-20T09:30',
+            createdAt: '2026-04-19T08:00:00.000Z',
+            updatedAt: '2026-04-19T08:10:00.000Z',
+          },
+        ],
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const publishCalendarModule = (await import('../../src/client/pages/PublishCalendar')) as Record<string, unknown>;
+
+    expect(typeof publishCalendarModule.loadPublishCalendarRequest).toBe('function');
+
+    const loadPublishCalendarRequest = publishCalendarModule.loadPublishCalendarRequest as (
+      projectId?: number,
+    ) => Promise<{ drafts: Array<{ id: number; title?: string; status: string }> }>;
+
+    const result = await loadPublishCalendarRequest(12);
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/drafts?projectId=12', undefined);
+    expect(result.drafts).toHaveLength(1);
+    expect(result.drafts[0]?.title).toBe('Scheduled launch thread');
+  });
+
   it('patches draft scheduledAt through the shared API helper', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({

@@ -570,7 +570,7 @@ describe('review queue wiring', () => {
 
     expect(typeof reviewQueueModule.loadReviewQueueRequest).toBe('function');
 
-    const loadReviewQueueRequest = reviewQueueModule.loadReviewQueueRequest as () => Promise<{
+    const loadReviewQueueRequest = reviewQueueModule.loadReviewQueueRequest as (projectId?: number) => Promise<{
       drafts: Array<{ id: number; status: string; title?: string }>;
     }>;
 
@@ -579,6 +579,40 @@ describe('review queue wiring', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/drafts?status=review', undefined);
     expect(result.drafts).toHaveLength(1);
     expect(result.drafts[0]?.title).toBe('Launch thread');
+  });
+
+  it('loads review drafts with a projectId filter through /api/drafts?status=review', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        drafts: [
+          {
+            id: 12,
+            platform: 'x',
+            title: 'Scoped launch thread',
+            content: 'Draft body',
+            hashtags: ['#launch'],
+            status: 'review',
+            createdAt: '2026-04-19T00:00:00.000Z',
+            updatedAt: '2026-04-19T00:00:00.000Z',
+          },
+        ],
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const reviewQueueModule = (await import('../../src/client/pages/ReviewQueue')) as Record<string, unknown>;
+
+    expect(typeof reviewQueueModule.loadReviewQueueRequest).toBe('function');
+
+    const loadReviewQueueRequest = reviewQueueModule.loadReviewQueueRequest as (projectId?: number) => Promise<{
+      drafts: Array<{ id: number; status: string; title?: string }>;
+    }>;
+
+    const result = await loadReviewQueueRequest(12);
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/drafts?status=review&projectId=12', undefined);
+    expect(result.drafts).toHaveLength(1);
+    expect(result.drafts[0]?.title).toBe('Scoped launch thread');
   });
 
   it('shows loading, error, and success states', async () => {
@@ -614,6 +648,7 @@ describe('review queue wiring', () => {
       },
     });
 
+    expect(html).toContain('项目 ID（可选）');
     expect(html).toContain('待审核草稿');
     expect(html).toContain('Launch thread');
     expect(html).toContain('通过');

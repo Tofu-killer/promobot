@@ -522,6 +522,48 @@ afterEach(() => {
 });
 
 describe('Publish Calendar lifecycle', () => {
+  it('passes the projectId filter into publish calendar loads', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { PublishCalendarPage } = await import('../../src/client/pages/PublishCalendar');
+
+    const loadDraftsAction = vi.fn().mockResolvedValue({
+      drafts: [],
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(PublishCalendarPage as never, {
+          loadDraftsAction,
+        }),
+      );
+      await flush();
+    });
+
+    expect(loadDraftsAction).toHaveBeenCalledTimes(1);
+
+    const projectIdInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    ) as FakeElement & { value?: string };
+
+    expect(projectIdInput).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(projectIdInput, '12', window);
+      await flush();
+    });
+
+    expect(loadDraftsAction).toHaveBeenCalledTimes(2);
+    expect(loadDraftsAction).toHaveBeenLastCalledWith(12);
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('shows publishedAt details for published drafts', async () => {
     const { PublishCalendarPage } = await import('../../src/client/pages/PublishCalendar');
 
@@ -548,6 +590,7 @@ describe('Publish Calendar lifecycle', () => {
       }),
     );
 
+    expect(html).toContain('项目 ID（可选）');
     expect(html).toContain('发布时间：2026-04-19T10:15:00.000Z');
   });
 

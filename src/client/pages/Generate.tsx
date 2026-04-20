@@ -24,11 +24,33 @@ const toneOptions = [
   { label: '激动人心', value: 'exciting' },
 ] as const;
 
+function parseProjectId(value: string) {
+  const normalizedValue = value.trim();
+
+  if (normalizedValue.length === 0) {
+    return undefined;
+  }
+
+  const projectId = Number(normalizedValue);
+  return Number.isInteger(projectId) && projectId > 0 ? projectId : undefined;
+}
+
+const projectInputStyle = {
+  width: '100%',
+  maxWidth: '240px',
+  borderRadius: '14px',
+  border: '1px solid #cbd5e1',
+  padding: '12px 14px',
+  font: 'inherit',
+  background: '#ffffff',
+} as const;
+
 export interface GenerateDraftsPayload {
   topic: string;
   tone: string;
   platforms: string[];
   saveAsDraft?: boolean;
+  projectId?: number;
 }
 
 export interface GenerateDraftsResponse {
@@ -100,6 +122,8 @@ export function GeneratePage({
   stateOverride,
 }: GeneratePageProps) {
   const [topic, setTopic] = useState('We added a cheaper Claude-compatible endpoint for Australian customers.');
+  const [projectIdDraft, setProjectIdDraft] = useState('');
+  const projectId = parseProjectId(projectIdDraft);
   const [tone, setTone] = useState<(typeof toneOptions)[number]['value']>('professional');
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>(platformOptions.map((platform) => platform.value));
   const [reviewStateByDraftId, setReviewStateByDraftId] = useState<Record<number, ReviewMutationState>>({});
@@ -121,6 +145,7 @@ export function GeneratePage({
       tone,
       platforms: selectedPlatforms,
       saveAsDraft,
+      ...(projectId === undefined ? {} : { projectId }),
     });
   }
 
@@ -198,6 +223,16 @@ export function GeneratePage({
                 font: 'inherit',
                 resize: 'vertical',
               }}
+            />
+          </label>
+
+          <label style={{ marginTop: '18px', display: 'grid', gap: '8px' }}>
+            <span style={{ fontWeight: 700 }}>项目 ID（可选）</span>
+            <input
+              value={projectIdDraft}
+              onChange={(event) => setProjectIdDraft(event.target.value)}
+              placeholder="例如 12"
+              style={projectInputStyle}
             />
           </label>
 

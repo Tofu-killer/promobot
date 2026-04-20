@@ -562,6 +562,48 @@ afterEach(() => {
 });
 
 describe('Review Queue lifecycle actions', () => {
+  it('passes the projectId filter into review queue loads', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ReviewQueuePage } = await import('../../src/client/pages/ReviewQueue');
+
+    const loadReviewQueueAction = vi.fn().mockResolvedValue({
+      drafts: [],
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ReviewQueuePage as never, {
+          loadReviewQueueAction,
+        }),
+      );
+      await flush();
+    });
+
+    expect(loadReviewQueueAction).toHaveBeenCalledTimes(1);
+
+    const projectIdInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    ) as FakeElement & { value?: string };
+
+    expect(projectIdInput).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(projectIdInput, '12', window);
+      await flush();
+    });
+
+    expect(loadReviewQueueAction).toHaveBeenCalledTimes(2);
+    expect(loadReviewQueueAction).toHaveBeenLastCalledWith(12);
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('publishes review drafts through POST /api/drafts/:id/publish', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({

@@ -9,7 +9,7 @@ import type { DraftRecord, DraftsResponse, PublishDraftResponse, UpdateDraftResp
 import { upsertDraftRecord } from '../lib/drafts';
 
 interface ReviewQueuePageProps {
-  loadReviewQueueAction?: () => Promise<DraftsResponse>;
+  loadReviewQueueAction?: (projectId?: number) => Promise<DraftsResponse>;
   updateReviewDraftAction?: (id: number, input: { status: 'approved' | 'draft' }) => Promise<UpdateDraftResponse>;
   publishReviewDraftAction?: (id: number) => Promise<PublishDraftResponse>;
   scheduleReviewDraftAction?: (
@@ -28,8 +28,32 @@ interface ReviewActionState {
   contractMessage: string | null;
 }
 
-export async function loadReviewQueueRequest(): Promise<DraftsResponse> {
-  return apiRequest<DraftsResponse>('/api/drafts?status=review');
+function parseProjectId(value: string) {
+  const normalizedValue = value.trim();
+  if (normalizedValue.length === 0) {
+    return undefined;
+  }
+
+  const projectId = Number(normalizedValue);
+  return Number.isInteger(projectId) && projectId > 0 ? projectId : undefined;
+}
+
+function buildReviewQueuePath(projectId?: number) {
+  return projectId === undefined ? '/api/drafts?status=review' : `/api/drafts?status=review&projectId=${projectId}`;
+}
+
+const projectInputStyle = {
+  width: '100%',
+  maxWidth: '240px',
+  borderRadius: '14px',
+  border: '1px solid #cbd5e1',
+  padding: '12px 14px',
+  font: 'inherit',
+  background: '#ffffff',
+} as const;
+
+export async function loadReviewQueueRequest(projectId?: number): Promise<DraftsResponse> {
+  return apiRequest<DraftsResponse>(buildReviewQueuePath(projectId));
 }
 
 export async function updateReviewDraftRequest(
@@ -217,7 +241,12 @@ export function ReviewQueuePage({
   scheduleReviewDraftAction = scheduleReviewDraftRequest,
   stateOverride,
 }: ReviewQueuePageProps) {
-  const { state, reload } = useAsyncQuery(loadReviewQueueAction, [loadReviewQueueAction]);
+  const [projectIdDraft, setProjectIdDraft] = useState('');
+  const projectId = parseProjectId(projectIdDraft);
+  const { state, reload } = useAsyncQuery(
+    () => (projectId === undefined ? loadReviewQueueAction() : loadReviewQueueAction(projectId)),
+    [loadReviewQueueAction, projectId],
+  );
   const [localDrafts, setLocalDrafts] = useState<DraftRecord[]>([]);
   const [scheduledAtById, setScheduledAtById] = useState<Record<number, string>>({});
   const [actionStateById, setActionStateById] = useState<Record<number, ReviewActionState>>({});
@@ -416,6 +445,16 @@ export function ReviewQueuePage({
         description="页面直接读取真实 `/api/drafts?status=review` 数据，支持快速通过或退回最小审核动作。"
         actions={<ActionButton label="重新加载" onClick={reload} />}
       />
+
+      <label style={{ display: 'grid', gap: '8px', marginBottom: '20px' }}>
+        <span style={{ fontWeight: 700 }}>项目 ID（可选）</span>
+        <input
+          value={projectIdDraft}
+          onChange={(event) => setProjectIdDraft(event.target.value)}
+          placeholder="例如 12"
+          style={projectInputStyle}
+        />
+      </label>
 
       <SectionCard title="待审核草稿" description="默认只展示 status=review 的草稿。">
         {displayState.status === 'loading' ? <p style={{ margin: 0, color: '#334155' }}>正在加载审核队列...</p> : null}

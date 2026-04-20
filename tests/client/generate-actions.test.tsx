@@ -530,6 +530,30 @@ function findElement(node: FakeNode, matcher: (element: FakeElement) => boolean)
   return null;
 }
 
+function updateFieldValue(element: FakeElement | null, value: string, window: FakeWindow) {
+  if (!element) {
+    throw new Error('expected form field');
+  }
+
+  (element as FakeElement & { value?: string }).value = value;
+
+  const reactPropsKey = Object.keys(element).find((key) => key.startsWith('__reactProps'));
+  const reactProps =
+    reactPropsKey && reactPropsKey in element
+      ? ((element as unknown as Record<string, unknown>)[reactPropsKey] as {
+          onChange?: (event: { target: { value: string } }) => void;
+        })
+      : null;
+
+  if (reactProps?.onChange) {
+    reactProps.onChange({ target: { value } });
+    return;
+  }
+
+  element.dispatchEvent(new window.Event('input', { bubbles: true }));
+  element.dispatchEvent(new window.Event('change', { bubbles: true }));
+}
+
 async function flush() {
   await Promise.resolve();
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -541,6 +565,101 @@ afterEach(() => {
 });
 
 describe('Generate review actions', () => {
+  it('keeps the legacy generate payload when projectId is omitted', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { GeneratePage } = await import('../../src/client/pages/Generate');
+
+    const generateAction = vi.fn().mockResolvedValue({ results: [] });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(GeneratePage as never, {
+          generateAction,
+        }),
+      );
+      await flush();
+    });
+
+    const saveDraftButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('保存为草稿'),
+    );
+
+    expect(saveDraftButton).not.toBeNull();
+
+    await act(async () => {
+      saveDraftButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(generateAction).toHaveBeenCalledWith({
+      topic: 'We added a cheaper Claude-compatible endpoint for Australian customers.',
+      tone: 'professional',
+      platforms: ['x', 'reddit', 'facebook-group', 'xiaohongshu', 'weibo', 'blog'],
+      saveAsDraft: true,
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('passes the optional projectId when saving generated drafts', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { GeneratePage } = await import('../../src/client/pages/Generate');
+
+    const generateAction = vi.fn().mockResolvedValue({ results: [] });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(GeneratePage as never, {
+          generateAction,
+        }),
+      );
+      await flush();
+    });
+
+    const projectIdInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    );
+    const saveDraftButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('保存为草稿'),
+    );
+
+    expect(projectIdInput).not.toBeNull();
+    expect(saveDraftButton).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(projectIdInput, '12', window);
+      await flush();
+    });
+
+    await act(async () => {
+      saveDraftButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(generateAction).toHaveBeenCalledWith({
+      topic: 'We added a cheaper Claude-compatible endpoint for Australian customers.',
+      tone: 'professional',
+      platforms: ['x', 'reddit', 'facebook-group', 'xiaohongshu', 'weibo', 'blog'],
+      saveAsDraft: true,
+      projectId: 12,
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('patches generated drafts into review through the shared API helper', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({

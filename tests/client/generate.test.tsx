@@ -8,6 +8,8 @@ describe('Generate page', () => {
 
     expect(html).toContain('Generate Center');
     expect(html).toContain('话题输入');
+    expect(html).toContain('项目 ID（可选）');
+    expect(html).toContain('例如 12');
     expect(html).toContain('语气');
     expect(html).toContain('选择渠道');
     expect(html).toContain('一键生成');

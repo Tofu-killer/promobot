@@ -29,8 +29,32 @@ export type {
   UpdateDraftResponse,
 } from '../lib/drafts';
 
-export async function loadDraftsRequest(): Promise<DraftsResponse> {
-  return apiRequest<DraftsResponse>('/api/drafts');
+function parseProjectId(value: string) {
+  const normalizedValue = value.trim();
+  if (normalizedValue.length === 0) {
+    return undefined;
+  }
+
+  const projectId = Number(normalizedValue);
+  return Number.isInteger(projectId) && projectId > 0 ? projectId : undefined;
+}
+
+function buildDraftsPath(projectId?: number) {
+  return projectId === undefined ? '/api/drafts' : `/api/drafts?projectId=${projectId}`;
+}
+
+const projectInputStyle = {
+  width: '100%',
+  maxWidth: '240px',
+  borderRadius: '14px',
+  border: '1px solid #cbd5e1',
+  padding: '12px 14px',
+  font: 'inherit',
+  background: '#ffffff',
+} as const;
+
+export async function loadDraftsRequest(projectId?: number): Promise<DraftsResponse> {
+  return apiRequest<DraftsResponse>(buildDraftsPath(projectId));
 }
 
 export async function updateDraftRequest(id: number, input: UpdateDraftPayload): Promise<UpdateDraftResponse> {
@@ -50,7 +74,7 @@ export async function publishDraftRequest(id: number): Promise<PublishDraftRespo
 }
 
 interface DraftsPageProps {
-  loadDraftsAction?: () => Promise<DraftsResponse>;
+  loadDraftsAction?: (projectId?: number) => Promise<DraftsResponse>;
   updateDraftAction?: (id: number, input: UpdateDraftPayload) => Promise<UpdateDraftResponse>;
   publishDraftAction?: (id: number) => Promise<PublishDraftResponse>;
   stateOverride?: AsyncState<DraftsResponse>;
@@ -87,7 +111,12 @@ export function DraftsPage({
   stateOverride,
   draftInteractionStateOverride,
 }: DraftsPageProps) {
-  const { state, reload } = useAsyncQuery(loadDraftsAction, [loadDraftsAction]);
+  const [projectIdDraft, setProjectIdDraft] = useState('');
+  const projectId = parseProjectId(projectIdDraft);
+  const { state, reload } = useAsyncQuery(
+    () => (projectId === undefined ? loadDraftsAction() : loadDraftsAction(projectId)),
+    [loadDraftsAction, projectId],
+  );
   const [localDrafts, setLocalDrafts] = useState<DraftRecord[]>([]);
   const [formValuesById, setFormValuesById] = useState<Record<number, DraftFormValues>>({});
   const [saveStateById, setSaveStateById] = useState<Record<number, DraftMutationState>>({});
@@ -236,6 +265,16 @@ export function DraftsPage({
         description="草稿列表会集中展示不同项目和渠道的候选内容，支持审核、定时和快速发布。"
         actions={<ActionButton label="重新加载" onClick={reload} />}
       />
+
+      <label style={{ display: 'grid', gap: '8px', marginBottom: '20px' }}>
+        <span style={{ fontWeight: 700 }}>项目 ID（可选）</span>
+        <input
+          value={projectIdDraft}
+          onChange={(event) => setProjectIdDraft(event.target.value)}
+          placeholder="例如 12"
+          style={projectInputStyle}
+        />
+      </label>
 
       <SectionCard title="草稿列表" description="页面加载时直接请求 `/api/drafts`。">
         {displayState.status === 'loading' ? <p style={{ margin: 0, color: '#334155' }}>正在加载草稿...</p> : null}
