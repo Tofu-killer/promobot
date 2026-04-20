@@ -155,4 +155,68 @@ describe('dashboard metrics api', () => {
       cleanupTestDatabasePath(rootDir);
     }
   });
+
+  it('filters project-aware channel account metrics by projectId and excludes legacy inbox rows from scoped views', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const inboxStore = createInboxStore();
+      const channelAccountStore = createChannelAccountStore();
+      const jobQueueStore = createJobQueueStore();
+
+      inboxStore.create({
+        source: 'x',
+        status: 'needs_reply',
+        author: 'Alice',
+        title: 'Need pricing help',
+        excerpt: 'Can you share the enterprise tier details?',
+      });
+      inboxStore.create({
+        source: 'facebook',
+        status: 'handled',
+        author: 'Bob',
+        title: 'Thanks for the fix',
+        excerpt: 'The issue is resolved now.',
+      });
+
+      channelAccountStore.create({
+        projectId: 11,
+        platform: 'x',
+        accountKey: '@promobot-project-11',
+        displayName: 'PromoBot X 11',
+        authType: 'api',
+        status: 'healthy',
+      });
+      channelAccountStore.create({
+        projectId: 22,
+        platform: 'facebook',
+        accountKey: 'page-22',
+        displayName: 'PromoBot FB 22',
+        authType: 'cookie',
+        status: 'failed',
+      });
+
+      jobQueueStore.enqueue({
+        type: 'monitor_fetch',
+        payload: { source: 'rss' },
+        runAt: '2026-04-19T09:00:00.000Z',
+      });
+
+      const response = await requestApp('GET', '/api/monitor/dashboard?projectId=11');
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toMatchObject({
+        channelAccounts: {
+          total: 1,
+          connected: 1,
+        },
+        jobQueue: {
+          pending: 1,
+          duePending: 1,
+        },
+      });
+      expect(JSON.parse(response.body)).not.toHaveProperty('inbox');
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
 });

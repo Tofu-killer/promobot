@@ -66,18 +66,21 @@ function collectInboxSignals(
 
   const sourceConfigSignals = [
     ...sourceConfigQueries.redditSignals.map((signal) => ({
+      projectId: signal.projectId,
       source: 'reddit',
       status: 'needs_reply',
       title: `Inbox follow-up for ${signal.query}`,
       excerpt: `Derived from source config "${signal.label}" before live fetch results arrive.`,
     })),
     ...sourceConfigQueries.xSignals.map((signal) => ({
+      projectId: signal.projectId,
       source: 'x',
       status: 'needs_review',
       title: `Inbox follow-up for ${signal.query}`,
       excerpt: `Derived from source config "${signal.label}" before live fetch results arrive.`,
     })),
     ...sourceConfigQueries.v2exSignals.map((signal) => ({
+      projectId: signal.projectId,
       source: 'v2ex',
       status: 'needs_reply',
       title: `Inbox follow-up for ${signal.query}`,
@@ -114,9 +117,9 @@ function collectUnhandledMonitorSignals(monitorItems: MonitorItemRecord[]): Inbo
 }
 
 function resolveInboxSourceConfigQueries(sourceConfigs: SourceConfigRecord[]) {
-  const redditSignals: Array<{ label: string; query: string }> = [];
-  const xSignals: Array<{ label: string; query: string }> = [];
-  const v2exSignals: Array<{ label: string; query: string }> = [];
+  const redditSignals: Array<{ projectId: number; label: string; query: string }> = [];
+  const xSignals: Array<{ projectId: number; label: string; query: string }> = [];
+  const v2exSignals: Array<{ projectId: number; label: string; query: string }> = [];
 
   for (const sourceConfig of sourceConfigs) {
     if (
@@ -125,6 +128,7 @@ function resolveInboxSourceConfigQueries(sourceConfigs: SourceConfigRecord[]) {
     ) {
       for (const query of readQueryList(sourceConfig.configJson)) {
         redditSignals.push({
+          projectId: sourceConfig.projectId,
           label: sourceConfig.label,
           query,
         });
@@ -137,6 +141,7 @@ function resolveInboxSourceConfigQueries(sourceConfigs: SourceConfigRecord[]) {
     ) {
       for (const query of readQueryList(sourceConfig.configJson)) {
         xSignals.push({
+          projectId: sourceConfig.projectId,
           label: sourceConfig.label,
           query,
         });
@@ -146,6 +151,7 @@ function resolveInboxSourceConfigQueries(sourceConfigs: SourceConfigRecord[]) {
     if (sourceConfig.sourceType === 'v2ex_search') {
       for (const query of readQueryList(sourceConfig.configJson)) {
         v2exSignals.push({
+          projectId: sourceConfig.projectId,
           label: sourceConfig.label,
           query,
         });
@@ -187,10 +193,12 @@ function dedupeStrings(values: string[]) {
   return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
 }
 
-function dedupeLabeledSignals(signals: Array<{ label: string; query: string }>) {
+function dedupeLabeledSignals(
+  signals: Array<{ projectId: number; label: string; query: string }>,
+) {
   const seen = new Set<string>();
   return signals.filter((signal) => {
-    const key = `${signal.label}:${signal.query}`;
+    const key = `${signal.projectId}:${signal.label}:${signal.query}`;
     if (seen.has(key)) {
       return false;
     }

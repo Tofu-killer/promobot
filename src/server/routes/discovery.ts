@@ -16,9 +16,18 @@ export const discoveryRouter = Router();
 const inboxStore = createInboxStore();
 const monitorStore = createMonitorStore();
 
-discoveryRouter.get('/', (_request, response) => {
+discoveryRouter.get('/', (request, response) => {
+  const projectId = parseProjectIdQuery(request.query.projectId);
+
+  if (request.query.projectId !== undefined && projectId === undefined) {
+    response.status(400).json({ error: 'invalid project id' });
+    return;
+  }
+
+  const inboxItems = filterProjectAwareRecords(inboxStore.list(), projectId);
+  const monitorItems = filterProjectAwareRecords(monitorStore.list(), projectId);
   const items: DiscoveryItemRecord[] = [
-    ...inboxStore.list().map((item) => ({
+    ...inboxItems.map((item) => ({
       id: `inbox-${item.id}`,
       source: item.source,
       type: 'inbox' as const,
@@ -27,7 +36,7 @@ discoveryRouter.get('/', (_request, response) => {
       status: item.status,
       createdAt: item.createdAt,
     })),
-    ...monitorStore.list().map((item) => ({
+    ...monitorItems.map((item) => ({
       id: `monitor-${item.id}`,
       source: item.source,
       type: 'monitor' as const,
@@ -43,3 +52,23 @@ discoveryRouter.get('/', (_request, response) => {
     total: items.length,
   });
 });
+
+function parseProjectIdQuery(value: unknown) {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const projectId = Number(value);
+  return Number.isInteger(projectId) && projectId > 0 ? projectId : undefined;
+}
+
+function filterProjectAwareRecords<T extends { projectId?: number | null }>(
+  records: T[],
+  projectId?: number,
+) {
+  if (projectId === undefined) {
+    return records;
+  }
+
+  return records.filter((record) => record.projectId === projectId);
+}

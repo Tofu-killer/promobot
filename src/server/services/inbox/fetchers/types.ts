@@ -1,6 +1,7 @@
 import type { MonitorItemRecord } from '../../../store/monitor';
 
 export interface InboxSignal {
+  projectId?: number;
   source: string;
   status: string;
   author?: string;
@@ -20,6 +21,7 @@ export interface InboxFetcherContext {
 
 export function createInboxSignalFromMonitorItem(item: MonitorItemRecord): InboxSignal {
   return {
+    ...(item.projectId !== undefined ? { projectId: item.projectId } : {}),
     source: item.source,
     status: selectInboxStatus(item.source),
     ...(extractAuthor(item.detail) ? { author: extractAuthor(item.detail) } : {}),

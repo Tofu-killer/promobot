@@ -215,4 +215,92 @@ describe('dashboard lifecycle metrics api', () => {
       cleanupTestDatabasePath(rootDir);
     }
   });
+
+  it('filters lifecycle and publish log metrics by projectId through project-aware drafts', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const draftStore = createSQLiteDraftStore();
+      const publishLogStore = createSQLitePublishLogStore();
+
+      const projectOneScheduled = draftStore.create({
+        projectId: 1,
+        platform: 'x',
+        title: 'Project 1 scheduled launch note',
+        content: 'Rollout starts tomorrow.',
+        status: 'scheduled',
+      });
+      const projectOnePublished = draftStore.create({
+        projectId: 1,
+        platform: 'x',
+        title: 'Project 1 published release note',
+        content: 'Launch is live.',
+        status: 'published',
+      });
+      const projectTwoReview = draftStore.create({
+        projectId: 2,
+        platform: 'x',
+        title: 'Project 2 needs review',
+        content: 'Review before posting.',
+        status: 'review',
+      });
+
+      draftStore.update(projectOneScheduled.id, {
+        scheduledAt: '2026-04-20T09:30:00.000Z',
+      });
+      draftStore.update(projectOnePublished.id, {
+        publishedAt: '2026-04-19T08:15:00.000Z',
+      });
+
+      publishLogStore.create({
+        draftId: projectOneScheduled.id,
+        status: 'failed',
+        message: 'project 1 rate limited',
+      });
+      publishLogStore.create({
+        draftId: projectOnePublished.id,
+        status: 'published',
+        publishUrl: 'https://x.com/promobot/status/1',
+        message: 'project 1 publish succeeded',
+      });
+      publishLogStore.create({
+        draftId: projectTwoReview.id,
+        status: 'failed',
+        message: 'project 2 upstream error',
+      });
+
+      const response = await requestApp('GET', '/api/monitor/dashboard?projectId=1');
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        monitor: {
+          total: 0,
+          new: 0,
+          followUpDrafts: 0,
+        },
+        drafts: {
+          total: 2,
+          review: 0,
+          scheduled: 1,
+          published: 1,
+        },
+        totals: {
+          items: 2,
+          followUps: 0,
+        },
+        publishLogs: {
+          failedCount: 1,
+        },
+        jobQueue: {
+          pending: 0,
+          running: 0,
+          done: 0,
+          failed: 0,
+          canceled: 0,
+          duePending: 0,
+        },
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
 });

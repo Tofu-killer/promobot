@@ -3,6 +3,7 @@ import { withDatabase } from '../lib/persistence';
 
 export interface ReputationItemRecord {
   id: number;
+  projectId?: number;
   source: string;
   sentiment: string;
   status: string;
@@ -21,6 +22,7 @@ export interface ReputationStats {
 }
 
 export interface CreateReputationItemInput {
+  projectId?: number;
   source: string;
   sentiment: string;
   status: string;
@@ -31,19 +33,28 @@ export interface CreateReputationItemInput {
 export interface ReputationStore {
   create(input: CreateReputationItemInput): ReputationItemRecord;
   updateStatus(id: number, status: string): ReputationItemRecord | undefined;
-  getStats(): ReputationStats;
+  getStats(projectId?: number): ReputationStats;
 }
 
 export function createReputationStore(): ReputationStore {
   return {
     create(input) {
-      return withDatabase((database) => insertReputationItem(database, input));
+      return withDatabase((database) => {
+        ensureProjectIdColumn(database);
+        return insertReputationItem(database, input);
+      });
     },
     updateStatus(id, status) {
-      return withDatabase((database) => updateReputationItemStatus(database, id, status));
+      return withDatabase((database) => {
+        ensureProjectIdColumn(database);
+        return updateReputationItemStatus(database, id, status);
+      });
     },
-    getStats() {
-      return withDatabase((database) => readReputationStats(database));
+    getStats(projectId) {
+      return withDatabase((database) => {
+        ensureProjectIdColumn(database);
+        return readReputationStats(database, projectId);
+      });
     },
   };
 }
@@ -55,11 +66,12 @@ function insertReputationItem(
   const result = database
     .prepare(
       `
-        INSERT INTO reputation_items (source, sentiment, status, title, detail)
-        VALUES (@source, @sentiment, @status, @title, @detail)
+        INSERT INTO reputation_items (project_id, source, sentiment, status, title, detail)
+        VALUES (@project_id, @source, @sentiment, @status, @title, @detail)
       `,
     )
     .run({
+      project_id: input.projectId ?? null,
       source: input.source,
       sentiment: input.sentiment,
       status: input.status,
@@ -70,7 +82,7 @@ function insertReputationItem(
   const row = database
     .prepare(
       `
-        SELECT id, source, sentiment, status, title, detail, created_at AS createdAt
+        SELECT id, project_id AS projectId, source, sentiment, status, title, detail, created_at AS createdAt
         FROM reputation_items
         WHERE id = ?
       `,
@@ -84,17 +96,30 @@ function insertReputationItem(
   return normalizeReputationItem(row as Record<string, unknown>);
 }
 
-function readReputationStats(database: DatabaseConnection): ReputationStats {
-  const rows = database
-    .prepare(
-      `
-        SELECT id, source, sentiment, status, title, detail, created_at AS createdAt
-        FROM reputation_items
-        ORDER BY id ASC
-      `,
-    )
-    .all()
-    .map((row) => normalizeReputationItem(row as Record<string, unknown>));
+function readReputationStats(database: DatabaseConnection, projectId?: number): ReputationStats {
+  const rows =
+    projectId !== undefined
+      ? database
+          .prepare(
+            `
+              SELECT id, project_id AS projectId, source, sentiment, status, title, detail, created_at AS createdAt
+              FROM reputation_items
+              WHERE project_id = ?
+              ORDER BY id ASC
+            `,
+          )
+          .all([projectId])
+          .map((row) => normalizeReputationItem(row as Record<string, unknown>))
+      : database
+          .prepare(
+            `
+              SELECT id, project_id AS projectId, source, sentiment, status, title, detail, created_at AS createdAt
+              FROM reputation_items
+              ORDER BY id ASC
+            `,
+          )
+          .all()
+          .map((row) => normalizeReputationItem(row as Record<string, unknown>));
 
   const positive = rows.filter((row) => row.sentiment === 'positive').length;
   const neutral = rows.filter((row) => row.sentiment === 'neutral').length;
@@ -123,7 +148,7 @@ function updateReputationItemStatus(
   const current = database
     .prepare(
       `
-        SELECT id, source, sentiment, status, title, detail, created_at AS createdAt
+        SELECT id, project_id AS projectId, source, sentiment, status, title, detail, created_at AS createdAt
         FROM reputation_items
         WHERE id = ?
       `,
@@ -156,6 +181,7 @@ function updateReputationItemStatus(
 function normalizeReputationItem(row: Record<string, unknown>): ReputationItemRecord {
   return {
     id: Number(row.id),
+    projectId: parseOptionalInteger(row.projectId),
     source: String(row.source),
     sentiment: String(row.sentiment),
     status: String(row.status),
@@ -163,4 +189,22 @@ function normalizeReputationItem(row: Record<string, unknown>): ReputationItemRe
     detail: String(row.detail),
     createdAt: String(row.createdAt),
   };
+}
+
+function ensureProjectIdColumn(database: DatabaseConnection) {
+  const columns = database.prepare('PRAGMA table_info(reputation_items)').all() as Array<{ name?: unknown }>;
+  if (columns.some((column) => column.name === 'project_id')) {
+    return;
+  }
+
+  database.exec('ALTER TABLE reputation_items ADD COLUMN project_id INTEGER');
+}
+
+function parseOptionalInteger(value: unknown): number | undefined {
+  if (value === null || value === undefined) {
+    return undefined;
+  }
+
+  const parsed = Number(value);
+  return Number.isInteger(parsed) ? parsed : undefined;
 }

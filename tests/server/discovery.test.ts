@@ -138,4 +138,62 @@ describe('discovery api', () => {
       cleanupTestDatabasePath(rootDir);
     }
   });
+
+  it('filters discovery items strictly once signal stores become project-aware', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const inboxStore = createInboxStore();
+      const monitorStore = createMonitorStore();
+
+      inboxStore.create({
+        projectId: 1,
+        source: 'reddit',
+        status: 'needs_review',
+        author: 'project-one',
+        title: 'Project 1 inbox item',
+        excerpt: 'Only project 1 should see this.',
+      });
+      inboxStore.create({
+        projectId: 2,
+        source: 'reddit',
+        status: 'needs_review',
+        author: 'project-two',
+        title: 'Project 2 inbox item',
+        excerpt: 'Only project 2 should see this.',
+      });
+      monitorStore.create({
+        projectId: 1,
+        source: 'x',
+        status: 'new',
+        title: 'Project 1 monitor item',
+        detail: 'Project 1 signal.',
+      });
+      monitorStore.create({
+        projectId: 2,
+        source: 'x',
+        status: 'new',
+        title: 'Project 2 monitor item',
+        detail: 'Project 2 signal.',
+      });
+
+      const response = await requestApp('GET', '/api/discovery?projectId=1');
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        items: [
+          expect.objectContaining({
+            id: 'inbox-1',
+            title: 'Project 1 inbox item',
+          }),
+          expect.objectContaining({
+            id: 'monitor-1',
+            title: 'Project 1 monitor item',
+          }),
+        ],
+        total: 2,
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
 });

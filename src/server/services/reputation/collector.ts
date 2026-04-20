@@ -34,6 +34,7 @@ export function createReputationCollectorService(
       const monitorSignals = monitorItems
         .filter((item) => item.source !== 'rss')
         .map((item) => ({
+          projectId: item.projectId,
           source: item.source,
           title: item.title,
           detail: item.detail,

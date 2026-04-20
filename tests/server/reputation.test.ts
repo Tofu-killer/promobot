@@ -216,12 +216,14 @@ describe('reputation api', () => {
   it('maps existing monitor signals into the reputation feed before seed fallback', async () => {
     const monitorStore = createMonitorStore();
     monitorStore.create({
+      projectId: 1,
       source: 'reddit',
       title: 'Lower APAC latency praise',
       detail: 'Users praised lower Claude routing latency from Perth.',
       status: 'new',
     });
     monitorStore.create({
+      projectId: 1,
       source: 'v2ex',
       title: 'Billing confusion mention',
       detail: 'Agency buyers asked whether billing and usage caps are transparent enough.',
@@ -235,12 +237,14 @@ describe('reputation api', () => {
       items: [
         expect.objectContaining({
           id: 1,
+          projectId: 1,
           source: 'reddit',
           sentiment: 'positive',
           title: 'Lower APAC latency praise',
         }),
         expect.objectContaining({
           id: 2,
+          projectId: 1,
           source: 'v2ex',
           sentiment: 'negative',
           title: 'Billing confusion mention',
@@ -389,6 +393,7 @@ describe('reputation api', () => {
       items: [
         expect.objectContaining({
           id: 1,
+          projectId: 1,
           source: 'reddit',
           sentiment: 'neutral',
           status: 'new',
@@ -397,6 +402,7 @@ describe('reputation api', () => {
         }),
         expect.objectContaining({
           id: 2,
+          projectId: 1,
           source: 'x',
           sentiment: 'neutral',
           status: 'new',
@@ -405,6 +411,7 @@ describe('reputation api', () => {
         }),
         expect.objectContaining({
           id: 3,
+          projectId: 1,
           source: 'v2ex',
           sentiment: 'neutral',
           status: 'new',
@@ -414,6 +421,93 @@ describe('reputation api', () => {
       ],
       inserted: 3,
       total: 3,
+    });
+
+    const reputationStore = createReputationStore();
+    expect(reputationStore.getStats(1).items.map((item) => item.id)).toEqual([1, 2, 3]);
+    expect(reputationStore.getStats(2)).toEqual({
+      total: 0,
+      positive: 0,
+      neutral: 0,
+      negative: 0,
+      trend: [
+        { label: '正向', value: 0 },
+        { label: '中性', value: 0 },
+        { label: '负向', value: 0 },
+      ],
+      items: [],
+    });
+  });
+
+  it('filters reputation stats by optional projectId without breaking legacy rows', async () => {
+    const reputationStore = createReputationStore();
+    reputationStore.create({
+      source: 'facebook-group',
+      sentiment: 'negative',
+      status: 'escalate',
+      title: 'Legacy complaint',
+      detail: 'No project id attached.',
+    });
+    reputationStore.create({
+      projectId: 1,
+      source: 'reddit',
+      sentiment: 'positive',
+      status: 'new',
+      title: 'Project 1 praise',
+      detail: 'Project 1 detail.',
+    });
+    reputationStore.create({
+      projectId: 2,
+      source: 'x',
+      sentiment: 'neutral',
+      status: 'handled',
+      title: 'Project 2 mention',
+      detail: 'Project 2 detail.',
+    });
+
+    expect(reputationStore.getStats()).toMatchObject({
+      total: 3,
+      positive: 1,
+      neutral: 1,
+      negative: 1,
+      items: [
+        expect.objectContaining({
+          projectId: undefined,
+          title: 'Legacy complaint',
+        }),
+        expect.objectContaining({
+          projectId: 1,
+          title: 'Project 1 praise',
+        }),
+        expect.objectContaining({
+          projectId: 2,
+          title: 'Project 2 mention',
+        }),
+      ],
+    });
+    expect(reputationStore.getStats(1)).toMatchObject({
+      total: 1,
+      positive: 1,
+      neutral: 0,
+      negative: 0,
+      items: [
+        expect.objectContaining({
+          projectId: 1,
+          title: 'Project 1 praise',
+        }),
+      ],
+    });
+    expect(reputationStore.getStats(2)).toMatchObject({
+      total: 1,
+      positive: 0,
+      neutral: 1,
+      negative: 0,
+      items: [
+        expect.objectContaining({
+          projectId: 2,
+          title: 'Project 2 mention',
+        }),
+      ],
     });
   });
 

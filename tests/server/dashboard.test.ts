@@ -138,4 +138,70 @@ describe('dashboard api', () => {
       cleanupTestDatabasePath(rootDir);
     }
   });
+
+  it('filters dashboard monitor and draft metrics by projectId once both stores are project-aware', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const monitorStore = createMonitorStore();
+      const draftStore = createSQLiteDraftStore();
+
+      monitorStore.create({
+        projectId: 1,
+        source: 'x',
+        title: 'Shared signal 1',
+        detail: 'Project 1 monitor signal.',
+        status: 'new',
+      });
+      monitorStore.create({
+        projectId: 2,
+        source: 'x',
+        title: 'Shared signal 2',
+        detail: 'Project 2 monitor signal.',
+        status: 'new',
+      });
+      draftStore.create({
+        projectId: 1,
+        platform: 'x',
+        title: 'Project 1 follow-up draft',
+        content: 'Draft body 1',
+        status: 'review',
+      });
+      draftStore.create({
+        projectId: 2,
+        platform: 'x',
+        title: 'Project 2 follow-up draft',
+        content: 'Draft body 2',
+        status: 'review',
+      });
+
+      const response = await requestApp('GET', '/api/monitor/dashboard?projectId=1');
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        monitor: {
+          total: 1,
+          new: 1,
+          followUpDrafts: 1,
+        },
+        drafts: {
+          total: 1,
+          review: 1,
+        },
+        totals: {
+          items: 2,
+          followUps: 1,
+        },
+        jobQueue: {
+          pending: 0,
+          running: 0,
+          done: 0,
+          failed: 0,
+          canceled: 0,
+          duePending: 0,
+        },
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
 });

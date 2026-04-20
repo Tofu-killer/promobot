@@ -32,14 +32,13 @@ export interface MonitorRssServiceOptions {
 }
 
 export function createMonitorRssService(options: MonitorRssServiceOptions = {}) {
-  const fetchImpl = options.fetchImpl ?? globalThis.fetch;
-
-  if (typeof fetchImpl !== 'function') {
-    throw new Error('fetch is not available for monitor rss service');
-  }
-
   return {
     async fetchFeeds(feedUrls: string[]): Promise<MonitorRssFetchResult> {
+      const fetchImpl = options.fetchImpl ?? globalThis.fetch;
+      if (typeof fetchImpl !== 'function') {
+        throw new Error('fetch is not available for monitor rss service');
+      }
+
       const items: MonitorRssItem[] = [];
       const failures: MonitorRssFailure[] = [];
 

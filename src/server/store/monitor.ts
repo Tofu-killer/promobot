@@ -3,6 +3,7 @@ import { withDatabase } from '../lib/persistence';
 
 export interface MonitorItemRecord {
   id: number;
+  projectId?: number;
   source: string;
   title: string;
   detail: string;
@@ -11,6 +12,7 @@ export interface MonitorItemRecord {
 }
 
 export interface CreateMonitorItemInput {
+  projectId?: number;
   source: string;
   title: string;
   detail: string;
@@ -20,19 +22,28 @@ export interface CreateMonitorItemInput {
 export interface MonitorStore {
   create(input: CreateMonitorItemInput): MonitorItemRecord;
   getById(id: number): MonitorItemRecord | undefined;
-  list(): MonitorItemRecord[];
+  list(projectId?: number): MonitorItemRecord[];
 }
 
 export function createMonitorStore(): MonitorStore {
   return {
     create(input) {
-      return withDatabase((database) => insertMonitorItem(database, input));
+      return withDatabase((database) => {
+        ensureProjectIdColumn(database);
+        return insertMonitorItem(database, input);
+      });
     },
     getById(id) {
-      return withDatabase((database) => getMonitorItemById(database, id));
+      return withDatabase((database) => {
+        ensureProjectIdColumn(database);
+        return getMonitorItemById(database, id);
+      });
     },
-    list() {
-      return withDatabase((database) => listMonitorItems(database));
+    list(projectId) {
+      return withDatabase((database) => {
+        ensureProjectIdColumn(database);
+        return listMonitorItems(database, projectId);
+      });
     },
   };
 }
@@ -44,11 +55,12 @@ function insertMonitorItem(
   const result = database
     .prepare(
       `
-        INSERT INTO monitor_items (source, title, detail, status)
-        VALUES (@source, @title, @detail, @status)
+        INSERT INTO monitor_items (project_id, source, title, detail, status)
+        VALUES (@project_id, @source, @title, @detail, @status)
       `,
     )
     .run({
+      project_id: input.projectId ?? null,
       source: input.source,
       title: input.title,
       detail: input.detail,
@@ -58,7 +70,7 @@ function insertMonitorItem(
   const row = database
     .prepare(
       `
-        SELECT id, source, title, detail, status, created_at AS createdAt
+        SELECT id, project_id AS projectId, source, title, detail, status, created_at AS createdAt
         FROM monitor_items
         WHERE id = ?
       `,
@@ -86,26 +98,58 @@ function getMonitorItemById(database: DatabaseConnection, id: number): MonitorIt
   return row ? normalizeMonitorItem(row as Record<string, unknown>) : undefined;
 }
 
-function listMonitorItems(database: DatabaseConnection): MonitorItemRecord[] {
-  return database
-    .prepare(
-      `
-        SELECT id, source, title, detail, status, created_at AS createdAt
-        FROM monitor_items
-        ORDER BY id ASC
-      `,
-    )
-    .all()
-    .map((row) => normalizeMonitorItem(row as Record<string, unknown>));
+function listMonitorItems(database: DatabaseConnection, projectId?: number): MonitorItemRecord[] {
+  const rows =
+    projectId !== undefined
+      ? database
+          .prepare(
+            `
+              SELECT id, project_id AS projectId, source, title, detail, status, created_at AS createdAt
+              FROM monitor_items
+              WHERE project_id = ?
+              ORDER BY id ASC
+            `,
+          )
+          .all([projectId])
+      : database
+          .prepare(
+            `
+              SELECT id, project_id AS projectId, source, title, detail, status, created_at AS createdAt
+              FROM monitor_items
+              ORDER BY id ASC
+            `,
+          )
+          .all();
+
+  return rows.map((row) => normalizeMonitorItem(row as Record<string, unknown>));
 }
 
 function normalizeMonitorItem(row: Record<string, unknown>): MonitorItemRecord {
   return {
     id: Number(row.id),
+    projectId: parseOptionalInteger(row.projectId),
     source: String(row.source),
     title: String(row.title),
     detail: String(row.detail),
     status: String(row.status),
     createdAt: String(row.createdAt),
   };
+}
+
+function ensureProjectIdColumn(database: DatabaseConnection) {
+  const columns = database.prepare('PRAGMA table_info(monitor_items)').all() as Array<{ name?: unknown }>;
+  if (columns.some((column) => column.name === 'project_id')) {
+    return;
+  }
+
+  database.exec('ALTER TABLE monitor_items ADD COLUMN project_id INTEGER');
+}
+
+function parseOptionalInteger(value: unknown): number | undefined {
+  if (value === null || value === undefined) {
+    return undefined;
+  }
+
+  const parsed = Number(value);
+  return Number.isInteger(parsed) ? parsed : undefined;
 }

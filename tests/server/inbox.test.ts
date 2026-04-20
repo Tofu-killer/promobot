@@ -141,6 +141,7 @@ describe('inbox api', () => {
 
       const monitorStore = createMonitorStore();
       monitorStore.create({
+        projectId: 1,
         source: 'reddit',
         title: 'Claude latency in Australia',
         detail:
@@ -155,6 +156,7 @@ describe('inbox api', () => {
         items: [
           expect.objectContaining({
             id: 1,
+            projectId: 1,
             source: 'reddit',
             status: 'needs_reply',
             title: 'Claude latency in Australia',
@@ -303,6 +305,7 @@ describe('inbox api', () => {
         items: [
           expect.objectContaining({
             id: 1,
+            projectId: 1,
             source: 'reddit',
             status: 'needs_reply',
             title: 'Inbox follow-up for claude latency australia',
@@ -310,6 +313,7 @@ describe('inbox api', () => {
           }),
           expect.objectContaining({
             id: 2,
+            projectId: 1,
             source: 'x',
             status: 'needs_review',
             title: 'Inbox follow-up for openrouter failover',
@@ -317,6 +321,7 @@ describe('inbox api', () => {
           }),
           expect.objectContaining({
             id: 3,
+            projectId: 1,
             source: 'v2ex',
             status: 'needs_reply',
             title: 'Inbox follow-up for cursor api',
@@ -327,6 +332,74 @@ describe('inbox api', () => {
         total: 3,
         unread: 3,
       });
+
+      const inboxStore = createInboxStore();
+      expect(inboxStore.list(1).map((item) => item.id)).toEqual([1, 2, 3]);
+      expect(inboxStore.list(2)).toEqual([]);
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('lists inbox items by optional projectId without breaking legacy rows', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const inboxStore = createInboxStore();
+      const legacyItem = inboxStore.create({
+        source: 'reddit',
+        status: 'needs_reply',
+        author: 'legacy-user',
+        title: 'Legacy inbox item',
+        excerpt: 'No project id attached.',
+      });
+      const projectOneItem = inboxStore.create({
+        projectId: 1,
+        source: 'x',
+        status: 'needs_review',
+        author: 'project-one',
+        title: 'Project 1 inbox item',
+        excerpt: 'Project 1 detail.',
+      });
+      const projectTwoItem = inboxStore.create({
+        projectId: 2,
+        source: 'v2ex',
+        status: 'needs_reply',
+        author: 'project-two',
+        title: 'Project 2 inbox item',
+        excerpt: 'Project 2 detail.',
+      });
+
+      expect(inboxStore.list()).toEqual([
+        expect.objectContaining({
+          id: legacyItem.id,
+          projectId: undefined,
+          title: 'Legacy inbox item',
+        }),
+        expect.objectContaining({
+          id: projectOneItem.id,
+          projectId: 1,
+          title: 'Project 1 inbox item',
+        }),
+        expect.objectContaining({
+          id: projectTwoItem.id,
+          projectId: 2,
+          title: 'Project 2 inbox item',
+        }),
+      ]);
+      expect(inboxStore.list(1)).toEqual([
+        expect.objectContaining({
+          id: projectOneItem.id,
+          projectId: 1,
+          title: 'Project 1 inbox item',
+        }),
+      ]);
+      expect(inboxStore.list(2)).toEqual([
+        expect.objectContaining({
+          id: projectTwoItem.id,
+          projectId: 2,
+          title: 'Project 2 inbox item',
+        }),
+      ]);
     } finally {
       cleanupTestDatabasePath(rootDir);
     }

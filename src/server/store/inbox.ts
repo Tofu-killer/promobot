@@ -3,6 +3,7 @@ import { withDatabase } from '../lib/persistence';
 
 export interface InboxItemRecord {
   id: number;
+  projectId?: number;
   source: string;
   status: string;
   author?: string;
@@ -12,6 +13,7 @@ export interface InboxItemRecord {
 }
 
 export interface CreateInboxItemInput {
+  projectId?: number;
   source: string;
   status: string;
   author?: string;
@@ -21,20 +23,29 @@ export interface CreateInboxItemInput {
 
 export interface InboxStore {
   create(input: CreateInboxItemInput): InboxItemRecord;
-  list(): InboxItemRecord[];
+  list(projectId?: number): InboxItemRecord[];
   updateStatus(id: number, status: string): InboxItemRecord | undefined;
 }
 
 export function createInboxStore(): InboxStore {
   return {
     create(input) {
-      return withDatabase((database) => insertInboxItem(database, input));
+      return withDatabase((database) => {
+        ensureProjectIdColumn(database);
+        return insertInboxItem(database, input);
+      });
     },
-    list() {
-      return withDatabase((database) => listInboxItems(database));
+    list(projectId) {
+      return withDatabase((database) => {
+        ensureProjectIdColumn(database);
+        return listInboxItems(database, projectId);
+      });
     },
     updateStatus(id, status) {
-      return withDatabase((database) => updateInboxItemStatus(database, id, status));
+      return withDatabase((database) => {
+        ensureProjectIdColumn(database);
+        return updateInboxItemStatus(database, id, status);
+      });
     },
   };
 }
@@ -46,11 +57,12 @@ function insertInboxItem(
   const result = database
     .prepare(
       `
-        INSERT INTO inbox_items (source, status, author, title, excerpt)
-        VALUES (@source, @status, @author, @title, @excerpt)
+        INSERT INTO inbox_items (project_id, source, status, author, title, excerpt)
+        VALUES (@project_id, @source, @status, @author, @title, @excerpt)
       `,
     )
     .run({
+      project_id: input.projectId ?? null,
       source: input.source,
       status: input.status,
       author: input.author ?? null,
@@ -61,7 +73,7 @@ function insertInboxItem(
   const row = database
     .prepare(
       `
-        SELECT id, source, status, author, title, excerpt, created_at AS createdAt
+        SELECT id, project_id AS projectId, source, status, author, title, excerpt, created_at AS createdAt
         FROM inbox_items
         WHERE id = ?
       `,
@@ -75,17 +87,30 @@ function insertInboxItem(
   return normalizeInboxItem(row as Record<string, unknown>);
 }
 
-function listInboxItems(database: DatabaseConnection): InboxItemRecord[] {
-  return database
-    .prepare(
-      `
-        SELECT id, source, status, author, title, excerpt, created_at AS createdAt
-        FROM inbox_items
-        ORDER BY id ASC
-      `,
-    )
-    .all()
-    .map((row) => normalizeInboxItem(row as Record<string, unknown>));
+function listInboxItems(database: DatabaseConnection, projectId?: number): InboxItemRecord[] {
+  const rows =
+    projectId !== undefined
+      ? database
+          .prepare(
+            `
+              SELECT id, project_id AS projectId, source, status, author, title, excerpt, created_at AS createdAt
+              FROM inbox_items
+              WHERE project_id = ?
+              ORDER BY id ASC
+            `,
+          )
+          .all([projectId])
+      : database
+          .prepare(
+            `
+              SELECT id, project_id AS projectId, source, status, author, title, excerpt, created_at AS createdAt
+              FROM inbox_items
+              ORDER BY id ASC
+            `,
+          )
+          .all();
+
+  return rows.map((row) => normalizeInboxItem(row as Record<string, unknown>));
 }
 
 function updateInboxItemStatus(
@@ -110,7 +135,7 @@ function updateInboxItemStatus(
   const row = database
     .prepare(
       `
-        SELECT id, source, status, author, title, excerpt, created_at AS createdAt
+        SELECT id, project_id AS projectId, source, status, author, title, excerpt, created_at AS createdAt
         FROM inbox_items
         WHERE id = ?
       `,
@@ -127,6 +152,7 @@ function updateInboxItemStatus(
 function normalizeInboxItem(row: Record<string, unknown>): InboxItemRecord {
   return {
     id: Number(row.id),
+    projectId: parseOptionalInteger(row.projectId),
     source: String(row.source),
     status: String(row.status),
     author: typeof row.author === 'string' ? row.author : undefined,
@@ -134,4 +160,22 @@ function normalizeInboxItem(row: Record<string, unknown>): InboxItemRecord {
     excerpt: String(row.excerpt),
     createdAt: String(row.createdAt),
   };
+}
+
+function ensureProjectIdColumn(database: DatabaseConnection) {
+  const columns = database.prepare('PRAGMA table_info(inbox_items)').all() as Array<{ name?: unknown }>;
+  if (columns.some((column) => column.name === 'project_id')) {
+    return;
+  }
+
+  database.exec('ALTER TABLE inbox_items ADD COLUMN project_id INTEGER');
+}
+
+function parseOptionalInteger(value: unknown): number | undefined {
+  if (value === null || value === undefined) {
+    return undefined;
+  }
+
+  const parsed = Number(value);
+  return Number.isInteger(parsed) ? parsed : undefined;
 }

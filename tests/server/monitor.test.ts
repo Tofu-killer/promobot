@@ -424,6 +424,7 @@ describe('monitor api', () => {
         items: [
           expect.objectContaining({
             id: 1,
+            projectId: 1,
             source: 'rss',
             title: 'AU pricing update',
             detail: 'Tracked pricing change for APAC buyers.\n\nhttps://example.com/posts/au-pricing',
@@ -431,6 +432,7 @@ describe('monitor api', () => {
           }),
           expect.objectContaining({
             id: 2,
+            projectId: 1,
             source: 'reddit',
             title: 'Claude latency in Australia',
             detail:
@@ -439,6 +441,7 @@ describe('monitor api', () => {
           }),
           expect.objectContaining({
             id: 3,
+            projectId: 1,
             source: 'x',
             title: 'OpenRouter failover thread',
             detail:
@@ -447,6 +450,7 @@ describe('monitor api', () => {
           }),
           expect.objectContaining({
             id: 4,
+            projectId: 1,
             source: 'v2ex',
             title: 'Cursor API pricing discussion',
             detail:
@@ -457,7 +461,72 @@ describe('monitor api', () => {
         inserted: 4,
         total: 4,
       });
+
+      const monitorStore = createMonitorStore();
+      expect(monitorStore.list(1).map((item) => item.id)).toEqual([1, 2, 3, 4]);
+      expect(monitorStore.list(2)).toEqual([]);
       expect(requestedUrls.join('\n')).not.toContain('should%20stay%20disabled');
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('lists monitor items by optional projectId without breaking legacy rows', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const monitorStore = createMonitorStore();
+      const legacyItem = monitorStore.create({
+        source: 'rss',
+        title: 'Legacy signal',
+        detail: 'No project id attached.',
+        status: 'new',
+      });
+      const projectOneItem = monitorStore.create({
+        projectId: 1,
+        source: 'reddit',
+        title: 'Project 1 signal',
+        detail: 'Project 1 detail.',
+        status: 'new',
+      });
+      const projectTwoItem = monitorStore.create({
+        projectId: 2,
+        source: 'x',
+        title: 'Project 2 signal',
+        detail: 'Project 2 detail.',
+        status: 'new',
+      });
+
+      expect(monitorStore.list()).toEqual([
+        expect.objectContaining({
+          id: legacyItem.id,
+          projectId: undefined,
+          title: 'Legacy signal',
+        }),
+        expect.objectContaining({
+          id: projectOneItem.id,
+          projectId: 1,
+          title: 'Project 1 signal',
+        }),
+        expect.objectContaining({
+          id: projectTwoItem.id,
+          projectId: 2,
+          title: 'Project 2 signal',
+        }),
+      ]);
+      expect(monitorStore.list(1)).toEqual([
+        expect.objectContaining({
+          id: projectOneItem.id,
+          projectId: 1,
+          title: 'Project 1 signal',
+        }),
+      ]);
+      expect(monitorStore.list(2)).toEqual([
+        expect.objectContaining({
+          id: projectTwoItem.id,
+          projectId: 2,
+          title: 'Project 2 signal',
+        }),
+      ]);
     } finally {
       cleanupTestDatabasePath(rootDir);
     }

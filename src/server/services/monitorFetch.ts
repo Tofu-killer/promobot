@@ -29,6 +29,7 @@ export function createMonitorFetchService() {
       if (collected.length > 0) {
         const items = collected.map((item) =>
           monitorStore.create({
+            ...(item.projectId !== undefined ? { projectId: item.projectId } : {}),
             source: item.source,
             title: item.title,
             detail: item.detail,
@@ -77,9 +78,15 @@ export function createMonitorFetchService() {
 }
 
 export interface CollectedSignal {
+  projectId?: number;
   source: string;
   title: string;
   detail: string;
+}
+
+interface ScopedStringValue {
+  projectId?: number;
+  value: string;
 }
 
 export async function collectConfiguredSignals(
@@ -94,35 +101,36 @@ export async function collectConfiguredSignals(
 ): Promise<CollectedSignal[]> {
   const results: CollectedSignal[] = [];
   const sourceConfigInputs = resolveSourceConfigInputs(sourceConfigs);
-  const rssFeeds =
+  const rssFeeds: ScopedStringValue[] =
     settings.monitorRssFeeds && settings.monitorRssFeeds.length > 0
-      ? [...settings.monitorRssFeeds, ...sourceConfigInputs.rssFeeds]
+      ? [...settings.monitorRssFeeds.map((value) => ({ value })), ...sourceConfigInputs.rssFeeds]
       : sourceConfigInputs.rssFeeds.length > 0
         ? sourceConfigInputs.rssFeeds
-      : parseList(process.env.MONITOR_RSS_FEEDS);
-  const redditQueries =
+      : parseList(process.env.MONITOR_RSS_FEEDS).map((value) => ({ value }));
+  const redditQueries: ScopedStringValue[] =
     settings.monitorRedditQueries && settings.monitorRedditQueries.length > 0
-      ? [...settings.monitorRedditQueries, ...sourceConfigInputs.redditQueries]
+      ? [...settings.monitorRedditQueries.map((value) => ({ value })), ...sourceConfigInputs.redditQueries]
       : sourceConfigInputs.redditQueries.length > 0
         ? sourceConfigInputs.redditQueries
-      : parseList(process.env.MONITOR_REDDIT_QUERIES);
-  const xQueries =
+      : parseList(process.env.MONITOR_REDDIT_QUERIES).map((value) => ({ value }));
+  const xQueries: ScopedStringValue[] =
     settings.monitorXQueries && settings.monitorXQueries.length > 0
-      ? [...settings.monitorXQueries, ...sourceConfigInputs.xQueries]
+      ? [...settings.monitorXQueries.map((value) => ({ value })), ...sourceConfigInputs.xQueries]
       : sourceConfigInputs.xQueries.length > 0
         ? sourceConfigInputs.xQueries
-      : parseList(process.env.MONITOR_X_QUERIES);
-  const v2exQueries =
+      : parseList(process.env.MONITOR_X_QUERIES).map((value) => ({ value }));
+  const v2exQueries: ScopedStringValue[] =
     settings.monitorV2exQueries && settings.monitorV2exQueries.length > 0
-      ? [...settings.monitorV2exQueries, ...sourceConfigInputs.v2exQueries]
+      ? [...settings.monitorV2exQueries.map((value) => ({ value })), ...sourceConfigInputs.v2exQueries]
       : sourceConfigInputs.v2exQueries.length > 0
         ? sourceConfigInputs.v2exQueries
-      : parseList(process.env.MONITOR_V2EX_QUERIES);
+      : parseList(process.env.MONITOR_V2EX_QUERIES).map((value) => ({ value }));
 
-  for (const feed of dedupeStrings(rssFeeds)) {
-    const result = await rssService.fetchFeeds([feed]);
+  for (const feed of rssFeeds) {
+    const result = await rssService.fetchFeeds([feed.value]);
     for (const failure of result.failures) {
       results.push({
+        ...(feed.projectId !== undefined ? { projectId: feed.projectId } : {}),
         source: 'rss',
         title: `RSS fetch failed: ${failure.feedUrl}`,
         detail: failure.message,
@@ -131,6 +139,7 @@ export async function collectConfiguredSignals(
 
     for (const item of result.items) {
       results.push({
+        ...(feed.projectId !== undefined ? { projectId: feed.projectId } : {}),
         source: item.source,
         title: item.title,
         detail: item.metadata.link ? `${item.detail}\n\n${item.metadata.link}` : item.detail,
@@ -138,11 +147,12 @@ export async function collectConfiguredSignals(
     }
   }
 
-  for (const query of dedupeStrings(redditQueries)) {
+  for (const query of redditQueries) {
     try {
-      const items = await searchReddit(query);
+      const items = await searchReddit(query.value);
       for (const item of items) {
         results.push({
+          ...(query.projectId !== undefined ? { projectId: query.projectId } : {}),
           source: item.source,
           title: item.title,
           detail: item.url ? `${item.detail}\n\n${item.url}` : item.detail,
@@ -150,18 +160,20 @@ export async function collectConfiguredSignals(
       }
     } catch (error) {
       results.push({
+        ...(query.projectId !== undefined ? { projectId: query.projectId } : {}),
         source: 'reddit',
-        title: `Reddit fetch failed: ${query}`,
+        title: `Reddit fetch failed: ${query.value}`,
         detail: error instanceof Error ? error.message : String(error),
       });
     }
   }
 
-  for (const query of dedupeStrings(xQueries)) {
+  for (const query of xQueries) {
     try {
-      const items = await searchX(query);
+      const items = await searchX(query.value);
       for (const item of items) {
         results.push({
+          ...(query.projectId !== undefined ? { projectId: query.projectId } : {}),
           source: item.source,
           title: item.title,
           detail: item.url ? `${item.detail}\n\n${item.url}` : item.detail,
@@ -169,18 +181,20 @@ export async function collectConfiguredSignals(
       }
     } catch (error) {
       results.push({
+        ...(query.projectId !== undefined ? { projectId: query.projectId } : {}),
         source: 'x',
-        title: `X fetch failed: ${query}`,
+        title: `X fetch failed: ${query.value}`,
         detail: error instanceof Error ? error.message : String(error),
       });
     }
   }
 
-  for (const query of dedupeStrings(v2exQueries)) {
+  for (const query of v2exQueries) {
     try {
-      const items = await searchV2ex(query);
+      const items = await searchV2ex(query.value);
       for (const item of items) {
         results.push({
+          ...(query.projectId !== undefined ? { projectId: query.projectId } : {}),
           source: item.source,
           title: item.title,
           detail: `${item.detail}\n\n${item.url}`,
@@ -188,8 +202,9 @@ export async function collectConfiguredSignals(
       }
     } catch (error) {
       results.push({
+        ...(query.projectId !== undefined ? { projectId: query.projectId } : {}),
         source: 'v2ex',
-        title: `V2EX fetch failed: ${query}`,
+        title: `V2EX fetch failed: ${query.value}`,
         detail: error instanceof Error ? error.message : String(error),
       });
     }
@@ -206,16 +221,16 @@ function parseList(value: string | undefined) {
 }
 
 function resolveSourceConfigInputs(sourceConfigs: SourceConfigRecord[]) {
-  const rssFeeds: string[] = [];
-  const redditQueries: string[] = [];
-  const xQueries: string[] = [];
-  const v2exQueries: string[] = [];
+  const rssFeeds: ScopedStringValue[] = [];
+  const redditQueries: ScopedStringValue[] = [];
+  const xQueries: ScopedStringValue[] = [];
+  const v2exQueries: ScopedStringValue[] = [];
 
   for (const sourceConfig of sourceConfigs) {
     if (sourceConfig.sourceType === 'rss') {
       const feedUrl = readString(sourceConfig.configJson.feedUrl) ?? readString(sourceConfig.configJson.url);
       if (feedUrl) {
-        rssFeeds.push(feedUrl);
+        rssFeeds.push({ projectId: sourceConfig.projectId, value: feedUrl });
       }
       continue;
     }
@@ -231,26 +246,29 @@ function resolveSourceConfigInputs(sourceConfigs: SourceConfigRecord[]) {
       }
 
       if (sourceConfig.platform === 'reddit') {
-        redditQueries.push(...queries);
+        redditQueries.push(
+          ...queries.map((query) => ({ projectId: sourceConfig.projectId, value: query })),
+        );
       } else if (sourceConfig.platform === 'x') {
-        xQueries.push(...queries);
+        xQueries.push(
+          ...queries.map((query) => ({ projectId: sourceConfig.projectId, value: query })),
+        );
       }
       continue;
     }
 
     if (sourceConfig.sourceType === 'v2ex_search') {
-      const query = readString(sourceConfig.configJson.query);
-      if (query) {
-        v2exQueries.push(query);
+      for (const query of readQueryList(sourceConfig.configJson)) {
+        v2exQueries.push({ projectId: sourceConfig.projectId, value: query });
       }
     }
   }
 
   return {
-    rssFeeds,
-    redditQueries,
-    xQueries,
-    v2exQueries,
+    rssFeeds: dedupeScopedValues(rssFeeds),
+    redditQueries: dedupeScopedValues(redditQueries),
+    xQueries: dedupeScopedValues(xQueries),
+    v2exQueries: dedupeScopedValues(v2exQueries),
   };
 }
 
@@ -279,4 +297,16 @@ function readQueryList(configJson: Record<string, unknown>) {
 
 function dedupeStrings(values: string[]) {
   return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+}
+
+function dedupeScopedValues(values: ScopedStringValue[]) {
+  const seen = new Set<string>();
+  return values.filter((value) => {
+    const key = `${value.projectId ?? 'global'}:${value.value}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
 }

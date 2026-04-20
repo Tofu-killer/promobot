@@ -14,33 +14,25 @@ const jobQueueStore = createJobQueueStore();
 
 export const systemDashboardRouter = Router();
 
-systemDashboardRouter.get('/dashboard', (_request, response) => {
-  const monitorItems = monitorStore.list();
-  const drafts = draftStore.list();
-  const inboxItems = inboxStore.list();
-  const channelAccounts = channelAccountStore.list();
+systemDashboardRouter.get('/dashboard', (request, response) => {
+  const projectId = parseProjectIdQuery(request.query.projectId);
+
+  if (request.query.projectId !== undefined && projectId === undefined) {
+    response.status(400).json({ error: 'invalid project id' });
+    return;
+  }
+
+  const monitorItems = filterProjectAwareRecords(monitorStore.list(), projectId);
+  const drafts = draftStore.list(undefined, projectId);
+  const inboxItems = filterProjectAwareRecords(inboxStore.list(), projectId);
+  const channelAccounts = filterProjectAwareRecords(channelAccountStore.list(), projectId);
   const followUpDrafts = drafts.filter((draft) => draft.title?.toLowerCase().includes('follow-up'));
   const unreadInboxItems = inboxItems.filter((item) => item.status !== 'handled');
   const connectedChannelAccounts = channelAccounts.filter((account) => account.status === 'healthy');
   const jobQueueStats = jobQueueStore.getStats(new Date().toISOString());
   const scheduledDraftCount = drafts.filter((draft) => draft.status === 'scheduled').length;
   const publishedDraftCount = drafts.filter((draft) => draft.status === 'published').length;
-  const publishLogMetrics = withDatabase((database) => {
-    const row = database
-      .prepare(
-        `
-          SELECT COUNT(*) AS totalCount,
-                 COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) AS failedCount
-          FROM publish_logs
-        `,
-      )
-      .get();
-
-    return {
-      totalCount: Number(row?.totalCount ?? 0),
-      failedCount: Number(row?.failedCount ?? 0),
-    };
-  });
+  const publishLogMetrics = getPublishLogMetrics(projectId);
 
   response.json({
     monitor: {
@@ -84,3 +76,58 @@ systemDashboardRouter.get('/dashboard', (_request, response) => {
     jobQueue: jobQueueStats,
   });
 });
+
+function parseProjectIdQuery(value: unknown) {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const projectId = Number(value);
+  return Number.isInteger(projectId) && projectId > 0 ? projectId : undefined;
+}
+
+function filterProjectAwareRecords<T extends { projectId?: number | null }>(
+  records: T[],
+  projectId?: number,
+) {
+  if (projectId === undefined) {
+    return records;
+  }
+
+  return records.filter((record) => record.projectId === projectId);
+}
+
+function getPublishLogMetrics(projectId?: number) {
+  return withDatabase((database) => {
+    const row =
+      projectId === undefined
+        ? database
+            .prepare(
+              `
+                SELECT COUNT(*) AS totalCount,
+                       COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) AS failedCount
+                FROM publish_logs
+              `,
+            )
+            .get()
+        : database
+            .prepare(
+              `
+                SELECT COUNT(*) AS totalCount,
+                       COALESCE(
+                         SUM(CASE WHEN publish_logs.status = 'failed' THEN 1 ELSE 0 END),
+                         0
+                       ) AS failedCount
+                FROM publish_logs
+                INNER JOIN drafts ON drafts.id = publish_logs.draft_id
+                WHERE drafts.project_id = ?
+              `,
+            )
+            .get([projectId]);
+
+    return {
+      totalCount: Number(row?.totalCount ?? 0),
+      failedCount: Number(row?.failedCount ?? 0),
+    };
+  });
+}

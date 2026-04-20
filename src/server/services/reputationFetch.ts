@@ -53,6 +53,7 @@ function createSourceConfigFallbackSignals(sourceConfigs: SourceConfigRecord[]) 
     ) {
       for (const query of readQueryList(sourceConfig.configJson)) {
         signals.push({
+          projectId: sourceConfig.projectId,
           source: 'reddit',
           sentiment: 'neutral' as const,
           status: 'new' as const,
@@ -68,6 +69,7 @@ function createSourceConfigFallbackSignals(sourceConfigs: SourceConfigRecord[]) 
     ) {
       for (const query of readQueryList(sourceConfig.configJson)) {
         signals.push({
+          projectId: sourceConfig.projectId,
           source: 'x',
           sentiment: 'neutral' as const,
           status: 'new' as const,
@@ -80,6 +82,7 @@ function createSourceConfigFallbackSignals(sourceConfigs: SourceConfigRecord[]) 
     if (sourceConfig.sourceType === 'v2ex_search') {
       for (const query of readQueryList(sourceConfig.configJson)) {
         signals.push({
+          projectId: sourceConfig.projectId,
           source: 'v2ex',
           sentiment: 'neutral' as const,
           status: 'new' as const,
