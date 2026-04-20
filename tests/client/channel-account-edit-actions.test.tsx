@@ -706,6 +706,135 @@ describe('channel account edit actions', () => {
     });
   });
 
+  it('uses the selected target account default session action for the header session CTA', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ChannelAccountsPage } = await import('../../src/client/pages/ChannelAccounts');
+
+    const requestChannelAccountSessionAction = vi.fn().mockResolvedValue({
+      ok: true,
+      sessionAction: {
+        action: 'request_session',
+        accountId: 7,
+        status: 'pending',
+        requestedAt: '2026-04-19T03:10:00.000Z',
+        message: 'Browser login requested.',
+        nextStep: '/api/channel-accounts/7/session',
+      },
+      channelAccount: {
+        id: 7,
+        platform: 'reddit',
+        accountKey: 'acct-reddit',
+        displayName: 'Reddit Ops',
+        authType: 'oauth',
+        status: 'healthy',
+        metadata: {},
+        session: {
+          hasSession: false,
+          status: 'missing',
+          validatedAt: null,
+          storageStatePath: null,
+        },
+        createdAt: '2026-04-19T00:00:00.000Z',
+        updatedAt: '2026-04-19T00:00:00.000Z',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ChannelAccountsPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              channelAccounts: [
+                {
+                  id: 3,
+                  platform: 'x',
+                  accountKey: 'acct-x',
+                  displayName: 'X / Twitter',
+                  authType: 'browser',
+                  status: 'healthy',
+                  metadata: {},
+                  session: {
+                    hasSession: true,
+                    status: 'active',
+                    validatedAt: '2026-04-19T01:00:00.000Z',
+                    storageStatePath: 'artifacts/browser-sessions/acct-x.json',
+                  },
+                  createdAt: '2026-04-19T00:00:00.000Z',
+                  updatedAt: '2026-04-19T00:00:00.000Z',
+                },
+                {
+                  id: 7,
+                  platform: 'reddit',
+                  accountKey: 'acct-reddit',
+                  displayName: 'Reddit Ops',
+                  authType: 'oauth',
+                  status: 'healthy',
+                  metadata: {},
+                  session: {
+                    hasSession: false,
+                    status: 'missing',
+                    validatedAt: null,
+                    storageStatePath: null,
+                  },
+                  createdAt: '2026-04-19T00:00:00.000Z',
+                  updatedAt: '2026-04-19T00:00:00.000Z',
+                },
+              ],
+            },
+          },
+          requestChannelAccountSessionAction,
+        }),
+      );
+      await flush();
+    });
+
+    const actionTargetButton = findElement(
+      container,
+      (element) => element.getAttribute('data-action-target-account') === '7',
+    );
+
+    expect(actionTargetButton).not.toBeNull();
+
+    await act(async () => {
+      actionTargetButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('当前目标账号：Reddit Ops');
+
+    const headerSessionButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.parentNode instanceof FakeElement &&
+        element.parentNode.getAttribute('data-header-session-action') === 'true',
+    );
+
+    expect(headerSessionButton).not.toBeNull();
+    expect(collectText(headerSessionButton as never)).toContain('请求登录');
+
+    await act(async () => {
+      headerSessionButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(requestChannelAccountSessionAction).toHaveBeenCalledWith(7, {
+      action: 'request_session',
+    });
+    expect(requestChannelAccountSessionAction).not.toHaveBeenCalledWith(7, {
+      action: 'relogin',
+    });
+    expect(collectText(container)).toContain('请求登录请求已发送');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('patches a channel account through the shared API helper', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({

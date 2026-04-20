@@ -472,14 +472,14 @@ export function ChannelAccountsPage({
   }, [loadedAccounts, createdAccount, updatedAccount, sessionSavedAccount, sessionActionAccount]);
 
   const latestCreatedAccount = createdAccount;
-  const fallbackTestTarget = visibleAccounts[0] ?? null;
-  const testTarget =
-    visibleAccounts.find((account) => String(account.id) === actionTargetAccountId) ??
-    latestCreatedAccount ??
-    fallbackTestTarget;
+  const actionTargetAccount = resolveActionTargetAccount(
+    visibleAccounts,
+    actionTargetAccountId,
+    latestCreatedAccount,
+  );
   const testedAccount = displayTestConnectionState.data?.channelAccount
     ? normalizeChannelAccountRecord(displayTestConnectionState.data.channelAccount)
-    : testTarget;
+    : actionTargetAccount;
   const connectionTestFeedback =
     displayTestConnectionState.status === 'success' && displayTestConnectionState.data
       ? describeConnectionTestFeedback(displayTestConnectionState.data, testedAccount)
@@ -603,12 +603,12 @@ export function ChannelAccountsPage({
   }
 
   function handleTestConnection() {
-    if (!testTarget) {
+    if (!actionTargetAccount) {
       reload();
       return;
     }
 
-    void requestConnectionTest({ accountId: testTarget.id }).catch(() => undefined);
+    void requestConnectionTest({ accountId: actionTargetAccount.id }).catch(() => undefined);
   }
 
   return (
@@ -619,17 +619,19 @@ export function ChannelAccountsPage({
         description="集中查看各渠道的凭证与登录态健康度。当前页面会直接请求 `/api/channel-accounts` 并展示返回结果或错误。"
         actions={
           <>
-            <ActionButton
-              label="重新登录"
-              onClick={() => {
-                if (!testTarget) {
-                  reload();
-                  return;
-                }
+            <span data-header-session-action="true">
+              <ActionButton
+                label={actionTargetAccount ? getSessionActionLabel(actionTargetAccount) : '请求登录'}
+                onClick={() => {
+                  if (!actionTargetAccount) {
+                    reload();
+                    return;
+                  }
 
-                handleRequestSessionAction(testTarget, 'relogin');
-              }}
-            />
+                  handleRequestSessionAction(actionTargetAccount);
+                }}
+              />
+            </span>
             <ActionButton
               label={displayTestConnectionState.status === 'loading' ? '正在测试连接...' : '测试连接'}
               tone="primary"
@@ -1049,7 +1051,7 @@ export function ChannelAccountsPage({
         <SectionCard title="恢复动作" description="当后端未实现或返回错误时，页面会在左侧直接展示错误状态。">
           <div style={{ display: 'grid', gap: '12px', color: '#334155', lineHeight: 1.6 }}>
             <div>
-              当前目标账号：{testTarget?.displayName ?? '未选定'}
+              当前目标账号：{actionTargetAccount?.displayName ?? '未选定'}
             </div>
             {visibleAccounts.length > 0 ? (
               <div style={{ display: 'grid', gap: '8px', maxWidth: '420px' }}>
@@ -1158,6 +1160,19 @@ function getSessionSummary(account: ChannelAccountRecord): ChannelAccountSession
 
 function normalizeSessionStatus(value: string): 'active' | 'expired' | 'missing' {
   return value === 'expired' || value === 'missing' ? value : 'active';
+}
+
+function resolveActionTargetAccount(
+  visibleAccounts: ChannelAccountRecord[],
+  actionTargetAccountId: string,
+  latestCreatedAccount: ChannelAccountRecord | null,
+) {
+  return (
+    visibleAccounts.find((account) => String(account.id) === actionTargetAccountId) ??
+    latestCreatedAccount ??
+    visibleAccounts[0] ??
+    null
+  );
 }
 
 function getDefaultSessionAction(account: ChannelAccountRecord): 'request_session' | 'relogin' {

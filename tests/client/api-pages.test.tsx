@@ -1391,6 +1391,10 @@ describe('client API page wiring', () => {
     expect(html).toContain('编辑 Session 元数据');
     expect(html).toContain('请求登录');
     expect(html).toContain('当前目标账号：X / Twitter');
+    expect(html).toContain('动作目标账号');
+    expect(html).toContain('自动选择最近目标');
+    expect(html).toContain('>X / Twitter<');
+    expect(html).toContain('>Reddit<');
 
     const connectionHtml = renderPage(ChannelAccountsPage, {
       stateOverride: {
@@ -1464,6 +1468,54 @@ describe('client API page wiring', () => {
     expect(connectionHtml).toContain('连接结果：</strong>已就绪');
     expect(connectionHtml).toContain('反馈：</strong>X API token 已配置，可直接尝试发布。');
     expect(connectionHtml).toContain('检查时间：</strong>2026-04-19T02:00:00.000Z');
+
+    const headerActionHtml = renderPage(ChannelAccountsPage, {
+      stateOverride: {
+        status: 'success',
+        data: {
+          channelAccounts: [
+            {
+              id: 2,
+              platform: 'reddit',
+              accountKey: 'acct-reddit',
+              displayName: 'Reddit',
+              authType: 'oauth',
+              status: 'healthy',
+              metadata: {},
+              session: {
+                hasSession: false,
+                status: 'missing',
+                validatedAt: null,
+                storageStatePath: null,
+              },
+              createdAt: '2026-04-19T00:00:00.000Z',
+              updatedAt: '2026-04-19T00:00:00.000Z',
+            },
+            {
+              id: 1,
+              platform: 'x',
+              accountKey: 'acct-x',
+              displayName: 'X / Twitter',
+              authType: 'browser',
+              status: 'healthy',
+              metadata: {},
+              session: {
+                hasSession: true,
+                status: 'active',
+                validatedAt: '2026-04-19T01:00:00.000Z',
+                storageStatePath: 'artifacts/browser-sessions/acct-x.json',
+              },
+              createdAt: '2026-04-19T00:00:00.000Z',
+              updatedAt: '2026-04-19T00:00:00.000Z',
+            },
+          ],
+        },
+      },
+    } as never);
+
+    expect(headerActionHtml).toContain('data-header-session-action="true"');
+    expect(headerActionHtml).toContain('请求登录');
+    expect(headerActionHtml).toContain('当前目标账号：Reddit');
   });
 
   it('shows manual handoff next steps for newly created browser-only channel accounts', async () => {
