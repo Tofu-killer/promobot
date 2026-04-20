@@ -47,19 +47,7 @@ function resolveDraftPlatform(source: string) {
     return 'x';
   }
 
-  if (normalizedSource.includes('facebook')) {
-    return 'facebook-group';
-  }
-
-  if (normalizedSource.includes('xiaohongshu') || source.includes('小红书')) {
-    return 'xiaohongshu';
-  }
-
-  if (normalizedSource.includes('weibo') || source.includes('微博')) {
-    return 'weibo';
-  }
-
-  return 'blog';
+  return null;
 }
 
 function parseProjectId(value: string) {
@@ -134,6 +122,18 @@ export function DiscoveryPage({
 
   async function handleGenerateDraft(item: DiscoveryItem) {
     const itemKey = String(item.id);
+    const platform = resolveDraftPlatform(item.source);
+
+    if (!platform) {
+      setDraftStateByItemId((currentState) => ({
+        ...currentState,
+        [itemKey]: {
+          status: 'error',
+          error: '当前来源不在首发平台范围内，请改走人工内容流程',
+        },
+      }));
+      return;
+    }
 
     setDraftStateByItemId((currentState) => ({
       ...currentState,
@@ -147,7 +147,7 @@ export function DiscoveryPage({
       const result = await generateAction({
         topic: buildDraftTopic(item),
         tone: 'professional',
-        platforms: [resolveDraftPlatform(item.source)],
+        platforms: [platform],
         saveAsDraft: true,
       });
 
@@ -219,6 +219,12 @@ export function DiscoveryPage({
                 >
                   <div style={{ display: 'grid', gap: '16px' }}>
                     <p style={{ margin: 0, color: '#475569', lineHeight: 1.6 }}>{item.summary}</p>
+
+                    {resolveDraftPlatform(item.source) === null ? (
+                      <p style={{ margin: 0, color: '#92400e', fontWeight: 700 }}>
+                        当前来源不在首发平台范围内，请改走人工内容流程。
+                      </p>
+                    ) : null}
 
                     <div style={{ display: 'grid', gap: '12px' }}>
                       <div style={{ display: 'flex', justifyContent: 'flex-start' }}>

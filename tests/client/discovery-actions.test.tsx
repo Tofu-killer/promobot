@@ -600,7 +600,7 @@ describe('Discovery draft actions', () => {
     });
   });
 
-  it('shows failure feedback and falls back to blog for unsupported discovery sources', async () => {
+  it('blocks draft generation for non-launch discovery sources and shows a manual handoff message', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
     const { DiscoveryPage } = await import('../../src/client/pages/Discovery');
@@ -626,7 +626,7 @@ describe('Discovery draft actions', () => {
         },
       },
     };
-    const generateAction = vi.fn().mockRejectedValue(new Error('draft generation failed'));
+    const generateAction = vi.fn();
 
     const root = createRoot(container as never);
     await act(async () => {
@@ -652,13 +652,9 @@ describe('Discovery draft actions', () => {
       await flush();
     });
 
-    expect(generateAction).toHaveBeenCalledWith({
-      topic: '竞品推出周报模板\n\n竞品把周报模板打包成独立资源，适合做拆解复盘。',
-      tone: 'professional',
-      platforms: ['blog'],
-      saveAsDraft: true,
-    });
-    expect(collectText(container)).toContain('草稿生成失败：draft generation failed');
+    expect(generateAction).not.toHaveBeenCalled();
+    expect(collectText(container)).toContain('当前来源不在首发平台范围内');
+    expect(collectText(container)).toContain('请改走人工内容流程');
 
     await act(async () => {
       root.unmount();
