@@ -592,6 +592,7 @@ describe('Publish Calendar lifecycle', () => {
 
     expect(html).toContain('项目 ID（可选）');
     expect(html).toContain('发布时间：2026-04-19T10:15:00.000Z');
+    expect(html).toContain('当前页是草稿状态视图，不等同于真实 job_queue 或发布执行结果。');
   });
 
   it('clears scheduledAt and persists null with explicit clear feedback', async () => {

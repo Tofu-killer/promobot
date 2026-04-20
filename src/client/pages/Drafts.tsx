@@ -276,7 +276,7 @@ export function DraftsPage({
       <PageHeader
         eyebrow="Content Queue"
         title="Drafts"
-        description="草稿列表会集中展示不同项目和渠道的候选内容，支持审核、定时和快速发布。"
+        description="草稿列表会集中展示不同项目和渠道的候选内容，并支持审核与人工接管前的内容整理。"
         actions={<ActionButton label="重新加载" onClick={reload} />}
       />
 

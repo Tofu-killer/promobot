@@ -247,7 +247,7 @@ export function PublishCalendarPage({
       <PageHeader
         eyebrow="Publish Queue"
         title="Publish Calendar"
-        description="页面直接读取真实 `/api/drafts` 数据，只聚焦 scheduled 与 published 两类发布状态，方便核对队列与已发结果。"
+        description="当前页是草稿状态视图，不等同于真实 job_queue 或发布执行结果。"
         actions={<ActionButton label="重新加载" onClick={reload} />}
       />
 

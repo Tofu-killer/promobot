@@ -865,6 +865,7 @@ describe('client API page wiring', () => {
     expect(html).toContain('已加载 1 条草稿');
     expect(html).toContain('Launch thread');
     expect(html).toContain('draft');
+    expect(html).toContain('集中展示不同项目和渠道的候选内容，并支持审核与人工接管前的内容整理。');
   });
 
   it('shows actionable draft controls with save and publish feedback', async () => {
