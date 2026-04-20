@@ -1044,6 +1044,9 @@ export function ChannelAccountsPage({
 
         <SectionCard title="恢复动作" description="当后端未实现或返回错误时，页面会在左侧直接展示错误状态。">
           <div style={{ display: 'grid', gap: '12px', color: '#334155', lineHeight: 1.6 }}>
+            <div>
+              当前目标账号：{testTarget?.displayName ?? '未选定'}
+            </div>
             <div>点击“测试连接”会优先对最近创建账号发起真实连接测试；如果当前没有目标账号，则会先刷新列表。</div>
             <div>每个账号卡片都会显式显示 Session 是否存在、当前状态、最近验证时间和 Storage Path。</div>
             <div>“请求登录 / 重新登录”会调用新的占位接口，“保存 Session 元数据”会把 storage path、状态、验证时间和备注直接提交到后端。</div>
