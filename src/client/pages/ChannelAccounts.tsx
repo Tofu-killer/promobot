@@ -567,6 +567,10 @@ export function ChannelAccountsPage({
       <div style={{ display: 'grid', gap: '20px', gridTemplateColumns: 'minmax(340px, 1.1fr) minmax(320px, 0.9fr)' }}>
         <SectionCard title="创建账号" description="填写最小必需信息后提交到 `/api/channel-accounts`。">
           <div style={{ display: 'grid', gap: '12px' }}>
+            <p style={{ margin: 0, color: '#475569', lineHeight: 1.6 }}>
+              首发可用：X、Reddit。人工接管：Facebook Group。暂缓首发：小红书、微博、Blog。
+            </p>
+
             <label style={{ display: 'grid', gap: '8px' }}>
               <span style={{ fontWeight: 700 }}>平台</span>
               <input value={platform} onChange={(event) => setPlatform(event.target.value)} style={fieldStyle} />

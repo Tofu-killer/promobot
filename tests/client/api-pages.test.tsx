@@ -1495,6 +1495,9 @@ describe('client API page wiring', () => {
     expect(html).toContain('创建账号');
     expect(html).toContain('账号 Key');
     expect(html).toContain('metadata');
+    expect(html).toContain('首发可用');
+    expect(html).toContain('人工接管');
+    expect(html).toContain('暂缓首发');
     expect(html).toContain('测试连接');
     expect(html).toContain('重新登录');
   });
