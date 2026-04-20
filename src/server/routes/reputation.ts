@@ -1,8 +1,11 @@
 import { Router } from 'express';
 import { createReputationFetchService } from '../services/reputationFetch';
+import { selectInboxStatus } from '../services/inbox/fetchers/types';
+import { createInboxStore } from '../store/inbox';
 import { createReputationStore } from '../store/reputation';
 
 export const reputationRouter = Router();
+const inboxStore = createInboxStore();
 const reputationStore = createReputationStore();
 const reputationFetchService = createReputationFetchService();
 
@@ -71,7 +74,21 @@ reputationRouter.patch('/:id', (request, response) => {
     return;
   }
 
-  response.json({ item });
+  const inboxItem =
+    status === 'escalate'
+      ? inboxStore.create({
+          projectId: item.projectId,
+          source: item.source,
+          status: selectInboxStatus(item.source),
+          title: item.title,
+          excerpt: item.detail,
+        })
+      : undefined;
+
+  response.json({
+    item,
+    ...(inboxItem ? { inboxItem } : {}),
+  });
 });
 
 function parseProjectIdQuery(value: unknown) {

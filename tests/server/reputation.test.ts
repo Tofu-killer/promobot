@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/server/app';
 import { createMonitorStore } from '../../src/server/store/monitor';
+import { createInboxStore } from '../../src/server/store/inbox';
 import { createReputationStore } from '../../src/server/store/reputation';
 import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
 
@@ -809,5 +810,54 @@ describe('reputation api', () => {
         }),
       ],
     });
+  });
+
+  it('creates a social inbox item when a reputation item is escalated', async () => {
+    const reputationStore = createReputationStore();
+    const inboxStore = createInboxStore();
+    const item = reputationStore.create({
+      projectId: 7,
+      source: 'reddit',
+      sentiment: 'negative',
+      status: 'new',
+      title: 'Billing confusion mention',
+      detail: 'Agency buyers asked whether billing and usage caps are transparent enough.',
+    });
+
+    const response = await requestApp('PATCH', `/api/reputation/${item.id}`, {
+      status: 'escalate',
+    });
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({
+      item: {
+        id: item.id,
+        projectId: 7,
+        source: 'reddit',
+        sentiment: 'negative',
+        status: 'escalate',
+        title: 'Billing confusion mention',
+        detail: 'Agency buyers asked whether billing and usage caps are transparent enough.',
+        createdAt: item.createdAt,
+      },
+      inboxItem: expect.objectContaining({
+        id: 1,
+        projectId: 7,
+        source: 'reddit',
+        status: 'needs_reply',
+        title: 'Billing confusion mention',
+        excerpt: 'Agency buyers asked whether billing and usage caps are transparent enough.',
+      }),
+    });
+
+    expect(inboxStore.list()).toEqual([
+      expect.objectContaining({
+        id: 1,
+        projectId: 7,
+        source: 'reddit',
+        status: 'needs_reply',
+        title: 'Billing confusion mention',
+      }),
+    ]);
   });
 });
