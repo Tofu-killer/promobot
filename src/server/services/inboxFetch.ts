@@ -11,6 +11,7 @@ import {
   type InboxSignal,
 } from './inbox/fetchers/types';
 import { collectV2exInboxSignals } from './inbox/fetchers/v2ex';
+import { collectXInboxSignals } from './inbox/fetchers/x';
 
 export interface InboxFetchResult {
   items: InboxItemRecord[];
@@ -57,6 +58,7 @@ function filterSourceConfigsByProject(sourceConfigs: SourceConfigRecord[], proje
 function collectInboxSignals(
   monitorItems: MonitorItemRecord[],
   settings: {
+    monitorXQueries?: string[];
     monitorRedditQueries?: string[];
     monitorV2exQueries?: string[];
   },
@@ -69,6 +71,7 @@ function collectInboxSignals(
   };
 
   const collectedSignals = [
+    ...collectXInboxSignals(context),
     ...collectRedditInboxSignals(context),
     ...collectV2exInboxSignals(context),
     ...collectUnhandledMonitorSignals(monitorItems),
@@ -130,6 +133,7 @@ function collectInboxSignals(
 
 function emptyInboxSettings() {
   return {
+    monitorXQueries: [],
     monitorRedditQueries: [],
     monitorV2exQueries: [],
   };

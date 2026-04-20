@@ -184,6 +184,7 @@ describe('inbox api', () => {
     const { rootDir } = createTestDatabasePath();
     try {
       const settingsResponse = await requestApp('PATCH', '/api/settings', {
+        monitorXQueries: ['openrouter failover'],
         monitorRedditQueries: ['claude latency australia'],
         monitorV2exQueries: ['cursor api'],
       });
@@ -197,22 +198,29 @@ describe('inbox api', () => {
         items: [
           expect.objectContaining({
             id: 1,
+            source: 'x',
+            status: 'needs_review',
+            title: 'Inbox follow-up for openrouter failover',
+            excerpt: 'Configured from monitorXQueries before live fetch results arrive.',
+          }),
+          expect.objectContaining({
+            id: 2,
             source: 'reddit',
             status: 'needs_reply',
             title: 'Inbox follow-up for claude latency australia',
             excerpt: 'Configured from monitorRedditQueries before live fetch results arrive.',
           }),
           expect.objectContaining({
-            id: 2,
+            id: 3,
             source: 'v2ex',
             status: 'needs_reply',
             title: 'Inbox follow-up for cursor api',
             excerpt: 'Configured from monitorV2exQueries before live fetch results arrive.',
           }),
         ],
-        inserted: 2,
-        total: 2,
-        unread: 2,
+        inserted: 3,
+        total: 3,
+        unread: 3,
       });
     } finally {
       cleanupTestDatabasePath(rootDir);

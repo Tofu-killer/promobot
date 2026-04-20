@@ -10,6 +10,7 @@ export interface InboxSignal {
 }
 
 export interface InboxFetcherSettings {
+  monitorXQueries?: string[];
   monitorRedditQueries?: string[];
   monitorV2exQueries?: string[];
 }
