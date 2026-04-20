@@ -970,6 +970,9 @@ export function SettingsPage({
 
         <SectionCard title="LAN allowlist" description="当前设置载入后会直接回填到表单，便于基于真实值继续编辑。">
           <div style={{ display: 'grid', gap: '14px' }}>
+            <div style={{ color: '#92400e', fontWeight: 700 }}>
+              allowlist 变更需要重启服务或重新加载进程后才会真正生效。
+            </div>
             <label style={{ display: 'grid', gap: '8px' }}>
               <span style={{ fontWeight: 700 }}>allowlist</span>
               <input

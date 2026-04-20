@@ -1985,6 +1985,7 @@ describe('client API page wiring', () => {
     expect(html).toContain('调度与运行态');
     expect(html).toContain('AI 配置');
     expect(html).toContain('平台就绪度');
+    expect(html).toContain('allowlist 变更需要重启服务');
     expect(html).toContain('发布就绪：已就绪');
     expect(html).toContain('发布就绪：人工接管待准备');
     expect(html).toContain('建议动作：准备人工接管');
