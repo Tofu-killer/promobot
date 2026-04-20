@@ -13,6 +13,7 @@ import { createSQLitePublishLogStore } from '../store/publishLogs';
 
 export interface PublishableDraft {
   id: number;
+  projectId?: number | null;
   platform: string;
   title?: string;
   content: string;
@@ -57,11 +58,13 @@ export interface PublishRouteDependencies {
     draftId: number,
     result: PublishContract,
     request: Request,
+    draft?: PublishableDraft,
   ) => MaybePromise<void>;
   recordPublishFailure?: (
     draftId: number,
     error: unknown,
     request: Request,
+    draft?: PublishableDraft,
   ) => MaybePromise<void>;
 }
 
@@ -88,12 +91,21 @@ export function createDraftPublishAdapter() {
       throw new UnsupportedDraftPlatformError(draft.platform);
     }
 
+    const metadata =
+      draft.metadata && typeof draft.metadata === 'object'
+        ? { ...draft.metadata }
+        : {};
+
+    if (typeof draft.projectId === 'number') {
+      metadata.projectId = draft.projectId;
+    }
+
     const result = await publisher({
       draftId: draft.id,
       content: draft.content,
       title: draft.title,
       target: draft.target,
-      metadata: draft.metadata,
+      metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
     });
 
     return result;
@@ -105,9 +117,15 @@ function createPublishResultPersister() {
   const jobQueueStore = createJobQueueStore();
   const publishLogStore = createSQLitePublishLogStore();
 
-  return async (draftId: number, result: PublishContract): Promise<void> => {
+  return async (
+    draftId: number,
+    result: PublishContract,
+    _request: Request,
+    draft?: PublishableDraft,
+  ): Promise<void> => {
     publishLogStore.create({
       draftId,
+      projectId: resolveDraftProjectId(draftStore, draftId, draft),
       status: result.status,
       publishUrl: result.publishUrl,
       message: result.message,
@@ -128,7 +146,12 @@ function createPublishFailureRecorder() {
   const jobQueueStore = createJobQueueStore();
   const publishLogStore = createSQLitePublishLogStore();
 
-  return async (draftId: number, error: unknown): Promise<void> => {
+  return async (
+    draftId: number,
+    error: unknown,
+    _request: Request,
+    draft?: PublishableDraft,
+  ): Promise<void> => {
     draftStore.update(draftId, {
       status: 'failed',
       scheduledAt: null,
@@ -137,6 +160,7 @@ function createPublishFailureRecorder() {
 
     publishLogStore.create({
       draftId,
+      projectId: resolveDraftProjectId(draftStore, draftId, draft),
       status: 'failed',
       message: getPublishErrorMessage(error),
     });
@@ -155,6 +179,25 @@ function getPublishErrorMessage(error: unknown) {
   }
 
   return 'publish failed';
+}
+
+function resolveDraftProjectId(
+  draftStore: ReturnType<typeof createSQLiteDraftStore>,
+  draftId: number,
+  draft?: PublishableDraft,
+): number | null {
+  const directProjectId = normalizeProjectId(draft?.projectId);
+  if (directProjectId !== null) {
+    return directProjectId;
+  }
+
+  const storedDraft = draftStore.getById(draftId);
+  return normalizeProjectId(storedDraft?.projectId);
+}
+
+function normalizeProjectId(projectId: unknown): number | null {
+  const parsed = Number(projectId);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
 function createPublishContract(
@@ -247,17 +290,24 @@ export function createPublishRouter(dependencies: PublishRouteDependencies) {
     dependencies.persistPublishResult ?? createPublishResultPersister();
   const recordPublishFailure =
     dependencies.recordPublishFailure ?? createPublishFailureRecorder();
+  const draftStore = createSQLiteDraftStore();
   const publishRouter = Router();
 
   publishRouter.post('/:id/publish', async (request, response, next) => {
     const id = Number(request.params.id);
+    let draft: PublishableDraft | undefined;
+
     if (!Number.isInteger(id) || id <= 0) {
       response.status(400).json({ error: 'invalid draft id' });
       return;
     }
 
     try {
-      const draft = await dependencies.lookupDraft(id, request);
+      const lookedUpDraft = await dependencies.lookupDraft(id, request);
+      draft =
+        lookedUpDraft?.projectId === undefined
+          ? enrichPublishableDraft(lookedUpDraft, draftStore.getById(id))
+          : lookedUpDraft;
       if (!draft) {
         response.status(404).json({ error: 'draft not found' });
         return;
@@ -265,10 +315,10 @@ export function createPublishRouter(dependencies: PublishRouteDependencies) {
 
       const publishResult = await publishDraft(draft, request);
       const contract = createPublishContract(draft, publishResult);
-      await persistPublishResult(id, contract, request);
+      await persistPublishResult(id, contract, request, draft);
       response.json(contract);
     } catch (error) {
-      await recordPublishFailure(id, error, request);
+      await recordPublishFailure(id, error, request, draft);
 
       if (error instanceof UnsupportedDraftPlatformError) {
         response.status(400).json({ error: 'unsupported draft platform' });
@@ -280,4 +330,22 @@ export function createPublishRouter(dependencies: PublishRouteDependencies) {
   });
 
   return publishRouter;
+}
+
+function enrichPublishableDraft(
+  draft: PublishableDraft | undefined,
+  storedDraft: { projectId: number | null } | undefined,
+): PublishableDraft | undefined {
+  if (!draft) {
+    return undefined;
+  }
+
+  if (draft.projectId !== undefined) {
+    return draft;
+  }
+
+  return {
+    ...draft,
+    projectId: storedDraft?.projectId ?? undefined,
+  };
 }

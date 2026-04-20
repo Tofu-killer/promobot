@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS drafts (
 CREATE TABLE IF NOT EXISTS publish_logs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   draft_id INTEGER NOT NULL,
+  project_id INTEGER,
   status TEXT NOT NULL,
   publish_url TEXT,
   message TEXT NOT NULL,

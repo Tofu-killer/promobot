@@ -187,7 +187,7 @@ function syncDraftSchedule(
   const shouldSchedule = draft.status === 'scheduled' && scheduledAt !== null;
 
   if (shouldSchedule) {
-    return jobQueueStore.schedulePublishJob(draft.id, scheduledAt);
+    return jobQueueStore.schedulePublishJob(draft.id, scheduledAt, draft.projectId);
   }
 
   if (currentDraft.status === 'scheduled' || currentDraft.scheduledAt) {

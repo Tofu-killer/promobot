@@ -1,6 +1,33 @@
 import { describe, expect, it } from 'vitest';
+import { initDb } from '../../src/server/db';
 import { createJobQueueStore } from '../../src/server/store/jobQueue';
 import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
+
+function insertLegacyPublishJob(
+  databasePath: string,
+  draftId: number,
+  runAt: string,
+) {
+  const db = initDb(databasePath);
+
+  try {
+    const result = db
+      .prepare(
+        `
+          INSERT INTO job_queue (type, payload, status, run_at, attempts, created_at, updated_at)
+          VALUES ('publish', @payload, 'pending', @run_at, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        `,
+      )
+      .run({
+        payload: JSON.stringify({ draftId }),
+        run_at: runAt,
+      });
+
+    return Number(result.lastInsertRowid);
+  } finally {
+    db.close();
+  }
+}
 
 describe('job queue store', () => {
   it('enqueues jobs, lists due work, and tracks lifecycle transitions', async () => {
@@ -86,17 +113,19 @@ describe('job queue store', () => {
     try {
       const store = createJobQueueStore();
 
-      const first = store.schedulePublishJob(42, '2026-04-19T11:00:00.000Z');
-      const second = store.schedulePublishJob(42, '2026-04-19T12:00:00.000Z');
+      const first = store.schedulePublishJob(42, '2026-04-19T11:00:00.000Z', 7);
+      const second = store.schedulePublishJob(42, '2026-04-19T12:00:00.000Z', 7);
 
       expect(second.id).toBe(first.id);
       expect(store.list({ limit: 5 })).toEqual([
         expect.objectContaining({
           id: first.id,
           type: 'publish',
-          payload: '{"draftId":42}',
+          payload: '{"draftId":42,"projectId":7}',
           status: 'pending',
           runAt: '2026-04-19T12:00:00.000Z',
+          draftId: 42,
+          projectId: 7,
         }),
       ]);
 
@@ -171,6 +200,52 @@ describe('job queue store', () => {
         canceled: 1,
         duePending: 1,
       });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('keeps list/get compatible with legacy publish jobs and upgrades them when projectId becomes available', async () => {
+    const { databasePath, rootDir } = createTestDatabasePath();
+    try {
+      const store = createJobQueueStore();
+      const legacyId = insertLegacyPublishJob(
+        databasePath,
+        42,
+        '2026-04-19T10:00:00.000Z',
+      );
+
+      expect(store.get(legacyId)).toEqual(
+        expect.objectContaining({
+          id: legacyId,
+          type: 'publish',
+          payload: '{"draftId":42}',
+          draftId: 42,
+          projectId: undefined,
+        }),
+      );
+      expect(store.list({ limit: 5 })).toEqual([
+        expect.objectContaining({
+          id: legacyId,
+          type: 'publish',
+          payload: '{"draftId":42}',
+          draftId: 42,
+          projectId: undefined,
+        }),
+      ]);
+
+      const updated = store.schedulePublishJob(42, '2026-04-19T11:00:00.000Z', 9);
+
+      expect(updated).toEqual(
+        expect.objectContaining({
+          id: legacyId,
+          type: 'publish',
+          payload: '{"draftId":42,"projectId":9}',
+          runAt: '2026-04-19T11:00:00.000Z',
+          draftId: 42,
+          projectId: 9,
+        }),
+      );
     } finally {
       cleanupTestDatabasePath(rootDir);
     }

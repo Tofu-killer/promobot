@@ -171,13 +171,14 @@ function readPublishLogs() {
     return db
       .prepare(
         `
-          SELECT draft_id AS draftId, status, publish_url AS publishUrl, message
+          SELECT draft_id AS draftId, project_id AS projectId, status, publish_url AS publishUrl, message
           FROM publish_logs
           ORDER BY id ASC
         `,
       )
       .all() as Array<{
       draftId: number;
+      projectId: number | null;
       status: string;
       publishUrl?: string;
       message: string;
@@ -350,12 +351,57 @@ describe('publish api', () => {
     expect(readPublishLogs()).toEqual([
       expect.objectContaining({
         draftId: draft.id,
+        projectId: null,
         status: 'published',
         publishUrl: `https://x.com/promobot/status/${draft.id}`,
         message: `x stub publisher accepted draft ${draft.id}`,
       }),
     ]);
     expect(readJobQueue()).toEqual([]);
+  });
+
+  it('persists projectId on publish logs when publishing a project-aware draft', async () => {
+    const testDatabase = createTestDatabasePath();
+    activeTestDbRoot = testDatabase.rootDir;
+    activeTestDatabasePath = testDatabase.databasePath;
+    const draftStore = createSQLiteDraftStore();
+    const draft = draftStore.create({
+      projectId: 77,
+      platform: 'x',
+      title: 'Project launch update',
+      content: 'Project-aware publish log',
+    });
+    const app = createTestApp(
+      {
+        lookupDraft(id) {
+          const storedDraft = draftStore.getById(id);
+          if (!storedDraft) {
+            return undefined;
+          }
+
+          return {
+            id: storedDraft.id,
+            projectId: storedDraft.projectId ?? undefined,
+            platform: storedDraft.platform,
+            title: storedDraft.title,
+            content: storedDraft.content,
+          };
+        },
+      },
+      { useDefaultPersistence: true },
+    );
+
+    const response = await requestApp(app, 'POST', `/api/drafts/${draft.id}/publish`);
+
+    expect(response.status).toBe(200);
+    expect(readPublishLogs()).toEqual([
+      expect.objectContaining({
+        draftId: draft.id,
+        projectId: 77,
+        status: 'published',
+        publishUrl: `https://x.com/promobot/status/${draft.id}`,
+      }),
+    ]);
   });
 
   it('persists queued publish semantics without backfilling publishedAt', async () => {
@@ -430,6 +476,7 @@ describe('publish api', () => {
     expect(readPublishLogs()).toEqual([
       expect.objectContaining({
         draftId: draft.id,
+        projectId: null,
         status: 'queued',
         publishUrl: null,
         message: 'queued for downstream publisher',
@@ -469,6 +516,15 @@ describe('publish api', () => {
   });
 
   it('uses an injected publish adapter when one is provided', async () => {
+    const testDatabase = createTestDatabasePath();
+    activeTestDbRoot = testDatabase.rootDir;
+    activeTestDatabasePath = testDatabase.databasePath;
+    const draftStore = createSQLiteDraftStore();
+    const draft = draftStore.create({
+      platform: 'custom',
+      content: 'Needs manual review',
+      projectId: 17,
+    });
     const publishDraft = vi.fn().mockResolvedValue({
       platform: 'x',
       mode: 'api',
@@ -483,27 +539,35 @@ describe('publish api', () => {
       },
     });
     const app = createTestApp({
-      lookupDraft: vi.fn().mockResolvedValue({
-        id: 9,
-        platform: 'custom',
-        content: 'Needs manual review',
-      }),
+      lookupDraft(id) {
+        const storedDraft = draftStore.getById(id);
+        if (!storedDraft) {
+          return undefined;
+        }
+
+        return {
+          id: storedDraft.id,
+          platform: storedDraft.platform,
+          content: storedDraft.content,
+        };
+      },
       publishDraft,
     });
 
-    const response = await requestApp(app, 'POST', '/api/drafts/9/publish');
+    const response = await requestApp(app, 'POST', `/api/drafts/${draft.id}/publish`);
 
     expect(response.status).toBe(200);
     expect(publishDraft).toHaveBeenCalledWith(
       expect.objectContaining({
-        id: 9,
+        id: draft.id,
         platform: 'custom',
         content: 'Needs manual review',
+        projectId: 17,
       }),
       expect.any(Object),
     );
     expect(JSON.parse(response.body)).toEqual({
-      draftId: 9,
+      draftId: draft.id,
       draftStatus: 'queued',
       platform: 'x',
       mode: 'api',

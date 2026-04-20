@@ -11,6 +11,7 @@ describe('publish queue handler', () => {
       const draftStore = createSQLiteDraftStore();
       const publishLogStore = createSQLitePublishLogStore();
       const draft = draftStore.create({
+        projectId: 88,
         platform: 'x',
         title: 'Launch update',
         content: 'PromoBot launch',
@@ -30,6 +31,7 @@ describe('publish queue handler', () => {
       expect(publishLogStore.listByDraftId(draft.id)).toEqual([
         expect.objectContaining({
           draftId: draft.id,
+          projectId: 88,
           status: 'published',
           publishUrl: `https://x.com/promobot/status/${draft.id}`,
         }),
@@ -64,6 +66,7 @@ describe('publish queue handler', () => {
       expect(publishLogStore.listByDraftId(draft.id)).toEqual([
         expect.objectContaining({
           draftId: draft.id,
+          projectId: undefined,
           status: 'manual_required',
           publishUrl: undefined,
         }),

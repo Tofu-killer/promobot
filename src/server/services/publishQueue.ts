@@ -40,6 +40,7 @@ export function createPublishJobHandler(): JobHandler {
 
       publishLogStore.create({
         draftId,
+        projectId: draft.projectId,
         status: result.status,
         publishUrl: result.publishUrl,
         message: result.message,
@@ -63,6 +64,7 @@ export function createPublishJobHandler(): JobHandler {
 
       publishLogStore.create({
         draftId,
+        projectId: draft.projectId,
         status: 'failed',
         message: error instanceof Error && error.message.trim() ? error.message : String(error),
       });
@@ -78,12 +80,14 @@ function isPublishJobPayload(value: unknown): value is PublishJobPayload {
 
 function toPublishableDraft(draft: {
   id: number;
+  projectId: number | null;
   platform: string;
   title?: string;
   content: string;
 }): PublishableDraft {
   return {
     id: draft.id,
+    projectId: draft.projectId,
     platform: draft.platform,
     title: draft.title,
     content: draft.content,

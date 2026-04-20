@@ -15,6 +15,8 @@ export interface EnqueueJobInput {
 }
 
 export interface JobQueueEntry extends JobRecord {
+  draftId?: number;
+  projectId?: number;
   lastError?: string;
   startedAt?: string;
   finishedAt?: string;
@@ -46,7 +48,7 @@ export interface JobQueueStore extends JobStore {
   requeueRunningJobs(nowIso?: string): number;
   retry(jobId: number, runAt?: string): JobQueueEntry | undefined;
   cancel(jobId: number, canceledAtIso?: string): JobQueueEntry | undefined;
-  schedulePublishJob(draftId: number, runAt: string): JobQueueEntry;
+  schedulePublishJob(draftId: number, runAt: string, projectId?: number | null): JobQueueEntry;
   deletePendingPublishJobs(draftId: number): number;
 }
 
@@ -85,8 +87,10 @@ export function createJobQueueStore(): JobQueueStore {
     cancel(jobId, canceledAtIso) {
       return withDatabase((database) => cancelJob(database, jobId, canceledAtIso ?? new Date().toISOString()));
     },
-    schedulePublishJob(draftId, runAt) {
-      return withDatabase((database) => schedulePublishJob(database, draftId, runAt));
+    schedulePublishJob(draftId, runAt, projectId) {
+      return withDatabase((database) =>
+        schedulePublishJob(database, draftId, runAt, projectId),
+      );
     },
     deletePendingPublishJobs(draftId) {
       return withDatabase((database) => deletePendingPublishJobs(database, draftId));
@@ -371,29 +375,20 @@ function schedulePublishJob(
   database: DatabaseConnection,
   draftId: number,
   runAt: string,
+  projectId?: number | null,
 ): JobQueueEntry {
   const now = new Date().toISOString();
-  const payload = buildPublishPayload(draftId);
-  const existing = database
-    .prepare(
-      `
-        SELECT id
-        FROM job_queue
-        WHERE type = 'publish'
-          AND payload = ?
-          AND status IN ('pending', 'failed')
-        ORDER BY id ASC
-        LIMIT 1
-      `,
-    )
-    .get([payload]) as { id?: number } | undefined;
+  const payload = createPublishPayload(draftId, projectId);
+  const serializedPayload = JSON.stringify(payload);
+  const existingId = findPendingOrFailedPublishJobIdsByDraftId(database, draftId)[0];
 
-  if (existing?.id) {
+  if (existingId !== undefined) {
     database
       .prepare(
         `
           UPDATE job_queue
           SET status = 'pending',
+              payload = @payload,
               run_at = @run_at,
               last_error = NULL,
               started_at = NULL,
@@ -403,12 +398,13 @@ function schedulePublishJob(
         `,
       )
       .run({
-        id: existing.id,
+        id: existingId,
+        payload: serializedPayload,
         run_at: runAt,
         updated_at: now,
       });
 
-    const entry = getJobById(database, Number(existing.id));
+    const entry = getJobById(database, existingId);
     if (!entry) {
       throw new Error('publish job update failed');
     }
@@ -418,23 +414,26 @@ function schedulePublishJob(
 
   return insertJob(database, {
     type: 'publish',
-    payload: { draftId },
+    payload,
     runAt,
     status: 'pending',
   });
 }
 
 function deletePendingPublishJobs(database: DatabaseConnection, draftId: number): number {
+  const matchingIds = findPendingOrFailedPublishJobIdsByDraftId(database, draftId);
+  if (matchingIds.length === 0) {
+    return 0;
+  }
+
   const result = database
     .prepare(
       `
         DELETE FROM job_queue
-        WHERE type = 'publish'
-          AND payload = ?
-          AND status IN ('pending', 'failed')
+        WHERE id IN (${matchingIds.map(() => '?').join(', ')})
       `,
     )
-    .run([buildPublishPayload(draftId)]);
+    .run(matchingIds);
 
   return result.changes;
 }
@@ -455,8 +454,67 @@ function getJobById(database: DatabaseConnection, jobId: number): JobQueueEntry 
   return row ? normalizeJobQueueEntry(row as Record<string, unknown>) : undefined;
 }
 
-function buildPublishPayload(draftId: number) {
-  return JSON.stringify({ draftId });
+function createPublishPayload(draftId: number, projectId?: number | null) {
+  const payload: Record<string, number> = { draftId };
+  const normalizedProjectId = normalizePositiveInteger(projectId);
+
+  if (normalizedProjectId !== undefined) {
+    payload.projectId = normalizedProjectId;
+  }
+
+  return payload;
+}
+
+function findPendingOrFailedPublishJobIdsByDraftId(
+  database: DatabaseConnection,
+  draftId: number,
+) {
+  const rows = database
+    .prepare(
+      `
+        SELECT id, payload
+        FROM job_queue
+        WHERE type = 'publish'
+          AND status IN ('pending', 'failed')
+        ORDER BY id ASC
+      `,
+    )
+    .all() as Array<{ id: number; payload: string }>;
+
+  return rows.flatMap((row) =>
+    parsePublishJobPayload(row.payload).draftId === draftId ? [Number(row.id)] : [],
+  );
+}
+
+function parsePublishJobPayload(value: unknown) {
+  const payload = parsePayloadObject(value);
+
+  return {
+    draftId: normalizePositiveInteger(payload?.draftId),
+    projectId: normalizePositiveInteger(payload?.projectId),
+  };
+}
+
+function parsePayloadObject(value: unknown) {
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      return parsed !== null && typeof parsed === 'object'
+        ? (parsed as Record<string, unknown>)
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  return value !== null && typeof value === 'object'
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function normalizePositiveInteger(value: unknown) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 function normalizeJobRecord(row: Record<string, unknown>): JobRecord {
@@ -472,8 +530,13 @@ function normalizeJobRecord(row: Record<string, unknown>): JobRecord {
 
 function normalizeJobQueueEntry(row: Record<string, unknown>): JobQueueEntry {
   const status = String(row.status) as JobStatus;
+  const publishPayload =
+    String(row.type) === 'publish' ? parsePublishJobPayload(row.payload) : undefined;
+
   return {
     ...normalizeJobRecord(row),
+    draftId: publishPayload?.draftId,
+    projectId: publishPayload?.projectId,
     lastError: typeof row.lastError === 'string' ? row.lastError : undefined,
     startedAt: typeof row.startedAt === 'string' ? row.startedAt : undefined,
     finishedAt: typeof row.finishedAt === 'string' ? row.finishedAt : undefined,

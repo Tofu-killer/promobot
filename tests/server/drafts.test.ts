@@ -376,6 +376,49 @@ describe('drafts api', () => {
     ]);
   });
 
+  it('keeps projectId in the publish job payload when scheduling a project-aware draft', async () => {
+    const store = createSQLiteDraftStore();
+    const draft = store.create({
+      platform: 'x',
+      content: 'project-aware-draft',
+      projectId: 42,
+    });
+    const app = createApp({
+      allowedIps: ['127.0.0.1'],
+      adminPassword: 'secret',
+    });
+
+    const response = await requestApp(app, 'PATCH', `/api/drafts/${draft.id}`, {
+      scheduledAt: '2026-04-20T10:30:00.000Z',
+    });
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({
+      draft: expect.objectContaining({
+        id: draft.id,
+        projectId: 42,
+        status: 'scheduled',
+        scheduledAt: '2026-04-20T10:30:00.000Z',
+      }),
+      publishJob: expect.objectContaining({
+        type: 'publish',
+        status: 'pending',
+        runAt: '2026-04-20T10:30:00.000Z',
+        draftId: draft.id,
+        projectId: 42,
+      }),
+    });
+
+    expect(readJobQueue()).toEqual([
+      expect.objectContaining({
+        type: 'publish',
+        payload: '{"draftId":1,"projectId":42}',
+        status: 'pending',
+        runAt: '2026-04-20T10:30:00.000Z',
+      }),
+    ]);
+  });
+
   it('reschedules and clears publish jobs when scheduled drafts are edited', async () => {
     installFetchStub();
     const app = createApp({
