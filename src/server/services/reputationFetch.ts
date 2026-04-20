@@ -35,6 +35,7 @@ export function createReputationFetchService() {
 
       const signals =
         nonRssMonitorItemCount === 0 &&
+        (globalSettings.monitorXQueries?.length ?? 0) === 0 &&
         (globalSettings.monitorRedditQueries?.length ?? 0) === 0 &&
         (globalSettings.monitorV2exQueries?.length ?? 0) === 0 &&
         sourceConfigSignals.length > 0
@@ -116,11 +117,13 @@ function createSourceConfigFallbackSignals(sourceConfigs: SourceConfigRecord[]) 
 
 function mergeReputationSettings(
   settings: {
+    monitorXQueries?: string[];
     monitorRedditQueries?: string[];
     monitorV2exQueries?: string[];
   },
   sourceConfigs: SourceConfigRecord[],
 ) {
+  const xQueries = [...(settings.monitorXQueries ?? [])];
   const redditQueries = [...(settings.monitorRedditQueries ?? [])];
   const v2exQueries = [...(settings.monitorV2exQueries ?? [])];
 
@@ -139,7 +142,7 @@ function mergeReputationSettings(
       sourceConfig.platform === 'x'
     ) {
       for (const query of readQueryList(sourceConfig.configJson)) {
-        redditQueries.push(query);
+        xQueries.push(query);
       }
     }
 
@@ -151,6 +154,7 @@ function mergeReputationSettings(
   }
 
   return {
+    monitorXQueries: dedupeStrings(xQueries),
     monitorRedditQueries: dedupeStrings(redditQueries),
     monitorV2exQueries: dedupeStrings(v2exQueries),
   };
@@ -158,6 +162,7 @@ function mergeReputationSettings(
 
 function emptyReputationSettings() {
   return {
+    monitorXQueries: [],
     monitorRedditQueries: [],
     monitorV2exQueries: [],
   };

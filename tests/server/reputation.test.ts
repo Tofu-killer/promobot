@@ -320,6 +320,7 @@ describe('reputation api', () => {
 
   it('falls back to configured monitor queries when reputation feed has no monitor items yet', async () => {
     const settingsResponse = await requestApp('PATCH', '/api/settings', {
+      monitorXQueries: ['openrouter failover'],
       monitorRedditQueries: ['brand latency'],
       monitorV2exQueries: ['billing transparency'],
     });
@@ -333,6 +334,14 @@ describe('reputation api', () => {
       items: [
         expect.objectContaining({
           id: 1,
+          source: 'x',
+          sentiment: 'neutral',
+          status: 'new',
+          title: 'Watching reputation query: openrouter failover',
+          detail: 'Configured from monitorXQueries before live mentions arrive.',
+        }),
+        expect.objectContaining({
+          id: 2,
           source: 'reddit',
           sentiment: 'neutral',
           status: 'new',
@@ -340,7 +349,7 @@ describe('reputation api', () => {
           detail: 'Configured from monitorRedditQueries before live mentions arrive.',
         }),
         expect.objectContaining({
-          id: 2,
+          id: 3,
           source: 'v2ex',
           sentiment: 'neutral',
           status: 'new',
@@ -348,8 +357,8 @@ describe('reputation api', () => {
           detail: 'Configured from monitorV2exQueries before live mentions arrive.',
         }),
       ],
-      inserted: 2,
-      total: 2,
+      inserted: 3,
+      total: 3,
     });
   });
 

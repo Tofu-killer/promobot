@@ -8,7 +8,7 @@ import {
 
 type ReputationCollectorSettings = Pick<
   SettingsRecord,
-  'monitorRedditQueries' | 'monitorV2exQueries'
+  'monitorXQueries' | 'monitorRedditQueries' | 'monitorV2exQueries'
 >;
 
 export interface ReputationCollectorInput {
@@ -49,6 +49,13 @@ export function createReputationCollectorService(
       }
 
       const configuredSignals = [
+        ...(settings.monitorXQueries ?? []).map((query) => ({
+          source: 'x',
+          sentiment: 'neutral' as const,
+          status: 'new' as const,
+          title: `Watching reputation query: ${query}`,
+          detail: 'Configured from monitorXQueries before live mentions arrive.',
+        })),
         ...(settings.monitorRedditQueries ?? []).map((query) => ({
           source: 'reddit',
           sentiment: 'neutral' as const,
