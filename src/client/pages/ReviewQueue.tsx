@@ -183,10 +183,12 @@ function getReviewDraftBadgeStyle(status: DraftRecord['status']) {
   };
 }
 
-function formatReviewDraftDestination(status: DraftRecord['status']) {
-  switch (status) {
+function formatReviewDraftDestination(draft: DraftRecord, scheduledAtValue: string) {
+  switch (draft.status) {
     case 'scheduled':
-      return '当前去向：已推入 Publish Calendar，等待发布窗口。';
+      return scheduledAtValue.length > 0
+        ? '当前去向：已推入 Publish Calendar，等待发布窗口。'
+        : '当前去向：待补排程，尚未进入 Publish Calendar。';
     case 'published':
       return '当前去向：已完成发布。';
     case 'approved':
@@ -443,7 +445,9 @@ export function ReviewQueuePage({
         ...currentState,
         [draftId]: {
           status: 'success',
-          message: `已排程：${result.draft.title ?? result.draft.platform}${result.draft.scheduledAt ? `，排程时间：${result.draft.scheduledAt}` : ''}`,
+          message: result.draft.scheduledAt
+            ? `已排程：${result.draft.title ?? result.draft.platform}，排程时间：${result.draft.scheduledAt}`
+            : `已标记待补排程：${result.draft.title ?? result.draft.platform}`,
           error: null,
           action: 'schedule',
           publishUrl: null,
@@ -552,7 +556,7 @@ export function ReviewQueuePage({
                           color: '#334155',
                         }}
                       >
-                        <div style={{ fontWeight: 700 }}>{formatReviewDraftDestination(draft.status)}</div>
+                        <div style={{ fontWeight: 700 }}>{formatReviewDraftDestination(draft, scheduledAtValue)}</div>
                         <div>计划推送时间：{scheduledAtValue.length > 0 ? scheduledAtValue : '未设置'}</div>
                       </div>
 

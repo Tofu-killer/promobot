@@ -885,6 +885,75 @@ describe('Review Queue lifecycle actions', () => {
     });
   });
 
+  it('shows pending-schedule feedback when a review draft is marked scheduled without a time', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ReviewQueuePage } = await import('../../src/client/pages/ReviewQueue');
+
+    const loadReviewQueueAction = vi.fn().mockResolvedValue({
+      drafts: [
+        {
+          id: 41,
+          platform: 'x',
+          title: 'Launch thread',
+          content: 'Draft body',
+          hashtags: ['#launch'],
+          status: 'review',
+          createdAt: '2026-04-19T00:00:00.000Z',
+          updatedAt: '2026-04-19T00:00:00.000Z',
+        },
+      ],
+    });
+    const scheduleReviewDraftAction = vi.fn().mockResolvedValue({
+      draft: {
+        id: 41,
+        platform: 'x',
+        title: 'Launch thread',
+        content: 'Draft body',
+        hashtags: ['#launch'],
+        status: 'scheduled',
+        scheduledAt: null,
+        createdAt: '2026-04-19T00:00:00.000Z',
+        updatedAt: '2026-04-19T01:20:00.000Z',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ReviewQueuePage as never, {
+          loadReviewQueueAction,
+          scheduleReviewDraftAction,
+        }),
+      );
+      await flush();
+    });
+
+    const scheduleButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-review-schedule-id') === '41',
+    );
+
+    expect(scheduleButton).not.toBeNull();
+
+    await act(async () => {
+      scheduleButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(scheduleReviewDraftAction).toHaveBeenCalledWith(41, {
+      scheduledAt: '',
+      status: 'scheduled',
+    });
+    expect(collectText(container)).toContain('已标记待补排程：Launch thread');
+    expect(collectText(container)).toContain('当前去向：待补排程，尚未进入 Publish Calendar。');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('shows manual handoff feedback when publish returns manual_required', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
