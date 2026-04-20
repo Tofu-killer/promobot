@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Layout } from './components/Layout';
+import { clearStoredAdminPassword, getAuthErrorEventName, getStoredAdminPassword, storeAdminPassword } from './lib/api';
 import type { AppRoute, NavItem } from './lib/types';
 import { DashboardPage } from './pages/Dashboard';
 import { DiscoveryPage } from './pages/Discovery';
@@ -14,6 +15,7 @@ import { ReviewQueuePage } from './pages/ReviewQueue';
 import { SettingsPage } from './pages/Settings';
 import { ChannelAccountsPage } from './pages/ChannelAccounts';
 import { SystemQueuePage } from './pages/SystemQueue';
+import { LoginPage } from './pages/Login';
 
 const navItems: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard', description: '总览今日运营节奏' },
@@ -66,10 +68,59 @@ function renderRoute(route: AppRoute) {
 
 interface AppProps {
   initialRoute?: AppRoute;
+  initialAdminPassword?: string | null;
 }
 
-export default function App({ initialRoute = 'dashboard' }: AppProps) {
+export default function App({ initialRoute = 'dashboard', initialAdminPassword = null }: AppProps) {
   const [activeRoute, setActiveRoute] = useState<AppRoute>(initialRoute);
+  const [adminPassword, setAdminPassword] = useState<string | null>(
+    typeof window === 'undefined' ? initialAdminPassword ?? 'server-render' : initialAdminPassword,
+  );
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    setAdminPassword(getStoredAdminPassword());
+  }, []);
+
+  useEffect(() => {
+    const handleAuthError = (event: Event) => {
+      const detail =
+        event instanceof CustomEvent && typeof event.detail?.message === 'string'
+          ? event.detail.message
+          : '管理员密码无效';
+      clearStoredAdminPassword();
+      setAdminPassword(null);
+      setAuthError(detail);
+    };
+
+    window.addEventListener(getAuthErrorEventName(), handleAuthError);
+    return () => {
+      window.removeEventListener(getAuthErrorEventName(), handleAuthError);
+    };
+  }, []);
+
+  if (!adminPassword) {
+    return (
+      <LoginPage
+        error={authError}
+        onSubmit={(password) => {
+          const trimmed = password.trim();
+          if (!trimmed) {
+            setAuthError('管理员密码不能为空');
+            return;
+          }
+
+          storeAdminPassword(trimmed);
+          setAdminPassword(trimmed);
+          setAuthError(null);
+        }}
+      />
+    );
+  }
 
   return (
     <Layout activeRoute={activeRoute} navItems={navItems} onNavigate={setActiveRoute}>

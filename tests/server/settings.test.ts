@@ -19,7 +19,7 @@ async function requestApp(
       method,
       url,
       originalUrl: url,
-      headers: {},
+      headers: { 'x-admin-password': 'secret' },
       socket: { remoteAddress: '127.0.0.1' },
       connection: { remoteAddress: '127.0.0.1' },
     });

@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { loadConfig, type AppConfig } from './config';
+import { requireAdminPassword } from './middleware/auth';
 import { ipAllowlist } from './middleware/ipAllowlist';
 import { channelAccountsRouter } from './routes/channelAccounts';
 import { createContentRouter } from './routes/content';
@@ -15,7 +16,7 @@ import { projectsRouter } from './routes/projects';
 import { reputationRouter } from './routes/reputation';
 import { createSettingsRouter } from './routes/settings';
 import { systemDashboardRouter } from './routes/systemDashboard';
-import { createSystemRouter } from './routes/system';
+import { createSystemHealthPayload, createSystemRouter } from './routes/system';
 import type { SchedulerRuntime } from './runtime/schedulerRuntime';
 
 export interface AppDependencies {
@@ -31,6 +32,10 @@ export function createApp(config: AppConfig = loadConfig(), dependencies: AppDep
   app.disable('x-powered-by');
   app.use(express.json());
   app.use(ipAllowlist(config.allowedIps));
+  app.get('/api/system/health', (_request, response) => {
+    response.json(createSystemHealthPayload(dependencies.schedulerRuntime));
+  });
+  app.use('/api', requireAdminPassword(config.adminPassword));
   app.use('/api/system', createSystemRouter({ schedulerRuntime: dependencies.schedulerRuntime }));
   app.use('/api/content', createContentRouter(draftStore));
   app.use('/api/discovery', discoveryRouter);

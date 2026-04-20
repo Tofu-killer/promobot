@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/server/app';
+import { createMonitorStore } from '../../src/server/store/monitor';
 import { createReputationStore } from '../../src/server/store/reputation';
 import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
 
@@ -17,7 +18,7 @@ async function requestApp(method: string, url: string, body?: unknown) {
       method,
       url,
       originalUrl: url,
-      headers: {},
+      headers: { 'x-admin-password': 'secret' },
       socket: { remoteAddress: '127.0.0.1' },
       connection: { remoteAddress: '127.0.0.1' },
     });
@@ -106,7 +107,21 @@ afterEach(() => {
 });
 
 describe('reputation api', () => {
-  it('returns a feed view and supports manual fetch into SQLite', async () => {
+  it('maps existing monitor signals into the reputation feed before seed fallback', async () => {
+    const monitorStore = createMonitorStore();
+    monitorStore.create({
+      source: 'reddit',
+      title: 'Lower APAC latency praise',
+      detail: 'Users praised lower Claude routing latency from Perth.',
+      status: 'new',
+    });
+    monitorStore.create({
+      source: 'v2ex',
+      title: 'Billing confusion mention',
+      detail: 'Agency buyers asked whether billing and usage caps are transparent enough.',
+      status: 'new',
+    });
+
     const fetchResponse = await requestApp('POST', '/api/reputation/fetch');
 
     expect(fetchResponse.status).toBe(201);
@@ -116,11 +131,13 @@ describe('reputation api', () => {
           id: 1,
           source: 'reddit',
           sentiment: 'positive',
+          title: 'Lower APAC latency praise',
         }),
         expect.objectContaining({
           id: 2,
-          source: 'facebook-group',
+          source: 'v2ex',
           sentiment: 'negative',
+          title: 'Billing confusion mention',
         }),
       ],
       inserted: 2,
@@ -129,11 +146,11 @@ describe('reputation api', () => {
 
     const feedResponse = await requestApp('GET', '/api/reputation/feed');
 
-    expect(feedResponse.status).toBe(200);
-    expect(JSON.parse(feedResponse.body)).toEqual({
-      items: [
-        expect.objectContaining({
-          id: 1,
+      expect(feedResponse.status).toBe(200);
+      expect(JSON.parse(feedResponse.body)).toEqual({
+        items: [
+          expect.objectContaining({
+            id: 1,
           title: expect.stringContaining('Lower APAC latency praise'),
         }),
         expect.objectContaining({
@@ -141,6 +158,41 @@ describe('reputation api', () => {
           title: expect.stringContaining('Billing confusion mention'),
         }),
       ],
+      total: 2,
+    });
+  });
+
+  it('falls back to configured monitor queries when reputation feed has no monitor items yet', async () => {
+    const settingsResponse = await requestApp('PATCH', '/api/settings', {
+      monitorRedditQueries: ['brand latency'],
+      monitorV2exQueries: ['billing transparency'],
+    });
+
+    expect(settingsResponse.status).toBe(200);
+
+    const fetchResponse = await requestApp('POST', '/api/reputation/fetch');
+
+    expect(fetchResponse.status).toBe(201);
+    expect(JSON.parse(fetchResponse.body)).toEqual({
+      items: [
+        expect.objectContaining({
+          id: 1,
+          source: 'reddit',
+          sentiment: 'neutral',
+          status: 'new',
+          title: 'Watching reputation query: brand latency',
+          detail: 'Configured from monitorRedditQueries before live mentions arrive.',
+        }),
+        expect.objectContaining({
+          id: 2,
+          source: 'v2ex',
+          sentiment: 'neutral',
+          status: 'new',
+          title: 'Watching reputation query: billing transparency',
+          detail: 'Configured from monitorV2exQueries before live mentions arrive.',
+        }),
+      ],
+      inserted: 2,
       total: 2,
     });
   });

@@ -7,6 +7,7 @@ import { createApp } from '../../src/server/app';
 async function requestExistingApp(
   app: ReturnType<typeof createApp>,
   options: {
+    headers?: Record<string, string>;
     remoteAddress?: string;
     method?: string;
     url: string;
@@ -27,7 +28,7 @@ async function requestExistingApp(
       method: options.method ?? 'GET',
       url: options.url,
       originalUrl: options.url,
-      headers: {},
+      headers: options.headers ?? { 'x-admin-password': 'secret' },
       socket: { remoteAddress: options.remoteAddress ?? '127.0.0.1' },
       connection: { remoteAddress: options.remoteAddress ?? '127.0.0.1' },
     });
@@ -105,6 +106,7 @@ async function requestExistingApp(
 }
 
 async function requestApp(options: {
+  headers?: Record<string, string>;
   remoteAddress: string;
   method?: string;
   url?: string;
@@ -117,6 +119,7 @@ async function requestApp(options: {
   }, options.dependencies);
 
   return await requestExistingApp(app, {
+    headers: options.headers,
     remoteAddress: options.remoteAddress,
     method: options.method,
     url: options.url ?? '/api/system/health',
@@ -203,6 +206,36 @@ describe('security middleware', () => {
 
     expect(response.status).toBe(403);
     expect(JSON.parse(response.body)).toEqual({ error: 'forbidden' });
+  });
+
+  it('rejects protected api routes when the admin password header is missing', async () => {
+    const response = await requestApp({
+      headers: {},
+      remoteAddress: '127.0.0.1',
+      url: '/api/settings',
+    });
+
+    expect(response.status).toBe(401);
+    expect(JSON.parse(response.body)).toEqual({ error: 'unauthorized' });
+  });
+
+  it('allows protected api routes when the admin password header matches', async () => {
+    const response = await requestApp({
+      headers: {
+        'x-admin-password': 'secret',
+      },
+      remoteAddress: '127.0.0.1',
+      url: '/api/settings',
+      method: 'GET',
+    });
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({
+      settings: expect.objectContaining({
+        allowlist: ['127.0.0.1', '::1'],
+      }),
+      platforms: expect.any(Array),
+    });
   });
 });
 

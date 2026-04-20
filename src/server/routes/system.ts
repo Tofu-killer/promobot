@@ -10,13 +10,7 @@ export function createSystemRouter(dependencies: SystemRouteDependencies = {}) {
   const schedulerRuntime = dependencies.schedulerRuntime;
 
   systemRouter.get('/health', (_request, response) => {
-    response.json({
-      ok: true,
-      service: 'promobot',
-      timestamp: new Date().toISOString(),
-      uptimeSeconds: Math.round(process.uptime()),
-      scheduler: buildSchedulerHealthSnapshot(schedulerRuntime),
-    });
+    response.json(createSystemHealthPayload(schedulerRuntime));
   });
 
   systemRouter.get('/runtime', (_request, response) => {
@@ -194,6 +188,16 @@ function buildSchedulerHealthSnapshot(schedulerRuntime: SchedulerRuntime | undef
     available: status.available === true,
     started: status.started === true,
     ...(queue ? { queue } : {}),
+  };
+}
+
+export function createSystemHealthPayload(schedulerRuntime: SchedulerRuntime | undefined) {
+  return {
+    ok: true,
+    service: 'promobot',
+    timestamp: new Date().toISOString(),
+    uptimeSeconds: Math.round(process.uptime()),
+    scheduler: buildSchedulerHealthSnapshot(schedulerRuntime),
   };
 }
 

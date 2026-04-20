@@ -35,9 +35,9 @@ PromoBot 现在不是“只有 spec 的空仓库”了。
 ## 重要限制
 
 - 开发模式下，Vite dev server 仍然没有内建 `/api` proxy；要在 `pnpm dev` 场景里跑通完整浏览器链路，仍需要额外同源代理或你自己的反向代理。
-- `ADMIN_PASSWORD` 目前只是配置项，实际请求链路没有启用登录认证。
+- `ADMIN_PASSWORD` 现在通过 `x-admin-password` 请求头接入后端 API；前端首次进入时会要求输入管理员密码，并保存在浏览器本地存储中用于后续请求。
 - Settings 页里保存的 `allowlist` 会写进 SQLite，但不会更新已经启动的 Express IP 中间件；真正生效的还是进程启动时读取的 `ALLOWED_IPS`。
-- Inbox / Monitor / Reputation 的 `fetch` 目前写入的是本地 seed 数据，不是实时抓取外部平台。
+- `monitor/fetch` 已支持 RSS、V2EX、Reddit search；`inbox/fetch` 与 `reputation/fetch` 会优先消费已落库的 monitor 信号，再退回 monitor 查询配置生成骨架项，尚未形成各自独立的实时抓取器。
 - 浏览器 session 的采集 / relogin 还没接自动化，只能手动登记 storage state 路径和状态元数据。
 - `.env.example` 只是参考文件，当前脚本不会自动加载 `.env`，`pm2.config.js` 也只会继承启动它的 shell 环境。
 

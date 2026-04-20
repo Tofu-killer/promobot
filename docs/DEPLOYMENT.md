@@ -46,7 +46,8 @@ set +a
   - 中间件会把 `::ffff:1.2.3.4` 规范化为 `1.2.3.4`
 - `ADMIN_PASSWORD`
   - 进程启动时会读取
-  - 但当前请求链路并没有真正启用 admin password 校验
+  - 除 `/api/system/health` 外，其它 `/api/*` 请求都需要提供匹配的管理员密码
+  - 当前前端会把登录时输入的密码保存在浏览器本地存储，并自动附加到后续 API 请求
 - `PROMOBOT_DB_PATH`
   - 默认是 `<cwd>/data/promobot.sqlite`
   - 用仓库根目录启动或使用 `pm2.config.js` 时，默认值等同于 `<repo>/data/promobot.sqlite`
@@ -252,10 +253,27 @@ pm2 stop promobot
 - `weibo`、`xiaohongshu`、`blog`
   - 仍主要停留在 manual / stub 路径
 - `monitor`、`inbox`、`reputation`
-  - `fetch` 目前仍写入 seed 数据，不是实时外部抓取
+  - `monitor/fetch` 已支持 RSS、V2EX、Reddit search
+  - `inbox/fetch` 与 `reputation/fetch` 目前优先复用已落库的 monitor 信号
+  - 当 monitor 还没有命中时，会退回 monitor 查询配置生成骨架项
+  - 还没有形成各自独立的实时网络抓取器，也没有去重层
 - `settings`
   - 写入的 allowlist 不会热更新现有中间件
   - 真正生效的仍是进程启动时读取的 `ALLOWED_IPS`
+
+## 管理员登录
+
+当前访问模型是两层保护：
+
+1. `ALLOWED_IPS` 先限制来源 IP
+2. 进入前端后再输入 `ADMIN_PASSWORD`
+
+当前实现：
+
+- 浏览器第一次打开控制台时会先显示登录页
+- 输入的管理员密码会保存到当前浏览器本地存储
+- 后续前端 API 请求会自动带 `x-admin-password`
+- 如果密码失效或填错，后端会返回 `401 unauthorized`
 
 ## 验证
 

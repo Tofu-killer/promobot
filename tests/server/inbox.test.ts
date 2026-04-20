@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../../src/server/app';
 import { createInboxStore } from '../../src/server/store/inbox';
+import { createMonitorStore } from '../../src/server/store/monitor';
 import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
 
 const originalEnv = {
@@ -21,7 +22,7 @@ async function requestApp(method: string, url: string, body?: unknown) {
       method,
       url,
       originalUrl: url,
-      headers: {},
+      headers: { 'x-admin-password': 'secret' },
       socket: { remoteAddress: '127.0.0.1' },
       connection: { remoteAddress: '127.0.0.1' },
     });
@@ -129,9 +130,24 @@ function installFetchStub(replyText: string) {
 }
 
 describe('inbox api', () => {
-  it('fetches inbox items into SQLite through the manual fetch endpoint', async () => {
+  it('prefers existing monitor signals when fetching inbox items', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
+      const monitorStore = createMonitorStore();
+      monitorStore.create({
+        source: 'reddit',
+        title: 'Claude latency in Australia',
+        detail:
+          'r/LocalLLaMA · latencywatch\n\nhttps://www.reddit.com/r/LocalLLaMA/comments/abc123/claude_latency_in_australia/',
+        status: 'new',
+      });
+      monitorStore.create({
+        source: 'v2ex',
+        title: '澳洲节点下 Claude API 延迟如何',
+        detail: 'V2EX OpenAI · nodehunter · 4 replies\n\nhttps://www.v2ex.com/t/123456',
+        status: 'new',
+      });
+
       const response = await requestApp('POST', '/api/inbox/fetch');
 
       expect(response.status).toBe(201);
@@ -141,11 +157,55 @@ describe('inbox api', () => {
             id: 1,
             source: 'reddit',
             status: 'needs_reply',
+            title: 'Claude latency in Australia',
+            excerpt:
+              'r/LocalLLaMA · latencywatch\n\nhttps://www.reddit.com/r/LocalLLaMA/comments/abc123/claude_latency_in_australia/',
           }),
           expect.objectContaining({
             id: 2,
-            source: 'x',
-            status: 'needs_review',
+            source: 'v2ex',
+            status: 'needs_reply',
+            title: '澳洲节点下 Claude API 延迟如何',
+            excerpt: 'V2EX OpenAI · nodehunter · 4 replies\n\nhttps://www.v2ex.com/t/123456',
+          }),
+        ],
+        inserted: 2,
+        total: 2,
+        unread: 2,
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('falls back to configured monitor queries when no monitor items exist yet', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const settingsResponse = await requestApp('PATCH', '/api/settings', {
+        monitorRedditQueries: ['claude latency australia'],
+        monitorV2exQueries: ['cursor api'],
+      });
+
+      expect(settingsResponse.status).toBe(200);
+
+      const response = await requestApp('POST', '/api/inbox/fetch');
+
+      expect(response.status).toBe(201);
+      expect(JSON.parse(response.body)).toEqual({
+        items: [
+          expect.objectContaining({
+            id: 1,
+            source: 'reddit',
+            status: 'needs_reply',
+            title: 'Inbox follow-up for claude latency australia',
+            excerpt: 'Configured from monitorRedditQueries before live fetch results arrive.',
+          }),
+          expect.objectContaining({
+            id: 2,
+            source: 'v2ex',
+            status: 'needs_reply',
+            title: 'Inbox follow-up for cursor api',
+            excerpt: 'Configured from monitorV2exQueries before live fetch results arrive.',
           }),
         ],
         inserted: 2,
