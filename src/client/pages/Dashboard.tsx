@@ -138,52 +138,70 @@ export function DashboardPage({
       {displayState.status === 'error' ? <p style={{ color: '#b91c1c' }}>仪表盘加载失败：{displayState.error}</p> : null}
 
       {displayState.status === 'success' || displayState.status === 'idle' ? (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
-          <StatCard label="今日生成" value={String(viewData.drafts.total)} detail="当前已入库的草稿总数" />
-          <StatCard label="待审核" value={String(viewData.drafts.review)} detail="status=review 的草稿数量" />
-          <StatCard label="已跟进" value={String(viewData.monitor.followUpDrafts)} detail="由监控项生成的 follow-up 草稿" />
-          <StatCard label="新线索" value={String(viewData.monitor.new)} detail="当前 monitor 中 status=new 的条目数" />
-          <StatCard label="待处理私信" value={String(inboxMetrics.unread)} detail="收件箱中尚未标记为 handled 的会话数" />
-          <StatCard
-            label="健康账号"
-            value={String(channelAccountMetrics.connected)}
-            detail="status=healthy 的渠道账号数量"
-          />
-          <StatCard
-            label="待发布"
-            value={String(draftLifecycleMetrics.scheduled)}
-            detail="已排期但尚未完成发布的草稿数量"
-          />
-          <StatCard
-            label="已发布"
-            value={String(draftLifecycleMetrics.published)}
-            detail="已完成发布的草稿数量"
-          />
-          <StatCard
-            label="发布失败"
-            value={String(publishLogMetrics.failedCount)}
-            detail="最近发布流水中记录的失败次数"
-          />
-          <StatCard
-            label="队列待执行"
-            value={String(jobQueueMetrics.pending)}
-            detail="job_queue 中 pending 的任务数量"
-          />
-          <StatCard
-            label="队列运行中"
-            value={String(jobQueueMetrics.running)}
-            detail="当前被 scheduler 占用的任务数量"
-          />
-          <StatCard
-            label="到期待执行"
-            value={String(jobQueueMetrics.duePending)}
-            detail="已经到执行时间、等待本轮 tick 处理的任务数量"
-          />
-          <StatCard
-            label="队列失败"
-            value={String(jobQueueMetrics.failed)}
-            detail="job_queue 中 failed 的任务数量"
-          />
+        <div style={{ display: 'grid', gap: '16px' }}>
+          <section
+            style={{
+              borderRadius: '18px',
+              background: '#fff7ed',
+              border: '1px solid #fed7aa',
+              padding: '16px 18px',
+              display: 'grid',
+              gap: '6px',
+            }}
+          >
+            <div style={{ fontWeight: 700, color: '#9a3412' }}>首发运营范围</div>
+            <div style={{ color: '#7c2d12' }}>自动发布：X、Reddit</div>
+            <div style={{ color: '#7c2d12' }}>人工接管：Facebook Group（人工接管）</div>
+            <div style={{ color: '#9a3412' }}>暂缓首发：小红书、微博、Blog</div>
+          </section>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
+            <StatCard label="今日生成" value={String(viewData.drafts.total)} detail="当前已入库的草稿总数" />
+            <StatCard label="待审核" value={String(viewData.drafts.review)} detail="status=review 的草稿数量" />
+            <StatCard label="已跟进" value={String(viewData.monitor.followUpDrafts)} detail="由监控项生成的 follow-up 草稿" />
+            <StatCard label="新线索" value={String(viewData.monitor.new)} detail="当前 monitor 中 status=new 的条目数" />
+            <StatCard label="待处理私信" value={String(inboxMetrics.unread)} detail="收件箱中尚未标记为 handled 的会话数" />
+            <StatCard
+              label="健康账号"
+              value={String(channelAccountMetrics.connected)}
+              detail="status=healthy 的渠道账号数量"
+            />
+            <StatCard
+              label="待发布"
+              value={String(draftLifecycleMetrics.scheduled)}
+              detail="已排期但尚未完成发布的草稿数量"
+            />
+            <StatCard
+              label="已发布"
+              value={String(draftLifecycleMetrics.published)}
+              detail="已完成发布的草稿数量"
+            />
+            <StatCard
+              label="发布失败"
+              value={String(publishLogMetrics.failedCount)}
+              detail="最近发布流水中记录的失败次数"
+            />
+            <StatCard
+              label="队列待执行"
+              value={String(jobQueueMetrics.pending)}
+              detail="job_queue 中 pending 的任务数量"
+            />
+            <StatCard
+              label="队列运行中"
+              value={String(jobQueueMetrics.running)}
+              detail="当前被 scheduler 占用的任务数量"
+            />
+            <StatCard
+              label="到期待执行"
+              value={String(jobQueueMetrics.duePending)}
+              detail="已经到执行时间、等待本轮 tick 处理的任务数量"
+            />
+            <StatCard
+              label="队列失败"
+              value={String(jobQueueMetrics.failed)}
+              detail="job_queue 中 failed 的任务数量"
+            />
+          </div>
         </div>
       ) : null}
     </section>

@@ -78,6 +78,9 @@ describe('dashboard enhanced metrics page', () => {
     expect(html).toContain('队列运行中');
     expect(html).toContain('到期待执行');
     expect(html).toContain('队列失败');
+    expect(html).toContain('首发运营范围');
+    expect(html).toContain('X、Reddit');
+    expect(html).toContain('Facebook Group（人工接管）');
     expect(html).toContain('项目 ID（可选）');
   });
 });
