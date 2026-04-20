@@ -29,6 +29,7 @@ export function MonitorFeed({ items, selectedItemId = null, onSelectItem }: Moni
           type="button"
           data-monitor-item-id={String(item.id)}
           data-monitor-item-selected={isSelected ? 'true' : 'false'}
+          aria-pressed={isSelected}
           onClick={() => onSelectItem?.(item)}
           style={{
             borderRadius: '16px',

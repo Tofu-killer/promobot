@@ -202,10 +202,7 @@ export function MonitorPage({
     total: 1,
   };
   const viewData = displayState.status === 'success' && displayState.data ? displayState.data : fallbackData;
-  const filteredItems =
-    activeSourceFilter === 'all'
-      ? viewData.items
-      : viewData.items.filter((item) => normalizeSourceFilter(item.source) === activeSourceFilter);
+  const filteredItems = filterMonitorItems(viewData.items, activeSourceFilter);
   const selectedItem = filteredItems.find((item) => item.id === selectedItemId) ?? null;
 
   function handleGenerateFollowUp() {
@@ -247,9 +244,15 @@ export function MonitorPage({
   }
 
   function handleSelectSourceFilter(filter: MonitorSourceFilter) {
+    const nextFilteredItems = filterMonitorItems(viewData.items, filter);
+
     setActiveSourceFilter(filter);
     setFollowUpSelectionMessage(null);
-    setSelectedItemId(null);
+    setSelectedItemId((currentSelectedItemId) =>
+      currentSelectedItemId !== null && nextFilteredItems.some((item) => item.id === currentSelectedItemId)
+        ? currentSelectedItemId
+        : null,
+    );
   }
 
   function handleSelectItem(item: MonitorItem) {
@@ -425,6 +428,12 @@ function normalizeSourceFilter(source: string): MonitorSourceFilter {
   }
 
   return 'all';
+}
+
+function filterMonitorItems(items: MonitorItem[], activeSourceFilter: MonitorSourceFilter) {
+  return activeSourceFilter === 'all'
+    ? items
+    : items.filter((item) => normalizeSourceFilter(item.source) === activeSourceFilter);
 }
 
 function resolveFollowUpPlatform(source: string) {
