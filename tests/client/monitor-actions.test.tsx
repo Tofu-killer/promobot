@@ -971,6 +971,88 @@ describe('Monitor follow-up actions', () => {
     });
   });
 
+  it('passes the active projectId into follow-up generation for selected monitor items', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { MonitorPage } = await import('../../src/client/pages/Monitor');
+
+    const loadMonitorAction = vi.fn().mockResolvedValue({
+      items: [
+        {
+          id: 7,
+          source: 'x',
+          title: 'Competitor launched a lower tier',
+          detail: 'Observed a cheaper plan and a follow-up opportunity.',
+          status: 'new',
+          createdAt: '2026-04-19T00:00:00.000Z',
+        },
+      ],
+      total: 1,
+    });
+    const generateFollowUpAction = vi.fn().mockResolvedValue({
+      draft: {
+        id: 52,
+        projectId: 12,
+        platform: 'x',
+        title: 'Follow-up: Competitor launched a lower tier',
+        content: 'Follow-up draft for x.',
+        status: 'draft',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(MonitorPage as never, {
+          loadMonitorAction,
+          generateFollowUpAction,
+        }),
+      );
+      await flush();
+    });
+
+    const projectIdInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    );
+    const generateButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('生成跟进草稿'),
+    );
+
+    expect(projectIdInput).not.toBeNull();
+    expect(generateButton).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(projectIdInput, '12', window);
+      await flush();
+      await flush();
+    });
+
+    await act(async () => {
+      const monitorItem = findElement(
+        container,
+        (element) => element.getAttribute('data-monitor-item-id') === '7',
+      );
+      expect(monitorItem).not.toBeNull();
+      monitorItem?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    await act(async () => {
+      generateButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(loadMonitorAction).toHaveBeenLastCalledWith(12);
+    expect(generateFollowUpAction).toHaveBeenCalledWith(7, 'x');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('filters monitor items by source before generating a follow-up draft', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');

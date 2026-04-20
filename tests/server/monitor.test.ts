@@ -898,6 +898,7 @@ describe('monitor api', () => {
       const monitorStore = createMonitorStore();
       const draftStore = createSQLiteDraftStore();
       const item = monitorStore.create({
+        projectId: 12,
         source: 'x',
         title: 'Competitor launched a lower tier',
         detail: 'Observed a cheaper plan and a follow-up opportunity.',
@@ -912,6 +913,7 @@ describe('monitor api', () => {
       expect(JSON.parse(response.body)).toEqual({
         draft: expect.objectContaining({
           id: 1,
+          projectId: 12,
           platform: 'x',
           title: expect.stringContaining('Follow-up'),
           content: expect.stringContaining('Competitor launched a lower tier'),
@@ -919,6 +921,12 @@ describe('monitor api', () => {
         }),
       });
       expect(draftStore.list()).toHaveLength(1);
+      expect(draftStore.getById(1)).toEqual(
+        expect.objectContaining({
+          id: 1,
+          projectId: 12,
+        }),
+      );
     } finally {
       cleanupTestDatabasePath(rootDir);
     }

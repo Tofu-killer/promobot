@@ -68,6 +68,7 @@ monitorRouter.post('/:id/generate-follow-up', (request, response) => {
   }
 
   const draft = draftStore.create({
+    projectId: item.projectId,
     platform,
     title: `Follow-up: ${item.title}`,
     content: buildFollowUpContent(item),
