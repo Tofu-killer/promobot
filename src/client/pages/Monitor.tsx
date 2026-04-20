@@ -285,6 +285,11 @@ export function MonitorPage({
 
       {displayState.status === 'loading' ? <p style={{ color: '#334155' }}>正在加载监控动态...</p> : null}
       {displayState.status === 'error' ? <p style={{ color: '#b91c1c' }}>监控动态加载失败：{displayState.error}</p> : null}
+      {displayState.status === 'idle' ? (
+        <p style={{ color: '#92400e', fontWeight: 700 }}>
+          当前展示的是预览数据，真实监控信号加载完成后会自动替换。
+        </p>
+      ) : null}
       {displayFetchState.status === 'success' && displayFetchState.data ? (
         <p style={{ color: '#166534', fontWeight: 700 }}>
           已抓取 {displayFetchState.data.inserted} 条监控动态，当前总数 {displayFetchState.data.total}

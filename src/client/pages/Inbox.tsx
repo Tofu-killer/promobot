@@ -295,6 +295,11 @@ export function InboxPage({
 
       {displayState.status === 'loading' ? <p style={{ color: '#334155' }}>正在加载收件箱...</p> : null}
       {displayState.status === 'error' ? <p style={{ color: '#b91c1c' }}>收件箱加载失败：{displayState.error}</p> : null}
+      {displayState.status === 'idle' ? (
+        <p style={{ ...feedbackStyle, margin: '0 0 16px', background: '#fffbeb', color: '#92400e' }}>
+          当前展示的是预览数据，真实收件箱加载完成后会自动替换。
+        </p>
+      ) : null}
       {displayFetchState.status === 'success' && displayFetchState.data ? (
         <p style={{ ...feedbackStyle, margin: '0 0 16px', background: '#eff6ff', color: '#1d4ed8' }}>
           已抓取 {displayFetchState.data.inserted} 条收件箱命中，未读 {displayFetchState.data.unread}

@@ -2137,6 +2137,7 @@ describe('client API page wiring', () => {
     const { InboxPage } = await import('../../src/client/pages/Inbox');
 
     expect(renderApiPage(InboxPage, { status: 'loading' })).toContain('正在加载收件箱');
+    expect(renderApiPage(InboxPage, { status: 'idle' })).toContain('当前展示的是预览数据');
     expect(
       renderApiPage(InboxPage, {
         status: 'error',
@@ -2241,6 +2242,7 @@ describe('client API page wiring', () => {
     const { MonitorPage } = await import('../../src/client/pages/Monitor');
 
     expect(renderApiPage(MonitorPage, { status: 'loading' })).toContain('正在加载监控动态');
+    expect(renderApiPage(MonitorPage, { status: 'idle' })).toContain('当前展示的是预览数据');
     expect(
       renderApiPage(MonitorPage, {
         status: 'error',
@@ -2370,6 +2372,7 @@ describe('client API page wiring', () => {
     const { ReputationPage } = await import('../../src/client/pages/Reputation');
 
     expect(renderApiPage(ReputationPage, { status: 'loading' })).toContain('正在加载口碑数据');
+    expect(renderApiPage(ReputationPage, { status: 'idle' })).toContain('当前展示的是预览数据');
     expect(renderApiPage(ReputationPage, { status: 'idle' })).toContain('Billing confusion mention');
     expect(renderApiPage(ReputationPage, { status: 'idle' })).toContain('x');
     expect(

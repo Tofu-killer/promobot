@@ -191,6 +191,11 @@ export function DiscoveryPage({
 
       {displayState.status === 'loading' ? <p style={{ color: '#334155' }}>正在加载发现池...</p> : null}
       {displayState.status === 'error' ? <p style={{ color: '#b91c1c' }}>发现池加载失败：{displayState.error}</p> : null}
+      {displayState.status === 'idle' ? (
+        <p style={{ color: '#92400e', fontWeight: 700 }}>
+          当前展示的是预览数据，真实发现池加载完成后会自动替换。
+        </p>
+      ) : null}
 
       {displayState.status === 'success' || displayState.status === 'idle' ? (
         <>

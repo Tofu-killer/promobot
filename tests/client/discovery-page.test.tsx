@@ -428,6 +428,7 @@ describe('Discovery page wiring', () => {
     const { DiscoveryPage } = await import('../../src/client/pages/Discovery');
 
     expect(renderPage(DiscoveryPage, { stateOverride: { status: 'loading' } })).toContain('正在加载发现池');
+    expect(renderPage(DiscoveryPage, { stateOverride: { status: 'idle' } })).toContain('当前展示的是预览数据');
     expect(
       renderPage(DiscoveryPage, {
         stateOverride: {
