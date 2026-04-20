@@ -337,11 +337,11 @@ export function ChannelAccountsPage({
 }: ChannelAccountsPageProps) {
   const { state, reload } = useAsyncQuery(loadChannelAccountsAction, [loadChannelAccountsAction]);
   const [platform, setPlatform] = useState('x');
-  const [accountKey, setAccountKey] = useState('acct-x-2');
-  const [displayName, setDisplayName] = useState('X Secondary');
-  const [authType, setAuthType] = useState('api-key');
-  const [status, setStatus] = useState('healthy');
-  const [metadata, setMetadata] = useState('team=growth');
+  const [accountKey, setAccountKey] = useState('x-main');
+  const [displayName, setDisplayName] = useState('X Primary');
+  const [authType, setAuthType] = useState('api');
+  const [status, setStatus] = useState('unknown');
+  const [metadata, setMetadata] = useState('');
   const [editingAccountId, setEditingAccountId] = useState<number | null>(null);
   const [editFormById, setEditFormById] = useState<Record<number, EditFormValue>>({});
   const { state: createState, run: createChannelAccount } = useAsyncAction(createChannelAccountAction);
@@ -574,7 +574,7 @@ export function ChannelAccountsPage({
       />
 
       <div style={{ display: 'grid', gap: '20px', gridTemplateColumns: 'minmax(340px, 1.1fr) minmax(320px, 0.9fr)' }}>
-        <SectionCard title="创建账号" description="填写最小必需信息后提交到 `/api/channel-accounts`。">
+        <SectionCard title="创建账号" description="填写最小必需信息后提交到 `/api/channel-accounts`。默认值按首发路径保守预置，创建后再测试连接。">
           <div style={{ display: 'grid', gap: '12px' }}>
             <p style={{ margin: 0, color: '#475569', lineHeight: 1.6 }}>
               首发可用：X、Reddit。人工接管：Facebook Group。暂缓首发：小红书、微博、Blog。

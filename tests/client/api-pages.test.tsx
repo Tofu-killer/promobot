@@ -1502,6 +1502,10 @@ describe('client API page wiring', () => {
     expect(html).toContain('首发可用');
     expect(html).toContain('人工接管');
     expect(html).toContain('暂缓首发');
+    expect(html).toContain('value="x-main"');
+    expect(html).toContain('value="X Primary"');
+    expect(html).toContain('value="api"');
+    expect(html).toContain('value="unknown"');
     expect(html).toContain('测试连接');
     expect(html).toContain('重新登录');
   });
