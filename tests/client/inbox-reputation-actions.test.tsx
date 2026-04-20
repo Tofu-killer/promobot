@@ -344,6 +344,23 @@ describe('Inbox action wiring', () => {
     expect(html).toContain('Thanks for flagging this. We can share current APAC latency benchmarks.');
   });
 
+  it('renders inbox preview data as read-only when live data has not loaded yet', async () => {
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    const html = renderPage(InboxPage, {
+      stateOverride: {
+        status: 'idle',
+      } satisfies ApiState<unknown>,
+    });
+
+    expectDisabledButton(html, 'AI 生成回复');
+    expectDisabledButton(html, '标记已处理');
+    expectDisabledButton(html, '稍后处理');
+    expect(html).toContain('预览数据不可回写状态或生成回复。');
+    expect(html).toContain('暂无可生成回复的会话');
+    expect(html).not.toContain('当前会话：Reddit · preview-user');
+  });
+
   it('renders the original-post CTA as a disabled manual handoff placeholder', async () => {
     const { InboxPage } = await import('../../src/client/pages/Inbox');
 
@@ -868,6 +885,22 @@ describe('Reputation action wiring', () => {
         expect(successHtml).toContain('needs_review');
       }
     }
+  });
+
+  it('renders reputation preview data as read-only when live data has not loaded yet', async () => {
+    const { ReputationPage } = await import('../../src/client/pages/Reputation');
+
+    const html = renderPage(ReputationPage, {
+      stateOverride: {
+        status: 'idle',
+      } satisfies ApiState<unknown>,
+    });
+
+    expectDisabledButton(html, '标记已处理');
+    expectDisabledButton(html, '转入 Social Inbox');
+    expect(html).toContain('预览数据不可回写口碑状态或转入 Social Inbox。');
+    expect(html).not.toContain('当前重点跟进项');
+    expect(html).toContain('预览数据不可设为重点项');
   });
 
   it('renders reputation fetch feedback when available', async () => {

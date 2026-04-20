@@ -224,6 +224,7 @@ export function InboxPage({
   const displayEnqueueState = enqueueStateOverride ?? enqueueState;
   const displayInboxUpdateState = inboxUpdateStateOverride ?? inboxUpdateState;
   const displayReplySuggestionState = replySuggestionStateOverride ?? replySuggestionState;
+  const isPreview = displayState.status !== 'success';
   const fallbackData: InboxResponse = {
     items: [
       {
@@ -245,7 +246,7 @@ export function InboxPage({
   const displayItems = updatedInboxItem
     ? viewData.items.map((item) => (item.id === updatedInboxItem.id ? updatedInboxItem : item))
     : viewData.items;
-  const selectedItem = displayItems.find((item) => item.id === selectedItemId) ?? displayItems[0] ?? null;
+  const selectedItem = isPreview ? null : displayItems.find((item) => item.id === selectedItemId) ?? displayItems[0] ?? null;
   const inboxStatusFeedback =
     displayInboxUpdateState.status === 'success' && displayInboxUpdateState.data
       ? `已将“${displayInboxUpdateState.data.item.title}”回写为 ${displayInboxUpdateState.data.item.status}`
@@ -323,6 +324,7 @@ export function InboxPage({
             <ActionButton
               label={displayReplySuggestionState.status === 'loading' ? '正在生成回复...' : 'AI 生成回复'}
               tone="primary"
+              disabled={isPreview}
               onClick={() => {
                 void handleGenerateReply(selectedItem);
               }}
@@ -336,6 +338,11 @@ export function InboxPage({
       {displayState.status === 'idle' ? (
         <p style={{ ...feedbackStyle, margin: '0 0 16px', background: '#fffbeb', color: '#92400e' }}>
           当前展示的是预览数据，真实收件箱加载完成后会自动替换。
+        </p>
+      ) : null}
+      {isPreview ? (
+        <p style={{ ...feedbackStyle, margin: '0 0 16px', background: '#fff7ed', color: '#9a3412' }}>
+          预览数据不可回写状态或生成回复。
         </p>
       ) : null}
       {displayFetchState.status === 'success' && displayFetchState.data ? (
@@ -419,7 +426,11 @@ export function InboxPage({
                   displayItems.map((item) => (
                     <article
                       key={item.id}
-                      onClick={() => setSelectedItemId(item.id)}
+                      onClick={() => {
+                        if (!isPreview) {
+                          setSelectedItemId(item.id);
+                        }
+                      }}
                       style={{
                         borderRadius: '16px',
                         border: item.id === selectedItem?.id ? '1px solid #93c5fd' : '1px solid #dbe4f0',
@@ -444,6 +455,7 @@ export function InboxPage({
                           label={
                             displayInboxUpdateState.status === 'loading' && item.id === selectedItemId ? '处理中...' : '标记已处理'
                           }
+                          disabled={isPreview}
                           onClick={() => {
                             void handleInboxStatus(item, 'handled');
                           }}
@@ -452,6 +464,7 @@ export function InboxPage({
                           label={
                             displayInboxUpdateState.status === 'loading' && item.id === selectedItemId ? '处理中...' : '稍后处理'
                           }
+                          disabled={isPreview}
                           onClick={() => {
                             void handleInboxStatus(item, 'snoozed');
                           }}
@@ -482,7 +495,7 @@ export function InboxPage({
                 >
                   {displayReplySuggestionState.status === 'loading'
                     ? '正在生成回复建议...'
-                    : suggestedReply ?? '点击“AI 生成回复”后，这里会展示最新的 AI 草稿。'}
+                    : suggestedReply ?? (isPreview ? '预览数据不可生成回复。' : '点击“AI 生成回复”后，这里会展示最新的 AI 草稿。')}
                 </div>
                 <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                   <PlaceholderActionButton

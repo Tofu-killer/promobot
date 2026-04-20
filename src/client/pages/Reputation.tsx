@@ -182,6 +182,7 @@ export function ReputationPage({
   const displayFetchState = fetchStateOverride ?? fetchState;
   const displayEnqueueState = enqueueStateOverride ?? enqueueState;
   const displayReputationUpdateState = reputationUpdateStateOverride ?? reputationUpdateState;
+  const isPreview = displayState.status !== 'success';
   const fallbackData: ReputationStatsResponse = {
     total: 1,
     positive: 0,
@@ -212,7 +213,7 @@ export function ReputationPage({
   const displayItems = updatedReputationItem
     ? viewData.items.map((item) => (item.id === updatedReputationItem.id ? updatedReputationItem : item))
     : viewData.items;
-  const selectedItem = displayItems.find((item) => item.id === selectedItemId) ?? displayItems[0] ?? null;
+  const selectedItem = isPreview ? null : displayItems.find((item) => item.id === selectedItemId) ?? displayItems[0] ?? null;
   const reputationFeedback =
     displayReputationUpdateState.status === 'success' && displayReputationUpdateState.data
       ? displayReputationUpdateState.data.inboxItem
@@ -274,6 +275,7 @@ export function ReputationPage({
             <ActionButton
               label={displayReputationUpdateState.status === 'loading' ? '正在回写状态...' : '标记已处理'}
               tone="primary"
+              disabled={isPreview}
               onClick={() => {
                 void handleReputationStatus(selectedItem, 'handled');
               }}
@@ -287,6 +289,11 @@ export function ReputationPage({
       {displayState.status === 'idle' ? (
         <p style={{ ...feedbackStyle, margin: '0 0 16px', background: '#fffbeb', color: '#92400e' }}>
           当前展示的是预览数据，真实口碑数据加载完成后会自动替换。
+        </p>
+      ) : null}
+      {isPreview ? (
+        <p style={{ ...feedbackStyle, margin: '0 0 16px', background: '#fff7ed', color: '#9a3412' }}>
+          预览数据不可回写口碑状态或转入 Social Inbox。
         </p>
       ) : null}
       {displayFetchState.status === 'success' && displayFetchState.data ? (
@@ -395,7 +402,11 @@ export function ReputationPage({
                   displayItems.map((item) => (
                     <article
                       key={item.id}
-                      onClick={() => setSelectedItemId(item.id)}
+                      onClick={() => {
+                        if (!isPreview) {
+                          setSelectedItemId(item.id);
+                        }
+                      }}
                       style={{
                         borderRadius: '16px',
                         border:
@@ -420,7 +431,7 @@ export function ReputationPage({
                         {item.source} · {item.status} · {item.createdAt}
                       </div>
                       <div style={{ marginTop: '10px', color: '#475569', lineHeight: 1.5 }}>
-                        {item.id === selectedItem?.id ? '当前重点跟进项' : '点击卡片可将其设为当前重点项'}
+                        {isPreview ? '预览数据不可设为重点项' : item.id === selectedItem?.id ? '当前重点跟进项' : '点击卡片可将其设为当前重点项'}
                       </div>
                       <div style={{ marginTop: '16px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                         <ActionButton
@@ -430,12 +441,14 @@ export function ReputationPage({
                               : '标记已处理'
                           }
                           tone="primary"
+                          disabled={isPreview}
                           onClick={() => {
                             void handleReputationStatus(item, 'handled');
                           }}
                         />
                         <ActionButton
                           label={displayReputationUpdateState.status === 'loading' && item.id === selectedItemId ? '正在回写状态...' : '转入 Social Inbox'}
+                          disabled={isPreview}
                           onClick={() => {
                             void handleReputationStatus(item, 'escalate');
                           }}
