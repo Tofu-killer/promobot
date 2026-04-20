@@ -582,18 +582,40 @@ describe('Reputation action wiring', () => {
   it.each(['handled', 'escalate'] as const)(
     'patches reputation item status as %s through the shared API helper',
     async (status) => {
+    const responseBody =
+      status === 'escalate'
+        ? {
+            item: {
+              id: 4,
+              source: 'x',
+              sentiment: 'negative',
+              status,
+              title: 'Session expired complaint',
+              detail: 'Users report being logged out unexpectedly.',
+              createdAt: '2026-04-19T10:00:00.000Z',
+            },
+            inboxItem: {
+              id: 9,
+              source: 'x',
+              status: 'needs_review',
+              title: 'Session expired complaint',
+              excerpt: 'Users report being logged out unexpectedly.',
+              createdAt: '2026-04-19T10:05:00.000Z',
+            },
+          }
+        : {
+            item: {
+              id: 4,
+              source: 'x',
+              sentiment: 'negative',
+              status,
+              title: 'Session expired complaint',
+              detail: 'Users report being logged out unexpectedly.',
+              createdAt: '2026-04-19T10:00:00.000Z',
+            },
+          };
     const fetchMock = vi.fn().mockResolvedValue(
-      jsonResponse({
-        item: {
-          id: 4,
-          source: 'x',
-          sentiment: 'negative',
-          status,
-          title: 'Session expired complaint',
-          detail: 'Users report being logged out unexpectedly.',
-          createdAt: '2026-04-19T10:00:00.000Z',
-        },
-      }),
+      jsonResponse(responseBody),
     );
     vi.stubGlobal('fetch', fetchMock);
 
@@ -604,7 +626,7 @@ describe('Reputation action wiring', () => {
     const updateReputationItemRequest = reputationModule.updateReputationItemRequest as (
       id: number,
       nextStatus: string,
-    ) => Promise<{ item: { id: number; status: string } }>;
+    ) => Promise<{ item: { id: number; status: string }; inboxItem?: { id: number; status: string } }>;
 
     const result = await updateReputationItemRequest(4, status);
 
@@ -617,6 +639,14 @@ describe('Reputation action wiring', () => {
       }),
     );
     expect(result.item.status).toBe(status);
+    if (status === 'escalate') {
+      expect(result.inboxItem).toEqual(
+        expect.objectContaining({
+          id: 9,
+          status: 'needs_review',
+        }),
+      );
+    }
     },
   );
 
@@ -658,6 +688,38 @@ describe('Reputation action wiring', () => {
     expect(html).toContain('口碑状态更新失败：reputation item not found');
 
     for (const status of ['handled', 'escalate'] as const) {
+      const successResponse =
+        status === 'escalate'
+          ? {
+              item: {
+                id: 4,
+                source: 'x',
+                sentiment: 'negative',
+                status,
+                title: 'Session expired complaint',
+                detail: 'Users report being logged out unexpectedly.',
+                createdAt: '2026-04-19T10:00:00.000Z',
+              },
+              inboxItem: {
+                id: 9,
+                source: 'x',
+                status: 'needs_review',
+                title: 'Session expired complaint',
+                excerpt: 'Users report being logged out unexpectedly.',
+                createdAt: '2026-04-19T10:05:00.000Z',
+              },
+            }
+          : {
+              item: {
+                id: 4,
+                source: 'x',
+                sentiment: 'negative',
+                status,
+                title: 'Session expired complaint',
+                detail: 'Users report being logged out unexpectedly.',
+                createdAt: '2026-04-19T10:00:00.000Z',
+              },
+            };
       const successHtml = renderPage(ReputationPage, {
         stateOverride: {
           status: 'success',
@@ -686,22 +748,17 @@ describe('Reputation action wiring', () => {
         } satisfies ApiState<unknown>,
         reputationUpdateStateOverride: {
           status: 'success',
-          data: {
-            item: {
-              id: 4,
-              source: 'x',
-              sentiment: 'negative',
-              status,
-              title: 'Session expired complaint',
-              detail: 'Users report being logged out unexpectedly.',
-              createdAt: '2026-04-19T10:00:00.000Z',
-            },
-          },
+          data: successResponse,
         } satisfies ApiState<unknown>,
       });
 
       expect(successHtml).toContain(`已将“Session expired complaint”回写为 ${status}`);
       expect(successHtml).toContain(`x · ${status} · 2026-04-19T10:00:00.000Z`);
+      if (status === 'escalate') {
+        expect(successHtml).toContain('已转入 Social Inbox');
+        expect(successHtml).toContain('inbox #9');
+        expect(successHtml).toContain('needs_review');
+      }
     }
   });
 

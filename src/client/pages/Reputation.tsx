@@ -105,6 +105,14 @@ export async function enqueueReputationFetchJobRequest(
 
 export interface UpdateReputationItemResponse {
   item: ReputationItem;
+  inboxItem?: {
+    id: number;
+    source: string;
+    status: string;
+    title: string;
+    excerpt: string;
+    createdAt: string;
+  };
 }
 
 export async function updateReputationItemRequest(id: number, status: string): Promise<UpdateReputationItemResponse> {
@@ -207,7 +215,9 @@ export function ReputationPage({
   const selectedItem = displayItems.find((item) => item.id === selectedItemId) ?? displayItems[0] ?? null;
   const reputationFeedback =
     displayReputationUpdateState.status === 'success' && displayReputationUpdateState.data
-      ? `已将“${displayReputationUpdateState.data.item.title}”回写为 ${displayReputationUpdateState.data.item.status}`
+      ? displayReputationUpdateState.data.inboxItem
+        ? `已将“${displayReputationUpdateState.data.item.title}”回写为 ${displayReputationUpdateState.data.item.status}，并已转入 Social Inbox（inbox #${displayReputationUpdateState.data.inboxItem.id}，状态 ${displayReputationUpdateState.data.inboxItem.status}）`
+        : `已将“${displayReputationUpdateState.data.item.title}”回写为 ${displayReputationUpdateState.data.item.status}`
       : displayReputationUpdateState.status === 'error'
         ? `口碑状态更新失败：${displayReputationUpdateState.error}`
         : null;
