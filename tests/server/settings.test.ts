@@ -107,7 +107,7 @@ describe('settings api', () => {
       process.env.REDDIT_PASSWORD = 'reddit-pass';
 
       const updated = await requestApp('PATCH', '/api/settings', {
-        allowlist: ['127.0.0.1', '10.0.0.0/24'],
+        allowlist: ['127.0.0.1', '10.0.0.24'],
         schedulerIntervalMinutes: 30,
         rssDefaults: ['OpenAI blog', 'Anthropic news'],
         monitorRssFeeds: ['https://openai.com/blog/rss.xml', 'https://example.com/feed.xml'],
@@ -123,7 +123,7 @@ describe('settings api', () => {
       expect(loaded.status).toBe(200);
       expect(JSON.parse(loaded.body)).toEqual({
         settings: expect.objectContaining({
-          allowlist: ['127.0.0.1', '10.0.0.0/24'],
+          allowlist: ['127.0.0.1', '10.0.0.24'],
           schedulerIntervalMinutes: 30,
           rssDefaults: ['OpenAI blog', 'Anthropic news'],
           monitorRssFeeds: ['https://openai.com/blog/rss.xml', 'https://example.com/feed.xml'],
@@ -163,7 +163,7 @@ describe('settings api', () => {
     const { rootDir } = createTestDatabasePath();
     try {
       const initial = await requestApp('PATCH', '/api/settings', {
-        allowlist: ['127.0.0.1', '10.0.0.0/24'],
+        allowlist: ['127.0.0.1', '10.0.0.24'],
         schedulerIntervalMinutes: 45,
         rssDefaults: ['OpenAI blog'],
       });
@@ -180,7 +180,7 @@ describe('settings api', () => {
       expect(updated.status).toBe(200);
       expect(JSON.parse(updated.body)).toEqual({
         settings: expect.objectContaining({
-          allowlist: ['127.0.0.1', '10.0.0.0/24'],
+          allowlist: ['127.0.0.1', '10.0.0.24'],
           schedulerIntervalMinutes: 45,
           rssDefaults: ['OpenAI blog'],
           monitorRssFeeds: ['https://news.ycombinator.com/rss', 'https://example.com/alerts.xml'],
@@ -196,7 +196,7 @@ describe('settings api', () => {
       expect(loaded.status).toBe(200);
       expect(JSON.parse(loaded.body)).toEqual({
         settings: expect.objectContaining({
-          allowlist: ['127.0.0.1', '10.0.0.0/24'],
+          allowlist: ['127.0.0.1', '10.0.0.24'],
           schedulerIntervalMinutes: 45,
           rssDefaults: ['OpenAI blog'],
           monitorRssFeeds: ['https://news.ycombinator.com/rss', 'https://example.com/alerts.xml'],
@@ -205,6 +205,22 @@ describe('settings api', () => {
           monitorV2exQueries: ['australia saas'],
         }),
         platforms: expect.any(Array),
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('rejects invalid allowlist entries that are not exact IPs or wildcard', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const response = await requestApp('PATCH', '/api/settings', {
+        allowlist: ['127.0.0.1', '10.0.0.0/24'],
+      });
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'invalid allowlist',
       });
     } finally {
       cleanupTestDatabasePath(rootDir);

@@ -1,3 +1,4 @@
+import { isIP } from 'node:net';
 import type { NextFunction, Request, Response } from 'express';
 
 function normalizeIp(ip: string): string {
@@ -12,6 +13,11 @@ function normalizeIp(ip: string): string {
 
 export function getRequestIp(request: Request): string {
   return normalizeIp(request.socket.remoteAddress || request.ip || '');
+}
+
+export function isSupportedAllowlistEntry(value: string): boolean {
+  const normalized = normalizeIp(value);
+  return normalized === '*' || isIP(normalized) !== 0;
 }
 
 export function ipAllowlist(allowedIps: string[]) {

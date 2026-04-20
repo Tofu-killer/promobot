@@ -182,6 +182,10 @@ export async function submitSettingsForm(
     return { ok: false, error: 'allowlist 不能为空' };
   }
 
+  if (allowlist.some((entry) => entry.includes('/'))) {
+    return { ok: false, error: 'allowlist 只支持精确 IP 或 *，不支持 CIDR' };
+  }
+
   if (!Number.isInteger(schedulerIntervalMinutes) || schedulerIntervalMinutes <= 0) {
     return { ok: false, error: 'schedulerIntervalMinutes 必须是大于 0 的整数' };
   }

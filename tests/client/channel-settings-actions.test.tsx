@@ -348,6 +348,25 @@ describe('settings save validation and feedback', () => {
     });
     expect(saveAction).not.toHaveBeenCalled();
 
+    const invalidAllowlist = await submitSettingsForm(
+      {
+        allowlist: '127.0.0.1, 10.0.0.0/24',
+        schedulerIntervalMinutes: '15',
+        rssDefaults: 'OpenAI blog, Anthropic news',
+        monitorRssFeeds: 'https://openai.com/blog/rss.xml',
+        monitorXQueries: 'openrouter failover',
+        monitorRedditQueries: 'claude api latency',
+        monitorV2exQueries: 'llm api, cursor',
+      },
+      saveAction,
+    );
+
+    expect(invalidAllowlist).toEqual({
+      ok: false,
+      error: 'allowlist 只支持精确 IP 或 *，不支持 CIDR',
+    });
+    expect(saveAction).not.toHaveBeenCalled();
+
     const valid = await submitSettingsForm(
       {
         allowlist: '127.0.0.1, ::1',

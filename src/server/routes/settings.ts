@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { isSupportedAllowlistEntry } from '../middleware/ipAllowlist.js';
 import { listPlatformReadiness } from '../services/platformReadiness.js';
 import type { SchedulerRuntime } from '../runtime/schedulerRuntime.js';
 import { createSettingsStore } from '../store/settings.js';
@@ -24,10 +25,18 @@ export function createSettingsRouter(dependencies: SettingsRouteDependencies = {
 
   settingsRouter.patch('/', (request, response) => {
     const input = request.body ?? {};
-    const settings = settingsStore.update({
-      allowlist: Array.isArray(input.allowlist)
+    const allowlist =
+      Array.isArray(input.allowlist)
         ? input.allowlist.filter((value: unknown): value is string => typeof value === 'string')
-        : undefined,
+        : undefined;
+
+    if (allowlist && allowlist.some((value) => !isSupportedAllowlistEntry(value))) {
+      response.status(400).json({ error: 'invalid allowlist' });
+      return;
+    }
+
+    const settings = settingsStore.update({
+      allowlist,
       schedulerIntervalMinutes:
         typeof input.schedulerIntervalMinutes === 'number'
           ? input.schedulerIntervalMinutes
