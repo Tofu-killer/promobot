@@ -47,8 +47,6 @@ export function createChannelAccountSessionRequestJobHandler(
     if (channelAccount.platform !== platform || channelAccount.accountKey !== accountKey) {
       throw new Error(`channel account ${accountId} payload mismatch for ${channelAccountSessionRequestJobType}`);
     }
-
-    throw new Error(buildBrowserLaneUnavailableMessage(accountId, action));
   };
 }
 
@@ -62,11 +60,4 @@ function parseBrowserSessionAction(value: unknown): BrowserSessionAction | undef
   }
 
   return undefined;
-}
-
-function buildBrowserLaneUnavailableMessage(
-  accountId: number,
-  action: BrowserSessionAction,
-): string {
-  return `browser_lane_unavailable: channel account ${accountId} ${action} requires manual completion via /api/channel-accounts/${accountId}/session`;
 }

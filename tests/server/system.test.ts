@@ -688,7 +688,7 @@ describe('system runtime api', () => {
     expect(actions).toEqual(['list:1', 'get:11', 'retry:11:2026-04-19T12:20:00.000Z', 'cancel:11']);
   });
 
-  it('wires channel_account_session_request into runtime handlers and records a stable browser-lane failure', async () => {
+  it('wires channel_account_session_request into runtime handlers and completes the manual browser-lane handoff job', async () => {
     const { rootDir } = createTestDatabasePath();
     const schedulerRuntime = createSchedulerRuntime({
       handlers: {
@@ -760,9 +760,7 @@ describe('system runtime api', () => {
           {
             jobId: requestSessionBody.job.id,
             type: 'channel_account_session_request',
-            outcome: 'failed',
-            reason:
-              'browser_lane_unavailable: channel account 1 request_session requires manual completion via /api/channel-accounts/1/session',
+            outcome: 'completed',
           },
         ],
         runtime: expect.objectContaining({
@@ -772,14 +770,13 @@ describe('system runtime api', () => {
             {
               jobId: requestSessionBody.job.id,
               type: 'channel_account_session_request',
-              outcome: 'failed',
-              reason:
-                'browser_lane_unavailable: channel account 1 request_session requires manual completion via /api/channel-accounts/1/session',
+              outcome: 'completed',
             },
           ],
           queue: expect.objectContaining({
             pending: 0,
-            failed: 1,
+            done: 1,
+            failed: 0,
           }),
         }),
       });
@@ -792,10 +789,8 @@ describe('system runtime api', () => {
         job: expect.objectContaining({
           id: requestSessionBody.job.id,
           type: 'channel_account_session_request',
-          status: 'failed',
+          status: 'done',
           attempts: 1,
-          lastError:
-            'browser_lane_unavailable: channel account 1 request_session requires manual completion via /api/channel-accounts/1/session',
         }),
       });
     } finally {
