@@ -222,6 +222,17 @@ describe('security middleware', () => {
     expect(JSON.parse(response.body)).toEqual({ error: 'unauthorized' });
   });
 
+  it('rejects the auth probe when the admin password header is missing', async () => {
+    const response = await requestApp({
+      headers: {},
+      remoteAddress: '127.0.0.1',
+      url: '/api/auth/probe',
+    });
+
+    expect(response.status).toBe(401);
+    expect(JSON.parse(response.body)).toEqual({ error: 'unauthorized' });
+  });
+
   it('allows protected api routes when the admin password header matches', async () => {
     const response = await requestApp({
       headers: {
@@ -239,6 +250,20 @@ describe('security middleware', () => {
       }),
       platforms: expect.any(Array),
     });
+  });
+
+  it('allows the auth probe when the admin password header matches', async () => {
+    const response = await requestApp({
+      headers: {
+        'x-admin-password': 'secret',
+      },
+      remoteAddress: '127.0.0.1',
+      url: '/api/auth/probe',
+      method: 'GET',
+    });
+
+    expect(response.status).toBe(204);
+    expect(response.body).toBe('');
   });
 });
 

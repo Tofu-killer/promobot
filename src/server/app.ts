@@ -36,6 +36,9 @@ export function createApp(config: AppConfig = loadConfig(), dependencies: AppDep
     response.json(createSystemHealthPayload(dependencies.schedulerRuntime));
   });
   app.use('/api', requireAdminPassword(config.adminPassword));
+  app.get('/api/auth/probe', (_request, response) => {
+    response.status(204).end();
+  });
   app.use('/api/system', createSystemRouter({ schedulerRuntime: dependencies.schedulerRuntime }));
   app.use('/api/content', createContentRouter(draftStore));
   app.use('/api/discovery', discoveryRouter);

@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Layout } from './components/Layout';
-import { clearStoredAdminPassword, getAuthErrorEventName, getStoredAdminPassword, storeAdminPassword } from './lib/api';
+import {
+  clearStoredAdminPassword,
+  getAuthErrorEventName,
+  getStoredAdminPassword,
+  storeAdminPassword,
+  validateAdminPassword,
+} from './lib/api';
 import type { AppRoute, NavItem } from './lib/types';
 import { DashboardPage } from './pages/Dashboard';
 import { DiscoveryPage } from './pages/Discovery';
@@ -95,11 +101,24 @@ interface AppProps {
   initialAdminPassword?: string | null;
 }
 
+type AuthStatus = 'booting' | 'checking' | 'authenticated' | 'anonymous';
+
 export default function App({ initialRoute = 'dashboard', initialAdminPassword = null }: AppProps) {
+  const initialCandidatePassword =
+    typeof window === 'undefined'
+      ? initialAdminPassword
+      : getStoredAdminPassword() ?? initialAdminPassword;
   const [activeRoute, setActiveRoute] = useState<AppRoute>(initialRoute);
   const [sharedProjectIdDraft, setSharedProjectIdDraft] = useState('');
-  const [adminPassword, setAdminPassword] = useState<string | null>(
-    typeof window === 'undefined' ? initialAdminPassword : initialAdminPassword,
+  const [adminPassword, setAdminPassword] = useState<string | null>(initialCandidatePassword);
+  const [authStatus, setAuthStatus] = useState<AuthStatus>(
+    typeof window === 'undefined'
+      ? initialCandidatePassword
+        ? 'authenticated'
+        : 'anonymous'
+      : initialCandidatePassword
+        ? 'booting'
+        : 'anonymous',
   );
   const [authError, setAuthError] = useState<string | null>(null);
 
@@ -108,8 +127,29 @@ export default function App({ initialRoute = 'dashboard', initialAdminPassword =
       return;
     }
 
-    setAdminPassword(getStoredAdminPassword());
-  }, []);
+    const candidatePassword = getStoredAdminPassword() ?? initialAdminPassword;
+
+    if (!candidatePassword) {
+      setAdminPassword(null);
+      setAuthStatus('anonymous');
+      return;
+    }
+
+    setAuthStatus('checking');
+
+    void validateAdminPassword(candidatePassword)
+      .then(() => {
+        setAdminPassword(candidatePassword);
+        setAuthError(null);
+        setAuthStatus('authenticated');
+      })
+      .catch((error) => {
+        clearStoredAdminPassword();
+        setAdminPassword(null);
+        setAuthError(error instanceof Error ? error.message : '管理员密码无效');
+        setAuthStatus('anonymous');
+      });
+  }, [initialAdminPassword]);
 
   useEffect(() => {
     const handleAuthError = (event: Event) => {
@@ -119,6 +159,7 @@ export default function App({ initialRoute = 'dashboard', initialAdminPassword =
           : '管理员密码无效';
       clearStoredAdminPassword();
       setAdminPassword(null);
+      setAuthStatus('anonymous');
       setAuthError(detail);
     };
 
@@ -128,20 +169,47 @@ export default function App({ initialRoute = 'dashboard', initialAdminPassword =
     };
   }, []);
 
-  if (!adminPassword) {
+  if (authStatus === 'booting' || authStatus === 'checking') {
+    return (
+      <section
+        style={{
+          minHeight: '100vh',
+          display: 'grid',
+          placeItems: 'center',
+          background: '#f5f7fb',
+          padding: '32px',
+        }}
+      >
+        <div style={{ color: '#334155', fontWeight: 700 }}>正在验证管理员权限...</div>
+      </section>
+    );
+  }
+
+  if (authStatus !== 'authenticated' || !adminPassword) {
     return (
       <LoginPage
         error={authError}
-        onSubmit={(password) => {
+        onSubmit={async (password) => {
           const trimmed = password.trim();
           if (!trimmed) {
             setAuthError('管理员密码不能为空');
             return;
           }
 
-          storeAdminPassword(trimmed);
-          setAdminPassword(trimmed);
           setAuthError(null);
+          setAuthStatus('checking');
+
+          try {
+            await validateAdminPassword(trimmed);
+            storeAdminPassword(trimmed);
+            setAdminPassword(trimmed);
+            setAuthStatus('authenticated');
+          } catch (error) {
+            clearStoredAdminPassword();
+            setAdminPassword(null);
+            setAuthError(error instanceof Error ? error.message : '管理员密码无效');
+            setAuthStatus('anonymous');
+          }
         }}
       />
     );

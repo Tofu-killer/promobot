@@ -52,6 +52,35 @@ export async function apiRequest<T>(input: RequestInfo | URL, init?: RequestInit
   return body as T;
 }
 
+export async function validateAdminPassword(password: string): Promise<void> {
+  const headers = new Headers();
+  headers.set('x-admin-password', password);
+
+  const response = await fetch('/api/auth/probe', {
+    method: 'GET',
+    headers,
+  });
+  const body = await parseResponseBody(response);
+
+  if (response.ok) {
+    return;
+  }
+
+  const message =
+    response.status === 401
+      ? '管理员密码无效'
+      : typeof body === 'object' &&
+          body !== null &&
+          'error' in body &&
+          typeof body.error === 'string'
+        ? body.error
+        : typeof body === 'string' && body.length > 0
+          ? body
+          : `Request failed with status ${response.status}`;
+
+  throw new ApiRequestError(response.status, message, body);
+}
+
 export function getErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message) {
     return error.message;
