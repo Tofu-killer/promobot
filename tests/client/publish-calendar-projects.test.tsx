@@ -796,6 +796,102 @@ describe('PublishCalendar and Projects pages', () => {
     expect(html).toContain('Acme Launch');
     expect(html).toContain('Bravo Refresh');
     expect(html).toContain('保存项目');
+    expect(html).toContain('Source Configs');
+  });
+
+  it('shows source config loading, error, and success states inside loaded projects', async () => {
+    const { ProjectsPage } = await import('../../src/client/pages/Projects');
+
+    expect(
+      renderComponent(ProjectsPage, {
+        stateOverride: { status: 'idle' },
+        projectsStateOverride: {
+          status: 'success',
+          data: {
+            projects: [
+              {
+                id: 7,
+                name: 'Acme Launch',
+                siteName: 'Acme',
+                siteUrl: 'https://acme.test',
+                siteDescription: 'Launch week campaign',
+                sellingPoints: ['Cheap', 'Fast'],
+              },
+            ],
+          },
+        },
+        sourceConfigsStateOverride: { status: 'loading' },
+      }),
+    ).toContain('正在加载 SourceConfig');
+
+    expect(
+      renderComponent(ProjectsPage, {
+        stateOverride: { status: 'idle' },
+        projectsStateOverride: {
+          status: 'success',
+          data: {
+            projects: [
+              {
+                id: 7,
+                name: 'Acme Launch',
+                siteName: 'Acme',
+                siteUrl: 'https://acme.test',
+                siteDescription: 'Launch week campaign',
+                sellingPoints: ['Cheap', 'Fast'],
+              },
+            ],
+          },
+        },
+        sourceConfigsStateOverride: {
+          status: 'error',
+          error: 'Request failed with status 500',
+        },
+      }),
+    ).toContain('SourceConfig 加载失败');
+
+    const html = renderComponent(ProjectsPage, {
+      stateOverride: { status: 'idle' },
+      projectsStateOverride: {
+        status: 'success',
+        data: {
+          projects: [
+            {
+              id: 7,
+              name: 'Acme Launch',
+              siteName: 'Acme',
+              siteUrl: 'https://acme.test',
+              siteDescription: 'Launch week campaign',
+              sellingPoints: ['Cheap', 'Fast'],
+            },
+          ],
+        },
+      },
+      sourceConfigsStateOverride: {
+        status: 'success',
+        data: {
+          sourceConfigsByProject: {
+            7: [
+              {
+                id: 3,
+                projectId: 7,
+                sourceType: 'keyword+reddit',
+                platform: 'reddit',
+                label: 'Reddit mentions',
+                configJson: { keywords: ['claude latency australia'] },
+                enabled: true,
+                pollIntervalMinutes: 30,
+                createdAt: '2026-04-19T08:00:00.000Z',
+                updatedAt: '2026-04-19T08:00:00.000Z',
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    expect(html).toContain('Reddit mentions');
+    expect(html).toContain('keyword+reddit');
+    expect(html).toContain('30 分钟');
   });
 
   it('keeps create project working and appends the created project to the list', async () => {
@@ -960,6 +1056,192 @@ describe('PublishCalendar and Projects pages', () => {
 
     expect(updatedNameField?.value).toBe('Acme Launch Updated');
     expect(updatedSellingPointsField?.value).toBe('Faster, Cheaper');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('loads, creates, and updates project source configs through the project page', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ProjectsPage } = await import('../../src/client/pages/Projects');
+
+    const loadProjectsAction = vi.fn().mockResolvedValue({
+      projects: [
+        {
+          id: 7,
+          name: 'Acme Launch',
+          siteName: 'Acme',
+          siteUrl: 'https://acme.test',
+          siteDescription: 'Launch week campaign',
+          sellingPoints: ['Cheap', 'Fast'],
+          createdAt: '2026-04-19T08:00:00.000Z',
+        },
+      ],
+    });
+    const loadSourceConfigsAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        sourceConfigs: [
+          {
+            id: 3,
+            projectId: 7,
+            sourceType: 'keyword+reddit',
+            platform: 'reddit',
+            label: 'Reddit mentions',
+            configJson: { keywords: ['claude latency australia'] },
+            enabled: true,
+            pollIntervalMinutes: 30,
+          },
+        ],
+      })
+      .mockResolvedValue({
+        sourceConfigs: [
+          {
+            id: 3,
+            projectId: 7,
+            sourceType: 'keyword+reddit',
+            platform: 'reddit',
+            label: 'Reddit mentions',
+            configJson: { keywords: ['claude latency australia'] },
+            enabled: true,
+            pollIntervalMinutes: 30,
+          },
+          {
+            id: 4,
+            projectId: 7,
+            sourceType: 'v2ex_search',
+            platform: 'v2ex',
+            label: 'V2EX mentions updated',
+            configJson: { query: 'cursor api' },
+            enabled: false,
+            pollIntervalMinutes: 60,
+          },
+        ],
+      });
+    const createSourceConfigAction = vi.fn().mockResolvedValue({
+      sourceConfig: {
+        id: 4,
+        projectId: 7,
+        sourceType: 'v2ex_search',
+        platform: 'v2ex',
+        label: 'V2EX mentions',
+        configJson: { query: 'cursor api' },
+        enabled: true,
+        pollIntervalMinutes: 45,
+      },
+    });
+    const updateSourceConfigAction = vi.fn().mockResolvedValue({
+      sourceConfig: {
+        id: 4,
+        projectId: 7,
+        sourceType: 'v2ex_search',
+        platform: 'v2ex',
+        label: 'V2EX mentions updated',
+        configJson: { query: 'cursor api' },
+        enabled: false,
+        pollIntervalMinutes: 60,
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ProjectsPage as never, {
+          loadProjectsAction,
+          loadSourceConfigsAction,
+          createSourceConfigAction,
+          updateSourceConfigAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    expect(loadSourceConfigsAction).toHaveBeenCalledWith(7);
+    expect(collectText(container)).toContain('Reddit mentions');
+
+    const labelField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'new-label-7',
+    );
+    const configJsonField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'new-config-json-7',
+    );
+    const pollField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'new-poll-7',
+    );
+
+    await act(async () => {
+      updateFieldValue(labelField, 'V2EX mentions', window);
+      updateFieldValue(configJsonField, '{\"query\":\"cursor api\"}', window);
+      updateFieldValue(pollField, '45', window);
+      await flush();
+    });
+
+    const createButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-source-config-create-id') === '7',
+    );
+
+    await act(async () => {
+      createButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(createSourceConfigAction).toHaveBeenCalledWith(7, {
+      projectId: 7,
+      sourceType: 'keyword+reddit',
+      platform: 'reddit',
+      label: 'V2EX mentions',
+      configJson: { query: 'cursor api' },
+      enabled: true,
+      pollIntervalMinutes: 45,
+    });
+
+    const existingLabelField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'label-4',
+    );
+    const existingPollField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'poll-4',
+    );
+
+    await act(async () => {
+      updateFieldValue(existingLabelField, 'V2EX mentions updated', window);
+      updateFieldValue(existingPollField, '60', window);
+      await flush();
+    });
+
+    const updateButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-source-config-save-id') === '4',
+    );
+
+    await act(async () => {
+      updateButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(updateSourceConfigAction).toHaveBeenCalledWith(7, 4, {
+      projectId: 7,
+      sourceType: 'v2ex_search',
+      platform: 'v2ex',
+      label: 'V2EX mentions updated',
+      configJson: { query: 'cursor api' },
+      enabled: false,
+      pollIntervalMinutes: 60,
+    });
+    expect(collectText(container)).toContain('SourceConfig 已保存');
 
     await act(async () => {
       root.unmount();

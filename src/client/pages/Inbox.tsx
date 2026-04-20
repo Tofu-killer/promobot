@@ -39,17 +39,51 @@ export interface EnqueueInboxFetchJobResponse {
   runtime: Record<string, unknown>;
 }
 
-export async function loadInboxRequest(): Promise<InboxResponse> {
-  return apiRequest<InboxResponse>('/api/inbox');
+function parseProjectId(value: string) {
+  const normalizedValue = value.trim();
+
+  if (normalizedValue.length === 0) {
+    return undefined;
+  }
+
+  const projectId = Number(normalizedValue);
+  return Number.isInteger(projectId) && projectId > 0 ? projectId : undefined;
 }
 
-export async function fetchInboxRequest(): Promise<FetchInboxResponse> {
+function buildProjectScopedPath(path: string, projectId?: number) {
+  return projectId === undefined ? path : `${path}?projectId=${projectId}`;
+}
+
+function createProjectIdBody(projectId?: number) {
+  return projectId === undefined ? undefined : JSON.stringify({ projectId });
+}
+
+function createProjectPayload(projectId?: number) {
+  return projectId === undefined ? {} : { projectId };
+}
+
+export async function loadInboxRequest(projectId?: number): Promise<InboxResponse> {
+  return apiRequest<InboxResponse>(buildProjectScopedPath('/api/inbox', projectId));
+}
+
+export async function fetchInboxRequest(projectId?: number): Promise<FetchInboxResponse> {
   return apiRequest<FetchInboxResponse>('/api/inbox/fetch', {
     method: 'POST',
+    ...(projectId === undefined
+      ? {}
+      : {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: createProjectIdBody(projectId),
+        }),
   });
 }
 
-export async function enqueueInboxFetchJobRequest(runAt?: string): Promise<EnqueueInboxFetchJobResponse> {
+export async function enqueueInboxFetchJobRequest(
+  runAt?: string,
+  projectId?: number,
+): Promise<EnqueueInboxFetchJobResponse> {
   return apiRequest<EnqueueInboxFetchJobResponse>('/api/system/jobs', {
     method: 'POST',
     headers: {
@@ -57,7 +91,7 @@ export async function enqueueInboxFetchJobRequest(runAt?: string): Promise<Enque
     },
     body: JSON.stringify({
       type: 'inbox_fetch',
-      payload: {},
+      payload: createProjectPayload(projectId),
       ...(runAt ? { runAt } : {}),
     }),
   });
@@ -90,9 +124,9 @@ export async function suggestInboxReplyRequest(id: number): Promise<InboxReplySu
 }
 
 interface InboxPageProps {
-  loadInboxAction?: () => Promise<InboxResponse>;
-  fetchInboxAction?: () => Promise<FetchInboxResponse>;
-  enqueueFetchJobAction?: (runAt?: string) => Promise<EnqueueInboxFetchJobResponse>;
+  loadInboxAction?: (projectId?: number) => Promise<InboxResponse>;
+  fetchInboxAction?: (projectId?: number) => Promise<FetchInboxResponse>;
+  enqueueFetchJobAction?: (runAt?: string, projectId?: number) => Promise<EnqueueInboxFetchJobResponse>;
   updateInboxAction?: (id: number, status: string) => Promise<UpdateInboxItemResponse>;
   suggestReplyAction?: (id: number) => Promise<InboxReplySuggestionResponse>;
   stateOverride?: AsyncState<InboxResponse>;
@@ -128,9 +162,19 @@ export function InboxPage({
   inboxUpdateStateOverride,
   replySuggestionStateOverride,
 }: InboxPageProps) {
-  const { state, reload } = useAsyncQuery(loadInboxAction, [loadInboxAction]);
-  const { state: fetchState, run: runFetchInbox } = useAsyncAction(fetchInboxAction);
-  const { state: enqueueState, run: runEnqueueFetchJob } = useAsyncAction(enqueueFetchJobAction);
+  const [projectIdDraft, setProjectIdDraft] = useState('');
+  const projectId = parseProjectId(projectIdDraft);
+  const { state, reload } = useAsyncQuery(
+    () => (projectId === undefined ? loadInboxAction() : loadInboxAction(projectId)),
+    [loadInboxAction, projectId],
+  );
+  const { state: fetchState, run: runFetchInbox } = useAsyncAction((nextProjectId?: number) =>
+    nextProjectId === undefined ? fetchInboxAction() : fetchInboxAction(nextProjectId),
+  );
+  const { state: enqueueState, run: runEnqueueFetchJob } = useAsyncAction(
+    ({ runAt, projectId: nextProjectId }: { runAt?: string; projectId?: number }) =>
+      nextProjectId === undefined ? enqueueFetchJobAction(runAt) : enqueueFetchJobAction(runAt, nextProjectId),
+  );
   const { state: inboxUpdateState, run: runInboxUpdate } = useAsyncAction(({ id, status }: { id: number; status: string }) =>
     updateInboxAction(id, status),
   );
@@ -203,7 +247,7 @@ export function InboxPage({
   }
 
   function handleFetchInbox() {
-    void runFetchInbox()
+    void runFetchInbox(projectId)
       .then(() => {
         reload();
       })
@@ -213,7 +257,7 @@ export function InboxPage({
   function handleEnqueueInboxFetch() {
     const runAt = enqueueRunAtDraft.trim().length > 0 ? enqueueRunAtDraft.trim() : undefined;
 
-    void runEnqueueFetchJob(runAt)
+    void runEnqueueFetchJob({ runAt, projectId })
       .then(() => {
         setEnqueueRunAtDraft('');
         reload();
@@ -290,15 +334,27 @@ export function InboxPage({
       {displayState.status === 'success' || displayState.status === 'idle' ? (
         <>
           <SectionCard title="抓取排程" description="留空会立即加入 system jobs，也可以填写 ISO 时间做定时抓取。">
-            <label style={{ display: 'grid', gap: '8px' }}>
-              <span style={{ fontWeight: 700 }}>计划抓取时间（可选）</span>
-              <input
-                value={enqueueRunAtDraft}
-                onChange={(event) => setEnqueueRunAtDraft(event.target.value)}
-                placeholder="例如 2026-04-20T09:15:00.000Z"
-                style={queueInputStyle}
-              />
-            </label>
+            <div style={{ display: 'grid', gap: '16px' }}>
+              <label style={{ display: 'grid', gap: '8px' }}>
+                <span style={{ fontWeight: 700 }}>项目 ID（可选）</span>
+                <input
+                  value={projectIdDraft}
+                  onChange={(event) => setProjectIdDraft(event.target.value)}
+                  placeholder="例如 12"
+                  style={queueInputStyle}
+                />
+              </label>
+
+              <label style={{ display: 'grid', gap: '8px' }}>
+                <span style={{ fontWeight: 700 }}>计划抓取时间（可选）</span>
+                <input
+                  value={enqueueRunAtDraft}
+                  onChange={(event) => setEnqueueRunAtDraft(event.target.value)}
+                  placeholder="例如 2026-04-20T09:15:00.000Z"
+                  style={queueInputStyle}
+                />
+              </label>
+            </div>
           </SectionCard>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>

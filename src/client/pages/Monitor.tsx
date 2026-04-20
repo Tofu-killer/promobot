@@ -49,8 +49,31 @@ export interface EnqueueMonitorFetchJobResponse {
   runtime: Record<string, unknown>;
 }
 
-export async function loadMonitorFeedRequest(): Promise<MonitorFeedResponse> {
-  return apiRequest<MonitorFeedResponse>('/api/monitor/feed');
+function parseProjectId(value: string) {
+  const normalizedValue = value.trim();
+
+  if (normalizedValue.length === 0) {
+    return undefined;
+  }
+
+  const projectId = Number(normalizedValue);
+  return Number.isInteger(projectId) && projectId > 0 ? projectId : undefined;
+}
+
+function buildProjectScopedPath(path: string, projectId?: number) {
+  return projectId === undefined ? path : `${path}?projectId=${projectId}`;
+}
+
+function createProjectIdBody(projectId?: number) {
+  return projectId === undefined ? undefined : JSON.stringify({ projectId });
+}
+
+function createProjectPayload(projectId?: number) {
+  return projectId === undefined ? {} : { projectId };
+}
+
+export async function loadMonitorFeedRequest(projectId?: number): Promise<MonitorFeedResponse> {
+  return apiRequest<MonitorFeedResponse>(buildProjectScopedPath('/api/monitor/feed', projectId));
 }
 
 export async function generateFollowUpRequest(
@@ -66,13 +89,24 @@ export async function generateFollowUpRequest(
   });
 }
 
-export async function fetchMonitorFeedRequest(): Promise<FetchMonitorFeedResponse> {
+export async function fetchMonitorFeedRequest(projectId?: number): Promise<FetchMonitorFeedResponse> {
   return apiRequest<FetchMonitorFeedResponse>('/api/monitor/fetch', {
     method: 'POST',
+    ...(projectId === undefined
+      ? {}
+      : {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: createProjectIdBody(projectId),
+        }),
   });
 }
 
-export async function enqueueMonitorFetchJobRequest(runAt?: string): Promise<EnqueueMonitorFetchJobResponse> {
+export async function enqueueMonitorFetchJobRequest(
+  runAt?: string,
+  projectId?: number,
+): Promise<EnqueueMonitorFetchJobResponse> {
   return apiRequest<EnqueueMonitorFetchJobResponse>('/api/system/jobs', {
     method: 'POST',
     headers: {
@@ -80,18 +114,18 @@ export async function enqueueMonitorFetchJobRequest(runAt?: string): Promise<Enq
     },
     body: JSON.stringify({
       type: 'monitor_fetch',
-      payload: {},
+      payload: createProjectPayload(projectId),
       ...(runAt ? { runAt } : {}),
     }),
   });
 }
 
 interface MonitorPageProps {
-  loadMonitorAction?: () => Promise<MonitorFeedResponse>;
+  loadMonitorAction?: (projectId?: number) => Promise<MonitorFeedResponse>;
   generateFollowUpAction?: (id: number, platform: string) => Promise<FollowUpDraftResponse>;
-  fetchMonitorAction?: () => Promise<FetchMonitorFeedResponse>;
-  enqueueFetchJobAction?: (runAt?: string) => Promise<EnqueueMonitorFetchJobResponse>;
-  enqueueMonitorAction?: (runAt?: string) => Promise<EnqueueMonitorFetchJobResponse>;
+  fetchMonitorAction?: (projectId?: number) => Promise<FetchMonitorFeedResponse>;
+  enqueueFetchJobAction?: (runAt?: string, projectId?: number) => Promise<EnqueueMonitorFetchJobResponse>;
+  enqueueMonitorAction?: (runAt?: string, projectId?: number) => Promise<EnqueueMonitorFetchJobResponse>;
   stateOverride?: AsyncState<MonitorFeedResponse>;
   followUpStateOverride?: AsyncState<FollowUpDraftResponse>;
   fetchStateOverride?: AsyncState<FetchMonitorFeedResponse>;
@@ -120,9 +154,19 @@ export function MonitorPage({
   enqueueStateOverride,
 }: MonitorPageProps) {
   const resolvedEnqueueAction = enqueueMonitorAction ?? enqueueFetchJobAction ?? enqueueMonitorFetchJobRequest;
-  const { state, reload } = useAsyncQuery(loadMonitorAction, [loadMonitorAction]);
-  const { state: fetchState, run: runFetchMonitor } = useAsyncAction(fetchMonitorAction);
-  const { state: enqueueState, run: runEnqueueFetchJob } = useAsyncAction(resolvedEnqueueAction);
+  const [projectIdDraft, setProjectIdDraft] = useState('');
+  const projectId = parseProjectId(projectIdDraft);
+  const { state, reload } = useAsyncQuery(
+    () => (projectId === undefined ? loadMonitorAction() : loadMonitorAction(projectId)),
+    [loadMonitorAction, projectId],
+  );
+  const { state: fetchState, run: runFetchMonitor } = useAsyncAction((nextProjectId?: number) =>
+    nextProjectId === undefined ? fetchMonitorAction() : fetchMonitorAction(nextProjectId),
+  );
+  const { state: enqueueState, run: runEnqueueFetchJob } = useAsyncAction(
+    ({ runAt, projectId: nextProjectId }: { runAt?: string; projectId?: number }) =>
+      nextProjectId === undefined ? resolvedEnqueueAction(runAt) : resolvedEnqueueAction(runAt, nextProjectId),
+  );
   const { state: followUpState, run: generateFollowUp } = useAsyncAction(
     ({ id, platform }: { id: number; platform: string }) => generateFollowUpAction(id, platform),
   );
@@ -159,7 +203,7 @@ export function MonitorPage({
   }
 
   function handleFetchMonitor() {
-    void runFetchMonitor()
+    void runFetchMonitor(projectId)
       .then(() => {
         reload();
       })
@@ -169,7 +213,7 @@ export function MonitorPage({
   function handleEnqueueMonitorFetch() {
     const runAt = enqueueRunAtDraft.trim().length > 0 ? enqueueRunAtDraft.trim() : undefined;
 
-    void runEnqueueFetchJob(runAt)
+    void runEnqueueFetchJob({ runAt, projectId })
       .then(() => {
         setEnqueueRunAtDraft('');
         reload();
@@ -243,15 +287,27 @@ export function MonitorPage({
       {displayState.status === 'success' || displayState.status === 'idle' ? (
         <>
           <SectionCard title="抓取排程" description="留空表示立即入队，也可以填写 ISO 时间，作为定时抓取的 runAt。">
-            <label style={{ display: 'grid', gap: '8px' }}>
-              <span style={{ fontWeight: 700 }}>计划抓取时间（可选）</span>
-              <input
-                value={enqueueRunAtDraft}
-                onChange={(event) => setEnqueueRunAtDraft(event.target.value)}
-                placeholder="例如 2026-04-20T09:00:00.000Z"
-                style={queueInputStyle}
-              />
-            </label>
+            <div style={{ display: 'grid', gap: '16px' }}>
+              <label style={{ display: 'grid', gap: '8px' }}>
+                <span style={{ fontWeight: 700 }}>项目 ID（可选）</span>
+                <input
+                  value={projectIdDraft}
+                  onChange={(event) => setProjectIdDraft(event.target.value)}
+                  placeholder="例如 12"
+                  style={queueInputStyle}
+                />
+              </label>
+
+              <label style={{ display: 'grid', gap: '8px' }}>
+                <span style={{ fontWeight: 700 }}>计划抓取时间（可选）</span>
+                <input
+                  value={enqueueRunAtDraft}
+                  onChange={(event) => setEnqueueRunAtDraft(event.target.value)}
+                  placeholder="例如 2026-04-20T09:00:00.000Z"
+                  style={queueInputStyle}
+                />
+              </label>
+            </div>
           </SectionCard>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>

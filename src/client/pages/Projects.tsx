@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { apiRequest } from '../lib/api';
+import { useEffect, useMemo, useState } from 'react';
+import { apiRequest, getErrorMessage } from '../lib/api';
 import type { AsyncState } from '../hooks/useAsyncRequest';
 import { useAsyncAction, useAsyncQuery } from '../hooks/useAsyncRequest';
 import { PageHeader } from '../components/PageHeader';
@@ -17,6 +17,27 @@ export interface ProjectRecord {
 
 export interface ProjectsResponse {
   projects: ProjectRecord[];
+}
+
+export interface SourceConfigRecord {
+  id: number;
+  projectId: number;
+  sourceType: string;
+  platform: string;
+  label: string;
+  configJson: Record<string, unknown>;
+  enabled: boolean;
+  pollIntervalMinutes: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface SourceConfigsResponse {
+  sourceConfigs: SourceConfigRecord[];
+}
+
+interface SourceConfigsByProjectResponse {
+  sourceConfigsByProject: Record<number, SourceConfigRecord[]>;
 }
 
 export interface CreateProjectPayload {
@@ -39,6 +60,34 @@ export interface UpdateProjectPayload {
 
 export interface UpdateProjectResponse {
   project: ProjectRecord;
+}
+
+export interface CreateSourceConfigPayload {
+  projectId: number;
+  sourceType: string;
+  platform: string;
+  label: string;
+  configJson: Record<string, unknown>;
+  enabled: boolean;
+  pollIntervalMinutes: number;
+}
+
+export interface CreateSourceConfigResponse {
+  sourceConfig: SourceConfigRecord;
+}
+
+export interface UpdateSourceConfigPayload {
+  projectId?: number;
+  sourceType?: string;
+  platform?: string;
+  label?: string;
+  configJson?: Record<string, unknown>;
+  enabled?: boolean;
+  pollIntervalMinutes?: number;
+}
+
+export interface UpdateSourceConfigResponse {
+  sourceConfig: SourceConfigRecord;
 }
 
 export async function loadProjectsRequest(): Promise<ProjectsResponse> {
@@ -68,18 +117,72 @@ export async function updateProjectRequest(
   });
 }
 
+export async function loadSourceConfigsRequest(projectId: number): Promise<SourceConfigsResponse> {
+  return apiRequest<SourceConfigsResponse>(`/api/projects/${projectId}/source-configs`);
+}
+
+export async function createSourceConfigRequest(
+  projectId: number,
+  input: CreateSourceConfigPayload,
+): Promise<CreateSourceConfigResponse> {
+  return apiRequest<CreateSourceConfigResponse>(`/api/projects/${projectId}/source-configs`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateSourceConfigRequest(
+  projectId: number,
+  sourceConfigId: number,
+  input: UpdateSourceConfigPayload,
+): Promise<UpdateSourceConfigResponse> {
+  return apiRequest<UpdateSourceConfigResponse>(
+    `/api/projects/${projectId}/source-configs/${sourceConfigId}`,
+    {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(input),
+    },
+  );
+}
+
 interface ProjectFormValue {
   name: string;
   siteDescription: string;
   sellingPoints: string;
 }
 
+interface SourceConfigFormValue {
+  sourceType: string;
+  platform: string;
+  label: string;
+  configJson: string;
+  enabled: boolean;
+  pollIntervalMinutes: string;
+}
+
 interface ProjectsPageProps {
   loadProjectsAction?: () => Promise<ProjectsResponse>;
   createProjectAction?: (input: CreateProjectPayload) => Promise<CreateProjectResponse>;
   updateProjectAction?: (id: number, input: UpdateProjectPayload) => Promise<UpdateProjectResponse>;
+  loadSourceConfigsAction?: (projectId: number) => Promise<SourceConfigsResponse>;
+  createSourceConfigAction?: (
+    projectId: number,
+    input: CreateSourceConfigPayload,
+  ) => Promise<CreateSourceConfigResponse>;
+  updateSourceConfigAction?: (
+    projectId: number,
+    sourceConfigId: number,
+    input: UpdateSourceConfigPayload,
+  ) => Promise<UpdateSourceConfigResponse>;
   stateOverride?: AsyncState<CreateProjectResponse>;
   projectsStateOverride?: AsyncState<ProjectsResponse>;
+  sourceConfigsStateOverride?: AsyncState<SourceConfigsByProjectResponse>;
 }
 
 const fieldStyle = {
@@ -91,12 +194,61 @@ const fieldStyle = {
   background: '#ffffff',
 } as const;
 
+function mergeSourceConfigLists(currentList: SourceConfigRecord[], nextList: SourceConfigRecord[]) {
+  const sourceConfigMap = new Map<number, SourceConfigRecord>();
+
+  for (const sourceConfig of currentList) {
+    sourceConfigMap.set(sourceConfig.id, sourceConfig);
+  }
+
+  for (const sourceConfig of nextList) {
+    sourceConfigMap.set(sourceConfig.id, sourceConfig);
+  }
+
+  return [...sourceConfigMap.values()].sort((left, right) => left.id - right.id);
+}
+
+function mergeSourceConfigsByProject(
+  currentMap: Record<number, SourceConfigRecord[]>,
+  nextMap: Record<number, SourceConfigRecord[]>,
+): Record<number, SourceConfigRecord[]> {
+  const mergedMap: Record<number, SourceConfigRecord[]> = { ...currentMap };
+  const projectIds = new Set([...Object.keys(currentMap), ...Object.keys(nextMap)]);
+
+  for (const projectIdValue of projectIds) {
+    const projectId = Number(projectIdValue);
+    const currentList = currentMap[projectId] ?? [];
+    const nextList = nextMap[projectId];
+
+    mergedMap[projectId] = nextList ? mergeSourceConfigLists(currentList, nextList) : currentList;
+  }
+
+  return mergedMap;
+}
+
+async function loadSourceConfigsByProjectRequest(
+  projects: ProjectRecord[],
+  loadSourceConfigsAction: (projectId: number) => Promise<SourceConfigsResponse>,
+): Promise<SourceConfigsByProjectResponse> {
+  const entries = await Promise.all(
+    projects.map(async (project) => [project.id, (await loadSourceConfigsAction(project.id)).sourceConfigs] as const),
+  );
+
+  return {
+    sourceConfigsByProject: Object.fromEntries(entries) as Record<number, SourceConfigRecord[]>,
+  };
+}
+
 export function ProjectsPage({
   loadProjectsAction = loadProjectsRequest,
   createProjectAction = createProjectRequest,
   updateProjectAction = updateProjectRequest,
+  loadSourceConfigsAction = loadSourceConfigsRequest,
+  createSourceConfigAction = createSourceConfigRequest,
+  updateSourceConfigAction = updateSourceConfigRequest,
   stateOverride,
   projectsStateOverride,
+  sourceConfigsStateOverride,
 }: ProjectsPageProps) {
   const [name, setName] = useState('Acme Launch');
   const [siteName, setSiteName] = useState('Acme');
@@ -107,14 +259,36 @@ export function ProjectsPage({
   const { state: projectsState, reload } = useAsyncQuery(loadProjectsAction, [loadProjectsAction]);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [projectForms, setProjectForms] = useState<Record<number, ProjectFormValue>>({});
+  const [sourceConfigsState, setSourceConfigsState] = useState<AsyncState<SourceConfigsByProjectResponse>>({
+    status: 'idle',
+    data: {
+      sourceConfigsByProject: {},
+    },
+    error: null,
+  });
+  const [sourceConfigsByProject, setSourceConfigsByProject] = useState<Record<number, SourceConfigRecord[]>>({});
+  const [sourceConfigForms, setSourceConfigForms] = useState<Record<string, SourceConfigFormValue>>({});
   const displayState = stateOverride ?? state;
   const displayProjectsState = projectsStateOverride ?? projectsState;
+  const displaySourceConfigsState = sourceConfigsStateOverride ?? sourceConfigsState;
+  const visibleSourceConfigsByProject = useMemo(
+    () =>
+      mergeSourceConfigsByProject(
+        displaySourceConfigsState.data?.sourceConfigsByProject ?? {},
+        sourceConfigsByProject,
+      ),
+    [displaySourceConfigsState.data, sourceConfigsByProject],
+  );
 
-  const projects = useMemo(() => {
-    const loadedProjects =
+  const loadedProjects = useMemo(
+    () =>
       displayProjectsState.status === 'success' && displayProjectsState.data
         ? displayProjectsState.data.projects
-        : [];
+        : [],
+    [displayProjectsState],
+  );
+
+  const projects = useMemo(() => {
     const createdProject = displayState.status === 'success' && displayState.data ? displayState.data.project : null;
 
     if (createdProject && !loadedProjects.some((project) => project.id === createdProject.id)) {
@@ -122,7 +296,78 @@ export function ProjectsPage({
     }
 
     return loadedProjects;
-  }, [displayProjectsState, displayState]);
+  }, [displayState, loadedProjects]);
+
+  const loadedProjectIdsKey = useMemo(
+    () => loadedProjects.map((project) => String(project.id)).join(','),
+    [loadedProjects],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    setSourceConfigsState((current) => ({
+      status: 'loading',
+      data: current.data,
+      error: null,
+    }));
+
+    if (loadedProjects.length === 0) {
+      setSourceConfigsState({
+        status: 'success',
+        data: {
+          sourceConfigsByProject: {},
+        },
+        error: null,
+      });
+
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void loadSourceConfigsByProjectRequest(loadedProjects, loadSourceConfigsAction)
+      .then((result) => {
+        if (cancelled) {
+          return;
+        }
+
+        setSourceConfigsState((current) => ({
+          status: 'success',
+          data: {
+            sourceConfigsByProject: mergeSourceConfigsByProject(
+              current.data?.sourceConfigsByProject ?? {},
+              result.sourceConfigsByProject,
+            ),
+          },
+          error: null,
+        }));
+      })
+      .catch((error) => {
+        if (cancelled) {
+          return;
+        }
+
+        setSourceConfigsState((current) => ({
+          status: 'error',
+          data: current.data,
+          error: getErrorMessage(error),
+        }));
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loadProjectsAction, loadSourceConfigsAction, loadedProjectIdsKey, loadedProjects]);
+
+  useEffect(() => {
+    if (sourceConfigsStateOverride) {
+      setSourceConfigsByProject(sourceConfigsStateOverride.data?.sourceConfigsByProject ?? {});
+      return;
+    }
+
+    setSourceConfigsByProject(displaySourceConfigsState.data?.sourceConfigsByProject ?? {});
+  }, [displaySourceConfigsState.data, sourceConfigsStateOverride]);
 
   function handleCreateProject() {
     void run({
@@ -201,6 +446,164 @@ export function ProjectsPage({
       setSaveMessage('项目已保存');
       reload();
     }).catch(() => undefined);
+  }
+
+  function getSourceConfigFormValue(
+    sourceConfig: SourceConfigRecord,
+    currentForms: Record<string, SourceConfigFormValue> = sourceConfigForms,
+  ) {
+    const formKey = String(sourceConfig.id);
+    return currentForms[formKey] ?? {
+      sourceType: sourceConfig.sourceType,
+      platform: sourceConfig.platform,
+      label: sourceConfig.label,
+      configJson: JSON.stringify(sourceConfig.configJson),
+      enabled: sourceConfig.enabled,
+      pollIntervalMinutes: String(sourceConfig.pollIntervalMinutes),
+    };
+  }
+
+  function getNewSourceConfigForm(projectId: number) {
+    const formKey = `new-${projectId}`;
+    return sourceConfigForms[formKey] ?? {
+      sourceType: 'keyword+reddit',
+      platform: 'reddit',
+      label: '',
+      configJson: '{}',
+      enabled: true,
+      pollIntervalMinutes: '30',
+    };
+  }
+
+  function updateSourceConfigForm(
+    formKey: string,
+    patch: Partial<SourceConfigFormValue>,
+    baseFormValue?: SourceConfigFormValue,
+  ) {
+    setSourceConfigForms((current) => ({
+      ...current,
+      [formKey]: {
+        ...(current[formKey] ??
+          baseFormValue ?? {
+            sourceType: 'keyword+reddit',
+            platform: 'reddit',
+            label: '',
+            configJson: '{}',
+            enabled: true,
+            pollIntervalMinutes: '30',
+          }),
+        ...patch,
+      },
+    }));
+  }
+
+  function parseSourceConfigJson(value: string) {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function setProjectSourceConfigs(projectId: number, nextSourceConfigs: SourceConfigRecord[]) {
+    setSourceConfigsState((current) => ({
+      status: 'success',
+      data: {
+        sourceConfigsByProject: {
+          ...(current.data?.sourceConfigsByProject ?? {}),
+          [projectId]: nextSourceConfigs,
+        },
+      },
+      error: null,
+    }));
+    setSourceConfigsByProject((current) => ({
+      ...current,
+      [projectId]: nextSourceConfigs,
+    }));
+  }
+
+  function handleCreateSourceConfig(projectId: number) {
+    const form = getNewSourceConfigForm(projectId);
+
+    void createSourceConfigAction(projectId, {
+      projectId,
+      sourceType: form.sourceType,
+      platform: form.platform,
+      label: form.label,
+      configJson: parseSourceConfigJson(form.configJson),
+      enabled: form.enabled,
+      pollIntervalMinutes: Number(form.pollIntervalMinutes),
+    })
+      .then((result) => {
+        const nextSourceConfigs = mergeSourceConfigLists(
+          visibleSourceConfigsByProject[projectId] ?? [],
+          [result.sourceConfig],
+        );
+
+        setProjectSourceConfigs(projectId, nextSourceConfigs);
+        setSaveMessage('SourceConfig 已保存');
+
+        return loadSourceConfigsAction(projectId)
+          .then((reloaded) => {
+            const mergedSourceConfigs = mergeSourceConfigLists(nextSourceConfigs, reloaded.sourceConfigs);
+            setProjectSourceConfigs(projectId, mergedSourceConfigs);
+            setSourceConfigsState((current) => ({
+              status: 'success',
+              data: {
+                sourceConfigsByProject: {
+                  ...(current.data?.sourceConfigsByProject ?? {}),
+                  [projectId]: mergedSourceConfigs,
+                },
+              },
+              error: null,
+            }));
+          })
+          .catch(() => undefined);
+      })
+      .catch(() => undefined);
+  }
+
+  function handleSaveSourceConfig(projectId: number, sourceConfigId: number) {
+    const currentSourceConfigs = visibleSourceConfigsByProject[projectId] ?? [];
+    const sourceConfig = currentSourceConfigs.find((item) => item.id === sourceConfigId);
+    if (!sourceConfig) {
+      return;
+    }
+
+    const form = getSourceConfigFormValue(sourceConfig);
+
+    void updateSourceConfigAction(projectId, sourceConfigId, {
+      projectId,
+      sourceType: form.sourceType,
+      platform: form.platform,
+      label: form.label,
+      configJson: parseSourceConfigJson(form.configJson),
+      enabled: form.enabled,
+      pollIntervalMinutes: Number(form.pollIntervalMinutes),
+    })
+      .then((result) => {
+        const nextSourceConfigs = mergeSourceConfigLists(
+          (visibleSourceConfigsByProject[projectId] ?? []).filter((item) => item.id !== sourceConfigId),
+          [result.sourceConfig],
+        );
+
+        setProjectSourceConfigs(projectId, nextSourceConfigs);
+        setSourceConfigsState((current) => ({
+          status: 'success',
+          data: {
+            sourceConfigsByProject: {
+              ...(current.data?.sourceConfigsByProject ?? {}),
+              [projectId]: nextSourceConfigs,
+            },
+          },
+          error: null,
+        }));
+        setSaveMessage('SourceConfig 已保存');
+      })
+      .catch(() => undefined);
   }
 
   return (
@@ -386,6 +789,277 @@ export function ProjectsPage({
                   >
                     保存项目
                   </button>
+
+                  <SectionCard title="Source Configs" description="项目级监控源配置，驱动 monitor / inbox / reputation 抓取。">
+                    <div style={{ display: 'grid', gap: '12px' }}>
+                      {displaySourceConfigsState.status === 'loading' ? (
+                        <div style={{ color: '#334155' }}>正在加载 SourceConfig...</div>
+                      ) : null}
+                      {displaySourceConfigsState.status === 'error' ? (
+                        <div style={{ color: '#b91c1c' }}>SourceConfig 加载失败：{displaySourceConfigsState.error}</div>
+                      ) : null}
+
+                      {(visibleSourceConfigsByProject[project.id] ?? []).length === 0 ? (
+                        <div style={{ color: '#64748b' }}>暂无 SourceConfig</div>
+                      ) : null}
+
+                      {(visibleSourceConfigsByProject[project.id] ?? []).map((sourceConfig) => {
+                        const form = getSourceConfigFormValue(sourceConfig);
+                        return (
+                          <div
+                            key={sourceConfig.id}
+                            style={{
+                              borderRadius: '14px',
+                              border: '1px solid #dbe4f0',
+                              background: '#ffffff',
+                              padding: '12px',
+                              display: 'grid',
+                              gap: '10px',
+                            }}
+                          >
+                            <div style={{ display: 'grid', gap: '4px', color: '#334155' }}>
+                              <div style={{ fontWeight: 700 }}>{form.label || `SourceConfig #${sourceConfig.id}`}</div>
+                              <div style={{ color: '#64748b', fontSize: '14px' }}>
+                                {form.platform} / {form.sourceType}
+                              </div>
+                              <div style={{ color: '#64748b', fontSize: '14px' }}>
+                                {form.enabled ? 'Enabled' : 'Disabled'} / {form.pollIntervalMinutes} 分钟
+                              </div>
+                            </div>
+
+                            <label style={{ display: 'grid', gap: '8px' }}>
+                              <span style={{ fontWeight: 700 }}>Source Type</span>
+                              <input
+                                data-source-config-field={`source-type-${sourceConfig.id}`}
+                                value={form.sourceType}
+                                onChange={(event) =>
+                                  updateSourceConfigForm(
+                                    String(sourceConfig.id),
+                                    { sourceType: event.target.value },
+                                    form,
+                                  )
+                                }
+                                style={fieldStyle}
+                              />
+                            </label>
+
+                            <label style={{ display: 'grid', gap: '8px' }}>
+                              <span style={{ fontWeight: 700 }}>Platform</span>
+                              <input
+                                data-source-config-field={`platform-${sourceConfig.id}`}
+                                value={form.platform}
+                                onChange={(event) =>
+                                  updateSourceConfigForm(
+                                    String(sourceConfig.id),
+                                    { platform: event.target.value },
+                                    form,
+                                  )
+                                }
+                                style={fieldStyle}
+                              />
+                            </label>
+
+                            <label style={{ display: 'grid', gap: '8px' }}>
+                              <span style={{ fontWeight: 700 }}>Label</span>
+                              <input
+                                data-source-config-field={`label-${sourceConfig.id}`}
+                                value={form.label}
+                                onChange={(event) =>
+                                  updateSourceConfigForm(String(sourceConfig.id), { label: event.target.value }, form)
+                                }
+                                style={fieldStyle}
+                              />
+                            </label>
+
+                            <label style={{ display: 'grid', gap: '8px' }}>
+                              <span style={{ fontWeight: 700 }}>Config JSON</span>
+                              <textarea
+                                data-source-config-field={`config-json-${sourceConfig.id}`}
+                                rows={3}
+                                value={form.configJson}
+                                onChange={(event) =>
+                                  updateSourceConfigForm(
+                                    String(sourceConfig.id),
+                                    { configJson: event.target.value },
+                                    form,
+                                  )
+                                }
+                                style={{ ...fieldStyle, resize: 'vertical' }}
+                              />
+                            </label>
+
+                            <label style={{ display: 'grid', gap: '8px' }}>
+                              <span style={{ fontWeight: 700 }}>Poll Minutes</span>
+                              <input
+                                data-source-config-field={`poll-${sourceConfig.id}`}
+                                value={form.pollIntervalMinutes}
+                                onChange={(event) =>
+                                  updateSourceConfigForm(String(sourceConfig.id), {
+                                    pollIntervalMinutes: event.target.value,
+                                  }, form)
+                                }
+                                style={fieldStyle}
+                              />
+                            </label>
+
+                            <label style={{ display: 'grid', gap: '8px' }}>
+                              <span style={{ fontWeight: 700 }}>Enabled</span>
+                              <input
+                                data-source-config-field={`enabled-${sourceConfig.id}`}
+                                value={form.enabled ? 'true' : 'false'}
+                                onChange={(event) =>
+                                  updateSourceConfigForm(String(sourceConfig.id), {
+                                    enabled: event.target.value === 'true',
+                                  }, form)
+                                }
+                                style={fieldStyle}
+                              />
+                            </label>
+
+                            <button
+                              type="button"
+                              data-source-config-save-id={String(sourceConfig.id)}
+                              onClick={() => handleSaveSourceConfig(project.id, sourceConfig.id)}
+                              style={{
+                                border: 'none',
+                                borderRadius: '12px',
+                                background: '#0f172a',
+                                color: '#ffffff',
+                                padding: '10px 14px',
+                                fontWeight: 700,
+                                justifySelf: 'flex-start',
+                              }}
+                            >
+                              保存 SourceConfig
+                            </button>
+                          </div>
+                        );
+                      })}
+
+                      <div
+                        style={{
+                          borderRadius: '14px',
+                          border: '1px dashed #cbd5e1',
+                          background: '#ffffff',
+                          padding: '12px',
+                          display: 'grid',
+                          gap: '10px',
+                        }}
+                      >
+                        <div style={{ fontWeight: 700 }}>新建 Source Config</div>
+
+                        <label style={{ display: 'grid', gap: '8px' }}>
+                          <span style={{ fontWeight: 700 }}>Source Type</span>
+                          <input
+                            data-source-config-field={`new-source-type-${project.id}`}
+                            value={getNewSourceConfigForm(project.id).sourceType}
+                            onChange={(event) =>
+                              updateSourceConfigForm(
+                                `new-${project.id}`,
+                                { sourceType: event.target.value },
+                                getNewSourceConfigForm(project.id),
+                              )
+                            }
+                            style={fieldStyle}
+                          />
+                        </label>
+
+                        <label style={{ display: 'grid', gap: '8px' }}>
+                          <span style={{ fontWeight: 700 }}>Platform</span>
+                          <input
+                            data-source-config-field={`new-platform-${project.id}`}
+                            value={getNewSourceConfigForm(project.id).platform}
+                            onChange={(event) =>
+                              updateSourceConfigForm(
+                                `new-${project.id}`,
+                                { platform: event.target.value },
+                                getNewSourceConfigForm(project.id),
+                              )
+                            }
+                            style={fieldStyle}
+                          />
+                        </label>
+
+                        <label style={{ display: 'grid', gap: '8px' }}>
+                          <span style={{ fontWeight: 700 }}>Label</span>
+                          <input
+                            data-source-config-field={`new-label-${project.id}`}
+                            value={getNewSourceConfigForm(project.id).label}
+                            onChange={(event) =>
+                              updateSourceConfigForm(
+                                `new-${project.id}`,
+                                { label: event.target.value },
+                                getNewSourceConfigForm(project.id),
+                              )
+                            }
+                            style={fieldStyle}
+                          />
+                        </label>
+
+                        <label style={{ display: 'grid', gap: '8px' }}>
+                          <span style={{ fontWeight: 700 }}>Config JSON</span>
+                          <textarea
+                            data-source-config-field={`new-config-json-${project.id}`}
+                            rows={3}
+                            value={getNewSourceConfigForm(project.id).configJson}
+                            onChange={(event) =>
+                              updateSourceConfigForm(
+                                `new-${project.id}`,
+                                { configJson: event.target.value },
+                                getNewSourceConfigForm(project.id),
+                              )
+                            }
+                            style={{ ...fieldStyle, resize: 'vertical' }}
+                          />
+                        </label>
+
+                        <label style={{ display: 'grid', gap: '8px' }}>
+                          <span style={{ fontWeight: 700 }}>Poll Minutes</span>
+                          <input
+                            data-source-config-field={`new-poll-${project.id}`}
+                            value={getNewSourceConfigForm(project.id).pollIntervalMinutes}
+                            onChange={(event) =>
+                              updateSourceConfigForm(`new-${project.id}`, {
+                                pollIntervalMinutes: event.target.value,
+                              }, getNewSourceConfigForm(project.id))
+                            }
+                            style={fieldStyle}
+                          />
+                        </label>
+
+                        <label style={{ display: 'grid', gap: '8px' }}>
+                          <span style={{ fontWeight: 700 }}>Enabled</span>
+                          <input
+                            data-source-config-field={`new-enabled-${project.id}`}
+                            value={getNewSourceConfigForm(project.id).enabled ? 'true' : 'false'}
+                            onChange={(event) =>
+                              updateSourceConfigForm(`new-${project.id}`, {
+                                enabled: event.target.value === 'true',
+                              }, getNewSourceConfigForm(project.id))
+                            }
+                            style={fieldStyle}
+                          />
+                        </label>
+
+                        <button
+                          type="button"
+                          data-source-config-create-id={String(project.id)}
+                          onClick={() => handleCreateSourceConfig(project.id)}
+                          style={{
+                            border: 'none',
+                            borderRadius: '12px',
+                            background: '#2563eb',
+                            color: '#ffffff',
+                            padding: '10px 14px',
+                            fontWeight: 700,
+                            justifySelf: 'flex-start',
+                          }}
+                        >
+                          创建 SourceConfig
+                        </button>
+                      </div>
+                    </div>
+                  </SectionCard>
                 </article>
               );
             })}

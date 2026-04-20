@@ -89,6 +89,290 @@ describe('client API page wiring', () => {
     expect(result.project.siteUrl).toBe('https://acme.test');
   });
 
+  it('loads project source configs through the shared API helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        sourceConfigs: [
+          {
+            id: 3,
+            projectId: 7,
+            sourceType: 'keyword',
+            platform: 'reddit',
+            label: 'Acme mentions',
+            configJson: { queries: ['acme'] },
+            enabled: true,
+            pollIntervalMinutes: 30,
+            createdAt: '2026-04-19T08:00:00.000Z',
+            updatedAt: '2026-04-19T08:00:00.000Z',
+          },
+        ],
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const projectsModule = (await import('../../src/client/pages/Projects')) as Record<string, unknown>;
+
+    expect(typeof projectsModule.loadSourceConfigsRequest).toBe('function');
+
+    const loadSourceConfigsRequest = projectsModule.loadSourceConfigsRequest as (projectId: number) => Promise<{
+      sourceConfigs: Array<{
+        id: number;
+        projectId: number;
+        label: string;
+        configJson: Record<string, unknown>;
+      }>;
+    }>;
+
+    const result = await loadSourceConfigsRequest(7);
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/projects/7/source-configs', undefined);
+    expect(result.sourceConfigs).toHaveLength(1);
+    expect(result.sourceConfigs[0]?.projectId).toBe(7);
+    expect(result.sourceConfigs[0]?.label).toBe('Acme mentions');
+    expect(result.sourceConfigs[0]?.configJson).toEqual({ queries: ['acme'] });
+  });
+
+  it('posts source config creation through the shared API helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        sourceConfig: {
+          id: 3,
+          projectId: 7,
+          sourceType: 'keyword',
+          platform: 'reddit',
+          label: 'Acme mentions',
+          configJson: { queries: ['acme'] },
+          enabled: true,
+          pollIntervalMinutes: 30,
+          createdAt: '2026-04-19T08:00:00.000Z',
+          updatedAt: '2026-04-19T08:00:00.000Z',
+        },
+      }, 201),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const projectsModule = (await import('../../src/client/pages/Projects')) as Record<string, unknown>;
+
+    expect(typeof projectsModule.createSourceConfigRequest).toBe('function');
+
+    const createSourceConfigRequest = projectsModule.createSourceConfigRequest as (
+      projectId: number,
+      input: {
+        projectId: number;
+        sourceType: string;
+        platform: string;
+        label: string;
+        configJson: Record<string, unknown>;
+        enabled: boolean;
+        pollIntervalMinutes: number;
+      },
+    ) => Promise<{ sourceConfig: { id: number; label: string; enabled: boolean } }>;
+
+    const payload = {
+      projectId: 7,
+      sourceType: 'keyword',
+      platform: 'reddit',
+      label: 'Acme mentions',
+      configJson: { queries: ['acme'] },
+      enabled: true,
+      pollIntervalMinutes: 30,
+    };
+
+    const result = await createSourceConfigRequest(7, payload);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/projects/7/source-configs',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }),
+    );
+    expect(result.sourceConfig.label).toBe('Acme mentions');
+    expect(result.sourceConfig.enabled).toBe(true);
+  });
+
+  it('patches source config updates through the shared API helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        sourceConfig: {
+          id: 3,
+          projectId: 7,
+          sourceType: 'keyword',
+          platform: 'reddit',
+          label: 'Acme mentions updated',
+          configJson: { queries: ['acme', 'launch'] },
+          enabled: false,
+          pollIntervalMinutes: 15,
+          createdAt: '2026-04-19T08:00:00.000Z',
+          updatedAt: '2026-04-19T09:15:00.000Z',
+        },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const projectsModule = (await import('../../src/client/pages/Projects')) as Record<string, unknown>;
+
+    expect(typeof projectsModule.updateSourceConfigRequest).toBe('function');
+
+    const updateSourceConfigRequest = projectsModule.updateSourceConfigRequest as (
+      projectId: number,
+      sourceConfigId: number,
+      input: {
+        projectId?: number;
+        sourceType?: string;
+        platform?: string;
+        label?: string;
+        configJson?: Record<string, unknown>;
+        enabled?: boolean;
+        pollIntervalMinutes?: number;
+      },
+    ) => Promise<{ sourceConfig: { id: number; label: string; pollIntervalMinutes: number } }>;
+
+    const payload = {
+      projectId: 7,
+      label: 'Acme mentions updated',
+      configJson: { queries: ['acme', 'launch'] },
+      enabled: false,
+      pollIntervalMinutes: 15,
+    };
+
+    const result = await updateSourceConfigRequest(7, 3, payload);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/projects/7/source-configs/3',
+      expect.objectContaining({
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }),
+    );
+    expect(result.sourceConfig.label).toBe('Acme mentions updated');
+    expect(result.sourceConfig.pollIntervalMinutes).toBe(15);
+  });
+
+  it('loads and mutates project source configs through the shared API helpers', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          sourceConfigs: [
+            {
+              id: 3,
+              projectId: 7,
+              sourceType: 'keyword+reddit',
+              platform: 'reddit',
+              label: 'Reddit mentions',
+              configJson: { keywords: ['claude latency australia'] },
+              enabled: true,
+              pollIntervalMinutes: 30,
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(
+          {
+            sourceConfig: {
+              id: 4,
+              projectId: 7,
+              sourceType: 'v2ex_search',
+              platform: 'v2ex',
+              label: 'V2EX mentions',
+              configJson: { query: 'cursor api' },
+              enabled: true,
+              pollIntervalMinutes: 45,
+            },
+          },
+          201,
+        ),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          sourceConfig: {
+            id: 4,
+            projectId: 7,
+            sourceType: 'v2ex_search',
+            platform: 'v2ex',
+            label: 'V2EX mentions updated',
+            configJson: { query: 'cursor api' },
+            enabled: false,
+            pollIntervalMinutes: 60,
+          },
+        }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const projectsModule = (await import('../../src/client/pages/Projects')) as Record<string, unknown>;
+
+    expect(typeof projectsModule.loadSourceConfigsRequest).toBe('function');
+    expect(typeof projectsModule.createSourceConfigRequest).toBe('function');
+    expect(typeof projectsModule.updateSourceConfigRequest).toBe('function');
+
+    const loadSourceConfigsRequest = projectsModule.loadSourceConfigsRequest as (
+      projectId: number,
+    ) => Promise<{ sourceConfigs: Array<{ id: number; label: string }> }>;
+    const createSourceConfigRequest = projectsModule.createSourceConfigRequest as (
+      projectId: number,
+      input: {
+        projectId: number;
+        sourceType: string;
+        platform: string;
+        label: string;
+        configJson: Record<string, unknown>;
+        enabled: boolean;
+        pollIntervalMinutes: number;
+      },
+    ) => Promise<{ sourceConfig: { id: number; label: string } }>;
+    const updateSourceConfigRequest = projectsModule.updateSourceConfigRequest as (
+      projectId: number,
+      sourceConfigId: number,
+      input: {
+        label?: string;
+        configJson?: Record<string, unknown>;
+        enabled?: boolean;
+        pollIntervalMinutes?: number;
+      },
+    ) => Promise<{ sourceConfig: { id: number; label: string; enabled: boolean } }>;
+
+    const loaded = await loadSourceConfigsRequest(7);
+    const created = await createSourceConfigRequest(7, {
+      projectId: 7,
+      sourceType: 'v2ex_search',
+      platform: 'v2ex',
+      label: 'V2EX mentions',
+      configJson: { query: 'cursor api' },
+      enabled: true,
+      pollIntervalMinutes: 45,
+    });
+    const updated = await updateSourceConfigRequest(7, 4, {
+      label: 'V2EX mentions updated',
+      enabled: false,
+      pollIntervalMinutes: 60,
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/projects/7/source-configs', undefined);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/projects/7/source-configs',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      '/api/projects/7/source-configs/4',
+      expect.objectContaining({
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    expect(loaded.sourceConfigs[0]?.id).toBe(3);
+    expect(created.sourceConfig.label).toBe('V2EX mentions');
+    expect(updated.sourceConfig.enabled).toBe(false);
+  });
+
   it('loads dashboard stats through the shared API helper', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({
@@ -133,6 +417,42 @@ describe('client API page wiring', () => {
     expect(result.monitor.new).toBe(2);
     expect(result.drafts.review).toBe(2);
     expect(result.jobQueue?.pending).toBe(4);
+  });
+
+  it('loads dashboard stats with a projectId filter through the shared API helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        monitor: {
+          total: 1,
+          new: 1,
+          followUpDrafts: 0,
+        },
+        drafts: {
+          total: 2,
+          review: 1,
+        },
+        totals: {
+          items: 3,
+          followUps: 0,
+        },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const dashboardModule = (await import('../../src/client/pages/Dashboard')) as Record<string, unknown>;
+
+    expect(typeof dashboardModule.loadDashboardRequest).toBe('function');
+
+    const loadDashboardRequest = dashboardModule.loadDashboardRequest as (projectId?: number) => Promise<{
+      monitor: { total: number; new: number; followUpDrafts: number };
+      drafts: { total: number; review: number };
+    }>;
+
+    const result = await loadDashboardRequest(12);
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/monitor/dashboard?projectId=12', undefined);
+    expect(result.monitor.total).toBe(1);
+    expect(result.drafts.total).toBe(2);
   });
 
   it('shows dashboard loading, error, and success states', async () => {
@@ -183,6 +503,7 @@ describe('client API page wiring', () => {
     expect(html).toContain('新线索');
     expect(html).toContain('队列待执行');
     expect(html).toContain('队列失败');
+    expect(html).toContain('项目 ID（可选）');
   });
 
   it('shows project loading, error, and success states', async () => {
@@ -1632,6 +1953,43 @@ describe('client API page wiring', () => {
     expect(result.items[0]?.source).toBe('reddit');
   });
 
+  it('loads inbox items with a projectId filter through the shared API helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        items: [
+          {
+            id: 'inbox-12',
+            source: 'reddit',
+            status: 'needs_reply',
+            author: 'user456',
+            title: 'Need project-scoped inbox',
+            excerpt: 'Only show one project.',
+            createdAt: '2026-04-19T00:00:00.000Z',
+          },
+        ],
+        total: 1,
+        unread: 1,
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const inboxModule = (await import('../../src/client/pages/Inbox')) as Record<string, unknown>;
+
+    expect(typeof inboxModule.loadInboxRequest).toBe('function');
+
+    const loadInboxRequest = inboxModule.loadInboxRequest as (projectId?: number) => Promise<{
+      items: Array<{ id: string; source: string; status: string }>;
+      total: number;
+      unread: number;
+    }>;
+
+    const result = await loadInboxRequest(7);
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/inbox?projectId=7', undefined);
+    expect(result.total).toBe(1);
+    expect(result.items[0]?.id).toBe('inbox-12');
+  });
+
   it('shows inbox loading, error, and success states', async () => {
     const { InboxPage } = await import('../../src/client/pages/Inbox');
 
@@ -1665,6 +2023,7 @@ describe('client API page wiring', () => {
     expect(html).toContain('已加载 1 条收件箱记录');
     expect(html).toContain('needs_reply');
     expect(html).toContain('Need lower latency in APAC');
+    expect(html).toContain('项目 ID（可选）');
   });
 
   it('loads monitor feed entries through the shared API helper', async () => {
@@ -1701,6 +2060,40 @@ describe('client API page wiring', () => {
     expect(result.items[0]?.status).toBe('new');
   });
 
+  it('loads monitor feed entries with a projectId filter through the shared API helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        items: [
+          {
+            id: 'monitor-7',
+            source: 'x',
+            title: 'Project monitor entry',
+            detail: 'Only scoped entries should appear.',
+            status: 'new',
+            createdAt: '2026-04-19T00:00:00.000Z',
+          },
+        ],
+        total: 1,
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const monitorModule = (await import('../../src/client/pages/Monitor')) as Record<string, unknown>;
+
+    expect(typeof monitorModule.loadMonitorFeedRequest).toBe('function');
+
+    const loadMonitorFeedRequest = monitorModule.loadMonitorFeedRequest as (projectId?: number) => Promise<{
+      items: Array<{ id: string; source: string; title: string; status: string }>;
+      total: number;
+    }>;
+
+    const result = await loadMonitorFeedRequest(7);
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/monitor/feed?projectId=7', undefined);
+    expect(result.total).toBe(1);
+    expect(result.items[0]?.title).toBe('Project monitor entry');
+  });
+
   it('shows monitor loading, error, and success states', async () => {
     const { MonitorPage } = await import('../../src/client/pages/Monitor');
 
@@ -1732,6 +2125,7 @@ describe('client API page wiring', () => {
     expect(html).toContain('已抓取 1 条监控动态');
     expect(html).toContain('new');
     expect(html).toContain('Competitor added a cheaper tier');
+    expect(html).toContain('项目 ID（可选）');
   });
 
   it('loads reputation stats through the shared API helper', async () => {
@@ -1782,6 +2176,53 @@ describe('client API page wiring', () => {
     expect(result.items[0]?.sentiment).toBe('negative');
   });
 
+  it('loads reputation stats with a projectId filter through the shared API helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        total: 1,
+        positive: 1,
+        neutral: 0,
+        negative: 0,
+        trend: [
+          {
+            label: '正向',
+            value: 1,
+          },
+        ],
+        items: [
+          {
+            id: 'rep-7',
+            source: 'x',
+            sentiment: 'positive',
+            status: 'handled',
+            title: 'Scoped reputation mention',
+            detail: 'Only one project mention.',
+            createdAt: '2026-04-19T00:00:00.000Z',
+          },
+        ],
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const reputationModule = (await import('../../src/client/pages/Reputation')) as Record<string, unknown>;
+
+    expect(typeof reputationModule.loadReputationRequest).toBe('function');
+
+    const loadReputationRequest = reputationModule.loadReputationRequest as (projectId?: number) => Promise<{
+      total: number;
+      positive: number;
+      neutral: number;
+      negative: number;
+      items: Array<{ id: string; sentiment: string; status: string }>;
+    }>;
+
+    const result = await loadReputationRequest(7);
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/reputation/stats?projectId=7', undefined);
+    expect(result.total).toBe(1);
+    expect(result.items[0]?.status).toBe('handled');
+  });
+
   it('shows reputation loading, error, and success states', async () => {
     const { ReputationPage } = await import('../../src/client/pages/Reputation');
 
@@ -1823,5 +2264,6 @@ describe('client API page wiring', () => {
     expect(html).toContain('已加载 3 条口碑提及');
     expect(html).toContain('negative');
     expect(html).toContain('Session expired complaint');
+    expect(html).toContain('项目 ID（可选）');
   });
 });

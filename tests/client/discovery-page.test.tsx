@@ -403,6 +403,27 @@ describe('Discovery page wiring', () => {
     expect(result.items[0]?.title).toBe('AI 短视频脚本切题');
   });
 
+  it('loads discovery feed with projectId through the page API helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(sampleDiscoveryResponse));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const discoveryPageModule = (await import('../../src/client/pages/Discovery')) as Record<string, unknown>;
+
+    expect(typeof discoveryPageModule.loadDiscoveryPageRequest).toBe('function');
+
+    const loadDiscoveryPageRequest = discoveryPageModule.loadDiscoveryPageRequest as (projectId?: number) => Promise<{
+      total: number;
+      stats: { sources: number; averageScore: number | null };
+      items: Array<{ id: number; title: string; source: string; score: number | null }>;
+    }>;
+
+    const result = await loadDiscoveryPageRequest(12);
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/discovery?projectId=12', undefined);
+    expect(result.total).toBe(2);
+    expect(result.items[1]?.source).toBe('Product Hunt');
+  });
+
   it('shows loading, error, and success states for discovery data', async () => {
     const { DiscoveryPage } = await import('../../src/client/pages/Discovery');
 
@@ -430,6 +451,7 @@ describe('Discovery page wiring', () => {
     expect(html).toContain('竞品推出周报模板');
     expect(html).toContain('Reddit');
     expect(html).toContain('Product Hunt');
+    expect(html).toContain('项目 ID（可选）');
   });
 
   it('requests discovery data on mount and renders the fetched items', async () => {

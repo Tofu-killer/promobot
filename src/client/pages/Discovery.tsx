@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { loadDiscoveryRequest, type DiscoveryItem, type DiscoveryResponse } from '../lib/discovery';
-import { getErrorMessage } from '../lib/api';
+import { apiRequest, getErrorMessage } from '../lib/api';
 import type { AsyncState } from '../hooks/useAsyncRequest';
 import { useAsyncQuery } from '../hooks/useAsyncRequest';
 import { ActionButton } from '../components/ActionButton';
@@ -14,7 +14,7 @@ import {
 } from './Generate';
 
 interface DiscoveryPageProps {
-  loadDiscoveryAction?: () => Promise<DiscoveryResponse>;
+  loadDiscoveryAction?: (projectId?: number) => Promise<DiscoveryResponse>;
   generateAction?: (input: GenerateDraftsPayload) => Promise<GenerateDraftsResponse>;
   stateOverride?: AsyncState<DiscoveryResponse>;
 }
@@ -62,12 +62,50 @@ function resolveDraftPlatform(source: string) {
   return 'blog';
 }
 
+function parseProjectId(value: string) {
+  const normalizedValue = value.trim();
+
+  if (normalizedValue.length === 0) {
+    return undefined;
+  }
+
+  const projectId = Number(normalizedValue);
+  return Number.isInteger(projectId) && projectId > 0 ? projectId : undefined;
+}
+
+function buildProjectScopedPath(path: string, projectId?: number) {
+  return projectId === undefined ? path : `${path}?projectId=${projectId}`;
+}
+
+const projectInputStyle = {
+  width: '100%',
+  maxWidth: '240px',
+  borderRadius: '14px',
+  border: '1px solid #cbd5e1',
+  padding: '12px 14px',
+  font: 'inherit',
+  background: '#ffffff',
+} as const;
+
+export async function loadDiscoveryPageRequest(projectId?: number): Promise<DiscoveryResponse> {
+  if (projectId === undefined) {
+    return loadDiscoveryRequest();
+  }
+
+  return apiRequest<DiscoveryResponse>(buildProjectScopedPath('/api/discovery', projectId));
+}
+
 export function DiscoveryPage({
-  loadDiscoveryAction = loadDiscoveryRequest,
+  loadDiscoveryAction = loadDiscoveryPageRequest,
   generateAction = generateDraftsRequest,
   stateOverride,
 }: DiscoveryPageProps) {
-  const { state } = useAsyncQuery(loadDiscoveryAction, [loadDiscoveryAction]);
+  const [projectIdDraft, setProjectIdDraft] = useState('');
+  const projectId = parseProjectId(projectIdDraft);
+  const { state } = useAsyncQuery(
+    () => (projectId === undefined ? loadDiscoveryAction() : loadDiscoveryAction(projectId)),
+    [loadDiscoveryAction, projectId],
+  );
   const [draftStateByItemId, setDraftStateByItemId] = useState<Record<string, DiscoveryDraftState>>({});
   const displayState = stateOverride ?? state;
   const fallbackData: DiscoveryResponse = {
@@ -139,6 +177,16 @@ export function DiscoveryPage({
         title="Discovery Pool"
         description="发现池会汇总趋势、竞品动态和候选选题，并把不同来源统一成一套可操作条目。"
       />
+
+      <label style={{ display: 'grid', gap: '8px', marginBottom: '20px' }}>
+        <span style={{ fontWeight: 700 }}>项目 ID（可选）</span>
+        <input
+          value={projectIdDraft}
+          onChange={(event) => setProjectIdDraft(event.target.value)}
+          placeholder="例如 12"
+          style={projectInputStyle}
+        />
+      </label>
 
       {displayState.status === 'loading' ? <p style={{ color: '#334155' }}>正在加载发现池...</p> : null}
       {displayState.status === 'error' ? <p style={{ color: '#b91c1c' }}>发现池加载失败：{displayState.error}</p> : null}

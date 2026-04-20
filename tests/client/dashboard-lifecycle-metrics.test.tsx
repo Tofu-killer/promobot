@@ -63,6 +63,7 @@ describe('dashboard lifecycle metrics', () => {
     expect(html).toContain('4');
     expect(html).toContain('9');
     expect(html).toContain('2');
+    expect(html).toContain('项目 ID（可选）');
   });
 
   it('falls back missing lifecycle metrics to zero when the dashboard response is partial', async () => {
@@ -95,5 +96,6 @@ describe('dashboard lifecycle metrics', () => {
     expect(html).toContain('发布失败');
     expect(html).toContain('>4<');
     expect(html).toContain('>0<');
+    expect(html).toContain('项目 ID（可选）');
   });
 });

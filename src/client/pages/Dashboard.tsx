@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { apiRequest } from '../lib/api';
 import type { AsyncState } from '../hooks/useAsyncRequest';
 import { useAsyncQuery } from '../hooks/useAsyncRequest';
@@ -40,12 +41,37 @@ export interface DashboardResponse {
   };
 }
 
-export async function loadDashboardRequest(): Promise<DashboardResponse> {
-  return apiRequest<DashboardResponse>('/api/monitor/dashboard');
+function parseProjectId(value: string) {
+  const normalizedValue = value.trim();
+
+  if (normalizedValue.length === 0) {
+    return undefined;
+  }
+
+  const projectId = Number(normalizedValue);
+  return Number.isInteger(projectId) && projectId > 0 ? projectId : undefined;
+}
+
+function buildProjectScopedPath(path: string, projectId?: number) {
+  return projectId === undefined ? path : `${path}?projectId=${projectId}`;
+}
+
+const projectInputStyle = {
+  width: '100%',
+  maxWidth: '240px',
+  borderRadius: '14px',
+  border: '1px solid #cbd5e1',
+  padding: '12px 14px',
+  font: 'inherit',
+  background: '#ffffff',
+} as const;
+
+export async function loadDashboardRequest(projectId?: number): Promise<DashboardResponse> {
+  return apiRequest<DashboardResponse>(buildProjectScopedPath('/api/monitor/dashboard', projectId));
 }
 
 interface DashboardPageProps {
-  loadDashboardAction?: () => Promise<DashboardResponse>;
+  loadDashboardAction?: (projectId?: number) => Promise<DashboardResponse>;
   stateOverride?: AsyncState<DashboardResponse>;
 }
 
@@ -53,7 +79,12 @@ export function DashboardPage({
   loadDashboardAction = loadDashboardRequest,
   stateOverride,
 }: DashboardPageProps) {
-  const { state } = useAsyncQuery(loadDashboardAction, [loadDashboardAction]);
+  const [projectIdDraft, setProjectIdDraft] = useState('');
+  const projectId = parseProjectId(projectIdDraft);
+  const { state } = useAsyncQuery(
+    () => (projectId === undefined ? loadDashboardAction() : loadDashboardAction(projectId)),
+    [loadDashboardAction, projectId],
+  );
   const displayState = stateOverride ?? state;
   const fallbackData: DashboardResponse = {
     monitor: { total: 1, new: 1, followUpDrafts: 1 },
@@ -92,6 +123,16 @@ export function DashboardPage({
           先看今天的内容运营节奏，再决定是去生成新内容，还是处理待审核与待发布任务。
         </p>
       </header>
+
+      <label style={{ display: 'grid', gap: '8px', marginBottom: '20px' }}>
+        <span style={{ fontWeight: 700 }}>项目 ID（可选）</span>
+        <input
+          value={projectIdDraft}
+          onChange={(event) => setProjectIdDraft(event.target.value)}
+          placeholder="例如 12"
+          style={projectInputStyle}
+        />
+      </label>
 
       {displayState.status === 'loading' ? <p style={{ color: '#334155' }}>正在加载仪表盘...</p> : null}
       {displayState.status === 'error' ? <p style={{ color: '#b91c1c' }}>仪表盘加载失败：{displayState.error}</p> : null}

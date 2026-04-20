@@ -45,17 +45,51 @@ export interface EnqueueReputationFetchJobResponse {
   runtime: Record<string, unknown>;
 }
 
-export async function loadReputationRequest(): Promise<ReputationStatsResponse> {
-  return apiRequest<ReputationStatsResponse>('/api/reputation/stats');
+function parseProjectId(value: string) {
+  const normalizedValue = value.trim();
+
+  if (normalizedValue.length === 0) {
+    return undefined;
+  }
+
+  const projectId = Number(normalizedValue);
+  return Number.isInteger(projectId) && projectId > 0 ? projectId : undefined;
 }
 
-export async function fetchReputationRequest(): Promise<FetchReputationResponse> {
+function buildProjectScopedPath(path: string, projectId?: number) {
+  return projectId === undefined ? path : `${path}?projectId=${projectId}`;
+}
+
+function createProjectIdBody(projectId?: number) {
+  return projectId === undefined ? undefined : JSON.stringify({ projectId });
+}
+
+function createProjectPayload(projectId?: number) {
+  return projectId === undefined ? {} : { projectId };
+}
+
+export async function loadReputationRequest(projectId?: number): Promise<ReputationStatsResponse> {
+  return apiRequest<ReputationStatsResponse>(buildProjectScopedPath('/api/reputation/stats', projectId));
+}
+
+export async function fetchReputationRequest(projectId?: number): Promise<FetchReputationResponse> {
   return apiRequest<FetchReputationResponse>('/api/reputation/fetch', {
     method: 'POST',
+    ...(projectId === undefined
+      ? {}
+      : {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: createProjectIdBody(projectId),
+        }),
   });
 }
 
-export async function enqueueReputationFetchJobRequest(runAt?: string): Promise<EnqueueReputationFetchJobResponse> {
+export async function enqueueReputationFetchJobRequest(
+  runAt?: string,
+  projectId?: number,
+): Promise<EnqueueReputationFetchJobResponse> {
   return apiRequest<EnqueueReputationFetchJobResponse>('/api/system/jobs', {
     method: 'POST',
     headers: {
@@ -63,7 +97,7 @@ export async function enqueueReputationFetchJobRequest(runAt?: string): Promise<
     },
     body: JSON.stringify({
       type: 'reputation_fetch',
-      payload: {},
+      payload: createProjectPayload(projectId),
       ...(runAt ? { runAt } : {}),
     }),
   });
@@ -84,9 +118,9 @@ export async function updateReputationItemRequest(id: number, status: string): P
 }
 
 interface ReputationPageProps {
-  loadReputationAction?: () => Promise<ReputationStatsResponse>;
-  fetchReputationAction?: () => Promise<FetchReputationResponse>;
-  enqueueFetchJobAction?: (runAt?: string) => Promise<EnqueueReputationFetchJobResponse>;
+  loadReputationAction?: (projectId?: number) => Promise<ReputationStatsResponse>;
+  fetchReputationAction?: (projectId?: number) => Promise<FetchReputationResponse>;
+  enqueueFetchJobAction?: (runAt?: string, projectId?: number) => Promise<EnqueueReputationFetchJobResponse>;
   updateReputationAction?: (id: number, status: string) => Promise<UpdateReputationItemResponse>;
   stateOverride?: AsyncState<ReputationStatsResponse>;
   fetchStateOverride?: AsyncState<FetchReputationResponse>;
@@ -118,9 +152,19 @@ export function ReputationPage({
   enqueueStateOverride,
   reputationUpdateStateOverride,
 }: ReputationPageProps) {
-  const { state, reload } = useAsyncQuery(loadReputationAction, [loadReputationAction]);
-  const { state: fetchState, run: runFetchReputation } = useAsyncAction(fetchReputationAction);
-  const { state: enqueueState, run: runEnqueueFetchJob } = useAsyncAction(enqueueFetchJobAction);
+  const [projectIdDraft, setProjectIdDraft] = useState('');
+  const projectId = parseProjectId(projectIdDraft);
+  const { state, reload } = useAsyncQuery(
+    () => (projectId === undefined ? loadReputationAction() : loadReputationAction(projectId)),
+    [loadReputationAction, projectId],
+  );
+  const { state: fetchState, run: runFetchReputation } = useAsyncAction((nextProjectId?: number) =>
+    nextProjectId === undefined ? fetchReputationAction() : fetchReputationAction(nextProjectId),
+  );
+  const { state: enqueueState, run: runEnqueueFetchJob } = useAsyncAction(
+    ({ runAt, projectId: nextProjectId }: { runAt?: string; projectId?: number }) =>
+      nextProjectId === undefined ? enqueueFetchJobAction(runAt) : enqueueFetchJobAction(runAt, nextProjectId),
+  );
   const { state: reputationUpdateState, run: runReputationUpdate } = useAsyncAction(
     ({ id, status }: { id: number; status: string }) => updateReputationAction(id, status),
   );
@@ -182,7 +226,7 @@ export function ReputationPage({
   }
 
   function handleFetchReputation() {
-    void runFetchReputation()
+    void runFetchReputation(projectId)
       .then(() => {
         reload();
       })
@@ -192,7 +236,7 @@ export function ReputationPage({
   function handleEnqueueReputationFetch() {
     const runAt = enqueueRunAtDraft.trim().length > 0 ? enqueueRunAtDraft.trim() : undefined;
 
-    void runEnqueueFetchJob(runAt)
+    void runEnqueueFetchJob({ runAt, projectId })
       .then(() => {
         setEnqueueRunAtDraft('');
         reload();
@@ -280,15 +324,27 @@ export function ReputationPage({
       {displayState.status === 'success' || displayState.status === 'idle' ? (
         <>
           <SectionCard title="抓取排程" description="留空表示立即入队，也可以填写 ISO 时间，让口碑抓取按计划执行。">
-            <label style={{ display: 'grid', gap: '8px' }}>
-              <span style={{ fontWeight: 700 }}>计划抓取时间（可选）</span>
-              <input
-                value={enqueueRunAtDraft}
-                onChange={(event) => setEnqueueRunAtDraft(event.target.value)}
-                placeholder="例如 2026-04-20T09:30:00.000Z"
-                style={queueInputStyle}
-              />
-            </label>
+            <div style={{ display: 'grid', gap: '16px' }}>
+              <label style={{ display: 'grid', gap: '8px' }}>
+                <span style={{ fontWeight: 700 }}>项目 ID（可选）</span>
+                <input
+                  value={projectIdDraft}
+                  onChange={(event) => setProjectIdDraft(event.target.value)}
+                  placeholder="例如 12"
+                  style={queueInputStyle}
+                />
+              </label>
+
+              <label style={{ display: 'grid', gap: '8px' }}>
+                <span style={{ fontWeight: 700 }}>计划抓取时间（可选）</span>
+                <input
+                  value={enqueueRunAtDraft}
+                  onChange={(event) => setEnqueueRunAtDraft(event.target.value)}
+                  placeholder="例如 2026-04-20T09:30:00.000Z"
+                  style={queueInputStyle}
+                />
+              </label>
+            </div>
           </SectionCard>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>

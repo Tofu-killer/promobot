@@ -66,6 +66,36 @@ describe('Inbox action wiring', () => {
     expect(result.unread).toBe(1);
   });
 
+  it('posts inbox fetch with projectId through the shared API helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        items: [],
+        inserted: 3,
+        total: 3,
+        unread: 2,
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const inboxModule = (await import('../../src/client/pages/Inbox')) as Record<string, unknown>;
+
+    expect(typeof inboxModule.fetchInboxRequest).toBe('function');
+
+    const fetchInboxRequest = inboxModule.fetchInboxRequest as (projectId?: number) => Promise<{ inserted: number; unread: number }>;
+    const result = await fetchInboxRequest(7);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/inbox/fetch',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: 7 }),
+      }),
+    );
+    expect(result.inserted).toBe(3);
+    expect(result.unread).toBe(2);
+  });
+
   it('posts queued inbox fetch jobs through the shared API helper', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({
@@ -106,6 +136,50 @@ describe('Inbox action wiring', () => {
       }),
     );
     expect(result.job.id).toBe(13);
+    expect(result.job.type).toBe('inbox_fetch');
+  });
+
+  it('posts queued inbox fetch jobs with projectId through the shared API helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        job: {
+          id: 14,
+          type: 'inbox_fetch',
+          status: 'pending',
+          runAt: '2026-04-20T09:20:00.000Z',
+          attempts: 0,
+        },
+        runtime: {
+          available: true,
+        },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const inboxModule = (await import('../../src/client/pages/Inbox')) as Record<string, unknown>;
+
+    expect(typeof inboxModule.enqueueInboxFetchJobRequest).toBe('function');
+
+    const enqueueInboxFetchJobRequest = inboxModule.enqueueInboxFetchJobRequest as (
+      runAt?: string,
+      projectId?: number,
+    ) => Promise<{ job: { id: number; type: string; runAt: string } }>;
+
+    const result = await enqueueInboxFetchJobRequest('2026-04-20T09:20:00.000Z', 7);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/system/jobs',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'inbox_fetch',
+          payload: { projectId: 7 },
+          runAt: '2026-04-20T09:20:00.000Z',
+        }),
+      }),
+    );
+    expect(result.job.id).toBe(14);
     expect(result.job.type).toBe('inbox_fetch');
   });
 
@@ -287,6 +361,7 @@ describe('Inbox action wiring', () => {
 
     expect(html).toContain('已抓取 2 条收件箱命中，未读 1');
     expect(html).toContain('抓取新命中');
+    expect(html).toContain('项目 ID（可选）');
   });
 
   it('renders inbox queue feedback when available', async () => {
@@ -320,6 +395,7 @@ describe('Inbox action wiring', () => {
 
     expect(html).toContain('加入队列 / 定时抓取');
     expect(html).toContain('计划抓取时间（可选）');
+    expect(html).toContain('项目 ID（可选）');
     expect(html).toContain('已将收件箱抓取加入队列，job #13');
     expect(html).toContain('2026-04-20T09:15:00.000Z');
   });
@@ -384,6 +460,38 @@ describe('Reputation action wiring', () => {
     expect(result.total).toBe(1);
   });
 
+  it('posts reputation fetch with projectId through the shared API helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        items: [],
+        inserted: 4,
+        total: 9,
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const reputationModule = (await import('../../src/client/pages/Reputation')) as Record<string, unknown>;
+
+    expect(typeof reputationModule.fetchReputationRequest).toBe('function');
+
+    const fetchReputationRequest = reputationModule.fetchReputationRequest as (projectId?: number) => Promise<{
+      inserted: number;
+      total: number;
+    }>;
+    const result = await fetchReputationRequest(7);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/reputation/fetch',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: 7 }),
+      }),
+    );
+    expect(result.inserted).toBe(4);
+    expect(result.total).toBe(9);
+  });
+
   it('posts queued reputation fetch jobs through the shared API helper', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({
@@ -424,6 +532,50 @@ describe('Reputation action wiring', () => {
       }),
     );
     expect(result.job.id).toBe(17);
+    expect(result.job.type).toBe('reputation_fetch');
+  });
+
+  it('posts queued reputation fetch jobs with projectId through the shared API helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        job: {
+          id: 18,
+          type: 'reputation_fetch',
+          status: 'pending',
+          runAt: '2026-04-20T09:35:00.000Z',
+          attempts: 0,
+        },
+        runtime: {
+          available: true,
+        },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const reputationModule = (await import('../../src/client/pages/Reputation')) as Record<string, unknown>;
+
+    expect(typeof reputationModule.enqueueReputationFetchJobRequest).toBe('function');
+
+    const enqueueReputationFetchJobRequest = reputationModule.enqueueReputationFetchJobRequest as (
+      runAt?: string,
+      projectId?: number,
+    ) => Promise<{ job: { id: number; type: string; runAt: string } }>;
+
+    const result = await enqueueReputationFetchJobRequest('2026-04-20T09:35:00.000Z', 7);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/system/jobs',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'reputation_fetch',
+          payload: { projectId: 7 },
+          runAt: '2026-04-20T09:35:00.000Z',
+        }),
+      }),
+    );
+    expect(result.job.id).toBe(18);
     expect(result.job.type).toBe('reputation_fetch');
   });
 
@@ -580,6 +732,7 @@ describe('Reputation action wiring', () => {
 
     expect(html).toContain('已抓取 3 条口碑提及，当前总数 5');
     expect(html).toContain('抓取新口碑');
+    expect(html).toContain('项目 ID（可选）');
   });
 
   it('renders reputation queue feedback when available', async () => {
@@ -616,6 +769,7 @@ describe('Reputation action wiring', () => {
 
     expect(html).toContain('加入队列 / 定时抓取');
     expect(html).toContain('计划抓取时间（可选）');
+    expect(html).toContain('项目 ID（可选）');
     expect(html).toContain('已将口碑抓取加入队列，job #17');
     expect(html).toContain('2026-04-20T09:30:00.000Z');
   });
