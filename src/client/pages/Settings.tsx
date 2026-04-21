@@ -336,6 +336,11 @@ function readStatusValue(value: unknown) {
     : null;
 }
 
+function readResolutionDetail(value: unknown) {
+  const record = asRecord(value);
+  return readString(record?.reason) ?? readString(record?.publishStatus) ?? readString(record?.draftStatus);
+}
+
 function readNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
@@ -1111,6 +1116,9 @@ export function SettingsPage({
                     </div>
                     <div style={{ color: '#475569' }}>
                       resolution: {formatContractValue(readStatusValue(handoff.resolution))}
+                    </div>
+                    <div style={{ color: '#475569' }}>
+                      resolution detail: {formatContractValue(readResolutionDetail(handoff.resolution))}
                     </div>
                   </div>
                 ))

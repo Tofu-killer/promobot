@@ -517,8 +517,24 @@ describe('settings save validation and feedback', () => {
               resolvedAt: null,
               resolution: null,
             },
+            {
+              platform: 'weibo',
+              draftId: '34',
+              title: 'Published handoff',
+              accountKey: 'launch-campaign',
+              status: 'resolved',
+              artifactPath:
+                'artifacts/browser-handoffs/weibo/launch-campaign/weibo-draft-34.json',
+              createdAt: '2026-04-21T09:20:00.000Z',
+              updatedAt: '2026-04-21T09:30:00.000Z',
+              resolvedAt: '2026-04-21T09:30:00.000Z',
+              resolution: {
+                status: 'resolved',
+                publishStatus: 'published',
+              },
+            },
           ],
-          total: 1,
+          total: 2,
         },
       } satisfies ApiState,
       updateStateOverride: {
@@ -555,6 +571,7 @@ describe('settings save validation and feedback', () => {
       'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-33.json',
     );
     expect(successHtml).toContain('resolution: 未提供');
+    expect(successHtml).toContain('resolution detail: published');
     expect(successHtml).toContain('allowlist 保存后会立即影响当前进程的访问控制');
     expect(successHtml).toContain('重试');
     expect(successHtml).toContain('排程新作业');
