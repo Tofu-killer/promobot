@@ -1459,6 +1459,7 @@ describe('client API page wiring', () => {
               createdAt: '2026-04-19T00:00:00.000Z',
               updatedAt: '2026-04-19T00:00:00.000Z',
               latestBrowserHandoffArtifact: {
+                ownership: 'unmatched',
                 platform: 'reddit',
                 draftId: '31',
                 title: 'Stale handoff',
@@ -1493,6 +1494,7 @@ describe('client API page wiring', () => {
     expect(html).toContain('建议动作：配置凭证');
     expect(html).toContain('编辑 Session 元数据');
     expect(html).toContain('最近 Handoff：draft #31 · obsolete');
+    expect(html).toContain('Handoff 归属：未归属');
     expect(html).toContain('Handoff 时间：2026-04-19T00:25:00.000Z');
     expect(html).toContain('Handoff 结单：2026-04-19T00:25:00.000Z');
     expect(html).toContain('Handoff 结果：obsolete');

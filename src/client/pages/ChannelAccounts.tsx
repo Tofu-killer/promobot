@@ -26,6 +26,7 @@ export interface ChannelAccountRecord {
   };
   latestBrowserHandoffArtifact?: {
     channelAccountId?: number;
+    ownership?: string;
     platform: string;
     draftId: string;
     title: string | null;
@@ -1017,6 +1018,9 @@ export function ChannelAccountsPage({
                                 Handoff 结单：
                                 {account.latestBrowserHandoffArtifact.resolvedAt ?? '未结单'}
                               </div>
+                              {account.latestBrowserHandoffArtifact.ownership ? (
+                                <div>Handoff 归属：{formatHandoffOwnership(account.latestBrowserHandoffArtifact.ownership)}</div>
+                              ) : null}
                               {readStatusValue(account.latestBrowserHandoffArtifact.resolution) ? (
                                 <div>
                                   Handoff 结果：
@@ -1692,6 +1696,22 @@ function readResolutionDetail(value: unknown): string | undefined {
     readTextValue(record?.draftStatus) ??
     undefined
   );
+}
+
+function formatHandoffOwnership(value: string) {
+  if (value === 'direct') {
+    return '直接绑定';
+  }
+
+  if (value === 'draft_project') {
+    return '按草稿项目推断';
+  }
+
+  if (value === 'unmatched') {
+    return '未归属';
+  }
+
+  return value;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
