@@ -173,6 +173,8 @@ class FakeElement extends FakeNode {
   style: Record<string, string>;
   attributes: Map<string, string>;
   value: string;
+  disabled: boolean;
+  selected: boolean;
   private listeners: Map<string, EventListenerEntry[]>;
 
   constructor(tagName: string, ownerDocument: FakeDocument | null) {
@@ -182,6 +184,8 @@ class FakeElement extends FakeNode {
     this.style = {};
     this.attributes = new Map();
     this.value = '';
+    this.disabled = false;
+    this.selected = false;
     this.listeners = new Map();
   }
 
@@ -189,6 +193,12 @@ class FakeElement extends FakeNode {
     this.attributes.set(name, value);
     if (name === 'value') {
       this.value = value;
+    }
+    if (name === 'disabled') {
+      this.disabled = true;
+    }
+    if (name === 'selected') {
+      this.selected = true;
     }
   }
 
@@ -198,6 +208,12 @@ class FakeElement extends FakeNode {
 
   removeAttribute(name: string) {
     this.attributes.delete(name);
+    if (name === 'disabled') {
+      this.disabled = false;
+    }
+    if (name === 'selected') {
+      this.selected = false;
+    }
   }
 
   setAttributeNS(_namespace: string | null, name: string, value: string) {
@@ -228,6 +244,14 @@ class FakeElement extends FakeNode {
   dispatchEvent(event: FakeEvent) {
     dispatchEventAcrossTree(event, this);
     return !event.defaultPrevented;
+  }
+
+  get children() {
+    return this.childNodes.filter((child): child is FakeElement => child instanceof FakeElement);
+  }
+
+  get options() {
+    return this.children;
   }
 
   focus() {

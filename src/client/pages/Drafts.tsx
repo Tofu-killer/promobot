@@ -235,6 +235,14 @@ export function DraftsPage({
 
     try {
       const result = await publishDraftAction(draftId);
+      if (result.success || result.status === 'manual_required' || result.status === 'queued') {
+        setFormValuesById((currentValues) => {
+          const nextValues = { ...currentValues };
+          delete nextValues[draftId];
+          return nextValues;
+        });
+        reload();
+      }
       setPublishStateById((currentState) => ({
         ...currentState,
         [draftId]: {
