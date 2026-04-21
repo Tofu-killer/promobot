@@ -118,6 +118,10 @@ export function getAuthErrorEventName() {
   return AUTH_ERROR_EVENT;
 }
 
+export function getAdminPasswordStorageKey() {
+  return ADMIN_PASSWORD_STORAGE_KEY;
+}
+
 function withAdminPassword(init: RequestInit | undefined): RequestInit | undefined {
   const adminPassword = getStoredAdminPassword();
   if (!adminPassword) {

@@ -37,6 +37,55 @@ function updateFieldValue(element: { value?: string } | null, value: string, win
   (element as { dispatchEvent: (event: Event) => void }).dispatchEvent(new window.Event('change', { bubbles: true }));
 }
 
+function dispatchStorageEvent(
+  window: { Event: typeof Event; dispatchEvent: (event: Event) => void },
+  detail: {
+    key: string;
+    oldValue: string | null;
+    newValue: string | null;
+    storageArea: unknown;
+  },
+) {
+  const event = Object.assign(new window.Event('storage'), detail);
+  window.dispatchEvent(event);
+}
+
+function installBrowserHistory(
+  window: {
+    Event: typeof Event;
+    dispatchEvent: (event: Event) => boolean;
+    location: { href: string; pathname?: string };
+    history?: unknown;
+  },
+  initialPathname: string,
+) {
+  const location = window.location;
+
+  const syncLocation = (pathname: string) => {
+    location.pathname = pathname;
+    location.href = `http://localhost${pathname}`;
+    vi.stubGlobal('location', location);
+  };
+
+  const history = {
+    pushState: vi.fn((_state: unknown, _unused: string, url?: string | URL | null) => {
+      const nextPathname =
+        typeof url === 'string'
+          ? new URL(url, location.href).pathname
+          : url instanceof URL
+            ? url.pathname
+            : location.pathname ?? '/';
+      syncLocation(nextPathname);
+    }),
+  };
+
+  window.history = history;
+  vi.stubGlobal('history', history);
+  syncLocation(initialPathname);
+
+  return history;
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -217,6 +266,82 @@ describe('App shell', () => {
     });
   });
 
+  it('renders the route from window.location.pathname on first client render', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const localStorage = {
+      getItem: () => 'secret',
+      setItem: () => undefined,
+      removeItem: () => undefined,
+    };
+    (window as unknown as { localStorage: typeof localStorage }).localStorage = localStorage;
+    installBrowserHistory(window as never, '/monitor');
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+
+        if (url === '/api/auth/probe') {
+          return Promise.resolve(
+            new Response(null, {
+              status: 204,
+            }),
+          );
+        }
+
+        if (url.includes('/api/monitor/dashboard')) {
+          return Promise.resolve(
+            jsonResponse({
+              monitor: {
+                total: 1,
+                new: 1,
+                followUpDrafts: 0,
+              },
+              drafts: {
+                total: 1,
+                review: 0,
+              },
+              totals: {
+                items: 1,
+                followUps: 0,
+              },
+            }),
+          );
+        }
+
+        if (url.includes('/api/monitor/feed')) {
+          return Promise.resolve(
+            jsonResponse({
+              items: [],
+              total: 0,
+            }),
+          );
+        }
+
+        throw new Error(`unexpected fetch request: ${url}`);
+      }),
+    );
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(createElement(App as never, { initialAdminPassword: 'secret' }));
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    expect((window.location as { pathname?: string }).pathname).toBe('/monitor');
+    expect(collectText(container)).toContain('Competitor Monitor');
+    expect(collectText(container)).toContain('抓取排程');
+    expect(collectText(container)).not.toContain('先看今天的内容运营节奏');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('keeps the login page when a stored admin password fails probe validation', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
@@ -341,6 +466,167 @@ describe('App shell', () => {
     );
     expect(localStorage.setItem).toHaveBeenCalledWith('promobot_admin_password', 'secret');
     expect(collectText(container)).toContain('PromoBot');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('returns to the login page when another tab clears the stored admin password', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    let storedPassword = 'secret';
+    const localStorage = {
+      getItem: () => storedPassword,
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+    };
+    (window as unknown as { localStorage: typeof localStorage }).localStorage = localStorage;
+
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      if (String(input) === '/api/auth/probe') {
+        return Promise.resolve(
+          new Response(null, {
+            status: 204,
+          }),
+        );
+      }
+
+      return Promise.resolve(
+        jsonResponse({
+          monitor: {
+            total: 0,
+            new: 0,
+            followUpDrafts: 0,
+          },
+          drafts: {
+            total: 0,
+            review: 0,
+          },
+          totals: {
+            items: 0,
+            followUps: 0,
+          },
+        }),
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(createElement(App as never, { initialAdminPassword: null }));
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('PromoBot');
+
+    await act(async () => {
+      storedPassword = null as never;
+      dispatchStorageEvent(window as never, {
+        key: 'promobot_admin_password',
+        oldValue: 'secret',
+        newValue: null,
+        storageArea: localStorage,
+      });
+      await flush();
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('Admin Login');
+    expect(collectText(container)).not.toContain('AI Operations Console');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('authenticates when another tab stores a valid admin password', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    let storedPassword: string | null = null;
+    const localStorage = {
+      getItem: () => storedPassword,
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+    };
+    (window as unknown as { localStorage: typeof localStorage }).localStorage = localStorage;
+
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === '/api/auth/probe') {
+        const headers = new Headers(init?.headers);
+        if (headers.get('x-admin-password') === 'secret') {
+          return Promise.resolve(
+            new Response(null, {
+              status: 204,
+            }),
+          );
+        }
+
+        return Promise.resolve(
+          new Response(JSON.stringify({ error: 'unauthorized' }), {
+            status: 401,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          }),
+        );
+      }
+
+      return Promise.resolve(
+        jsonResponse({
+          monitor: {
+            total: 0,
+            new: 0,
+            followUpDrafts: 0,
+          },
+          drafts: {
+            total: 0,
+            review: 0,
+          },
+          totals: {
+            items: 0,
+            followUps: 0,
+          },
+        }),
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(createElement(App as never, { initialAdminPassword: null }));
+      await flush();
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('Admin Login');
+
+    await act(async () => {
+      storedPassword = 'secret';
+      dispatchStorageEvent(window as never, {
+        key: 'promobot_admin_password',
+        oldValue: null,
+        newValue: 'secret',
+        storageArea: localStorage,
+      });
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/auth/probe',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.any(Headers),
+      }),
+    );
+    expect(collectText(container)).toContain('PromoBot');
+    expect(collectText(container)).not.toContain('Admin Login');
 
     await act(async () => {
       root.unmount();

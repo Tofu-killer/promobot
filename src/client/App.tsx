@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Layout } from './components/Layout';
 import {
   clearStoredAdminPassword,
+  getAdminPasswordStorageKey,
   getAuthErrorEventName,
   getStoredAdminPassword,
   storeAdminPassword,
@@ -38,6 +39,44 @@ const navItems: NavItem[] = [
   { id: 'channels', label: 'Channel Accounts', description: '平台账号与登录态' },
   { id: 'settings', label: 'Settings', description: '系统配置与安全策略' }
 ];
+
+const routePathById: Record<AppRoute, string> = {
+  dashboard: '/',
+  queue: '/queue',
+  projects: '/projects',
+  discovery: '/discovery',
+  generate: '/generate',
+  drafts: '/drafts',
+  review: '/review',
+  calendar: '/calendar',
+  inbox: '/inbox',
+  monitor: '/monitor',
+  reputation: '/reputation',
+  channels: '/channels',
+  settings: '/settings',
+};
+
+const knownRoutes = new Set<AppRoute>(navItems.map((item) => item.id));
+
+function normalizeRoutePath(pathname: string | null | undefined) {
+  if (!pathname) {
+    return '/';
+  }
+
+  const normalizedPath = pathname.replace(/\/+$/, '');
+  return normalizedPath === '' ? '/' : normalizedPath;
+}
+
+function getRouteFromPathname(pathname: string | null | undefined, fallback: AppRoute) {
+  const normalizedPath = normalizeRoutePath(pathname);
+
+  if (normalizedPath === '/' || normalizedPath === '/dashboard') {
+    return 'dashboard';
+  }
+
+  const candidate = normalizedPath.slice(1) as AppRoute;
+  return knownRoutes.has(candidate) ? candidate : fallback;
+}
 
 function renderRoute(
   route: AppRoute,
@@ -108,9 +147,14 @@ export default function App({ initialRoute = 'dashboard', initialAdminPassword =
     typeof window === 'undefined'
       ? initialAdminPassword
       : getStoredAdminPassword() ?? initialAdminPassword;
-  const [activeRoute, setActiveRoute] = useState<AppRoute>(initialRoute);
+  const [activeRoute, setActiveRoute] = useState<AppRoute>(() =>
+    typeof window === 'undefined'
+      ? initialRoute
+      : getRouteFromPathname(window.location.pathname, initialRoute),
+  );
   const [sharedProjectIdDraft, setSharedProjectIdDraft] = useState('');
   const [adminPassword, setAdminPassword] = useState<string | null>(initialCandidatePassword);
+  const authSyncVersionRef = useRef(0);
   const [authStatus, setAuthStatus] = useState<AuthStatus>(
     typeof window === 'undefined'
       ? initialCandidatePassword
@@ -122,15 +166,12 @@ export default function App({ initialRoute = 'dashboard', initialAdminPassword =
   );
   const [authError, setAuthError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-
-    const candidatePassword = getStoredAdminPassword() ?? initialAdminPassword;
+  const syncAdminPassword = (candidatePassword: string | null, nextAuthError: string | null = null) => {
+    const authSyncVersion = ++authSyncVersionRef.current;
 
     if (!candidatePassword) {
       setAdminPassword(null);
+      setAuthError(nextAuthError);
       setAuthStatus('anonymous');
       return;
     }
@@ -139,16 +180,32 @@ export default function App({ initialRoute = 'dashboard', initialAdminPassword =
 
     void validateAdminPassword(candidatePassword)
       .then(() => {
+        if (authSyncVersionRef.current !== authSyncVersion) {
+          return;
+        }
+
         setAdminPassword(candidatePassword);
         setAuthError(null);
         setAuthStatus('authenticated');
       })
       .catch((error) => {
+        if (authSyncVersionRef.current !== authSyncVersion) {
+          return;
+        }
+
         clearStoredAdminPassword();
         setAdminPassword(null);
         setAuthError(error instanceof Error ? error.message : '管理员密码无效');
         setAuthStatus('anonymous');
       });
+  };
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    syncAdminPassword(getStoredAdminPassword() ?? initialAdminPassword);
   }, [initialAdminPassword]);
 
   useEffect(() => {
@@ -158,9 +215,7 @@ export default function App({ initialRoute = 'dashboard', initialAdminPassword =
           ? event.detail.message
           : '管理员密码无效';
       clearStoredAdminPassword();
-      setAdminPassword(null);
-      setAuthStatus('anonymous');
-      setAuthError(detail);
+      syncAdminPassword(null, detail);
     };
 
     window.addEventListener(getAuthErrorEventName(), handleAuthError);
@@ -168,6 +223,54 @@ export default function App({ initialRoute = 'dashboard', initialAdminPassword =
       window.removeEventListener(getAuthErrorEventName(), handleAuthError);
     };
   }, []);
+
+  useEffect(() => {
+    const handleStorage = (event: Event) => {
+      const storageKey =
+        typeof event === 'object' &&
+        event !== null &&
+        'key' in event &&
+        (event as { key?: unknown }).key !== undefined
+          ? (event as { key?: string | null }).key ?? null
+          : null;
+
+      if (storageKey !== null && storageKey !== getAdminPasswordStorageKey()) {
+        return;
+      }
+
+      syncAdminPassword(getStoredAdminPassword());
+    };
+
+    window.addEventListener('storage', handleStorage);
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+    };
+  }, []);
+
+  useEffect(() => {
+    const syncRouteFromLocation = () => {
+      setActiveRoute((currentRoute) => getRouteFromPathname(window.location.pathname, currentRoute));
+    };
+
+    syncRouteFromLocation();
+    window.addEventListener('popstate', syncRouteFromLocation);
+    return () => {
+      window.removeEventListener('popstate', syncRouteFromLocation);
+    };
+  }, []);
+
+  const handleNavigate = (route: AppRoute) => {
+    setActiveRoute(route);
+
+    if (typeof window.history?.pushState !== 'function') {
+      return;
+    }
+
+    const nextPath = routePathById[route];
+    if (normalizeRoutePath(window.location.pathname) !== nextPath) {
+      window.history.pushState(null, '', nextPath);
+    }
+  };
 
   if (authStatus === 'booting' || authStatus === 'checking') {
     return (
@@ -216,7 +319,7 @@ export default function App({ initialRoute = 'dashboard', initialAdminPassword =
   }
 
   return (
-    <Layout activeRoute={activeRoute} navItems={navItems} onNavigate={setActiveRoute}>
+    <Layout activeRoute={activeRoute} navItems={navItems} onNavigate={handleNavigate}>
       {renderRoute(activeRoute, sharedProjectIdDraft, setSharedProjectIdDraft)}
     </Layout>
   );
