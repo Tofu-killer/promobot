@@ -724,6 +724,61 @@ describe('publish api', () => {
     expect(readJobQueue()).toEqual([]);
   });
 
+  it('does not record a publish failure when local persistence fails after a successful publish result', async () => {
+    const publishDraft = vi.fn().mockResolvedValue({
+      platform: 'x',
+      mode: 'api',
+      status: 'published',
+      success: true,
+      publishUrl: 'https://x.com/i/web/status/2888888888888',
+      externalId: '2888888888888',
+      message: 'publisher already succeeded',
+      publishedAt: '2026-04-21T01:23:45.000Z',
+    });
+    const persistPublishResult = vi
+      .fn<PublishRouteDependencies['persistPublishResult']>()
+      .mockRejectedValue(new Error('local persistence exploded'));
+    const recordPublishFailure = vi
+      .fn<PublishRouteDependencies['recordPublishFailure']>()
+      .mockResolvedValue(undefined);
+    const app = createTestApp({
+      lookupDraft: vi.fn().mockResolvedValue({
+        id: 51,
+        platform: 'x',
+        title: 'Already published',
+        content: 'This publish reached the platform.',
+      }),
+      publishDraft,
+      persistPublishResult,
+      recordPublishFailure,
+    });
+
+    await expect(requestApp(app, 'POST', '/api/drafts/51/publish')).rejects.toThrow(
+      'local persistence exploded',
+    );
+    expect(publishDraft).toHaveBeenCalledTimes(1);
+    expect(persistPublishResult).toHaveBeenCalledWith(
+      51,
+      expect.objectContaining({
+        draftId: 51,
+        draftStatus: 'published',
+        platform: 'x',
+        mode: 'api',
+        status: 'published',
+        success: true,
+        publishUrl: 'https://x.com/i/web/status/2888888888888',
+        externalId: '2888888888888',
+        message: 'publisher already succeeded',
+        publishedAt: '2026-04-21T01:23:45.000Z',
+      }),
+      expect.any(Object),
+      expect.objectContaining({
+        id: 51,
+      }),
+    );
+    expect(recordPublishFailure).not.toHaveBeenCalled();
+  });
+
   it('retries transient x publisher failures through the publish route and persists the final published contract', async () => {
     process.env.X_ACCESS_TOKEN = 'x-access-token';
 

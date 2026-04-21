@@ -296,6 +296,7 @@ export function createPublishRouter(dependencies: PublishRouteDependencies) {
   publishRouter.post('/:id/publish', async (request, response, next) => {
     const id = Number(request.params.id);
     let draft: PublishableDraft | undefined;
+    let contract: PublishContract | undefined;
 
     if (!Number.isInteger(id) || id <= 0) {
       response.status(400).json({ error: 'invalid draft id' });
@@ -314,9 +315,7 @@ export function createPublishRouter(dependencies: PublishRouteDependencies) {
       }
 
       const publishResult = await publishDraft(draft, request);
-      const contract = createPublishContract(draft, publishResult);
-      await persistPublishResult(id, contract, request, draft);
-      response.json(contract);
+      contract = createPublishContract(draft, publishResult);
     } catch (error) {
       await recordPublishFailure(id, error, request, draft);
 
@@ -326,7 +325,17 @@ export function createPublishRouter(dependencies: PublishRouteDependencies) {
       }
 
       next(error);
+      return;
     }
+
+    try {
+      await persistPublishResult(id, contract, request, draft);
+    } catch (error) {
+      next(error);
+      return;
+    }
+
+    response.json(contract);
   });
 
   return publishRouter;

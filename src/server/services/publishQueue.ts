@@ -29,37 +29,10 @@ export function createPublishJobHandler(): JobHandler {
       throw new Error(`draft ${draftId} not found`);
     }
 
+    let result;
     try {
-      const result = await publishDraft(toPublishableDraft(draft));
-      const publishedAt =
-        result.status === 'published'
-          ? result.publishedAt && result.publishedAt.trim()
-            ? result.publishedAt
-            : new Date().toISOString()
-          : null;
-
-      publishLogStore.create({
-        draftId,
-        projectId: draft.projectId,
-        status: result.status,
-        publishUrl: result.publishUrl,
-        message: result.message,
-      });
-
-      draftStore.update(draftId, {
-        status: getDraftStatusForPublishStatus(result.status),
-        scheduledAt: null,
-        publishedAt,
-      });
-
-      if (result.status === 'failed') {
-        throw new PublishJobResultError(result.message);
-      }
+      result = await publishDraft(toPublishableDraft(draft));
     } catch (error) {
-      if (error instanceof PublishJobResultError) {
-        throw error;
-      }
-
       draftStore.update(draftId, {
         status: 'failed',
         scheduledAt: null,
@@ -74,6 +47,31 @@ export function createPublishJobHandler(): JobHandler {
       });
 
       throw error;
+    }
+
+    const publishedAt =
+      result.status === 'published'
+        ? result.publishedAt && result.publishedAt.trim()
+          ? result.publishedAt
+          : new Date().toISOString()
+        : null;
+
+    publishLogStore.create({
+      draftId,
+      projectId: draft.projectId,
+      status: result.status,
+      publishUrl: result.publishUrl,
+      message: result.message,
+    });
+
+    draftStore.update(draftId, {
+      status: getDraftStatusForPublishStatus(result.status),
+      scheduledAt: null,
+      publishedAt,
+    });
+
+    if (result.status === 'failed') {
+      throw new PublishJobResultError(result.message);
     }
   };
 }
