@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { apiRequest } from '../lib/api';
 import type { AsyncState } from '../hooks/useAsyncRequest';
 import { useAsyncAction, useAsyncQuery } from '../hooks/useAsyncRequest';
@@ -125,6 +125,7 @@ export function SystemQueuePage({
   const displayMutationState = mutationStateOverride ?? mutationState;
   const [enqueueType, setEnqueueType] = useState('monitor_fetch');
   const [enqueueRunAt, setEnqueueRunAt] = useState('');
+  const enqueueTypeFieldRef = useRef<HTMLInputElement | null>(null);
 
   const fallbackData: SystemQueueResponse = {
     jobs: [],
@@ -188,6 +189,10 @@ export function SystemQueuePage({
       .catch(() => undefined);
   }
 
+  function handleFocusEnqueueForm() {
+    enqueueTypeFieldRef.current?.focus();
+  }
+
   return (
     <section>
       <PageHeader
@@ -197,11 +202,7 @@ export function SystemQueuePage({
         actions={
           <>
             <ActionButton label="刷新队列" onClick={reload} />
-            <ActionButton
-              label={displayMutationState.status === 'loading' ? '正在提交队列动作...' : '创建作业'}
-              tone="primary"
-              onClick={handleEnqueue}
-            />
+            <ActionButton label="前往创建表单" tone="primary" onClick={handleFocusEnqueueForm} />
           </>
         }
       />
@@ -229,6 +230,7 @@ export function SystemQueuePage({
                 <label style={{ display: 'grid', gap: '8px' }}>
                   <span style={{ fontWeight: 700 }}>作业类型</span>
                   <input
+                    ref={enqueueTypeFieldRef}
                     data-system-queue-field="type"
                     value={enqueueType}
                     onChange={(event) => setEnqueueType(event.target.value)}

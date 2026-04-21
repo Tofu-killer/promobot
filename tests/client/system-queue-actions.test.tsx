@@ -1,6 +1,7 @@
-import { createElement } from 'react';
+import { act, createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { collectText, findElement, flush, installMinimalDom } from './settings-test-helpers';
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -237,11 +238,74 @@ describe('System Queue actions', () => {
 
     expect(html).toContain('System Queue');
     expect(html).toContain('Pending Jobs');
+    expect(html).toContain('前往创建表单');
     expect(html).toContain('创建作业');
     expect(html).toContain('队列作业');
     expect(html).toContain('#11 · publish');
     expect(html).toContain('lastError: boom');
     expect(html).toContain('重试');
+  });
+
+  it('focuses the create-job form from the header CTA without enqueueing immediately', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { SystemQueuePage } = await import('../../src/client/pages/SystemQueue');
+
+    const loadSystemQueueAction = vi.fn().mockResolvedValue({
+      jobs: [],
+      queue: {
+        pending: 0,
+        running: 0,
+        failed: 0,
+        duePending: 0,
+      },
+      recentJobs: [],
+    });
+    const enqueueSystemQueueJobAction = vi.fn().mockResolvedValue({
+      job: {
+        id: 13,
+        type: 'monitor_fetch',
+        status: 'pending',
+        runAt: '2026-04-20T09:00',
+        attempts: 0,
+      },
+      runtime: { available: true },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(SystemQueuePage as never, {
+          loadSystemQueueAction,
+          enqueueSystemQueueJobAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const headerCreateButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('前往创建表单'),
+    );
+    const typeField = findElement(container, (element) => element.getAttribute('data-system-queue-field') === 'type');
+
+    expect(headerCreateButton).not.toBeNull();
+    expect(typeField).not.toBeNull();
+    expect(document.activeElement).not.toBe(typeField);
+
+    await act(async () => {
+      headerCreateButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(enqueueSystemQueueJobAction).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(typeField);
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
   });
 
   it('renders the create-job runAt field as blank by default', async () => {
