@@ -2033,6 +2033,7 @@ describe('channel accounts api', () => {
           expect.objectContaining({
             id: 1,
             latestBrowserHandoffArtifact: {
+              ownership: 'unmatched',
               platform: 'facebookGroup',
               draftId: '22',
               title: 'Stale handoff',
@@ -2233,6 +2234,7 @@ describe('channel accounts api', () => {
           expect.objectContaining({
             id: 2,
             latestBrowserHandoffArtifact: expect.objectContaining({
+              ownership: 'direct',
               channelAccountId: 2,
               draftId: '24',
             }),
@@ -2316,6 +2318,7 @@ describe('channel accounts api', () => {
           expect.objectContaining({
             id: 2,
             latestBrowserHandoffArtifact: expect.objectContaining({
+              ownership: 'draft_project',
               channelAccountId: 2,
               draftId: '1',
             }),

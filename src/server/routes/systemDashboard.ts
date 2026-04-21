@@ -62,6 +62,7 @@ systemDashboardRouter.get('/dashboard', (request, response) => {
   const pendingBrowserHandoffs = browserHandoffs.filter((handoff) => handoff.status === 'pending').length;
   const resolvedBrowserHandoffs = browserHandoffs.filter((handoff) => handoff.status === 'resolved').length;
   const obsoleteBrowserHandoffs = browserHandoffs.filter((handoff) => handoff.status === 'obsolete').length;
+  const unmatchedBrowserHandoffs = browserHandoffs.filter((handoff) => handoff.ownership === 'unmatched').length;
 
   response.json({
     monitor: {
@@ -113,6 +114,7 @@ systemDashboardRouter.get('/dashboard', (request, response) => {
       pending: pendingBrowserHandoffs,
       resolved: resolvedBrowserHandoffs,
       obsolete: obsoleteBrowserHandoffs,
+      unmatched: unmatchedBrowserHandoffs,
     },
     jobQueue: jobQueueStats,
   });

@@ -141,6 +141,7 @@ describe('dashboard api', () => {
           pending: 0,
           resolved: 0,
           obsolete: 0,
+          unmatched: 0,
         },
         jobQueue: {
           pending: 0,
@@ -224,6 +225,7 @@ describe('dashboard api', () => {
           pending: 0,
           resolved: 0,
           obsolete: 0,
+          unmatched: 0,
         },
         jobQueue: {
           pending: 0,

@@ -270,6 +270,7 @@ describe('dashboard metrics api', () => {
           pending: 1,
           resolved: 0,
           obsolete: 1,
+          unmatched: 2,
         },
         monitorConfig: {
           directFeeds: 1,
@@ -477,6 +478,7 @@ describe('dashboard metrics api', () => {
           pending: 0,
           resolved: 0,
           obsolete: 0,
+          unmatched: 0,
         },
         jobQueue: {
           pending: 1,

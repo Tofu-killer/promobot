@@ -47,6 +47,7 @@ export interface DashboardResponse {
     pending: number;
     resolved: number;
     obsolete: number;
+    unmatched: number;
   };
   jobQueue?: {
     pending: number;
@@ -248,6 +249,11 @@ export function DashboardPage({
               label="Browser Handoff 已作废"
               value={formatOptionalMetricValue(browserHandoffMetrics?.obsolete)}
               detail="因 session 缺失或过期而作废的 handoff 数量"
+            />
+            <StatCard
+              label="Browser Handoff 未归属"
+              value={formatOptionalMetricValue(browserHandoffMetrics?.unmatched)}
+              detail="缺少明确账号归属、仍依赖历史推断或未匹配的 handoff 数量"
             />
             <StatCard
               label="待发布"
