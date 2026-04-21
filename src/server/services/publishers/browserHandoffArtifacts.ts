@@ -2,8 +2,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { getDatabasePath } from '../../lib/persistence.js';
+import { createChannelAccountStore } from '../../store/channelAccounts.js';
+import { createSQLiteDraftStore } from '../../store/drafts.js';
 import type { SessionSummary } from '../browser/sessionStore.js';
 import type { PublishRequest, PublisherPlatform } from './types.js';
+
+const channelAccountStore = createChannelAccountStore();
+const draftStore = createSQLiteDraftStore();
 
 type BrowserHandoffArtifactStatus = 'pending' | 'resolved' | 'obsolete';
 
@@ -196,9 +201,14 @@ export function listBrowserHandoffArtifacts(limit?: number): BrowserHandoffArtif
           continue;
         }
 
+        const inferredChannelAccountId =
+          typeof artifact.channelAccountId === 'number'
+            ? artifact.channelAccountId
+            : inferChannelAccountIdFromDraft(artifact);
+
         artifacts.push({
-          ...(typeof artifact.channelAccountId === 'number'
-            ? { channelAccountId: artifact.channelAccountId }
+          ...(typeof inferredChannelAccountId === 'number'
+            ? { channelAccountId: inferredChannelAccountId }
             : {}),
           platform: artifact.platform,
           draftId: artifact.draftId,
@@ -337,4 +347,27 @@ function readBrowserHandoffArtifact(absolutePath: string): BrowserHandoffArtifac
 
 function normalizeBrowserHandoffPlatform(platform: string) {
   return platform === 'facebook-group' ? 'facebookGroup' : platform;
+}
+
+function inferChannelAccountIdFromDraft(artifact: BrowserHandoffArtifactRecord) {
+  const draftId = Number(artifact.draftId);
+  if (!Number.isInteger(draftId) || draftId <= 0) {
+    return undefined;
+  }
+
+  const draft = draftStore.getById(draftId);
+  if (!draft || typeof draft.projectId !== 'number') {
+    return undefined;
+  }
+
+  const matches = channelAccountStore
+    .list()
+    .filter(
+      (channelAccount) =>
+        channelAccount.projectId === draft.projectId &&
+        normalizeBrowserHandoffPlatform(channelAccount.platform) === artifact.platform &&
+        channelAccount.accountKey === artifact.accountKey,
+    );
+
+  return matches.length === 1 ? matches[0]?.id : undefined;
 }

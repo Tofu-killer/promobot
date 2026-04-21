@@ -4,6 +4,7 @@ import path from 'node:path';
 import express from 'express';
 import { describe, expect, it } from 'vitest';
 import { channelAccountsRouter } from '../../src/server/routes/channelAccounts';
+import { createSQLiteDraftStore } from '../../src/server/store/drafts';
 import { createJobQueueStore } from '../../src/server/store/jobQueue';
 import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
 
@@ -2234,6 +2235,89 @@ describe('channel accounts api', () => {
             latestBrowserHandoffArtifact: expect.objectContaining({
               channelAccountId: 2,
               draftId: '24',
+            }),
+          }),
+        ],
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('infers browser handoff ownership from draft projectId when channelAccountId is missing', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        projectId: 11,
+        platform: 'facebookGroup',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB Group 11',
+        authType: 'browser',
+        status: 'healthy',
+      });
+      await requestApp('POST', '/api/channel-accounts', {
+        projectId: 22,
+        platform: 'facebookGroup',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB Group 22',
+        authType: 'browser',
+        status: 'healthy',
+      });
+      const draftStore = createSQLiteDraftStore();
+      draftStore.create({
+        projectId: 22,
+        platform: 'facebook-group',
+        title: 'Scoped handoff draft',
+        content: 'Need handoff',
+        status: 'review',
+      });
+
+      const handoffDir = path.join(
+        rootDir,
+        'artifacts',
+        'browser-handoffs',
+        'facebookGroup',
+        'launch-campaign',
+      );
+      mkdirSync(handoffDir, { recursive: true });
+      writeFileSync(
+        path.join(handoffDir, 'facebookGroup-draft-1.json'),
+        JSON.stringify({
+          type: 'browser_manual_handoff',
+          status: 'pending',
+          platform: 'facebookGroup',
+          draftId: '1',
+          title: 'Scoped handoff draft',
+          content: 'Need handoff',
+          target: 'group-123',
+          accountKey: 'launch-campaign',
+          session: {
+            hasSession: true,
+            id: 'facebookGroup:launch-campaign',
+            status: 'active',
+            validatedAt: '2026-04-21T10:30:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
+          },
+          createdAt: '2026-04-21T10:30:00.000Z',
+          updatedAt: '2026-04-21T10:30:00.000Z',
+          resolvedAt: null,
+          resolution: null,
+        }),
+      );
+
+      const listedResponse = await requestApp('GET', '/api/channel-accounts');
+      expect(listedResponse.status).toBe(200);
+      expect(JSON.parse(listedResponse.body)).toEqual({
+        channelAccounts: [
+          expect.objectContaining({
+            id: 1,
+            latestBrowserHandoffArtifact: null,
+          }),
+          expect.objectContaining({
+            id: 2,
+            latestBrowserHandoffArtifact: expect.objectContaining({
+              channelAccountId: 2,
+              draftId: '1',
             }),
           }),
         ],
