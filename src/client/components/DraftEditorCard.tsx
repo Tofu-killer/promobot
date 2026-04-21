@@ -27,13 +27,29 @@ const fieldStyle = {
 } as const;
 
 const editableDraftStatusOptions: DraftStatus[] = ['draft', 'review', 'approved'];
-const manualHandoffPlatforms = new Set(['facebook-group', 'facebookGroup', 'xiaohongshu', 'weibo', 'blog']);
+const manualHandoffPlatforms = new Set(['facebook-group', 'facebookGroup', 'xiaohongshu', 'weibo']);
 
 function isEditableDraftStatus(status: DraftStatus) {
   return editableDraftStatusOptions.includes(status);
 }
 
 function renderFeedback(state: DraftMutationState, successPrefix: string) {
+  const browserHandoff =
+    state.contractDetails &&
+    typeof state.contractDetails === 'object' &&
+    !Array.isArray(state.contractDetails) &&
+    typeof state.contractDetails.browserHandoff === 'object' &&
+    state.contractDetails.browserHandoff !== null &&
+    !Array.isArray(state.contractDetails.browserHandoff)
+      ? (state.contractDetails.browserHandoff as Record<string, unknown>)
+      : null;
+  const handoffReadiness =
+    typeof browserHandoff?.readiness === 'string' ? browserHandoff.readiness : null;
+  const handoffSessionAction =
+    typeof browserHandoff?.sessionAction === 'string' ? browserHandoff.sessionAction : null;
+  const handoffArtifactPath =
+    typeof browserHandoff?.artifactPath === 'string' ? browserHandoff.artifactPath : null;
+
   if (state.status === 'loading') {
     return <p style={{ margin: 0, color: '#334155' }}>处理中...</p>;
   }
@@ -42,6 +58,12 @@ function renderFeedback(state: DraftMutationState, successPrefix: string) {
     return (
       <div style={{ display: 'grid', gap: '4px', color: '#166534' }}>
         <p style={{ margin: 0 }}>{state.message}</p>
+        {state.contractMessage && state.contractMessage !== state.message ? (
+          <p style={{ margin: 0 }}>回执消息：{state.contractMessage}</p>
+        ) : null}
+        {handoffReadiness ? <p style={{ margin: 0 }}>Handoff 状态：{handoffReadiness}</p> : null}
+        {handoffSessionAction ? <p style={{ margin: 0 }}>Handoff 动作：{handoffSessionAction}</p> : null}
+        {handoffArtifactPath ? <p style={{ margin: 0 }}>Handoff 路径：{handoffArtifactPath}</p> : null}
         {state.publishUrl ? (
           <a href={state.publishUrl} style={{ color: '#166534' }}>
             {successPrefix}

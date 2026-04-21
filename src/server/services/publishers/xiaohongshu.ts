@@ -1,7 +1,3 @@
-import { createStubPublisher } from './stub.js';
+import { createBrowserHandoffPublisher } from './browserHandoff.js';
 
-export const publishToXiaohongshu = createStubPublisher({
-  platform: 'xiaohongshu',
-  mode: 'browser',
-  status: 'manual_required',
-});
+export const publishToXiaohongshu = createBrowserHandoffPublisher('xiaohongshu');

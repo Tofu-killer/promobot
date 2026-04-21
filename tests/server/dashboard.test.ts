@@ -125,6 +125,23 @@ describe('dashboard api', () => {
           items: 2,
           followUps: 1,
         },
+        monitorConfig: {
+          directFeeds: 0,
+          directQueries: 0,
+          enabledSourceConfigs: 0,
+          totalInputs: 0,
+        },
+        browserLaneRequests: {
+          total: 0,
+          pending: 0,
+          resolved: 0,
+        },
+        browserHandoffs: {
+          total: 0,
+          pending: 0,
+          resolved: 0,
+          obsolete: 0,
+        },
         jobQueue: {
           pending: 0,
           running: 0,
@@ -190,6 +207,23 @@ describe('dashboard api', () => {
         totals: {
           items: 2,
           followUps: 1,
+        },
+        monitorConfig: {
+          directFeeds: 0,
+          directQueries: 0,
+          enabledSourceConfigs: 0,
+          totalInputs: 0,
+        },
+        browserLaneRequests: {
+          total: 0,
+          pending: 0,
+          resolved: 0,
+        },
+        browserHandoffs: {
+          total: 0,
+          pending: 0,
+          resolved: 0,
+          obsolete: 0,
         },
         jobQueue: {
           pending: 0,

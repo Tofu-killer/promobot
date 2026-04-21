@@ -16,6 +16,27 @@ export interface ChannelAccountRecord {
   status: string;
   metadata: Record<string, unknown>;
   session?: ChannelAccountSessionSummary;
+  latestBrowserLaneArtifact?: {
+    action: 'request_session' | 'relogin';
+    jobStatus: string;
+    requestedAt: string;
+    artifactPath: string;
+    resolvedAt: string | null;
+    resolution?: unknown;
+  };
+  latestBrowserHandoffArtifact?: {
+    channelAccountId?: number;
+    platform: string;
+    draftId: string;
+    title: string | null;
+    accountKey: string;
+    status: string;
+    artifactPath: string;
+    createdAt: string;
+    updatedAt: string;
+    resolvedAt: string | null;
+    resolution?: unknown;
+  };
   readiness?: Record<string, unknown>;
   publishReadiness?: Record<string, unknown>;
   createdAt: string;
@@ -67,7 +88,8 @@ export interface UpdateChannelAccountResponse {
 }
 
 export interface SaveChannelAccountSessionPayload {
-  storageStatePath: string;
+  storageStatePath?: string;
+  storageState?: Record<string, unknown>;
   status?: 'active' | 'expired' | 'missing';
   validatedAt?: string | null;
   notes?: string;
@@ -92,6 +114,9 @@ export interface RequestChannelAccountSessionActionResponse {
     requestedAt: string;
     message: string;
     nextStep: string;
+    jobId?: number;
+    jobStatus?: string;
+    artifactPath?: string | null;
   };
   channelAccount: ChannelAccountRecord;
 }
@@ -192,6 +217,7 @@ interface EditFormValue {
   status: string;
   metadata: string;
   sessionStorageStatePath: string;
+  sessionStorageStateJson: string;
   sessionStatus: string;
   sessionValidatedAt: string;
   sessionNotes: string;
@@ -269,9 +295,9 @@ const createPlatformOptions = [
   { value: 'x', label: 'X / Twitter（首发可用）' },
   { value: 'reddit', label: 'Reddit（首发可用）' },
   { value: 'facebookGroup', label: 'Facebook Group（人工接管）' },
-  { value: 'xiaohongshu', label: '小红书（暂缓首发）' },
-  { value: 'weibo', label: '微博（暂缓首发）' },
-  { value: 'blog', label: 'Blog（暂缓首发）' },
+  { value: 'xiaohongshu', label: '小红书（人工接管）' },
+  { value: 'weibo', label: '微博（人工接管）' },
+  { value: 'blog', label: 'Blog（本地文件发布）' },
 ] as const;
 
 const createPlatformDefaults: Record<
@@ -344,6 +370,41 @@ function parseMetadataInput(value: string): Record<string, unknown> {
       }
       return accumulator;
     }, {});
+}
+
+function parseStorageStateJsonInput(value: string): Record<string, unknown> | undefined {
+  const trimmedValue = value.trim();
+  if (!trimmedValue) {
+    return undefined;
+  }
+
+  let parsedValue: unknown;
+  try {
+    parsedValue = JSON.parse(trimmedValue);
+  } catch {
+    throw new Error('storage state JSON 必须是合法 JSON');
+  }
+
+  if (!isPlainObject(parsedValue)) {
+    throw new Error('storage state JSON 必须是 JSON 对象');
+  }
+
+  return parsedValue;
+}
+
+function buildEditFormValue(account: ChannelAccountRecord): EditFormValue {
+  const session = getSessionSummary(account);
+
+  return {
+    displayName: account.displayName,
+    status: account.status,
+    metadata: serializeMetadata(account.metadata),
+    sessionStorageStatePath: session.storageStatePath ?? '',
+    sessionStorageStateJson: '',
+    sessionStatus: session.status === 'missing' ? 'active' : session.status,
+    sessionValidatedAt: session.validatedAt ?? '',
+    sessionNotes: session.notes ?? '',
+  };
 }
 
 function formatReadinessValue(value: unknown) {
@@ -428,6 +489,7 @@ export function ChannelAccountsPage({
   const [actionTargetAccountId, setActionTargetAccountId] = useState<string>('');
   const [editingAccountId, setEditingAccountId] = useState<number | null>(null);
   const [editFormById, setEditFormById] = useState<Record<number, EditFormValue>>({});
+  const [sessionFormErrorById, setSessionFormErrorById] = useState<Record<number, string>>({});
   const { state: createState, run: createChannelAccount } = useAsyncAction(createChannelAccountAction);
   const { state: updateState, run: updateAccount } = useAsyncAction(
     ({ accountId, input }: { accountId: number; input: UpdateChannelAccountPayload }) =>
@@ -527,6 +589,8 @@ export function ChannelAccountsPage({
     displayTestConnectionState.status === 'success' && displayTestConnectionState.data
       ? describeConnectionTestFeedback(displayTestConnectionState.data, testedAccount)
       : null;
+  const editingSessionFormError =
+    editingAccountId !== null ? sessionFormErrorById[editingAccountId] ?? null : null;
 
   function handleCreateChannelAccount() {
     const parsedMetadata = parseMetadataInput(metadata);
@@ -560,16 +624,7 @@ export function ChannelAccountsPage({
   }
 
   function getEditFormValue(account: ChannelAccountRecord): EditFormValue {
-    const session = getSessionSummary(account);
-    return editFormById[account.id] ?? {
-      displayName: account.displayName,
-      status: account.status,
-      metadata: serializeMetadata(account.metadata),
-      sessionStorageStatePath: session.storageStatePath ?? '',
-      sessionStatus: session.status === 'missing' ? 'active' : session.status,
-      sessionValidatedAt: session.validatedAt ?? '',
-      sessionNotes: session.notes ?? '',
-    };
+    return editFormById[account.id] ?? buildEditFormValue(account);
   }
 
   function updateEditFormValue(accountId: number, patch: Partial<EditFormValue>) {
@@ -581,14 +636,18 @@ export function ChannelAccountsPage({
     setEditFormById((current) => ({
       ...current,
       [accountId]: {
-        ...(current[accountId] ?? {
-          displayName: account.displayName,
-          status: account.status,
-          metadata: serializeMetadata(account.metadata),
-        }),
+        ...(current[accountId] ?? buildEditFormValue(account)),
         ...patch,
       },
     }));
+    setSessionFormErrorById((current) => {
+      if (!(accountId in current)) {
+        return current;
+      }
+
+      const { [accountId]: _removed, ...rest } = current;
+      return rest;
+    });
   }
 
   function handleStartEditing(accountId: number) {
@@ -624,11 +683,35 @@ export function ChannelAccountsPage({
     }
 
     const formValue = getEditFormValue(account);
+    let parsedStorageState: Record<string, unknown> | undefined;
+
+    try {
+      parsedStorageState = parseStorageStateJsonInput(formValue.sessionStorageStateJson);
+      setSessionFormErrorById((current) => {
+        if (!(accountId in current)) {
+          return current;
+        }
+
+        const { [accountId]: _removed, ...rest } = current;
+        return rest;
+      });
+    } catch (error) {
+      setSessionFormErrorById((current) => ({
+        ...current,
+        [accountId]: error instanceof Error ? error.message : 'storage state JSON 解析失败',
+      }));
+      return;
+    }
 
     void saveSession({
       accountId,
       input: {
-        storageStatePath: formValue.sessionStorageStatePath,
+        ...(parsedStorageState
+          ? {}
+          : formValue.sessionStorageStatePath.trim()
+            ? { storageStatePath: formValue.sessionStorageStatePath.trim() }
+            : {}),
+        storageState: parsedStorageState,
         status: normalizeSessionStatus(formValue.sessionStatus),
         validatedAt: formValue.sessionValidatedAt.trim() ? formValue.sessionValidatedAt.trim() : null,
         notes: formValue.sessionNotes.trim() ? formValue.sessionNotes.trim() : undefined,
@@ -698,7 +781,7 @@ export function ChannelAccountsPage({
         <SectionCard title="创建账号" description="填写最小必需信息后提交到 `/api/channel-accounts`。默认值按首发路径保守预置，创建后再测试连接。">
           <div style={{ display: 'grid', gap: '12px' }}>
             <p style={{ margin: 0, color: '#475569', lineHeight: 1.6 }}>
-              首发可用：X、Reddit。人工接管：Facebook Group。暂缓首发：小红书、微博、Blog。
+              首发可用：X、Reddit、Blog（本地文件）。人工接管：Facebook Group、小红书、微博。
             </p>
 
             <label style={{ display: 'grid', gap: '8px' }}>
@@ -909,6 +992,42 @@ export function ChannelAccountsPage({
                           {session.notes ? (
                             <div>Session 备注：{session.notes}</div>
                           ) : null}
+                          {account.latestBrowserLaneArtifact ? (
+                            <>
+                              <div>
+                                最近工单：{getSessionActionLabelFromAction(account.latestBrowserLaneArtifact.action)}
+                              </div>
+                              <div>工单状态：{account.latestBrowserLaneArtifact.jobStatus}</div>
+                              <div>工单时间：{account.latestBrowserLaneArtifact.requestedAt}</div>
+                              <div>工单结单：{account.latestBrowserLaneArtifact.resolvedAt ?? '未结单'}</div>
+                              <div>工单路径：{account.latestBrowserLaneArtifact.artifactPath}</div>
+                            </>
+                          ) : null}
+                          {account.latestBrowserHandoffArtifact ? (
+                            <>
+                              <div>
+                                最近 Handoff：draft #{account.latestBrowserHandoffArtifact.draftId} ·{' '}
+                                {account.latestBrowserHandoffArtifact.status}
+                              </div>
+                              <div>
+                                Handoff 标题：{account.latestBrowserHandoffArtifact.title ?? '未提供'}
+                              </div>
+                              <div>Handoff 时间：{account.latestBrowserHandoffArtifact.updatedAt}</div>
+                              <div>
+                                Handoff 结单：
+                                {account.latestBrowserHandoffArtifact.resolvedAt ?? '未结单'}
+                              </div>
+                              {readStatusValue(account.latestBrowserHandoffArtifact.resolution) ? (
+                                <div>
+                                  Handoff 结果：
+                                  {readStatusValue(account.latestBrowserHandoffArtifact.resolution)}
+                                </div>
+                              ) : null}
+                              <div>
+                                Handoff 路径：{account.latestBrowserHandoffArtifact.artifactPath}
+                              </div>
+                            </>
+                          ) : null}
                           <div>
                             发布就绪：{formatReadinessStatus(account.publishReadiness?.status)}
                           </div>
@@ -990,6 +1109,21 @@ export function ChannelAccountsPage({
                                 })
                               }
                               style={fieldStyle}
+                            />
+                            <textarea
+                              data-edit-session-storage-state-json-id={String(account.id)}
+                              value={editForm.sessionStorageStateJson ?? ''}
+                              onChange={(event) =>
+                                updateEditFormValue(account.id, {
+                                  sessionStorageStateJson: event.target.value,
+                                })
+                              }
+                              placeholder="直接粘贴 Playwright storageState JSON；旧的 Storage Path 字段仍可继续手填。"
+                              style={{
+                                ...fieldStyle,
+                                minHeight: '140px',
+                                resize: 'vertical',
+                              }}
                             />
                             <input
                               data-edit-session-status-id={String(account.id)}
@@ -1080,6 +1214,9 @@ export function ChannelAccountsPage({
           {displaySaveSessionState.status === 'loading' ? (
             <p style={{ marginTop: '12px', color: '#334155' }}>正在保存 Session...</p>
           ) : null}
+          {editingSessionFormError ? (
+            <p style={{ marginTop: '12px', color: '#b91c1c' }}>Session 保存失败：{editingSessionFormError}</p>
+          ) : null}
           {displaySaveSessionState.status === 'success' ? (
             <p style={{ marginTop: '12px', color: '#166534' }}>Session 元数据已保存</p>
           ) : null}
@@ -1092,6 +1229,16 @@ export function ChannelAccountsPage({
             <div style={{ marginTop: '12px', display: 'grid', gap: '6px', color: '#334155' }}>
               <div>{getSessionActionLabelFromAction(displaySessionActionState.data.sessionAction.action)}占位已记录</div>
               <div>{displaySessionActionState.data.sessionAction.message}</div>
+              <div>请求时间：{displaySessionActionState.data.sessionAction.requestedAt}</div>
+              <div>
+                工单状态：
+                {displaySessionActionState.data.sessionAction.jobStatus ??
+                  displaySessionActionState.data.sessionAction.status}
+              </div>
+              <div>下一步：{displaySessionActionState.data.sessionAction.nextStep}</div>
+              {displaySessionActionState.data.sessionAction.artifactPath ? (
+                <div>Artifact Path：{displaySessionActionState.data.sessionAction.artifactPath}</div>
+              ) : null}
             </div>
           ) : null}
           {displaySessionActionState.status === 'error' ? (
@@ -1152,7 +1299,8 @@ export function ChannelAccountsPage({
             <div>每个账号卡片都会显式显示 Session 是否存在、当前状态、最近验证时间和 Storage Path。</div>
             <div>
               “请求登录 / 重新登录”只会记录一个占位动作，仍需手动登录并保存 Session 元数据；“编辑
-              Session 元数据”用于展开表单，“保存 Session 元数据”才会真正提交 storage path、状态、验证时间和备注。
+              Session 元数据”用于展开表单，“保存 Session 元数据”才会真正提交 storage path 或 storage
+              state JSON、状态、验证时间和备注。
             </div>
             <div>如果服务端返回 404 或 500，这里不会吞掉错误，而是直接在页面中显示。</div>
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
@@ -1522,6 +1670,12 @@ function readObjectValue(value: unknown): Record<string, unknown> | undefined {
 
 function readTextValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function readStatusValue(value: unknown): string | undefined {
+  return typeof readObjectValue(value)?.status === 'string'
+    ? (readObjectValue(value)?.status as string)
+    : undefined;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

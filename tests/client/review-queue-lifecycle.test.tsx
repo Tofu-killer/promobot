@@ -1039,6 +1039,14 @@ describe('Review Queue lifecycle actions', () => {
       status: 'manual_required',
       publishUrl: null,
       message: 'facebookGroup draft 31 is ready for manual browser handoff with the saved session.',
+      details: {
+        browserHandoff: {
+          readiness: 'ready',
+          sessionAction: null,
+          artifactPath:
+            'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-31.json',
+        },
+      },
     });
 
     const root = createRoot(container as never);
@@ -1066,15 +1074,19 @@ describe('Review Queue lifecycle actions', () => {
     });
 
     expect(publishReviewDraftAction).toHaveBeenCalledWith(31);
-    expect(collectText(container)).toContain('已转入人工接管：Community handoff');
+    expect(collectText(container)).toContain('已生成人工接管回执：Community handoff');
     expect(collectText(container)).toContain('回执状态：人工接管');
     expect(collectText(container)).toContain('回执消息：facebookGroup draft 31 is ready for manual browser handoff with the saved session.');
+    expect(collectText(container)).toContain('Handoff 状态：ready');
+    expect(collectText(container)).toContain(
+      'Handoff 路径：artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-31.json',
+    );
+    expect(collectText(container)).toContain('Community handoff');
     expect(
       Boolean(
         findElement(container, (element) => element.tagName === 'BUTTON' && element.getAttribute('data-review-publish-id') === '31'),
       ),
-    ).toBe(false);
-    expect(collectText(container)).toContain('暂无待审核草稿');
+    ).toBe(true);
 
     await act(async () => {
       root.unmount();

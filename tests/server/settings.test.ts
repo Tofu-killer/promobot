@@ -1,3 +1,5 @@
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createApp } from '../../src/server/app';
 import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
@@ -107,7 +109,7 @@ describe('settings api', () => {
       process.env.REDDIT_PASSWORD = 'reddit-pass';
 
       const updated = await requestApp('PATCH', '/api/settings', {
-        allowlist: ['127.0.0.1', '10.0.0.24'],
+        allowlist: ['127.0.0.1', '10.0.0.0/24'],
         schedulerIntervalMinutes: 30,
         rssDefaults: ['OpenAI blog', 'Anthropic news'],
         monitorRssFeeds: ['https://openai.com/blog/rss.xml', 'https://example.com/feed.xml'],
@@ -123,7 +125,7 @@ describe('settings api', () => {
       expect(loaded.status).toBe(200);
       expect(JSON.parse(loaded.body)).toEqual({
         settings: expect.objectContaining({
-          allowlist: ['127.0.0.1', '10.0.0.24'],
+          allowlist: ['127.0.0.1', '10.0.0.0/24'],
           schedulerIntervalMinutes: 30,
           rssDefaults: ['OpenAI blog', 'Anthropic news'],
           monitorRssFeeds: ['https://openai.com/blog/rss.xml', 'https://example.com/feed.xml'],
@@ -144,6 +146,16 @@ describe('settings api', () => {
           }),
           expect.objectContaining({
             platform: 'facebookGroup',
+            ready: false,
+            status: 'needs_session',
+          }),
+          expect.objectContaining({
+            platform: 'xiaohongshu',
+            ready: false,
+            status: 'needs_session',
+          }),
+          expect.objectContaining({
+            platform: 'weibo',
             ready: false,
             status: 'needs_session',
           }),
@@ -211,11 +223,11 @@ describe('settings api', () => {
     }
   });
 
-  it('rejects invalid allowlist entries that are not exact IPs or wildcard', async () => {
+  it('rejects invalid allowlist entries when CIDR syntax is malformed', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
       const response = await requestApp('PATCH', '/api/settings', {
-        allowlist: ['127.0.0.1', '10.0.0.0/24'],
+        allowlist: ['127.0.0.1', '10.0.0.0/33'],
       });
 
       expect(response.status).toBe(400);
@@ -352,6 +364,10 @@ describe('settings api', () => {
         status: 'unknown',
       });
 
+      const storageStatePath = path.join(rootDir, 'artifacts', 'browser-sessions', 'facebook-group.json');
+      mkdirSync(path.dirname(storageStatePath), { recursive: true });
+      writeFileSync(storageStatePath, JSON.stringify({ cookies: [], origins: [] }, null, 2));
+
       await requestApp('POST', '/api/channel-accounts/1/session', {
         storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
         status: 'expired',
@@ -370,6 +386,185 @@ describe('settings api', () => {
             mode: 'browser',
             status: 'needs_relogin',
             message: '已有 Facebook Group 浏览器 session，但需要重新登录刷新。',
+            action: 'relogin',
+          }),
+        ]),
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('reports facebookGroup readiness as needs_session when the saved storage state file is missing', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'facebookGroup',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB Group',
+        authType: 'browser',
+        status: 'unknown',
+      });
+
+      await requestApp('POST', '/api/channel-accounts/1/session', {
+        storageState: {
+          cookies: [],
+          origins: [],
+        },
+        status: 'active',
+        validatedAt: '2026-04-19T12:34:56.000Z',
+      });
+
+      rmSync(path.join(rootDir, 'browser-sessions', 'managed', 'facebookGroup', 'launch-campaign.json'));
+
+      const loaded = await requestApp('GET', '/api/settings');
+
+      expect(loaded.status).toBe(200);
+      expect(JSON.parse(loaded.body)).toEqual({
+        settings: expect.any(Object),
+        platforms: expect.arrayContaining([
+          expect.objectContaining({
+            platform: 'facebookGroup',
+            ready: false,
+            mode: 'browser',
+            status: 'needs_session',
+            message: 'Facebook Group 需要先保存浏览器 session，发布时再手动接管。',
+            action: 'request_session',
+          }),
+        ]),
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('reports xiaohongshu and weibo readiness from browser session state', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'xiaohongshu',
+        accountKey: 'brand-notes',
+        displayName: 'Brand Notes',
+        authType: 'browser',
+        status: 'unknown',
+      });
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'weibo',
+        accountKey: '@promobot',
+        displayName: 'PromoBot Weibo',
+        authType: 'browser',
+        status: 'unknown',
+      });
+
+      const xiaohongshuStorageStatePath = path.join(
+        rootDir,
+        'artifacts',
+        'browser-sessions',
+        'xiaohongshu-brand-notes.json',
+      );
+      mkdirSync(path.dirname(xiaohongshuStorageStatePath), { recursive: true });
+      writeFileSync(xiaohongshuStorageStatePath, JSON.stringify({ cookies: [], origins: [] }, null, 2));
+
+      const weiboStorageStatePath = path.join(
+        rootDir,
+        'artifacts',
+        'browser-sessions',
+        'weibo-promobot.json',
+      );
+      mkdirSync(path.dirname(weiboStorageStatePath), { recursive: true });
+      writeFileSync(weiboStorageStatePath, JSON.stringify({ cookies: [], origins: [] }, null, 2));
+
+      await requestApp('POST', '/api/channel-accounts/1/session', {
+        storageStatePath: 'artifacts/browser-sessions/xiaohongshu-brand-notes.json',
+        status: 'expired',
+        validatedAt: '2026-04-20T12:34:56.000Z',
+      });
+      await requestApp('POST', '/api/channel-accounts/2/session', {
+        storageStatePath: 'artifacts/browser-sessions/weibo-promobot.json',
+        status: 'active',
+        validatedAt: '2026-04-20T12:35:56.000Z',
+      });
+
+      const loaded = await requestApp('GET', '/api/settings');
+
+      expect(loaded.status).toBe(200);
+      expect(JSON.parse(loaded.body)).toEqual({
+        settings: expect.any(Object),
+        platforms: expect.arrayContaining([
+          expect.objectContaining({
+            platform: 'xiaohongshu',
+            ready: false,
+            mode: 'browser',
+            status: 'needs_relogin',
+            message: '已有 小红书 浏览器 session，但需要重新登录刷新。',
+            action: 'relogin',
+          }),
+          expect.objectContaining({
+            platform: 'weibo',
+            ready: true,
+            mode: 'browser',
+            status: 'ready',
+            message: '微博 已检测到 1 个可用浏览器 session。',
+          }),
+        ]),
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('reports xiaohongshu and weibo readiness from browser session state', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'xiaohongshu',
+        accountKey: 'xhs-main',
+        displayName: 'PromoBot XHS',
+        authType: 'browser',
+        status: 'unknown',
+      });
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'weibo',
+        accountKey: 'weibo-main',
+        displayName: 'PromoBot Weibo',
+        authType: 'browser',
+        status: 'unknown',
+      });
+
+      const xhsStorageStatePath = path.join(rootDir, 'artifacts', 'browser-sessions', 'xiaohongshu.json');
+      const weiboStorageStatePath = path.join(rootDir, 'artifacts', 'browser-sessions', 'weibo.json');
+      mkdirSync(path.dirname(xhsStorageStatePath), { recursive: true });
+      writeFileSync(xhsStorageStatePath, JSON.stringify({ cookies: [], origins: [] }, null, 2));
+      writeFileSync(weiboStorageStatePath, JSON.stringify({ cookies: [], origins: [] }, null, 2));
+
+      await requestApp('POST', '/api/channel-accounts/1/session', {
+        storageStatePath: 'artifacts/browser-sessions/xiaohongshu.json',
+        status: 'active',
+      });
+      await requestApp('POST', '/api/channel-accounts/2/session', {
+        storageStatePath: 'artifacts/browser-sessions/weibo.json',
+        status: 'expired',
+      });
+
+      const loaded = await requestApp('GET', '/api/settings');
+
+      expect(loaded.status).toBe(200);
+      expect(JSON.parse(loaded.body)).toEqual({
+        settings: expect.any(Object),
+        platforms: expect.arrayContaining([
+          expect.objectContaining({
+            platform: 'xiaohongshu',
+            ready: true,
+            mode: 'browser',
+            status: 'ready',
+            message: '小红书 已检测到 1 个可用浏览器 session。',
+          }),
+          expect.objectContaining({
+            platform: 'weibo',
+            ready: false,
+            mode: 'browser',
+            status: 'needs_relogin',
+            message: '已有 微博 浏览器 session，但需要重新登录刷新。',
             action: 'relogin',
           }),
         ]),

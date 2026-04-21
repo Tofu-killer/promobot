@@ -501,13 +501,22 @@ describe('client API page wiring', () => {
     expect(html).toContain('待审核');
     expect(html).toContain('Follow-up 草稿');
     expect(html).toContain('新线索');
+    expect(html).toContain('监控总条目');
+    expect(html).toContain('累计线索');
+    expect(html).toContain('累计 Follow-up');
+    expect(html).toContain('监控总输入');
     expect(html).toContain('未 handled 会话');
+    expect(html).toContain('收件箱总会话');
+    expect(html).toContain('账号总数');
     expect(html).toContain('status=healthy 账号');
+    expect(html).toContain('Browser Lane 总工单');
     expect(html).toContain('首发运营范围');
     expect(html).toContain('X、Reddit');
-    expect(html).toContain('Facebook Group（人工接管）');
+    expect(html).toContain('人工接管：Facebook Group、小红书、微博');
     expect(html).toContain('队列待执行');
+    expect(html).toContain('队列已完成');
     expect(html).toContain('到期待执行（pending 子集）');
+    expect(html).toContain('队列已取消');
     expect(html).toContain('失败发布日志');
     expect(html).toContain('项目 ID（可选）');
   });
@@ -1047,9 +1056,11 @@ describe('client API page wiring', () => {
             metadata: {},
             session: {
               hasSession: true,
+              id: 'x:acct-x',
               status: 'active',
               validatedAt: '2026-04-19T01:00:00.000Z',
               storageStatePath: 'artifacts/browser-sessions/acct-x.json',
+              notes: 'imported from headed browser',
             },
             publishReadiness: {
               platform: 'x',
@@ -1099,6 +1110,10 @@ describe('client API page wiring', () => {
       channelAccounts: Array<{
         displayName: string;
         status: string;
+        session?: {
+          id?: string;
+          notes?: string;
+        };
         publishReadiness?: {
           ready: boolean;
           mode: string;
@@ -1110,6 +1125,8 @@ describe('client API page wiring', () => {
 
     expect(fetchMock).toHaveBeenCalledWith('/api/channel-accounts', undefined);
     expect(result.channelAccounts).toHaveLength(2);
+    expect(result.channelAccounts[0]?.session?.id).toBe('x:acct-x');
+    expect(result.channelAccounts[0]?.session?.notes).toBe('imported from headed browser');
     expect(result.channelAccounts[0]?.publishReadiness?.ready).toBe(true);
     expect(result.channelAccounts[1]?.publishReadiness?.mode).toBe('api');
   });
@@ -1161,7 +1178,18 @@ describe('client API page wiring', () => {
         validatedAt?: string | null;
         notes?: string;
       },
-    ) => Promise<{ ok: boolean; session: { hasSession: boolean; status: string } }>;
+    ) => Promise<{
+      ok: boolean;
+      session: { hasSession: boolean; id?: string; status: string; notes?: string };
+      channelAccount: {
+        id: number;
+        session?: {
+          id?: string;
+          notes?: string;
+          storageStatePath?: string | null;
+        };
+      };
+    }>;
 
     const result = await saveChannelAccountSessionRequest(3, {
       storageStatePath: 'artifacts/browser-sessions/acct-x.json',
@@ -1184,7 +1212,14 @@ describe('client API page wiring', () => {
       }),
     );
     expect(result.ok).toBe(true);
+    expect(result.session.id).toBe('x:acct-x');
     expect(result.session.status).toBe('active');
+    expect(result.session.notes).toBe('manual relogin completed');
+    expect(result.channelAccount.session?.id).toBe('x:acct-x');
+    expect(result.channelAccount.session?.notes).toBe('manual relogin completed');
+    expect(result.channelAccount.session?.storageStatePath).toBe(
+      'artifacts/browser-sessions/acct-x.json',
+    );
   });
 
   it('posts request-session and relogin actions through the shared API helper', async () => {
@@ -1198,8 +1233,12 @@ describe('client API page wiring', () => {
             accountId: 3,
             status: 'pending',
             requestedAt: '2026-04-19T01:10:00.000Z',
-            message: 'Browser session capture is not wired yet.',
+            message:
+              'Browser session request queued. Complete login manually and attach session metadata after the browser lane picks up the job.',
             nextStep: '/api/channel-accounts/3/session',
+            jobId: 11,
+            jobStatus: 'pending',
+            artifactPath: 'artifacts/browser-lane-requests/x/acct-x-2/request-session-job-11.json',
           },
           channelAccount: {
             id: 3,
@@ -1228,8 +1267,12 @@ describe('client API page wiring', () => {
             accountId: 3,
             status: 'pending',
             requestedAt: '2026-04-19T01:20:00.000Z',
-            message: 'Browser relogin is not wired yet.',
+            message:
+              'Browser relogin request queued. Refresh login manually and attach updated session metadata after the browser lane picks up the job.',
             nextStep: '/api/channel-accounts/3/session',
+            jobId: 12,
+            jobStatus: 'pending',
+            artifactPath: 'artifacts/browser-lane-requests/x/acct-x-2/relogin-job-12.json',
           },
           channelAccount: {
             id: 3,
@@ -1375,9 +1418,11 @@ describe('client API page wiring', () => {
               metadata: {},
               session: {
                 hasSession: true,
+                id: 'x:acct-x',
                 status: 'active',
                 validatedAt: '2026-04-19T01:00:00.000Z',
                 storageStatePath: 'artifacts/browser-sessions/acct-x.json',
+                notes: 'imported from headed browser',
               },
               publishReadiness: {
                 platform: 'x',
@@ -1413,6 +1458,22 @@ describe('client API page wiring', () => {
               },
               createdAt: '2026-04-19T00:00:00.000Z',
               updatedAt: '2026-04-19T00:00:00.000Z',
+              latestBrowserHandoffArtifact: {
+                platform: 'reddit',
+                draftId: '31',
+                title: 'Stale handoff',
+                accountKey: 'acct-reddit',
+                status: 'obsolete',
+                artifactPath:
+                  'artifacts/browser-handoffs/reddit/acct-reddit/reddit-draft-31.json',
+                createdAt: '2026-04-19T00:20:00.000Z',
+                updatedAt: '2026-04-19T00:25:00.000Z',
+                resolvedAt: '2026-04-19T00:25:00.000Z',
+                resolution: {
+                  status: 'obsolete',
+                  reason: 'relogin',
+                },
+              },
             },
           ],
         },
@@ -1426,10 +1487,18 @@ describe('client API page wiring', () => {
     expect(html).toContain('Session 状态：active');
     expect(html).toContain('最近验证：2026-04-19T01:00:00.000Z');
     expect(html).toContain('Storage Path：artifacts/browser-sessions/acct-x.json');
+    expect(html).toContain('Session 备注：imported from headed browser');
     expect(html).toContain('发布就绪：已就绪');
     expect(html).toContain('发布方式：API');
     expect(html).toContain('建议动作：配置凭证');
     expect(html).toContain('编辑 Session 元数据');
+    expect(html).toContain('最近 Handoff：draft #31 · obsolete');
+    expect(html).toContain('Handoff 时间：2026-04-19T00:25:00.000Z');
+    expect(html).toContain('Handoff 结单：2026-04-19T00:25:00.000Z');
+    expect(html).toContain('Handoff 结果：obsolete');
+    expect(html).toContain(
+      'Handoff 路径：artifacts/browser-handoffs/reddit/acct-reddit/reddit-draft-31.json',
+    );
     expect(html).toContain('请求登录');
     expect(html).toContain('当前目标账号：X / Twitter');
     expect(html).toContain('动作目标账号');
@@ -1596,8 +1665,12 @@ describe('client API page wiring', () => {
             accountId: 7,
             status: 'pending',
             requestedAt: '2026-04-19T03:10:00.000Z',
-            message: 'Browser login is still a placeholder; capture the session manually.',
+            message:
+              'Browser session request queued. Complete login manually and attach session metadata after the browser lane picks up the job.',
             nextStep: '/api/channel-accounts/7/session',
+            jobId: 17,
+            jobStatus: 'pending',
+            artifactPath: 'artifacts/browser-lane-requests/reddit/acct-reddit/request-session-job-17.json',
           },
           channelAccount: {
             id: 7,
@@ -1622,7 +1695,13 @@ describe('client API page wiring', () => {
 
     expect(html).toContain('请求登录占位已记录');
     expect(html).not.toContain('请求登录请求已发送');
-    expect(html).toContain('Browser login is still a placeholder; capture the session manually.');
+    expect(html).toContain('Browser session request queued.');
+    expect(html).toContain('请求时间：2026-04-19T03:10:00.000Z');
+    expect(html).toContain('工单状态：pending');
+    expect(html).toContain('下一步：/api/channel-accounts/7/session');
+    expect(html).toContain(
+      'Artifact Path：artifacts/browser-lane-requests/reddit/acct-reddit/request-session-job-17.json',
+    );
   });
 
   it('shows manual handoff next steps for newly created browser-only channel accounts', async () => {
@@ -1769,10 +1848,10 @@ describe('client API page wiring', () => {
     expect(html).toContain('X / Twitter（首发可用）');
     expect(html).toContain('Reddit（首发可用）');
     expect(html).toContain('Facebook Group（人工接管）');
-    expect(html).toContain('小红书（暂缓首发）');
+    expect(html).toContain('小红书（人工接管）');
     expect(html).toContain('首发可用');
     expect(html).toContain('人工接管');
-    expect(html).toContain('暂缓首发');
+    expect(html).toContain('Blog（本地文件发布）');
     expect(html).toContain('value="x-main"');
     expect(html).toContain('value="X Primary"');
     expect(html).toContain('value="api"');
@@ -2097,6 +2176,89 @@ describe('client API page wiring', () => {
     );
   });
 
+  it('loads browser lane requests through the shared API helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        requests: [
+          {
+            channelAccountId: 7,
+            platform: 'x',
+            accountKey: 'acct-browser',
+            action: 'request_session',
+            jobStatus: 'pending',
+            requestedAt: '2026-04-21T09:00:00.000Z',
+            artifactPath:
+              'artifacts/browser-lane-requests/x/acct-browser/request-session-job-17.json',
+            resolvedAt: null,
+          },
+        ],
+        total: 1,
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const settingsModule = (await import('../../src/client/pages/Settings')) as Record<string, unknown>;
+
+    expect(typeof settingsModule.loadBrowserLaneRequestsRequest).toBe('function');
+
+    const loadBrowserLaneRequestsRequest = settingsModule.loadBrowserLaneRequestsRequest as (
+      limit?: number,
+    ) => Promise<{ requests: Array<{ platform: string; action: string }>; total: number }>;
+
+    const result = await loadBrowserLaneRequestsRequest(10);
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/system/browser-lane-requests?limit=10', undefined);
+    expect(result.total).toBe(1);
+    expect(result.requests[0]).toEqual(
+      expect.objectContaining({
+        platform: 'x',
+        action: 'request_session',
+      }),
+    );
+  });
+
+  it('loads browser handoffs through the settings shared API helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        handoffs: [
+          {
+            platform: 'facebookGroup',
+            draftId: '33',
+            title: 'Community update',
+            accountKey: 'launch-campaign',
+            status: 'pending',
+            artifactPath:
+              'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-33.json',
+            createdAt: '2026-04-21T09:10:00.000Z',
+            updatedAt: '2026-04-21T09:10:00.000Z',
+            resolvedAt: null,
+          },
+        ],
+        total: 1,
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const settingsModule = (await import('../../src/client/pages/Settings')) as Record<string, unknown>;
+
+    expect(typeof settingsModule.loadBrowserHandoffsRequest).toBe('function');
+
+    const loadBrowserHandoffsRequest = settingsModule.loadBrowserHandoffsRequest as (
+      limit?: number,
+    ) => Promise<{ handoffs: Array<{ platform: string; draftId: string }>; total: number }>;
+
+    const result = await loadBrowserHandoffsRequest(10);
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/system/browser-handoffs?limit=10', undefined);
+    expect(result.total).toBe(1);
+    expect(result.handoffs[0]).toEqual(
+      expect.objectContaining({
+        platform: 'facebookGroup',
+        draftId: '33',
+      }),
+    );
+  });
+
   it('posts new system jobs through the shared API helper', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({
@@ -2257,9 +2419,58 @@ describe('client API page wiring', () => {
           ],
           queue: {
             pending: 2,
+            done: 5,
             failed: 1,
+            canceled: 1,
           },
-          recentJobs: [],
+          recentJobs: [
+            {
+              id: 19,
+              type: 'monitor_fetch',
+              status: 'done',
+              runAt: '2026-04-19T12:45:00.000Z',
+              attempts: 1,
+            },
+          ],
+        },
+      },
+      browserLaneStateOverride: {
+        status: 'success',
+        data: {
+          requests: [
+            {
+              channelAccountId: 7,
+              platform: 'x',
+              accountKey: 'acct-browser',
+              action: 'request_session',
+              jobStatus: 'pending',
+              requestedAt: '2026-04-21T09:00:00.000Z',
+              artifactPath:
+                'artifacts/browser-lane-requests/x/acct-browser/request-session-job-17.json',
+              resolvedAt: null,
+            },
+          ],
+          total: 1,
+        },
+      },
+      browserHandoffStateOverride: {
+        status: 'success',
+        data: {
+          handoffs: [
+            {
+              platform: 'facebookGroup',
+              draftId: '33',
+              title: 'Community update',
+              accountKey: 'launch-campaign',
+              status: 'pending',
+              artifactPath:
+                'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-33.json',
+              createdAt: '2026-04-21T09:10:00.000Z',
+              updatedAt: '2026-04-21T09:10:00.000Z',
+              resolvedAt: null,
+            },
+          ],
+          total: 1,
         },
       },
     });
@@ -2269,7 +2480,7 @@ describe('client API page wiring', () => {
     expect(html).toContain('调度与运行态');
     expect(html).toContain('AI 配置');
     expect(html).toContain('平台就绪度');
-    expect(html).toContain('allowlist 变更需要重启服务');
+    expect(html).toContain('allowlist 保存后会立即影响当前进程的访问控制');
     expect(html).toContain('发布就绪：已就绪');
     expect(html).toContain('发布就绪：人工接管待准备');
     expect(html).toContain('建议动作：准备人工接管');
@@ -2283,7 +2494,17 @@ describe('client API page wiring', () => {
     expect(html).toContain('gpt-4.1-mini');
     expect(html).toContain('127.0.0.1');
     expect(html).toContain('运行控制台');
+    expect(html).toContain('Done Jobs');
+    expect(html).toContain('Canceled Jobs');
     expect(html).toContain('最近作业');
+    expect(html).toContain('#19 · monitor_fetch · done');
+    expect(html).toContain('Browser Lane 工单');
+    expect(html).toContain('Browser Handoff 工单');
+    expect(html).toContain('request_session');
+    expect(html).toContain('artifacts/browser-lane-requests/x/acct-browser/request-session-job-17.json');
+    expect(html).toContain(
+      'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-33.json',
+    );
     expect(html).toContain('重载 Scheduler');
     expect(html).toContain('抓取 Monitor');
     expect(html).toContain('作业控制');

@@ -70,6 +70,12 @@ describe('dashboard lifecycle metrics', () => {
             new: 2,
             followUpDrafts: 1,
           },
+          monitorConfig: {
+            directFeeds: 1,
+            directQueries: 3,
+            enabledSourceConfigs: 2,
+            totalInputs: 6,
+          },
           drafts: {
             total: 5,
             review: 2,
@@ -90,6 +96,8 @@ describe('dashboard lifecycle metrics', () => {
     expect(html).toContain('待发布');
     expect(html).toContain('已发布');
     expect(html).toContain('失败发布日志');
+    expect(html).toContain('监控总输入');
+    expect(html).toContain('累计线索');
     expect(html).toContain('4');
     expect(html).toContain('9');
     expect(html).toContain('2');
@@ -108,6 +116,12 @@ describe('dashboard lifecycle metrics', () => {
             new: 2,
             followUpDrafts: 1,
           },
+          monitorConfig: {
+            directFeeds: 0,
+            directQueries: 0,
+            enabledSourceConfigs: 0,
+            totalInputs: 0,
+          },
           drafts: {
             total: 5,
             review: 2,
@@ -124,6 +138,8 @@ describe('dashboard lifecycle metrics', () => {
     expect(html).toContain('待发布');
     expect(html).toContain('已发布');
     expect(html).toContain('失败发布日志');
+    expect(html).toContain('监控总输入');
+    expect(html).toContain('累计线索');
     expect(html).toContain('>4<');
     expect(html).toContain('未提供');
     expect(html).toContain('项目 ID（可选）');

@@ -45,6 +45,12 @@ describe('dashboard enhanced metrics page', () => {
             new: 2,
             followUpDrafts: 1,
           },
+          monitorConfig: {
+            directFeeds: 1,
+            directQueries: 3,
+            enabledSourceConfigs: 2,
+            totalInputs: 6,
+          },
           drafts: {
             total: 5,
             review: 2,
@@ -61,6 +67,17 @@ describe('dashboard enhanced metrics page', () => {
             total: 2,
             connected: 1,
           },
+          browserLaneRequests: {
+            total: 2,
+            pending: 1,
+            resolved: 1,
+          },
+          browserHandoffs: {
+            total: 2,
+            pending: 1,
+            resolved: 0,
+            obsolete: 1,
+          },
           jobQueue: {
             pending: 4,
             running: 1,
@@ -74,14 +91,32 @@ describe('dashboard enhanced metrics page', () => {
     });
 
     expect(html).toContain('未 handled 会话');
+    expect(html).toContain('监控总条目');
+    expect(html).toContain('累计线索');
+    expect(html).toContain('累计 Follow-up');
+    expect(html).toContain('监控直配源');
+    expect(html).toContain('监控查询词');
+    expect(html).toContain('项目源配置');
+    expect(html).toContain('监控总输入');
+    expect(html).toContain('收件箱总会话');
+    expect(html).toContain('账号总数');
     expect(html).toContain('status=healthy 账号');
+    expect(html).toContain('Browser Lane 总工单');
+    expect(html).toContain('Browser Lane 待处理');
+    expect(html).toContain('Browser Lane 已结单');
+    expect(html).toContain('Browser Handoff 总工单');
+    expect(html).toContain('Browser Handoff 待处理');
+    expect(html).toContain('Browser Handoff 已完成');
+    expect(html).toContain('Browser Handoff 已作废');
     expect(html).toContain('队列待执行');
     expect(html).toContain('队列运行中');
+    expect(html).toContain('队列已完成');
     expect(html).toContain('到期待执行（pending 子集）');
+    expect(html).toContain('队列已取消');
     expect(html).toContain('失败发布日志');
     expect(html).toContain('首发运营范围');
     expect(html).toContain('X、Reddit');
-    expect(html).toContain('Facebook Group（人工接管）');
+    expect(html).toContain('人工接管：Facebook Group、小红书、微博');
     expect(html).toContain('项目 ID（可选）');
   });
 });

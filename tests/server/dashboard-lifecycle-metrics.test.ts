@@ -157,6 +157,23 @@ describe('dashboard lifecycle metrics api', () => {
           items: 3,
           followUps: 0,
         },
+        monitorConfig: {
+          directFeeds: 0,
+          directQueries: 0,
+          enabledSourceConfigs: 0,
+          totalInputs: 0,
+        },
+        browserLaneRequests: {
+          total: 0,
+          pending: 0,
+          resolved: 0,
+        },
+        browserHandoffs: {
+          total: 0,
+          pending: 0,
+          resolved: 0,
+          obsolete: 0,
+        },
         publishLogs: {
           failedCount: 2,
         },
@@ -201,6 +218,23 @@ describe('dashboard lifecycle metrics api', () => {
         totals: {
           items: 1,
           followUps: 0,
+        },
+        monitorConfig: {
+          directFeeds: 0,
+          directQueries: 0,
+          enabledSourceConfigs: 0,
+          totalInputs: 0,
+        },
+        browserLaneRequests: {
+          total: 0,
+          pending: 0,
+          resolved: 0,
+        },
+        browserHandoffs: {
+          total: 0,
+          pending: 0,
+          resolved: 0,
+          obsolete: 0,
         },
         jobQueue: {
           pending: 0,
@@ -286,6 +320,23 @@ describe('dashboard lifecycle metrics api', () => {
         totals: {
           items: 2,
           followUps: 0,
+        },
+        monitorConfig: {
+          directFeeds: 0,
+          directQueries: 0,
+          enabledSourceConfigs: 0,
+          totalInputs: 0,
+        },
+        browserLaneRequests: {
+          total: 0,
+          pending: 0,
+          resolved: 0,
+        },
+        browserHandoffs: {
+          total: 0,
+          pending: 0,
+          resolved: 0,
+          obsolete: 0,
         },
         publishLogs: {
           failedCount: 1,

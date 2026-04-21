@@ -45,6 +45,9 @@ export interface DraftMutationState {
   message?: string | null;
   error?: string | null;
   publishUrl?: string | null;
+  contractMessage?: string | null;
+  contractStatus?: string | null;
+  contractDetails?: Record<string, unknown> | null;
 }
 
 export interface DraftInteractionStateOverride {

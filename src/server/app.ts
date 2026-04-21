@@ -17,6 +17,7 @@ import { reputationRouter } from './routes/reputation.js';
 import { createSettingsRouter } from './routes/settings.js';
 import { systemDashboardRouter } from './routes/systemDashboard.js';
 import { createSystemHealthPayload, createSystemRouter } from './routes/system.js';
+import { createSettingsStore } from './store/settings.js';
 import type { SchedulerRuntime } from './runtime/schedulerRuntime.js';
 
 export interface AppDependencies {
@@ -28,10 +29,14 @@ export function createApp(config: AppConfig = loadConfig(), dependencies: AppDep
   const app = express();
   const draftStore = createDraftStore();
   const clientBuild = resolveClientBuild(dependencies.clientDistPath);
-
+  const settingsStore = createSettingsStore({
+    defaultSettings: {
+      allowlist: config.allowedIps,
+    },
+  });
   app.disable('x-powered-by');
   app.use(express.json());
-  app.use(ipAllowlist(config.allowedIps));
+  app.use(ipAllowlist(() => settingsStore.get().allowlist));
   app.get('/api/system/health', (_request, response) => {
     response.json(createSystemHealthPayload(dependencies.schedulerRuntime));
   });
@@ -69,7 +74,13 @@ export function createApp(config: AppConfig = loadConfig(), dependencies: AppDep
   app.use('/api/monitor', monitorRouter);
   app.use('/api/reputation', reputationRouter);
   app.use('/api/channel-accounts', channelAccountsRouter);
-  app.use('/api/settings', createSettingsRouter({ schedulerRuntime: dependencies.schedulerRuntime }));
+  app.use(
+    '/api/settings',
+    createSettingsRouter({
+      schedulerRuntime: dependencies.schedulerRuntime,
+      settingsStore,
+    }),
+  );
 
   if (clientBuild) {
     app.use((request, response, next) => {

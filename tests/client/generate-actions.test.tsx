@@ -712,17 +712,17 @@ describe('Generate review actions', () => {
 
     expect(xCheckbox?.checked).toBe(true);
     expect(redditCheckbox?.checked).toBe(true);
+    expect(blogCheckbox?.checked).toBe(true);
     expect(facebookGroupCheckbox?.checked).toBe(false);
     expect(xiaohongshuCheckbox?.checked).toBe(false);
     expect(weiboCheckbox?.checked).toBe(false);
-    expect(blogCheckbox?.checked).toBe(false);
 
     expect(xCheckbox?.disabled).toBe(false);
     expect(redditCheckbox?.disabled).toBe(false);
-    expect(facebookGroupCheckbox?.disabled).toBe(true);
-    expect(xiaohongshuCheckbox?.disabled).toBe(true);
-    expect(weiboCheckbox?.disabled).toBe(true);
-    expect(blogCheckbox?.disabled).toBe(true);
+    expect(blogCheckbox?.disabled).toBe(false);
+    expect(facebookGroupCheckbox?.disabled).toBe(false);
+    expect(xiaohongshuCheckbox?.disabled).toBe(false);
+    expect(weiboCheckbox?.disabled).toBe(false);
 
     await act(async () => {
       root.unmount();
@@ -762,7 +762,7 @@ describe('Generate review actions', () => {
     expect(generateAction).toHaveBeenCalledWith({
       topic: 'We added a cheaper Claude-compatible endpoint for Australian customers.',
       tone: 'professional',
-      platforms: ['x', 'reddit'],
+      platforms: ['x', 'reddit', 'blog'],
       saveAsDraft: true,
     });
 
@@ -816,7 +816,7 @@ describe('Generate review actions', () => {
     expect(generateAction).toHaveBeenCalledWith({
       topic: 'We added a cheaper Claude-compatible endpoint for Australian customers.',
       tone: 'professional',
-      platforms: ['x', 'reddit'],
+      platforms: ['x', 'reddit', 'blog'],
       saveAsDraft: true,
       projectId: 12,
     });
@@ -917,7 +917,7 @@ describe('Generate review actions', () => {
     expect(generateAction).toHaveBeenCalledWith({
       topic: 'We added a cheaper Claude-compatible endpoint for Australian customers.',
       tone: 'professional',
-      platforms: ['x', 'reddit'],
+      platforms: ['x', 'reddit', 'blog'],
       saveAsDraft: true,
       projectId: 12,
     });

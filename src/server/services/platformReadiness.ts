@@ -29,11 +29,19 @@ export function listPlatformReadiness(): PlatformReadiness[] {
   const facebookSessions = sessionStore
     .listSessions()
     .filter((session) => normalizePlatform(session.platform) === 'facebookGroup');
+  const xiaohongshuSessions = sessionStore
+    .listSessions()
+    .filter((session) => normalizePlatform(session.platform) === 'xiaohongshu');
+  const weiboSessions = sessionStore
+    .listSessions()
+    .filter((session) => normalizePlatform(session.platform) === 'weibo');
 
   return [
     getXReadiness(),
     getRedditReadiness(),
-    getFacebookGroupReadiness(facebookSessions),
+    getAggregatedBrowserPlatformReadiness('facebookGroup', 'Facebook Group', facebookSessions),
+    getAggregatedBrowserPlatformReadiness('xiaohongshu', '小红书', xiaohongshuSessions),
+    getAggregatedBrowserPlatformReadiness('weibo', '微博', weiboSessions),
   ];
 }
 
@@ -59,6 +67,14 @@ export function getChannelAccountPublishReadiness(account: {
 
   if (platform === 'facebookGroup') {
     return getBrowserSessionReadiness('facebookGroup', 'Facebook Group', account.accountKey);
+  }
+
+  if (platform === 'xiaohongshu') {
+    return getBrowserSessionReadiness('xiaohongshu', '小红书', account.accountKey);
+  }
+
+  if (platform === 'weibo') {
+    return getBrowserSessionReadiness('weibo', '微博', account.accountKey);
   }
 
   return {
@@ -241,7 +257,7 @@ function getRedditReadiness(): PlatformReadiness {
 }
 
 function getBrowserSessionReadiness(
-  platform: 'x' | 'reddit' | 'facebookGroup',
+  platform: 'x' | 'reddit' | 'facebookGroup' | 'xiaohongshu' | 'weibo',
   label: string,
   accountKey: string,
 ): PlatformReadiness {
@@ -300,10 +316,14 @@ function formatPlatformLabel(platform: string) {
   if (platform === 'x') return 'X';
   if (platform === 'reddit') return 'Reddit';
   if (platform === 'facebookGroup') return 'Facebook Group';
+  if (platform === 'xiaohongshu') return '小红书';
+  if (platform === 'weibo') return '微博';
   return platform;
 }
 
-function getFacebookGroupReadiness(
+function getAggregatedBrowserPlatformReadiness(
+  platform: 'facebookGroup' | 'xiaohongshu' | 'weibo',
+  label: string,
   sessions: SessionMetadata[],
 ): PlatformReadiness {
   let activeSessionCount = 0;
@@ -330,11 +350,11 @@ function getFacebookGroupReadiness(
 
   if (activeSessionCount > 0) {
     return {
-      platform: 'facebookGroup',
+      platform,
       ready: true,
       mode: 'browser',
       status: 'ready',
-      message: `Facebook Group 已检测到 ${activeSessionCount} 个可用浏览器 session。`,
+      message: `${label} 已检测到 ${activeSessionCount} 个可用浏览器 session。`,
       details: {
         sessionCount,
         activeSessionCount,
@@ -346,11 +366,11 @@ function getFacebookGroupReadiness(
 
   if (expiredSessionCount > 0) {
     return {
-      platform: 'facebookGroup',
+      platform,
       ready: false,
       mode: 'browser',
       status: 'needs_relogin',
-      message: '已有 Facebook Group 浏览器 session，但需要重新登录刷新。',
+      message: `已有 ${label} 浏览器 session，但需要重新登录刷新。`,
       action: 'relogin',
       details: {
         sessionCount,
@@ -362,11 +382,11 @@ function getFacebookGroupReadiness(
   }
 
   return {
-    platform: 'facebookGroup',
+    platform,
     ready: false,
     mode: 'browser',
     status: 'needs_session',
-    message: 'Facebook Group 需要先保存浏览器 session，发布时再手动接管。',
+    message: `${label} 需要先保存浏览器 session，发布时再手动接管。`,
     action: 'request_session',
     details: {
       sessionCount,

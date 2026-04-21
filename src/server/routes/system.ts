@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import { listSessionRequestArtifacts } from '../services/browser/sessionRequestArtifacts.js';
+import { listBrowserHandoffArtifacts } from '../services/publishers/browserHandoffArtifacts.js';
 import type { SchedulerRuntime } from '../runtime/schedulerRuntime.js';
 
 export interface SystemRouteDependencies {
@@ -89,6 +91,26 @@ export function createSystemRouter(dependencies: SystemRouteDependencies = {}) {
     const snapshot = schedulerRuntime.listJobs(limit);
 
     response.json(snapshot);
+  });
+
+  systemRouter.get('/browser-lane-requests', (request, response) => {
+    const limit = parseOptionalPositiveInteger(request.query.limit);
+    const requests = listSessionRequestArtifacts(limit);
+
+    response.json({
+      requests,
+      total: listSessionRequestArtifacts().length,
+    });
+  });
+
+  systemRouter.get('/browser-handoffs', (request, response) => {
+    const limit = parseOptionalPositiveInteger(request.query.limit);
+    const handoffs = listBrowserHandoffArtifacts(limit);
+
+    response.json({
+      handoffs,
+      total: listBrowserHandoffArtifacts().length,
+    });
   });
 
   systemRouter.get('/jobs/:jobId', (request, response) => {

@@ -14,10 +14,10 @@ interface PlatformOption {
 const platformOptions: PlatformOption[] = [
   { label: 'X / Twitter', value: 'x', launchStatus: 'ready', launchBadge: '首发可用' },
   { label: 'Reddit', value: 'reddit', launchStatus: 'ready', launchBadge: '首发可用' },
+  { label: 'Blog', value: 'blog', launchStatus: 'ready', launchBadge: '首发可用' },
   { label: 'Facebook Group', value: 'facebook-group', launchStatus: 'manual', launchBadge: '人工接管' },
-  { label: '小红书', value: 'xiaohongshu', launchStatus: 'later', launchBadge: '暂缓首发' },
-  { label: '微博', value: 'weibo', launchStatus: 'later', launchBadge: '暂缓首发' },
-  { label: 'Blog', value: 'blog', launchStatus: 'later', launchBadge: '暂缓首发' },
+  { label: '小红书', value: 'xiaohongshu', launchStatus: 'manual', launchBadge: '人工接管' },
+  { label: '微博', value: 'weibo', launchStatus: 'manual', launchBadge: '人工接管' },
 ];
 
 const defaultLaunchPlatforms = platformOptions
@@ -308,7 +308,7 @@ export function GeneratePage({
         >
           <h3 style={{ marginTop: 0, marginBottom: '16px', fontSize: '20px' }}>选择渠道</h3>
           <p style={{ margin: '0 0 16px', color: '#475569', lineHeight: 1.6 }}>
-            当前仅开放首发可用渠道生成文案；人工接管和暂缓首发的平台仅展示当前首发范围，暂不支持在此页勾选。
+            当前开放首发可用和人工接管平台生成文案；生成并不等于自动发布，人工接管平台仍需后续手动完成发布。
           </p>
           <div style={{ display: 'grid', gap: '10px' }}>
             {platformOptions.map((platform) => (
@@ -327,7 +327,7 @@ export function GeneratePage({
                 <input
                   type="checkbox"
                   checked={selectedPlatforms.includes(platform.value)}
-                  disabled={platform.launchStatus !== 'ready'}
+                  disabled={platform.launchStatus === 'later'}
                   onChange={() => togglePlatform(platform.value)}
                 />
                 <span style={{ fontWeight: 600 }}>{platform.label}</span>

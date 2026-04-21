@@ -1,7 +1,10 @@
 import { createApp } from './app.js';
 import { loadConfig } from './config.js';
+import { loadServerEnvFromRoot } from './env.js';
 import { createDefaultJobHandlers } from './runtime/defaultJobHandlers.js';
 import { createSchedulerRuntime } from './runtime/schedulerRuntime.js';
+
+loadServerEnvFromRoot();
 
 const schedulerRuntime = createSchedulerRuntime({
   handlers: createDefaultJobHandlers(),

@@ -292,7 +292,7 @@ export default function App({ initialRoute = 'dashboard', initialAdminPassword =
     return (
       <LoginPage
         error={authError}
-        onSubmit={async (password) => {
+        onSubmit={async (password, options) => {
           const trimmed = password.trim();
           if (!trimmed) {
             setAuthError('管理员密码不能为空');
@@ -304,7 +304,7 @@ export default function App({ initialRoute = 'dashboard', initialAdminPassword =
 
           try {
             await validateAdminPassword(trimmed);
-            storeAdminPassword(trimmed);
+            storeAdminPassword(trimmed, { persist: options?.remember === true });
             setAdminPassword(trimmed);
             setAuthStatus('authenticated');
           } catch (error) {

@@ -14,15 +14,15 @@ describe('Generate page', () => {
     expect(html).toContain('选择渠道');
     expect(html).toContain('首发可用');
     expect(html).toContain('人工接管');
-    expect(html).toContain('暂缓首发');
+    expect(html).toContain('Blog');
     expect(html).toContain('一键生成');
     expect(html).toContain('生成结果将在这里出现');
   });
 
-  it('describes manual and later platforms as display-only launch scope', () => {
+  it('describes manual platforms as generator-enabled while publish still requires handoff', () => {
     const html = renderToStaticMarkup(<GeneratePage />);
 
-    expect(html).toContain('当前仅开放首发可用渠道生成文案；人工接管和暂缓首发的平台仅展示当前首发范围，暂不支持在此页勾选。');
-    expect(html).not.toContain('仍可手动勾选生成文案');
+    expect(html).toContain('当前开放首发可用和人工接管平台生成文案；生成并不等于自动发布，人工接管平台仍需后续手动完成发布。');
+    expect(html).not.toContain('暂不支持在此页勾选');
   });
 });

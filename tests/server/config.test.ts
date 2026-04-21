@@ -18,23 +18,23 @@ describe('loadConfig', () => {
     expect(
       loadConfig({
         NODE_ENV: 'production',
-        ALLOWED_IPS: '10.0.0.10,10.0.0.11',
+        ALLOWED_IPS: '10.0.0.10,10.0.0.0/24',
         ADMIN_PASSWORD: 'super-secret',
       }),
     ).toEqual({
-      allowedIps: ['10.0.0.10', '10.0.0.11'],
+      allowedIps: ['10.0.0.10', '10.0.0.0/24'],
       adminPassword: 'super-secret',
     });
   });
 
-  it('throws when ALLOWED_IPS contains unsupported entries', () => {
+  it('throws when ALLOWED_IPS contains malformed entries', () => {
     expect(() =>
       loadConfig({
         NODE_ENV: 'production',
         ADMIN_PASSWORD: 'super-secret',
-        ALLOWED_IPS: '10.0.0.0/24',
+        ALLOWED_IPS: '10.0.0.0/33',
       }),
-    ).toThrow('ALLOWED_IPS must contain exact IPs or *');
+    ).toThrow('ALLOWED_IPS must contain IPs, CIDR subnets, or *');
 
     expect(() =>
       loadConfig({
@@ -42,7 +42,7 @@ describe('loadConfig', () => {
         ADMIN_PASSWORD: 'super-secret',
         ALLOWED_IPS: 'not-an-ip',
       }),
-    ).toThrow('ALLOWED_IPS must contain exact IPs or *');
+    ).toThrow('ALLOWED_IPS must contain IPs, CIDR subnets, or *');
   });
 
   it('throws in production when admin password is left at the default value', () => {

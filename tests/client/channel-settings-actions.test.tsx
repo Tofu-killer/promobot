@@ -350,7 +350,7 @@ describe('settings save validation and feedback', () => {
 
     const invalidAllowlist = await submitSettingsForm(
       {
-        allowlist: '127.0.0.1, 10.0.0.0/24',
+        allowlist: '127.0.0.1, 10.0.0.0/33',
         schedulerIntervalMinutes: '15',
         rssDefaults: 'OpenAI blog, Anthropic news',
         monitorRssFeeds: 'https://openai.com/blog/rss.xml',
@@ -363,7 +363,7 @@ describe('settings save validation and feedback', () => {
 
     expect(invalidAllowlist).toEqual({
       ok: false,
-      error: 'allowlist 只支持精确 IP 或 *，不支持 CIDR',
+      error: 'allowlist 只支持精确 IP、CIDR 子网或 *',
     });
     expect(saveAction).not.toHaveBeenCalled();
 
@@ -485,9 +485,40 @@ describe('settings save validation and feedback', () => {
           ],
           queue: {
             pending: 2,
+            done: 5,
             failed: 1,
+            canceled: 1,
           },
-          recentJobs: [],
+          recentJobs: [
+            {
+              id: 19,
+              type: 'monitor_fetch',
+              status: 'done',
+              runAt: '2026-04-19T12:45:00.000Z',
+              attempts: 1,
+            },
+          ],
+        },
+      } satisfies ApiState,
+      browserHandoffStateOverride: {
+        status: 'success',
+        data: {
+          handoffs: [
+            {
+              platform: 'facebookGroup',
+              draftId: '33',
+              title: 'Community update',
+              accountKey: 'launch-campaign',
+              status: 'pending',
+              artifactPath:
+                'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-33.json',
+              createdAt: '2026-04-21T09:10:00.000Z',
+              updatedAt: '2026-04-21T09:10:00.000Z',
+              resolvedAt: null,
+              resolution: null,
+            },
+          ],
+          total: 1,
         },
       } satisfies ApiState,
       updateStateOverride: {
@@ -507,16 +538,24 @@ describe('settings save validation and feedback', () => {
     });
 
     expect(successHtml).toContain('最近保存结果');
-    expect(successHtml).toContain('设置已保存，待重载生效');
+    expect(successHtml).toContain('设置已保存；allowlist 已生效，其它运行参数请结合 runtime 结果确认');
     expect(successHtml).toContain('127.0.0.1');
     expect(successHtml).toContain('AI 配置');
     expect(successHtml).toContain('调度与运行态');
     expect(successHtml).toContain('worker');
     expect(successHtml).toContain('运行控制台');
     expect(successHtml).toContain('Pending Jobs');
+    expect(successHtml).toContain('Done Jobs');
+    expect(successHtml).toContain('Canceled Jobs');
     expect(successHtml).toContain('最近作业');
+    expect(successHtml).toContain('#19 · monitor_fetch · done');
     expect(successHtml).toContain('作业控制');
-    expect(successHtml).toContain('allowlist 变更需要重启服务');
+    expect(successHtml).toContain('Browser Handoff 工单');
+    expect(successHtml).toContain(
+      'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-33.json',
+    );
+    expect(successHtml).toContain('resolution: 未提供');
+    expect(successHtml).toContain('allowlist 保存后会立即影响当前进程的访问控制');
     expect(successHtml).toContain('重试');
     expect(successHtml).toContain('排程新作业');
     expect(successHtml).toContain('排程 Monitor Fetch');
@@ -598,6 +637,14 @@ describe('settings save validation and feedback', () => {
       },
       recentJobs: [],
     });
+    const loadBrowserLaneRequestsAction = vi.fn().mockResolvedValue({
+      requests: [],
+      total: 0,
+    });
+    const loadBrowserHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
 
     const root = createRoot(container as never);
     await act(async () => {
@@ -605,6 +652,8 @@ describe('settings save validation and feedback', () => {
         createElement(SettingsPage as never, {
           loadSettingsAction,
           loadSystemJobsAction,
+          loadBrowserLaneRequestsAction,
+          loadBrowserHandoffsAction,
         }),
       );
       await flush();
@@ -642,6 +691,8 @@ describe('settings save validation and feedback', () => {
 
     expect(loadSettingsAction).toHaveBeenCalledTimes(1);
     expect(loadSystemJobsAction).toHaveBeenCalledTimes(1);
+    expect(loadBrowserLaneRequestsAction).toHaveBeenCalledTimes(1);
+    expect(loadBrowserHandoffsAction).toHaveBeenCalledTimes(1);
     expect(allowlistField?.value).toBe('10.0.0.1, 10.0.0.2');
     expect(schedulerField?.value).toBe('45');
     expect(rssField?.value).toBe('OpenAI blog, TechCrunch');
@@ -681,6 +732,14 @@ describe('settings save validation and feedback', () => {
       },
       recentJobs: [],
     });
+    const loadBrowserLaneRequestsAction = vi.fn().mockResolvedValue({
+      requests: [],
+      total: 0,
+    });
+    const loadBrowserHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
 
@@ -690,6 +749,8 @@ describe('settings save validation and feedback', () => {
         createElement(SettingsPage as never, {
           loadSettingsAction,
           loadSystemJobsAction,
+          loadBrowserLaneRequestsAction,
+          loadBrowserHandoffsAction,
         }),
       );
       await flush();

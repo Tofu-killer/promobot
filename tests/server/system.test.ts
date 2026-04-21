@@ -211,6 +211,110 @@ describe('security middleware', () => {
     expect(JSON.parse(response.body)).toEqual({ error: 'forbidden' });
   });
 
+  it('applies allowlist changes from settings to the running middleware immediately', async () => {
+    const { rootDir } = createTestDatabasePath();
+    const app = createApp({
+      allowedIps: ['127.0.0.1'],
+      adminPassword: 'secret',
+    });
+
+    try {
+      const updated = await requestExistingApp(app, {
+        method: 'PATCH',
+        url: '/api/settings',
+        remoteAddress: '127.0.0.1',
+        headers: {
+          'x-admin-password': 'secret',
+        },
+        body: {
+          allowlist: ['10.0.0.0/24'],
+        },
+      });
+
+      expect(updated.status).toBe(200);
+
+      const blockedAfterSave = await requestExistingApp(app, {
+        remoteAddress: '127.0.0.1',
+        url: '/api/system/health',
+      });
+
+      expect(blockedAfterSave.status).toBe(403);
+      expect(JSON.parse(blockedAfterSave.body)).toEqual({ error: 'forbidden' });
+
+      const allowedInSubnet = await requestExistingApp(app, {
+        remoteAddress: '10.0.0.88',
+        url: '/api/system/health',
+      });
+
+      expect(allowedInSubnet.status).toBe(200);
+      expect(JSON.parse(allowedInSubnet.body)).toEqual({
+        ok: true,
+        service: 'promobot',
+        timestamp: expect.any(String),
+        uptimeSeconds: expect.any(Number),
+        scheduler: {
+          available: false,
+          started: false,
+        },
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('applies persisted allowlist changes across app instances that share the same SQLite settings', async () => {
+    const { rootDir } = createTestDatabasePath();
+    const firstApp = createApp({
+      allowedIps: ['127.0.0.1'],
+      adminPassword: 'secret',
+    });
+    const secondApp = createApp({
+      allowedIps: ['127.0.0.1'],
+      adminPassword: 'secret',
+    });
+
+    try {
+      const updated = await requestExistingApp(firstApp, {
+        method: 'PATCH',
+        url: '/api/settings',
+        remoteAddress: '127.0.0.1',
+        headers: {
+          'x-admin-password': 'secret',
+        },
+        body: {
+          allowlist: ['10.1.0.0/24'],
+        },
+      });
+
+      expect(updated.status).toBe(200);
+
+      const blockedOnSecondApp = await requestExistingApp(secondApp, {
+        remoteAddress: '127.0.0.1',
+        url: '/api/system/health',
+      });
+      expect(blockedOnSecondApp.status).toBe(403);
+      expect(JSON.parse(blockedOnSecondApp.body)).toEqual({ error: 'forbidden' });
+
+      const allowedOnSecondApp = await requestExistingApp(secondApp, {
+        remoteAddress: '10.1.0.55',
+        url: '/api/system/health',
+      });
+      expect(allowedOnSecondApp.status).toBe(200);
+      expect(JSON.parse(allowedOnSecondApp.body)).toEqual({
+        ok: true,
+        service: 'promobot',
+        timestamp: expect.any(String),
+        uptimeSeconds: expect.any(Number),
+        scheduler: {
+          available: false,
+          started: false,
+        },
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('rejects protected api routes when the admin password header is missing', async () => {
     const response = await requestApp({
       headers: {},
@@ -246,7 +350,7 @@ describe('security middleware', () => {
     expect(response.status).toBe(200);
     expect(JSON.parse(response.body)).toEqual({
       settings: expect.objectContaining({
-        allowlist: ['127.0.0.1', '::1'],
+        allowlist: ['127.0.0.1'],
       }),
       platforms: expect.any(Array),
     });
@@ -711,6 +815,177 @@ describe('system runtime api', () => {
     });
 
     expect(actions).toEqual(['list:1', 'get:11', 'retry:11:2026-04-19T12:20:00.000Z', 'cancel:11']);
+  });
+
+  it('lists browser-lane request artifacts through the system api', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const app = createApp({
+        allowedIps: ['127.0.0.1'],
+        adminPassword: 'secret',
+      });
+
+      const created = await requestExistingApp(app, {
+        method: 'POST',
+        url: '/api/channel-accounts',
+        remoteAddress: '127.0.0.1',
+        headers: {
+          'x-admin-password': 'secret',
+        },
+        body: {
+          platform: 'x',
+          accountKey: '@promobot',
+          displayName: 'PromoBot X',
+          authType: 'browser',
+          status: 'healthy',
+        },
+      });
+      expect(created.status).toBe(201);
+
+      const requestResponse = await requestExistingApp(app, {
+        method: 'POST',
+        url: '/api/channel-accounts/1/session/request',
+        remoteAddress: '127.0.0.1',
+        headers: {
+          'x-admin-password': 'secret',
+        },
+      });
+      expect(requestResponse.status).toBe(200);
+
+      const response = await requestExistingApp(app, {
+        method: 'GET',
+        url: '/api/system/browser-lane-requests?limit=10',
+        remoteAddress: '127.0.0.1',
+        headers: {
+          'x-admin-password': 'secret',
+        },
+      });
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        requests: [
+          expect.objectContaining({
+            channelAccountId: 1,
+            platform: 'x',
+            accountKey: '@promobot',
+            action: 'request_session',
+            jobStatus: 'pending',
+            artifactPath:
+              'artifacts/browser-lane-requests/x/-promobot/request-session-job-1.json',
+            resolvedAt: null,
+          }),
+        ],
+        total: 1,
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('lists browser-handoff artifacts through the system api', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const app = createApp({
+        allowedIps: ['127.0.0.1'],
+        adminPassword: 'secret',
+      });
+
+      const artifactDir = path.join(
+        rootDir,
+        'artifacts',
+        'browser-handoffs',
+        'facebookGroup',
+        'launch-campaign',
+      );
+      fs.mkdirSync(artifactDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(artifactDir, 'facebookGroup-draft-12.json'),
+        JSON.stringify({
+          type: 'browser_manual_handoff',
+          status: 'pending',
+          platform: 'facebookGroup',
+          draftId: '12',
+          title: 'Community update',
+          content: 'Need manual browser handoff',
+          target: 'group-123',
+          accountKey: 'launch-campaign',
+          session: {
+            hasSession: true,
+            id: 'facebookGroup:launch-campaign',
+            status: 'active',
+            validatedAt: '2026-04-21T08:55:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
+          },
+          createdAt: '2026-04-21T09:00:00.000Z',
+          updatedAt: '2026-04-21T09:00:00.000Z',
+          resolvedAt: null,
+          resolution: null,
+        }),
+      );
+      fs.writeFileSync(
+        path.join(artifactDir, 'facebookGroup-draft-13.json'),
+        JSON.stringify({
+          type: 'browser_manual_handoff',
+          status: 'resolved',
+          platform: 'facebookGroup',
+          draftId: '13',
+          title: 'Published update',
+          content: 'Completed browser publish',
+          target: 'group-123',
+          accountKey: 'launch-campaign',
+          session: {
+            hasSession: true,
+            id: 'facebookGroup:launch-campaign',
+            status: 'active',
+            validatedAt: '2026-04-21T09:05:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
+          },
+          createdAt: '2026-04-21T09:10:00.000Z',
+          updatedAt: '2026-04-21T09:20:00.000Z',
+          resolvedAt: '2026-04-21T09:20:00.000Z',
+          resolution: {
+            status: 'resolved',
+            publishStatus: 'published',
+          },
+        }),
+      );
+
+      const response = await requestExistingApp(app, {
+        method: 'GET',
+        url: '/api/system/browser-handoffs?limit=10',
+        remoteAddress: '127.0.0.1',
+        headers: {
+          'x-admin-password': 'secret',
+        },
+      });
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        handoffs: [
+          expect.objectContaining({
+            platform: 'facebookGroup',
+            draftId: '13',
+            accountKey: 'launch-campaign',
+            status: 'resolved',
+            artifactPath:
+              'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-13.json',
+            resolvedAt: '2026-04-21T09:20:00.000Z',
+          }),
+          expect.objectContaining({
+            platform: 'facebookGroup',
+            draftId: '12',
+            accountKey: 'launch-campaign',
+            status: 'pending',
+            artifactPath:
+              'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-12.json',
+            resolvedAt: null,
+          }),
+        ],
+        total: 2,
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
   });
 
   it('wires channel_account_session_request into runtime handlers and completes the manual browser-lane handoff job', async () => {

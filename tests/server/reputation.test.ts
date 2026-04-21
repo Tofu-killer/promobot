@@ -1,12 +1,19 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../../src/server/app';
-import { createMonitorStore } from '../../src/server/store/monitor';
 import { createInboxStore } from '../../src/server/store/inbox';
 import { createReputationStore } from '../../src/server/store/reputation';
 import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
 
 let activeTestDbRoot: string | undefined;
 const originalNodeEnv = process.env.NODE_ENV;
+const originalRedditClientId = process.env.REDDIT_CLIENT_ID;
+const originalRedditClientSecret = process.env.REDDIT_CLIENT_SECRET;
+const originalRedditUsername = process.env.REDDIT_USERNAME;
+const originalRedditPassword = process.env.REDDIT_PASSWORD;
+const originalRedditUserAgent = process.env.REDDIT_USER_AGENT;
+const originalMonitorXSearchSeeds = process.env.MONITOR_X_SEARCH_SEEDS;
+const originalXAccessToken = process.env.X_ACCESS_TOKEN;
+const originalXBearerToken = process.env.X_BEARER_TOKEN;
 
 async function requestApp(method: string, url: string, body?: unknown) {
   const app = createApp({
@@ -103,11 +110,155 @@ beforeEach(() => {
 
 afterEach(() => {
   process.env.NODE_ENV = originalNodeEnv;
+  restoreEnv('REDDIT_CLIENT_ID', originalRedditClientId);
+  restoreEnv('REDDIT_CLIENT_SECRET', originalRedditClientSecret);
+  restoreEnv('REDDIT_USERNAME', originalRedditUsername);
+  restoreEnv('REDDIT_PASSWORD', originalRedditPassword);
+  restoreEnv('REDDIT_USER_AGENT', originalRedditUserAgent);
+  restoreEnv('MONITOR_X_SEARCH_SEEDS', originalMonitorXSearchSeeds);
+  restoreEnv('X_ACCESS_TOKEN', originalXAccessToken);
+  restoreEnv('X_BEARER_TOKEN', originalXBearerToken);
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
   if (activeTestDbRoot) {
     cleanupTestDatabasePath(activeTestDbRoot);
     activeTestDbRoot = undefined;
   }
 });
+
+function restoreEnv(key: string, value: string | undefined) {
+  if (value === undefined) {
+    delete process.env[key];
+    return;
+  }
+
+  process.env[key] = value;
+}
+
+function installReputationSearchFixtures() {
+  process.env.REDDIT_CLIENT_ID = 'reddit-id';
+  process.env.REDDIT_CLIENT_SECRET = 'reddit-secret';
+  process.env.REDDIT_USERNAME = 'reddit-user';
+  process.env.REDDIT_PASSWORD = 'reddit-pass';
+  process.env.REDDIT_USER_AGENT = 'promobot/test';
+  process.env.MONITOR_X_SEARCH_SEEDS = JSON.stringify([
+    {
+      query: 'openrouter failover',
+      id: 'tweet-1',
+      title: 'Fast routing praise',
+      text: 'Users praised fast APAC routing.',
+      author: 'routerwatch',
+      url: 'https://x.com/routerwatch/status/tweet-1',
+    },
+  ]);
+
+  vi.stubGlobal(
+    'fetch',
+    vi.fn().mockImplementation(async (url: string) => {
+      const requestUrl = String(url);
+
+      if (requestUrl === 'https://www.reddit.com/api/v1/access_token') {
+        return new Response(JSON.stringify({ access_token: 'reddit-access-token' }), {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+      }
+
+      if (requestUrl.startsWith('https://oauth.reddit.com/search?')) {
+        const query = new URL(requestUrl).searchParams.get('q');
+
+        if (query === 'brand latency') {
+          return createRedditSearchResponse({
+            id: 'brand-1',
+            title: 'Billing confusion mention',
+            selftext: 'Agency buyers asked whether billing is transparent enough.',
+            permalink: '/r/LocalLLaMA/comments/brand1/billing_confusion_mention/',
+            subredditNamePrefixed: 'r/LocalLLaMA',
+            author: 'latencywatch',
+          });
+        }
+      }
+
+      if (requestUrl.startsWith('https://www.v2ex.com/search?')) {
+        const query = new URL(requestUrl).searchParams.get('q');
+
+        if (query === 'cursor api') {
+          return new Response(
+            `
+              <div class="cell item">
+                <span class="item_title">
+                  <a href="/t/888888">Cursor API operator thread</a>
+                </span>
+                <strong><a href="/member/alice">alice</a></strong>
+                <span class="topic_info">
+                  <a class="node" href="/go/devops">DevOps</a>
+                  • <a class="count" href="/t/888888#reply2">2 replies</a>
+                </span>
+              </div>
+            `,
+            { status: 200 },
+          );
+        }
+
+        if (query === 'project two v2ex') {
+          return new Response(
+            `
+              <div class="cell item">
+                <span class="item_title">
+                  <a href="/t/999999">Project two operators thread</a>
+                </span>
+                <strong><a href="/member/bob">bob</a></strong>
+                <span class="topic_info">
+                  <a class="node" href="/go/ops">Ops</a>
+                  • <a class="count" href="/t/999999#reply4">4 replies</a>
+                </span>
+              </div>
+            `,
+            { status: 200 },
+          );
+        }
+      }
+
+      throw new Error(`unexpected fetch request in reputation test: ${requestUrl}`);
+    }),
+  );
+}
+
+function createRedditSearchResponse(input: {
+  id: string;
+  title: string;
+  selftext: string;
+  permalink: string;
+  subredditNamePrefixed: string;
+  author: string;
+}) {
+  return new Response(
+    JSON.stringify({
+      data: {
+        children: [
+          {
+            data: {
+              id: input.id,
+              title: input.title,
+              selftext: input.selftext,
+              permalink: input.permalink,
+              subreddit_name_prefixed: input.subredditNamePrefixed,
+              author: input.author,
+            },
+          },
+        ],
+      },
+    }),
+    {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    },
+  );
+}
 
 describe('reputation services', () => {
   it('classifies sentiment and follow-up status from mention copy', async () => {
@@ -229,116 +380,13 @@ describe('reputation api', () => {
     });
   });
 
-  it('maps existing monitor signals into the reputation feed before seed fallback', async () => {
-    const monitorStore = createMonitorStore();
-    monitorStore.create({
-      projectId: 1,
-      source: 'reddit',
-      title: 'Lower APAC latency praise',
-      detail: 'Users praised lower Claude routing latency from Perth.',
-      status: 'new',
-    });
-    monitorStore.create({
-      projectId: 1,
-      source: 'v2ex',
-      title: 'Billing confusion mention',
-      detail: 'Agency buyers asked whether billing and usage caps are transparent enough.',
-      status: 'new',
-    });
+  it('fetches live reputation mentions from configured search queries', async () => {
+    installReputationSearchFixtures();
 
-    const fetchResponse = await requestApp('POST', '/api/reputation/fetch');
-
-    expect(fetchResponse.status).toBe(201);
-    expect(JSON.parse(fetchResponse.body)).toEqual({
-      items: [
-        expect.objectContaining({
-          id: 1,
-          projectId: 1,
-          source: 'reddit',
-          sentiment: 'positive',
-          title: 'Lower APAC latency praise',
-        }),
-        expect.objectContaining({
-          id: 2,
-          projectId: 1,
-          source: 'v2ex',
-          sentiment: 'negative',
-          title: 'Billing confusion mention',
-        }),
-      ],
-      inserted: 2,
-      total: 2,
-    });
-
-    const feedResponse = await requestApp('GET', '/api/reputation/feed');
-
-      expect(feedResponse.status).toBe(200);
-      expect(JSON.parse(feedResponse.body)).toEqual({
-        items: [
-          expect.objectContaining({
-            id: 1,
-          title: expect.stringContaining('Lower APAC latency praise'),
-        }),
-        expect.objectContaining({
-          id: 2,
-          title: expect.stringContaining('Billing confusion mention'),
-        }),
-      ],
-      total: 2,
-    });
-  });
-
-  it('fetches reputation only for the requested projectId monitor items', async () => {
-    const monitorStore = createMonitorStore();
-    monitorStore.create({
-      projectId: 1,
-      source: 'reddit',
-      title: 'Project 1 praise',
-      detail: 'Project 1 reputation detail.',
-      status: 'new',
-    });
-    monitorStore.create({
-      projectId: 2,
-      source: 'v2ex',
-      title: 'Project 2 complaint',
-      detail: 'Project 2 reputation detail.',
-      status: 'new',
-    });
-
-    const fetchResponse = await requestApp('POST', '/api/reputation/fetch', {
-      projectId: 1,
-    });
-
-    expect(fetchResponse.status).toBe(201);
-    expect(JSON.parse(fetchResponse.body)).toEqual({
-      items: [
-        expect.objectContaining({
-          id: 1,
-          projectId: 1,
-          source: 'reddit',
-          title: 'Project 1 praise',
-        }),
-      ],
-      inserted: 1,
-      total: 1,
-    });
-
-    const reputationStore = createReputationStore();
-    expect(reputationStore.getStats(1).items).toEqual([
-      expect.objectContaining({
-        id: 1,
-        projectId: 1,
-        title: 'Project 1 praise',
-      }),
-    ]);
-    expect(reputationStore.getStats(2).items).toEqual([]);
-  });
-
-  it('falls back to configured monitor queries when reputation feed has no monitor items yet', async () => {
     const settingsResponse = await requestApp('PATCH', '/api/settings', {
       monitorXQueries: ['openrouter failover'],
       monitorRedditQueries: ['brand latency'],
-      monitorV2exQueries: ['billing transparency'],
+      monitorV2exQueries: ['cursor api'],
     });
 
     expect(settingsResponse.status).toBe(200);
@@ -351,34 +399,113 @@ describe('reputation api', () => {
         expect.objectContaining({
           id: 1,
           source: 'x',
-          sentiment: 'neutral',
+          sentiment: 'positive',
           status: 'new',
-          title: 'Watching reputation query: openrouter failover',
-          detail: 'Configured from monitorXQueries before live mentions arrive.',
+          title: 'Fast routing praise',
         }),
         expect.objectContaining({
           id: 2,
           source: 'reddit',
-          sentiment: 'neutral',
-          status: 'new',
-          title: 'Watching reputation query: brand latency',
-          detail: 'Configured from monitorRedditQueries before live mentions arrive.',
+          sentiment: 'negative',
+          status: 'escalate',
+          title: 'Billing confusion mention',
         }),
         expect.objectContaining({
           id: 3,
           source: 'v2ex',
           sentiment: 'neutral',
           status: 'new',
-          title: 'Watching reputation query: billing transparency',
-          detail: 'Configured from monitorV2exQueries before live mentions arrive.',
+          title: 'Cursor API operator thread',
         }),
       ],
       inserted: 3,
       total: 3,
     });
+
+    const feedResponse = await requestApp('GET', '/api/reputation/feed');
+
+    expect(feedResponse.status).toBe(200);
+    expect(JSON.parse(feedResponse.body)).toEqual({
+      items: [
+        expect.objectContaining({
+          id: 1,
+          title: expect.stringContaining('Fast routing praise'),
+        }),
+        expect.objectContaining({
+          id: 2,
+          title: expect.stringContaining('Billing confusion mention'),
+        }),
+        expect.objectContaining({
+          id: 3,
+          title: expect.stringContaining('Cursor API operator thread'),
+        }),
+      ],
+      total: 3,
+    });
   });
 
-  it('falls back to enabled source configs when monitor items and global settings are absent', async () => {
+  it('does not insert duplicate reputation items when the same live mentions are fetched twice', async () => {
+    installReputationSearchFixtures();
+
+    const settingsResponse = await requestApp('PATCH', '/api/settings', {
+      monitorXQueries: ['openrouter failover'],
+      monitorRedditQueries: ['brand latency'],
+      monitorV2exQueries: ['cursor api'],
+    });
+
+    expect(settingsResponse.status).toBe(200);
+
+    const firstFetchResponse = await requestApp('POST', '/api/reputation/fetch');
+    expect(firstFetchResponse.status).toBe(201);
+    expect(JSON.parse(firstFetchResponse.body)).toEqual({
+      items: [
+        expect.objectContaining({ id: 1, source: 'x', title: 'Fast routing praise' }),
+        expect.objectContaining({ id: 2, source: 'reddit', title: 'Billing confusion mention' }),
+        expect.objectContaining({ id: 3, source: 'v2ex', title: 'Cursor API operator thread' }),
+      ],
+      inserted: 3,
+      total: 3,
+    });
+
+    const secondFetchResponse = await requestApp('POST', '/api/reputation/fetch');
+
+    expect(secondFetchResponse.status).toBe(201);
+    expect(JSON.parse(secondFetchResponse.body)).toEqual({
+      items: [
+        expect.objectContaining({ id: 1, source: 'x', title: 'Fast routing praise' }),
+        expect.objectContaining({ id: 2, source: 'reddit', title: 'Billing confusion mention' }),
+        expect.objectContaining({ id: 3, source: 'v2ex', title: 'Cursor API operator thread' }),
+      ],
+      inserted: 0,
+      total: 3,
+    });
+
+    const reputationStore = createReputationStore();
+    expect(reputationStore.getStats().items.map((item) => item.id)).toEqual([1, 2, 3]);
+  });
+
+  it('does not fall back to placeholder reputation items when configured searches return no live matches', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('<html></html>', { status: 200 })));
+
+    const settingsResponse = await requestApp('PATCH', '/api/settings', {
+      monitorV2exQueries: ['cursor api'],
+    });
+
+    expect(settingsResponse.status).toBe(200);
+
+    const fetchResponse = await requestApp('POST', '/api/reputation/fetch');
+
+    expect(fetchResponse.status).toBe(201);
+    expect(JSON.parse(fetchResponse.body)).toEqual({
+      items: [],
+      inserted: 0,
+      total: 0,
+    });
+  });
+
+  it('fetches live reputation mentions from enabled source configs when global settings are absent', async () => {
+    installReputationSearchFixtures();
+
     const projectResponse = await requestApp('POST', '/api/projects', {
       name: 'Reputation Signals',
       siteName: 'PromoBot',
@@ -418,7 +545,7 @@ describe('reputation api', () => {
         platform: 'x',
         label: 'X mentions',
         configJson: {
-          keywords: ['billing transparency'],
+          keywords: ['openrouter failover'],
         },
         enabled: true,
         pollIntervalMinutes: 45,
@@ -465,20 +592,18 @@ describe('reputation api', () => {
         expect.objectContaining({
           id: 1,
           projectId: 1,
-          source: 'reddit',
-          sentiment: 'neutral',
+          source: 'x',
+          sentiment: 'positive',
           status: 'new',
-          title: 'Watching reputation query: brand latency',
-          detail: 'Derived from source config "Reddit mentions" before live mentions arrive.',
+          title: 'Fast routing praise',
         }),
         expect.objectContaining({
           id: 2,
           projectId: 1,
-          source: 'x',
-          sentiment: 'neutral',
-          status: 'new',
-          title: 'Watching reputation query: billing transparency',
-          detail: 'Derived from source config "X mentions" before live mentions arrive.',
+          source: 'reddit',
+          sentiment: 'negative',
+          status: 'escalate',
+          title: 'Billing confusion mention',
         }),
         expect.objectContaining({
           id: 3,
@@ -486,8 +611,7 @@ describe('reputation api', () => {
           source: 'v2ex',
           sentiment: 'neutral',
           status: 'new',
-          title: 'Watching reputation query: cursor api',
-          detail: 'Derived from source config "V2EX mentions" before live mentions arrive.',
+          title: 'Cursor API operator thread',
         }),
       ],
       inserted: 3,
@@ -510,7 +634,9 @@ describe('reputation api', () => {
     });
   });
 
-  it('fetches reputation fallback only from source configs for the requested projectId', async () => {
+  it('fetches reputation only from source configs for the requested projectId', async () => {
+    installReputationSearchFixtures();
+
     const settingsResponse = await requestApp('PATCH', '/api/settings', {
       monitorRedditQueries: ['global reddit query'],
       monitorV2exQueries: ['global v2ex query'],
@@ -575,8 +701,7 @@ describe('reputation api', () => {
           source: 'v2ex',
           sentiment: 'neutral',
           status: 'new',
-          title: 'Watching reputation query: project two v2ex',
-          detail: 'Derived from source config "Project 2 V2EX mentions" before live mentions arrive.',
+          title: 'Project two operators thread',
         }),
       ],
       inserted: 1,
@@ -589,7 +714,7 @@ describe('reputation api', () => {
       expect.objectContaining({
         id: 1,
         projectId: 2,
-        title: 'Watching reputation query: project two v2ex',
+        title: 'Project two operators thread',
       }),
     ]);
   });
@@ -664,6 +789,40 @@ describe('reputation api', () => {
         }),
       ],
     });
+  });
+
+  it('deduplicates identical reputation items for the same project and content fields', async () => {
+    const reputationStore = createReputationStore();
+    const first = reputationStore.create({
+      projectId: 1,
+      source: 'reddit',
+      sentiment: 'negative',
+      status: 'new',
+      title: 'Billing confusion mention',
+      detail: 'Agency buyers asked whether billing and usage caps are transparent enough.',
+    });
+    const duplicate = reputationStore.create({
+      projectId: 1,
+      source: 'reddit',
+      sentiment: 'negative',
+      status: 'new',
+      title: 'Billing confusion mention',
+      detail: 'Agency buyers asked whether billing and usage caps are transparent enough.',
+    });
+    const otherProject = reputationStore.create({
+      projectId: 2,
+      source: 'reddit',
+      sentiment: 'negative',
+      status: 'new',
+      title: 'Billing confusion mention',
+      detail: 'Agency buyers asked whether billing and usage caps are transparent enough.',
+    });
+
+    expect(duplicate).toEqual(first);
+    expect(otherProject.id).not.toBe(first.id);
+    expect(reputationStore.getStats().total).toBe(2);
+    expect(reputationStore.getStats(1).items.map((item) => item.id)).toEqual([first.id]);
+    expect(reputationStore.getStats(2).items.map((item) => item.id)).toEqual([otherProject.id]);
   });
 
   it('filters reputation feed and stats by optional projectId query', async () => {

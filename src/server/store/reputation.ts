@@ -41,6 +41,10 @@ export function createReputationStore(): ReputationStore {
     create(input) {
       return withDatabase((database) => {
         ensureProjectIdColumn(database);
+        const existing = findExistingReputationItem(database, input);
+        if (existing) {
+          return existing;
+        }
         return insertReputationItem(database, input);
       });
     },
@@ -57,6 +61,40 @@ export function createReputationStore(): ReputationStore {
       });
     },
   };
+}
+
+function findExistingReputationItem(
+  database: DatabaseConnection,
+  input: CreateReputationItemInput,
+): ReputationItemRecord | undefined {
+  const row = database
+    .prepare(
+      `
+        SELECT id, project_id AS projectId, source, sentiment, status, title, detail, created_at AS createdAt
+        FROM reputation_items
+        WHERE (
+          (project_id = @project_id)
+          OR (project_id IS NULL AND @project_id IS NULL)
+        )
+          AND source = @source
+          AND sentiment = @sentiment
+          AND status = @status
+          AND title = @title
+          AND detail = @detail
+        ORDER BY id ASC
+        LIMIT 1
+      `,
+    )
+    .get({
+      project_id: input.projectId ?? null,
+      source: input.source,
+      sentiment: input.sentiment,
+      status: input.status,
+      title: input.title,
+      detail: input.detail,
+    });
+
+  return row ? normalizeReputationItem(row as Record<string, unknown>) : undefined;
 }
 
 function insertReputationItem(

@@ -52,36 +52,43 @@ function insertMonitorItem(
   database: DatabaseConnection,
   input: CreateMonitorItemInput,
 ): MonitorItemRecord {
+  const params = {
+    project_id: input.projectId ?? null,
+    source: input.source,
+    title: input.title,
+    detail: input.detail,
+    status: input.status ?? 'new',
+  };
   const result = database
     .prepare(
       `
         INSERT INTO monitor_items (project_id, source, title, detail, status)
-        VALUES (@project_id, @source, @title, @detail, @status)
+        SELECT @project_id, @source, @title, @detail, @status
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM monitor_items
+          WHERE source = @source
+            AND title = @title
+            AND detail = @detail
+            AND (
+              project_id = @project_id
+              OR (project_id IS NULL AND @project_id IS NULL)
+            )
+        )
       `,
     )
-    .run({
-      project_id: input.projectId ?? null,
-      source: input.source,
-      title: input.title,
-      detail: input.detail,
-      status: input.status ?? 'new',
-    });
+    .run(params);
 
-  const row = database
-    .prepare(
-      `
-        SELECT id, project_id AS projectId, source, title, detail, status, created_at AS createdAt
-        FROM monitor_items
-        WHERE id = ?
-      `,
-    )
-    .get([result.lastInsertRowid]);
+  const row =
+    result.changes > 0
+      ? getMonitorItemById(database, result.lastInsertRowid)
+      : getMonitorItemByNaturalKey(database, input);
 
   if (!row) {
     throw new Error('monitor item insert failed');
   }
 
-  return normalizeMonitorItem(row as Record<string, unknown>);
+  return row;
 }
 
 function getMonitorItemById(database: DatabaseConnection, id: number): MonitorItemRecord | undefined {
@@ -122,6 +129,36 @@ function listMonitorItems(database: DatabaseConnection, projectId?: number): Mon
           .all();
 
   return rows.map((row) => normalizeMonitorItem(row as Record<string, unknown>));
+}
+
+function getMonitorItemByNaturalKey(
+  database: DatabaseConnection,
+  input: Pick<CreateMonitorItemInput, 'projectId' | 'source' | 'title' | 'detail'>,
+): MonitorItemRecord | undefined {
+  const row = database
+    .prepare(
+      `
+        SELECT id, project_id AS projectId, source, title, detail, status, created_at AS createdAt
+        FROM monitor_items
+        WHERE source = @source
+          AND title = @title
+          AND detail = @detail
+          AND (
+            project_id = @project_id
+            OR (project_id IS NULL AND @project_id IS NULL)
+          )
+        ORDER BY id ASC
+        LIMIT 1
+      `,
+    )
+    .get({
+      project_id: input.projectId ?? null,
+      source: input.source,
+      title: input.title,
+      detail: input.detail,
+    });
+
+  return row ? normalizeMonitorItem(row as Record<string, unknown>) : undefined;
 }
 
 function normalizeMonitorItem(row: Record<string, unknown>): MonitorItemRecord {

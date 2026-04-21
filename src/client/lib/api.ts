@@ -11,6 +11,7 @@ export class ApiRequestError extends Error {
 }
 
 const ADMIN_PASSWORD_STORAGE_KEY = 'promobot_admin_password';
+const ADMIN_PASSWORD_STORAGE_MODE_KEY = 'promobot_admin_password_mode';
 const AUTH_ERROR_EVENT = 'promobot-auth-error';
 
 async function parseResponseBody(response: Response): Promise<unknown> {
@@ -94,16 +95,60 @@ export function getStoredAdminPassword() {
     return null;
   }
 
-  const value = window.localStorage.getItem(ADMIN_PASSWORD_STORAGE_KEY);
-  return value && value.trim().length > 0 ? value : null;
+  const sessionStorage = getSessionStorage();
+  const sessionValue = readStorageValue(sessionStorage);
+  if (sessionValue) {
+    return sessionValue;
+  }
+
+  const localStorage = getLegacyLocalStorage();
+  const legacyValue = readStorageValue(localStorage);
+  if (!legacyValue) {
+    return null;
+  }
+
+  const storageMode = readStorageMode(localStorage);
+  if (storageMode === 'persistent') {
+    return legacyValue;
+  }
+
+  try {
+    sessionStorage?.setItem(ADMIN_PASSWORD_STORAGE_KEY, legacyValue);
+    localStorage?.removeItem(ADMIN_PASSWORD_STORAGE_KEY);
+    localStorage?.removeItem(ADMIN_PASSWORD_STORAGE_MODE_KEY);
+  } catch {
+    return legacyValue;
+  }
+
+  return legacyValue;
 }
 
-export function storeAdminPassword(password: string) {
+export function storeAdminPassword(password: string, options: { persist?: boolean } = {}) {
   if (typeof window === 'undefined') {
     return;
   }
 
-  window.localStorage.setItem(ADMIN_PASSWORD_STORAGE_KEY, password);
+  const persist = options.persist === true;
+
+  if (persist) {
+    try {
+      getLegacyLocalStorage()?.setItem(ADMIN_PASSWORD_STORAGE_KEY, password);
+      getLegacyLocalStorage()?.setItem(ADMIN_PASSWORD_STORAGE_MODE_KEY, 'persistent');
+      getSessionStorage()?.removeItem(ADMIN_PASSWORD_STORAGE_KEY);
+    } catch {
+      getSessionStorage()?.setItem(ADMIN_PASSWORD_STORAGE_KEY, password);
+    }
+    return;
+  }
+
+  try {
+    getSessionStorage()?.setItem(ADMIN_PASSWORD_STORAGE_KEY, password);
+    getLegacyLocalStorage()?.removeItem(ADMIN_PASSWORD_STORAGE_KEY);
+    getLegacyLocalStorage()?.removeItem(ADMIN_PASSWORD_STORAGE_MODE_KEY);
+  } catch {
+    getLegacyLocalStorage()?.setItem(ADMIN_PASSWORD_STORAGE_KEY, password);
+    getLegacyLocalStorage()?.removeItem(ADMIN_PASSWORD_STORAGE_MODE_KEY);
+  }
 }
 
 export function clearStoredAdminPassword() {
@@ -111,7 +156,18 @@ export function clearStoredAdminPassword() {
     return;
   }
 
-  window.localStorage.removeItem(ADMIN_PASSWORD_STORAGE_KEY);
+  try {
+    getSessionStorage()?.removeItem(ADMIN_PASSWORD_STORAGE_KEY);
+  } catch {
+    // Ignore storage cleanup failures.
+  }
+
+  try {
+    getLegacyLocalStorage()?.removeItem(ADMIN_PASSWORD_STORAGE_KEY);
+    getLegacyLocalStorage()?.removeItem(ADMIN_PASSWORD_STORAGE_MODE_KEY);
+  } catch {
+    // Ignore storage cleanup failures.
+  }
 }
 
 export function getAuthErrorEventName() {
@@ -120,6 +176,20 @@ export function getAuthErrorEventName() {
 
 export function getAdminPasswordStorageKey() {
   return ADMIN_PASSWORD_STORAGE_KEY;
+}
+
+function readStorageMode(
+  storage:
+    | {
+        getItem: (key: string) => string | null;
+      }
+    | null,
+) {
+  try {
+    return storage?.getItem(ADMIN_PASSWORD_STORAGE_MODE_KEY) ?? null;
+  } catch {
+    return null;
+  }
 }
 
 function withAdminPassword(init: RequestInit | undefined): RequestInit | undefined {
@@ -135,4 +205,27 @@ function withAdminPassword(init: RequestInit | undefined): RequestInit | undefin
     ...init,
     headers,
   };
+}
+
+function readStorageValue(
+  storage:
+    | {
+        getItem: (key: string) => string | null;
+      }
+    | null,
+) {
+  try {
+    const value = storage?.getItem(ADMIN_PASSWORD_STORAGE_KEY) ?? null;
+    return value && value.trim().length > 0 ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function getSessionStorage() {
+  return typeof window === 'undefined' ? null : window.sessionStorage;
+}
+
+function getLegacyLocalStorage() {
+  return typeof window === 'undefined' ? null : window.localStorage;
 }

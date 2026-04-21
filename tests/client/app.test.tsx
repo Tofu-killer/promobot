@@ -37,17 +37,43 @@ function updateFieldValue(element: { value?: string } | null, value: string, win
   (element as { dispatchEvent: (event: Event) => void }).dispatchEvent(new window.Event('change', { bubbles: true }));
 }
 
-function dispatchStorageEvent(
-  window: { Event: typeof Event; dispatchEvent: (event: Event) => void },
-  detail: {
-    key: string;
-    oldValue: string | null;
-    newValue: string | null;
-    storageArea: unknown;
+function createStorageArea(initialValue: string | null = null) {
+  let storedValue = initialValue;
+
+  return {
+    getItem: vi.fn((_key: string) => storedValue),
+    setItem: vi.fn((_key: string, value: string) => {
+      storedValue = value;
+    }),
+    removeItem: vi.fn((_key: string) => {
+      storedValue = null;
+    }),
+    peek: () => storedValue,
+  };
+}
+
+function installAuthStorage<
+  TStorage extends {
+    getItem: (key: string) => string | null;
+    setItem: (key: string, value: string) => void;
+    removeItem: (key: string) => void;
+  },
+>(
+  window: unknown,
+  storage: {
+    localStorage: TStorage;
+    sessionStorage: TStorage;
   },
 ) {
-  const event = Object.assign(new window.Event('storage'), detail);
-  window.dispatchEvent(event);
+  const storageWindow = window as {
+    localStorage: TStorage;
+    sessionStorage: TStorage;
+  };
+
+  storageWindow.localStorage = storage.localStorage;
+  storageWindow.sessionStorage = storage.sessionStorage;
+
+  return storage;
 }
 
 function installBrowserHistory(
@@ -117,12 +143,10 @@ describe('App shell', () => {
   it('keeps the shared raw projectId draft when switching between dashboard, generate, and monitor', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
-    const localStorage = {
-      getItem: () => 'secret',
-      setItem: () => undefined,
-      removeItem: () => undefined,
-    };
-    (window as unknown as { localStorage: typeof localStorage }).localStorage = localStorage;
+    installAuthStorage(window, {
+      localStorage: createStorageArea(),
+      sessionStorage: createStorageArea('secret'),
+    });
     vi.stubGlobal(
       'fetch',
       vi.fn((input: RequestInfo | URL) => {
@@ -269,12 +293,10 @@ describe('App shell', () => {
   it('renders the route from window.location.pathname on first client render', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
-    const localStorage = {
-      getItem: () => 'secret',
-      setItem: () => undefined,
-      removeItem: () => undefined,
-    };
-    (window as unknown as { localStorage: typeof localStorage }).localStorage = localStorage;
+    installAuthStorage(window, {
+      localStorage: createStorageArea(),
+      sessionStorage: createStorageArea('secret'),
+    });
     installBrowserHistory(window as never, '/monitor');
 
     vi.stubGlobal(
@@ -345,12 +367,10 @@ describe('App shell', () => {
   it('keeps the login page when a stored admin password fails probe validation', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
-    const localStorage = {
-      getItem: () => 'wrong-secret',
-      setItem: () => undefined,
-      removeItem: vi.fn(),
-    };
-    (window as unknown as { localStorage: typeof localStorage }).localStorage = localStorage;
+    const { localStorage, sessionStorage } = installAuthStorage(window, {
+      localStorage: createStorageArea(),
+      sessionStorage: createStorageArea('wrong-secret'),
+    });
 
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ error: 'unauthorized' }), {
@@ -380,7 +400,8 @@ describe('App shell', () => {
     expect(collectText(container)).toContain('Admin Login');
     expect(collectText(container)).not.toContain('Dashboard');
     expect(collectText(container)).toContain('登录失败：管理员密码无效');
-    expect(localStorage.removeItem).toHaveBeenCalled();
+    expect(sessionStorage.removeItem).toHaveBeenCalledWith('promobot_admin_password');
+    expect(localStorage.removeItem).toHaveBeenCalledWith('promobot_admin_password');
 
     await act(async () => {
       root.unmount();
@@ -391,12 +412,10 @@ describe('App shell', () => {
   it('validates the submitted admin password before entering the shell', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
-    const localStorage = {
-      getItem: () => null,
-      setItem: vi.fn(),
-      removeItem: () => undefined,
-    };
-    (window as unknown as { localStorage: typeof localStorage }).localStorage = localStorage;
+    const { localStorage, sessionStorage } = installAuthStorage(window, {
+      localStorage: createStorageArea(),
+      sessionStorage: createStorageArea(),
+    });
 
     const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
       if (String(input) === '/api/auth/probe') {
@@ -464,7 +483,8 @@ describe('App shell', () => {
         headers: expect.any(Headers),
       }),
     );
-    expect(localStorage.setItem).toHaveBeenCalledWith('promobot_admin_password', 'secret');
+    expect(sessionStorage.setItem).toHaveBeenCalledWith('promobot_admin_password', 'secret');
+    expect(localStorage.setItem).not.toHaveBeenCalled();
     expect(collectText(container)).toContain('PromoBot');
 
     await act(async () => {
@@ -473,16 +493,13 @@ describe('App shell', () => {
     });
   });
 
-  it('returns to the login page when another tab clears the stored admin password', async () => {
+  it('migrates a legacy localStorage admin password into sessionStorage on first client render', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
-    let storedPassword = 'secret';
-    const localStorage = {
-      getItem: () => storedPassword,
-      setItem: vi.fn(),
-      removeItem: vi.fn(),
-    };
-    (window as unknown as { localStorage: typeof localStorage }).localStorage = localStorage;
+    const { localStorage, sessionStorage } = installAuthStorage(window, {
+      localStorage: createStorageArea('secret'),
+      sessionStorage: createStorageArea(),
+    });
 
     const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
       if (String(input) === '/api/auth/probe') {
@@ -521,22 +538,18 @@ describe('App shell', () => {
       await flush();
     });
 
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/auth/probe',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.any(Headers),
+      }),
+    );
+    expect(sessionStorage.setItem).toHaveBeenCalledWith('promobot_admin_password', 'secret');
+    expect(sessionStorage.peek()).toBe('secret');
+    expect(localStorage.removeItem).toHaveBeenCalledWith('promobot_admin_password');
+    expect(localStorage.peek()).toBeNull();
     expect(collectText(container)).toContain('PromoBot');
-
-    await act(async () => {
-      storedPassword = null as never;
-      dispatchStorageEvent(window as never, {
-        key: 'promobot_admin_password',
-        oldValue: 'secret',
-        newValue: null,
-        storageArea: localStorage,
-      });
-      await flush();
-      await flush();
-    });
-
-    expect(collectText(container)).toContain('Admin Login');
-    expect(collectText(container)).not.toContain('AI Operations Console');
 
     await act(async () => {
       root.unmount();
@@ -544,16 +557,93 @@ describe('App shell', () => {
     });
   });
 
-  it('authenticates when another tab stores a valid admin password', async () => {
+  it('stores the admin password in localStorage only when remember this browser is enabled', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
-    let storedPassword: string | null = null;
-    const localStorage = {
-      getItem: () => storedPassword,
-      setItem: vi.fn(),
-      removeItem: vi.fn(),
-    };
-    (window as unknown as { localStorage: typeof localStorage }).localStorage = localStorage;
+    const { localStorage, sessionStorage } = installAuthStorage(window, {
+      localStorage: createStorageArea(),
+      sessionStorage: createStorageArea(),
+    });
+
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      if (String(input) === '/api/auth/probe') {
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+
+      return Promise.resolve(
+        jsonResponse({
+          monitor: {
+            total: 0,
+            new: 0,
+            followUpDrafts: 0,
+          },
+          drafts: {
+            total: 0,
+            review: 0,
+          },
+          totals: {
+            items: 0,
+            followUps: 0,
+          },
+        }),
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(createElement(App as never, { initialAdminPassword: null }));
+      await flush();
+      await flush();
+    });
+
+    const passwordInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && (element as { type?: string }).type === 'password',
+    );
+    const rememberCheckbox = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && (element as { type?: string }).type === 'checkbox',
+    );
+    const submitButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('进入控制台'),
+    );
+
+    await act(async () => {
+      updateFieldValue(passwordInput as never, 'secret', window as never);
+      await flush();
+    });
+
+    await act(async () => {
+      (rememberCheckbox as { checked?: boolean; dispatchEvent: (event: Event) => void }).checked = true;
+      rememberCheckbox?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    await act(async () => {
+      submitButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(localStorage.setItem).toHaveBeenCalledWith('promobot_admin_password', 'secret');
+    expect(localStorage.setItem).toHaveBeenCalledWith('promobot_admin_password_mode', 'persistent');
+    expect(sessionStorage.setItem).not.toHaveBeenCalledWith('promobot_admin_password', 'secret');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('prefers sessionStorage over legacy localStorage when both values exist', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { localStorage, sessionStorage } = installAuthStorage(window, {
+      localStorage: createStorageArea('legacy-secret'),
+      sessionStorage: createStorageArea('secret'),
+    });
 
     const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
       if (String(input) === '/api/auth/probe') {
@@ -601,20 +691,6 @@ describe('App shell', () => {
       root.render(createElement(App as never, { initialAdminPassword: null }));
       await flush();
       await flush();
-    });
-
-    expect(collectText(container)).toContain('Admin Login');
-
-    await act(async () => {
-      storedPassword = 'secret';
-      dispatchStorageEvent(window as never, {
-        key: 'promobot_admin_password',
-        oldValue: null,
-        newValue: 'secret',
-        storageArea: localStorage,
-      });
-      await flush();
-      await flush();
       await flush();
     });
 
@@ -625,6 +701,8 @@ describe('App shell', () => {
         headers: expect.any(Headers),
       }),
     );
+    expect(sessionStorage.setItem).not.toHaveBeenCalled();
+    expect(localStorage.removeItem).not.toHaveBeenCalled();
     expect(collectText(container)).toContain('PromoBot');
     expect(collectText(container)).not.toContain('Admin Login');
 

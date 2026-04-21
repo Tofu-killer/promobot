@@ -2,16 +2,17 @@ import { Router } from 'express';
 import { isSupportedAllowlistEntry } from '../middleware/ipAllowlist.js';
 import { listPlatformReadiness } from '../services/platformReadiness.js';
 import type { SchedulerRuntime } from '../runtime/schedulerRuntime.js';
-import { createSettingsStore } from '../store/settings.js';
-
-const settingsStore = createSettingsStore();
+import { createSettingsStore, type SettingsStore } from '../store/settings.js';
 
 export interface SettingsRouteDependencies {
   schedulerRuntime?: SchedulerRuntime;
+  settingsStore?: SettingsStore;
+  onAllowlistUpdated?: (allowlist: string[]) => void;
 }
 
 export function createSettingsRouter(dependencies: SettingsRouteDependencies = {}) {
   const settingsRouter = Router();
+  const settingsStore = dependencies.settingsStore ?? createSettingsStore();
 
   settingsRouter.get('/', (_request, response) => {
     response.json({
@@ -30,7 +31,7 @@ export function createSettingsRouter(dependencies: SettingsRouteDependencies = {
         ? input.allowlist.filter((value: unknown): value is string => typeof value === 'string')
         : undefined;
 
-    if (allowlist && allowlist.some((value) => !isSupportedAllowlistEntry(value))) {
+    if (allowlist && allowlist.some((value: string) => !isSupportedAllowlistEntry(value))) {
       response.status(400).json({ error: 'invalid allowlist' });
       return;
     }
@@ -61,6 +62,9 @@ export function createSettingsRouter(dependencies: SettingsRouteDependencies = {
         ? input.monitorV2exQueries.filter((value: unknown): value is string => typeof value === 'string')
         : undefined,
     });
+    if (allowlist !== undefined) {
+      dependencies.onAllowlistUpdated?.(settings.allowlist);
+    }
 
     response.json({
       settings,

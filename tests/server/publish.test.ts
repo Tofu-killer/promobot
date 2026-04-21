@@ -1,3 +1,5 @@
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 import express from 'express';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -8,12 +10,14 @@ import {
 import { initDb } from '../../src/server/db';
 import type { SessionMetadata } from '../../src/server/services/browser/sessionStore';
 import * as sessionStoreModule from '../../src/server/services/browser/sessionStore';
+import { createChannelAccountStore } from '../../src/server/store/channelAccounts';
 import { createSQLiteDraftStore } from '../../src/server/store/drafts';
 import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
 
 let activeTestDbRoot: string | undefined;
 let activeTestDatabasePath: string | undefined;
 const originalEnv = {
+  BLOG_PUBLISH_OUTPUT_DIR: process.env.BLOG_PUBLISH_OUTPUT_DIR,
   X_ACCESS_TOKEN: process.env.X_ACCESS_TOKEN,
   X_BEARER_TOKEN: process.env.X_BEARER_TOKEN,
   REDDIT_CLIENT_ID: process.env.REDDIT_CLIENT_ID,
@@ -149,6 +153,7 @@ afterEach(() => {
   vi.clearAllMocks();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  process.env.BLOG_PUBLISH_OUTPUT_DIR = originalEnv.BLOG_PUBLISH_OUTPUT_DIR;
   process.env.X_ACCESS_TOKEN = originalEnv.X_ACCESS_TOKEN;
   process.env.X_BEARER_TOKEN = originalEnv.X_BEARER_TOKEN;
   process.env.REDDIT_CLIENT_ID = originalEnv.REDDIT_CLIENT_ID;
@@ -779,6 +784,106 @@ describe('publish api', () => {
     expect(recordPublishFailure).not.toHaveBeenCalled();
   });
 
+  it('does not resolve a pending browser handoff artifact when local persistence fails after browser publish success', async () => {
+    const testDatabase = createTestDatabasePath();
+    activeTestDbRoot = testDatabase.rootDir;
+    activeTestDatabasePath = testDatabase.databasePath;
+    process.env.BROWSER_HANDOFF_OUTPUT_DIR = testDatabase.rootDir;
+
+    const artifactDir = path.join(
+      testDatabase.rootDir,
+      'artifacts',
+      'browser-handoffs',
+      'facebookGroup',
+      'launch-campaign',
+    );
+    mkdirSync(artifactDir, { recursive: true });
+    const artifactPath = path.join(artifactDir, 'facebookGroup-draft-51.json');
+    writeFileSync(
+      artifactPath,
+      JSON.stringify({
+        type: 'browser_manual_handoff',
+        status: 'pending',
+        platform: 'facebookGroup',
+        draftId: '51',
+        title: 'Already handed off',
+        content: 'Draft body',
+        target: 'group-123',
+        accountKey: 'launch-campaign',
+        session: {
+          hasSession: true,
+          id: 'facebookGroup:launch-campaign',
+          status: 'active',
+          validatedAt: '2026-04-21T01:20:00.000Z',
+          storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
+        },
+        createdAt: '2026-04-21T01:22:00.000Z',
+        updatedAt: '2026-04-21T01:22:00.000Z',
+        resolvedAt: null,
+        resolution: null,
+      }),
+      'utf8',
+    );
+
+    const publishDraft = vi.fn().mockResolvedValue({
+      platform: 'facebookGroup',
+      mode: 'browser',
+      status: 'published',
+      success: true,
+      publishUrl: 'https://facebook.com/groups/group-123/posts/51',
+      externalId: 'fb-post-51',
+      message: 'browser lane completed publish',
+      publishedAt: '2026-04-21T01:23:45.000Z',
+    });
+    const persistPublishResult = vi
+      .fn<PublishRouteDependencies['persistPublishResult']>()
+      .mockRejectedValue(new Error('local persistence exploded'));
+    const recordPublishFailure = vi
+      .fn<PublishRouteDependencies['recordPublishFailure']>()
+      .mockResolvedValue(undefined);
+    const app = createTestApp({
+      lookupDraft: vi.fn().mockResolvedValue({
+        id: 51,
+        platform: 'facebook-group',
+        title: 'Already handed off',
+        content: 'Draft body',
+        target: 'group-123',
+        metadata: {
+          accountKey: 'launch-campaign',
+        },
+      }),
+      publishDraft,
+      persistPublishResult,
+      recordPublishFailure,
+    });
+
+    await expect(requestApp(app, 'POST', '/api/drafts/51/publish')).rejects.toThrow(
+      'local persistence exploded',
+    );
+    expect(JSON.parse(readFileSync(artifactPath, 'utf8'))).toEqual({
+      type: 'browser_manual_handoff',
+      status: 'pending',
+      platform: 'facebookGroup',
+      draftId: '51',
+      title: 'Already handed off',
+      content: 'Draft body',
+      target: 'group-123',
+      accountKey: 'launch-campaign',
+      session: {
+        hasSession: true,
+        id: 'facebookGroup:launch-campaign',
+        status: 'active',
+        validatedAt: '2026-04-21T01:20:00.000Z',
+        storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
+      },
+      createdAt: '2026-04-21T01:22:00.000Z',
+      updatedAt: '2026-04-21T01:22:00.000Z',
+      resolvedAt: null,
+      resolution: null,
+    });
+    expect(recordPublishFailure).not.toHaveBeenCalled();
+  });
+
   it('retries transient x publisher failures through the publish route and persists the final published contract', async () => {
     process.env.X_ACCESS_TOKEN = 'x-access-token';
 
@@ -1049,9 +1154,485 @@ describe('publish api', () => {
             storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
           },
           sessionAction: null,
+          artifactPath:
+            'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-1.json',
         },
       },
     });
+  });
+
+  it('writes channelAccountId into browser handoff artifacts when a unique matching channel account exists', async () => {
+    const session: SessionMetadata = {
+      id: 'facebookGroup:launch-campaign',
+      platform: 'facebookGroup',
+      accountKey: 'launch-campaign',
+      storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
+      status: 'active',
+      createdAt: '2026-04-19T10:00:00.000Z',
+      updatedAt: '2026-04-19T10:30:00.000Z',
+      lastValidatedAt: '2026-04-19T10:25:00.000Z',
+    };
+    vi.spyOn(sessionStoreModule, 'createSessionStore').mockReturnValue({
+      getSession: vi.fn().mockReturnValue(session),
+    } as unknown as sessionStoreModule.SessionStore);
+
+    const testDatabase = createTestDatabasePath();
+    activeTestDbRoot = testDatabase.rootDir;
+    activeTestDatabasePath = testDatabase.databasePath;
+    process.env.BROWSER_HANDOFF_OUTPUT_DIR = testDatabase.rootDir;
+
+    const channelAccountStore = createChannelAccountStore();
+    channelAccountStore.create({
+      projectId: 77,
+      platform: 'facebookGroup',
+      accountKey: 'launch-campaign',
+      displayName: 'PromoBot FB 77',
+      authType: 'browser',
+      status: 'healthy',
+    });
+
+    const draftStore = createSQLiteDraftStore();
+    const draft = draftStore.create({
+      projectId: 77,
+      platform: 'facebook-group',
+      title: 'Community update',
+      content: 'Needs browser handoff',
+      target: 'group-123',
+      metadata: {
+        accountKey: 'launch-campaign',
+      },
+    });
+    const app = createTestApp(
+      {
+        lookupDraft(id) {
+          const storedDraft = draftStore.getById(id);
+          if (!storedDraft) {
+            return undefined;
+          }
+
+          return {
+            id: storedDraft.id,
+            projectId: storedDraft.projectId ?? undefined,
+            platform: storedDraft.platform,
+            title: storedDraft.title,
+            content: storedDraft.content,
+            target: storedDraft.target,
+            metadata: storedDraft.metadata,
+          };
+        },
+      },
+      { useDefaultPersistence: true },
+    );
+
+    const response = await requestApp(app, 'POST', `/api/drafts/${draft.id}/publish`);
+
+    expect(response.status).toBe(200);
+    const artifactPath = path.join(
+      testDatabase.rootDir,
+      'artifacts',
+      'browser-handoffs',
+      'facebookGroup',
+      'launch-campaign',
+      `facebookGroup-draft-${draft.id}.json`,
+    );
+    expect(JSON.parse(readFileSync(artifactPath, 'utf8'))).toEqual(
+      expect.objectContaining({
+        channelAccountId: 1,
+        platform: 'facebookGroup',
+        draftId: String(draft.id),
+      }),
+    );
+  });
+
+  it('returns a ready manual handoff contract for xiaohongshu drafts with a saved browser session', async () => {
+    const session: SessionMetadata = {
+      id: 'xiaohongshu:launch-campaign',
+      platform: 'xiaohongshu',
+      accountKey: 'launch-campaign',
+      storageStatePath: 'artifacts/browser-sessions/xiaohongshu.json',
+      status: 'active',
+      createdAt: '2026-04-19T10:00:00.000Z',
+      updatedAt: '2026-04-19T10:30:00.000Z',
+      lastValidatedAt: '2026-04-19T10:25:00.000Z',
+    };
+    vi.spyOn(sessionStoreModule, 'createSessionStore').mockReturnValue({
+      getSession: vi.fn().mockReturnValue(session),
+    } as unknown as sessionStoreModule.SessionStore);
+
+    const testDatabase = createTestDatabasePath();
+    activeTestDbRoot = testDatabase.rootDir;
+    activeTestDatabasePath = testDatabase.databasePath;
+    const draftStore = createSQLiteDraftStore();
+    const draft = draftStore.create({
+      platform: 'xiaohongshu',
+      title: 'Community note',
+      content: 'Needs browser handoff',
+      target: 'brand-account',
+      metadata: {
+        accountKey: 'launch-campaign',
+      },
+    });
+    const app = createTestApp(
+      {
+        lookupDraft(id) {
+          const storedDraft = draftStore.getById(id);
+          if (!storedDraft) {
+            return undefined;
+          }
+
+          return {
+            id: storedDraft.id,
+            platform: storedDraft.platform,
+            title: storedDraft.title,
+            content: storedDraft.content,
+            target: storedDraft.target,
+            metadata: storedDraft.metadata,
+          };
+        },
+      },
+      { useDefaultPersistence: true },
+    );
+
+    const response = await requestApp(app, 'POST', `/api/drafts/${draft.id}/publish`);
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({
+      draftId: draft.id,
+      draftStatus: 'review',
+      platform: 'xiaohongshu',
+      mode: 'browser',
+      status: 'manual_required',
+      success: false,
+      publishUrl: null,
+      externalId: null,
+      message: 'xiaohongshu draft 1 is ready for manual browser handoff with the saved session.',
+      publishedAt: null,
+      details: {
+        target: 'brand-account',
+        accountKey: 'launch-campaign',
+        browserHandoff: {
+          readiness: 'ready',
+          session: {
+            hasSession: true,
+            id: 'xiaohongshu:launch-campaign',
+            status: 'active',
+            validatedAt: '2026-04-19T10:25:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/xiaohongshu.json',
+          },
+          sessionAction: null,
+          artifactPath:
+            'artifacts/browser-handoffs/xiaohongshu/launch-campaign/xiaohongshu-draft-1.json',
+        },
+      },
+    });
+    expect(readPublishLogs()).toEqual([
+      expect.objectContaining({
+        draftId: draft.id,
+        status: 'manual_required',
+        publishUrl: null,
+        message: 'xiaohongshu draft 1 is ready for manual browser handoff with the saved session.',
+      }),
+    ]);
+  });
+
+  it('returns a relogin manual handoff contract for weibo drafts with an expired browser session', async () => {
+    const session: SessionMetadata = {
+      id: 'weibo:launch-campaign',
+      platform: 'weibo',
+      accountKey: 'launch-campaign',
+      storageStatePath: 'artifacts/browser-sessions/weibo.json',
+      status: 'expired',
+      createdAt: '2026-04-19T10:00:00.000Z',
+      updatedAt: '2026-04-19T10:30:00.000Z',
+      lastValidatedAt: '2026-04-19T10:25:00.000Z',
+    };
+    vi.spyOn(sessionStoreModule, 'createSessionStore').mockReturnValue({
+      getSession: vi.fn().mockReturnValue(session),
+    } as unknown as sessionStoreModule.SessionStore);
+
+    const testDatabase = createTestDatabasePath();
+    activeTestDbRoot = testDatabase.rootDir;
+    activeTestDatabasePath = testDatabase.databasePath;
+    const draftStore = createSQLiteDraftStore();
+    const draft = draftStore.create({
+      platform: 'weibo',
+      title: 'Weibo handoff',
+      content: 'Needs relogin',
+      target: 'brand-account',
+      metadata: {
+        accountKey: 'launch-campaign',
+      },
+    });
+    const app = createTestApp(
+      {
+        lookupDraft(id) {
+          const storedDraft = draftStore.getById(id);
+          if (!storedDraft) {
+            return undefined;
+          }
+
+          return {
+            id: storedDraft.id,
+            platform: storedDraft.platform,
+            title: storedDraft.title,
+            content: storedDraft.content,
+            target: storedDraft.target,
+            metadata: storedDraft.metadata,
+          };
+        },
+      },
+      { useDefaultPersistence: true },
+    );
+
+    const response = await requestApp(app, 'POST', `/api/drafts/${draft.id}/publish`);
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({
+      draftId: draft.id,
+      draftStatus: 'review',
+      platform: 'weibo',
+      mode: 'browser',
+      status: 'manual_required',
+      success: false,
+      publishUrl: null,
+      externalId: null,
+      message: 'weibo draft 1 requires the browser session to be refreshed before manual handoff.',
+      publishedAt: null,
+      details: {
+        target: 'brand-account',
+        accountKey: 'launch-campaign',
+        browserHandoff: {
+          readiness: 'blocked',
+          session: {
+            hasSession: true,
+            id: 'weibo:launch-campaign',
+            status: 'expired',
+            validatedAt: '2026-04-19T10:25:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/weibo.json',
+          },
+          sessionAction: 'relogin',
+        },
+      },
+    });
+    expect(readPublishLogs()).toEqual([
+      expect.objectContaining({
+        draftId: draft.id,
+        status: 'manual_required',
+        publishUrl: null,
+        message: 'weibo draft 1 requires the browser session to be refreshed before manual handoff.',
+      }),
+    ]);
+  });
+
+  it('resolves a pending browser handoff artifact when a later browser publish succeeds', async () => {
+    const testDatabase = createTestDatabasePath();
+    activeTestDbRoot = testDatabase.rootDir;
+    activeTestDatabasePath = testDatabase.databasePath;
+    process.env.BROWSER_HANDOFF_OUTPUT_DIR = testDatabase.rootDir;
+
+    vi.spyOn(sessionStoreModule, 'createSessionStore').mockReturnValue({
+      getSession: vi.fn().mockReturnValue({
+        id: 'facebookGroup:launch-campaign',
+        platform: 'facebookGroup',
+        accountKey: 'launch-campaign',
+        storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
+        status: 'active',
+        createdAt: '2026-04-19T10:00:00.000Z',
+        updatedAt: '2026-04-19T10:30:00.000Z',
+        lastValidatedAt: '2026-04-19T10:25:00.000Z',
+      }),
+    } as unknown as sessionStoreModule.SessionStore);
+
+    const draftStore = createSQLiteDraftStore();
+    const draft = draftStore.create({
+      platform: 'facebook-group',
+      title: 'Community update',
+      content: 'Needs browser handoff',
+      target: 'group-123',
+      metadata: {
+        accountKey: 'launch-campaign',
+      },
+    });
+
+    const app = createTestApp(
+      {
+        lookupDraft(id) {
+          const storedDraft = draftStore.getById(id);
+          if (!storedDraft) {
+            return undefined;
+          }
+
+          return {
+            id: storedDraft.id,
+            platform: storedDraft.platform,
+            title: storedDraft.title,
+            content: storedDraft.content,
+            target: storedDraft.target,
+            metadata: storedDraft.metadata,
+          };
+        },
+      },
+      { useDefaultPersistence: true },
+    );
+
+    const firstResponse = await requestApp(app, 'POST', `/api/drafts/${draft.id}/publish`);
+    expect(firstResponse.status).toBe(200);
+
+    const completionApp = createTestApp(
+      {
+        lookupDraft(id) {
+          const storedDraft = draftStore.getById(id);
+          if (!storedDraft) {
+            return undefined;
+          }
+
+          return {
+            id: storedDraft.id,
+            platform: storedDraft.platform,
+            title: storedDraft.title,
+            content: storedDraft.content,
+            target: storedDraft.target,
+            metadata: storedDraft.metadata,
+          };
+        },
+        publishDraft: vi.fn().mockResolvedValue({
+          platform: 'facebookGroup',
+          mode: 'browser',
+          status: 'published',
+          success: true,
+          publishUrl: 'https://facebook.com/groups/group-123/posts/42',
+          externalId: 'fb-post-42',
+          message: 'browser lane completed publish',
+          publishedAt: '2026-04-22T09:30:00.000Z',
+        }),
+      },
+      { useDefaultPersistence: true },
+    );
+
+    const secondResponse = await requestApp(
+      completionApp,
+      'POST',
+      `/api/drafts/${draft.id}/publish`,
+    );
+
+    expect(secondResponse.status).toBe(200);
+    expect(JSON.parse(secondResponse.body)).toEqual({
+      draftId: draft.id,
+      draftStatus: 'published',
+      platform: 'facebookGroup',
+      mode: 'browser',
+      status: 'published',
+      success: true,
+      publishUrl: 'https://facebook.com/groups/group-123/posts/42',
+      externalId: 'fb-post-42',
+      message: 'browser lane completed publish',
+      publishedAt: '2026-04-22T09:30:00.000Z',
+    });
+
+    const artifactPath = path.join(
+      testDatabase.rootDir,
+      'artifacts',
+      'browser-handoffs',
+      'facebookGroup',
+      'launch-campaign',
+      `facebookGroup-draft-${draft.id}.json`,
+    );
+    expect(existsSync(artifactPath)).toBe(true);
+    expect(JSON.parse(readFileSync(artifactPath, 'utf8'))).toEqual(
+      expect.objectContaining({
+        type: 'browser_manual_handoff',
+        status: 'resolved',
+        resolvedAt: expect.any(String),
+        resolution: {
+          status: 'resolved',
+          publishStatus: 'published',
+          draftStatus: 'published',
+          publishUrl: 'https://facebook.com/groups/group-123/posts/42',
+          externalId: 'fb-post-42',
+          message: 'browser lane completed publish',
+          publishedAt: '2026-04-22T09:30:00.000Z',
+        },
+      }),
+    );
+  });
+
+  it('publishes blog drafts to a local markdown file and persists a published contract', async () => {
+    const testDatabase = createTestDatabasePath();
+    activeTestDbRoot = testDatabase.rootDir;
+    activeTestDatabasePath = testDatabase.databasePath;
+    process.env.BLOG_PUBLISH_OUTPUT_DIR = path.join(testDatabase.rootDir, 'blog-posts');
+
+    const draftStore = createSQLiteDraftStore();
+    const draft = draftStore.create({
+      platform: 'blog',
+      title: 'Launch post',
+      content: 'Blog draft body',
+      target: 'blog-main',
+    });
+    insertPendingPublishJob(draft.id, '2026-04-21T10:11:12.000Z');
+
+    const app = createTestApp(
+      {
+        lookupDraft(id) {
+          const storedDraft = draftStore.getById(id);
+          if (!storedDraft) {
+            return undefined;
+          }
+
+          return {
+            id: storedDraft.id,
+            platform: storedDraft.platform,
+            title: storedDraft.title,
+            content: storedDraft.content,
+            target: storedDraft.target,
+            metadata: storedDraft.metadata,
+          };
+        },
+      },
+      { useDefaultPersistence: true },
+    );
+
+    const response = await requestApp(app, 'POST', `/api/drafts/${draft.id}/publish`);
+    const outputPath = path.join(testDatabase.rootDir, 'blog-posts', 'blog-1-launch-post.md');
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({
+      draftId: draft.id,
+      draftStatus: 'published',
+      platform: 'blog',
+      mode: 'api',
+      status: 'published',
+      success: true,
+      publishUrl: `file://${outputPath}`,
+      externalId: 'blog-1-launch-post',
+      message: `blog publisher wrote draft 1 to ${outputPath}`,
+      publishedAt: expect.any(String),
+      details: {
+        target: 'blog-main',
+        outputPath,
+      },
+    });
+
+    expect(existsSync(outputPath)).toBe(true);
+    expect(readFileSync(outputPath, 'utf8')).toContain('Blog draft body');
+    expect(readFileSync(outputPath, 'utf8')).toContain('target: "blog-main"');
+
+    expect(readPublishLogs()).toEqual([
+      expect.objectContaining({
+        draftId: draft.id,
+        status: 'published',
+        publishUrl: `file://${outputPath}`,
+        message: `blog publisher wrote draft 1 to ${outputPath}`,
+      }),
+    ]);
+    expect(draftStore.getById(draft.id)).toEqual(
+      expect.objectContaining({
+        id: draft.id,
+        status: 'published',
+        publishedAt: expect.any(String),
+      }),
+    );
+    expect(readJobQueue()).toEqual([]);
   });
 
   it('returns 400 for an invalid draft id', async () => {

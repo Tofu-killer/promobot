@@ -34,7 +34,7 @@ export function createDefaultJobHandlers(
 
   return {
     inbox_fetch: async (payload) => {
-      inboxFetchService.fetchNow(readProjectId(payload));
+      await inboxFetchService.fetchNow(readProjectId(payload));
     },
     monitor_fetch: async (payload) => {
       await monitorFetchService.fetchNow(readProjectId(payload));
@@ -42,7 +42,7 @@ export function createDefaultJobHandlers(
     [channelAccountSessionRequestJobType]: channelAccountSessionRequestHandler,
     publish: publishJobHandler,
     reputation_fetch: async (payload) => {
-      reputationFetchService.fetchNow(readProjectId(payload));
+      await reputationFetchService.fetchNow(readProjectId(payload));
     },
   };
 }

@@ -29,7 +29,7 @@ inboxRouter.get('/', (request, response) => {
   });
 });
 
-inboxRouter.post('/fetch', (request, response) => {
+inboxRouter.post('/fetch', async (request, response, next) => {
   const projectId = parseOptionalProjectId(request.body?.projectId);
 
   if (request.body?.projectId !== undefined && projectId === undefined) {
@@ -37,15 +37,19 @@ inboxRouter.post('/fetch', (request, response) => {
     return;
   }
 
-  const result = inboxFetchService.fetchNow(projectId);
-  const items = inboxStore.list(projectId);
+  try {
+    const result = await inboxFetchService.fetchNow(projectId);
+    const items = inboxStore.list(projectId);
 
-  response.status(201).json({
-    items: result.items,
-    inserted: result.inserted,
-    total: items.length,
-    unread: items.filter((item) => item.status !== 'handled').length,
-  });
+    response.status(201).json({
+      items: result.items,
+      inserted: result.inserted,
+      total: items.length,
+      unread: items.filter((item) => item.status !== 'handled').length,
+    });
+  } catch (error) {
+    next(error);
+  }
 });
 
 inboxRouter.patch('/:id', (request, response) => {

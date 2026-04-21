@@ -1,57 +1,98 @@
 import type { ReputationItemRecord } from '../store/reputation.js';
 import { createReputationStore } from '../store/reputation.js';
-import { createMonitorStore } from '../store/monitor.js';
 import { createSettingsStore } from '../store/settings.js';
 import { createSourceConfigStore, type SourceConfigRecord } from '../store/sourceConfigs.js';
-import { createReputationCollectorService } from './reputation/collector.js';
+import { createReputationSentimentService } from './reputation/sentiment.js';
+import { searchReddit } from './monitor/redditSearch.js';
+import { searchV2ex } from './monitor/v2exSearch.js';
+import { searchX } from './monitor/xSearch.js';
 
 export interface ReputationFetchResult {
   items: ReputationItemRecord[];
   inserted: number;
 }
 
+interface ScopedQuery {
+  projectId?: number;
+  value: string;
+}
+
+interface ReputationSearchRecord {
+  projectId?: number;
+  source: string;
+  title: string;
+  detail: string;
+  content: string;
+  summary: string;
+  url: string;
+}
+
 export function createReputationFetchService() {
   const reputationStore = createReputationStore();
-  const monitorStore = createMonitorStore();
   const settingsStore = createSettingsStore();
   const sourceConfigStore = createSourceConfigStore();
-  const collectorService = createReputationCollectorService();
+  const sentimentService = createReputationSentimentService();
 
   return {
-    fetchNow(projectId?: number): ReputationFetchResult {
-      const monitorItems = monitorStore.list(projectId);
+    async fetchNow(projectId?: number): Promise<ReputationFetchResult> {
+      const existingItemIds = new Set(reputationStore.getStats(projectId).items.map((item) => item.id));
+      const settings = projectId === undefined ? settingsStore.get() : emptyReputationSettings();
       const sourceConfigs = filterSourceConfigsByProject(sourceConfigStore.listEnabled(), projectId);
-      const globalSettings = projectId === undefined ? settingsStore.get() : emptyReputationSettings();
-      const sourceConfigSignals = createSourceConfigFallbackSignals(sourceConfigs);
-      const mergedSettings = mergeReputationSettings(globalSettings, sourceConfigs);
-      const nonRssMonitorItemCount = monitorItems.filter((item) => item.source !== 'rss').length;
+      const queries = resolveReputationQueries(settings, sourceConfigs);
+      const hasConfiguredQueries =
+        queries.xQueries.length > 0 ||
+        queries.redditQueries.length > 0 ||
+        queries.v2exQueries.length > 0;
 
-      if (projectId !== undefined && nonRssMonitorItemCount === 0 && sourceConfigSignals.length === 0) {
+      if (hasConfiguredQueries) {
+        const signals = await collectLiveReputationSignals(queries);
+        const items = signals.map((signal) => {
+          const detail = buildDetail(signal);
+          const analysisDetail = buildAnalysisDetail(signal);
+          return reputationStore.create({
+            ...(signal.projectId !== undefined ? { projectId: signal.projectId } : {}),
+            source: signal.source,
+            title: signal.title,
+            detail,
+            ...sentimentService.analyze({
+              title: signal.title,
+              detail: analysisDetail,
+            }),
+          });
+        });
+
+        return {
+          items,
+          inserted: countNewReputationItems(items, existingItemIds),
+        };
+      }
+
+      if (projectId !== undefined || shouldDisableSeedDataInProduction()) {
         return {
           items: [],
           inserted: 0,
         };
       }
 
-      const signals =
-        nonRssMonitorItemCount === 0 &&
-        (globalSettings.monitorXQueries?.length ?? 0) === 0 &&
-        (globalSettings.monitorRedditQueries?.length ?? 0) === 0 &&
-        (globalSettings.monitorV2exQueries?.length ?? 0) === 0 &&
-        sourceConfigSignals.length > 0
-          ? sourceConfigSignals
-          : collectorService.collect({
-              monitorItems,
-              settings: mergedSettings,
-            });
-      const items = signals.map((signal) => reputationStore.create(signal));
-
+      const items = buildSeedSignals().map((signal) => reputationStore.create(signal));
       return {
         items,
-        inserted: items.length,
+        inserted: countNewReputationItems(items, existingItemIds),
       };
     },
   };
+}
+
+function countNewReputationItems(items: ReputationItemRecord[], existingItemIds: Set<number>) {
+  const insertedItemIds = new Set<number>();
+
+  for (const item of items) {
+    if (!existingItemIds.has(item.id)) {
+      insertedItemIds.add(item.id);
+    }
+  }
+
+  return insertedItemIds.size;
 }
 
 function filterSourceConfigsByProject(sourceConfigs: SourceConfigRecord[], projectId?: number) {
@@ -62,60 +103,7 @@ function filterSourceConfigsByProject(sourceConfigs: SourceConfigRecord[], proje
   return sourceConfigs.filter((sourceConfig) => sourceConfig.projectId === projectId);
 }
 
-function createSourceConfigFallbackSignals(sourceConfigs: SourceConfigRecord[]) {
-  const signals = [];
-
-  for (const sourceConfig of sourceConfigs) {
-    if (
-      (sourceConfig.sourceType === 'keyword' || sourceConfig.sourceType === 'keyword+reddit') &&
-      sourceConfig.platform === 'reddit'
-    ) {
-      for (const query of readQueryList(sourceConfig.configJson)) {
-        signals.push({
-          projectId: sourceConfig.projectId,
-          source: 'reddit',
-          sentiment: 'neutral' as const,
-          status: 'new' as const,
-          title: `Watching reputation query: ${query}`,
-          detail: `Derived from source config "${sourceConfig.label}" before live mentions arrive.`,
-        });
-      }
-    }
-
-    if (
-      (sourceConfig.sourceType === 'keyword' || sourceConfig.sourceType === 'keyword+x') &&
-      sourceConfig.platform === 'x'
-    ) {
-      for (const query of readQueryList(sourceConfig.configJson)) {
-        signals.push({
-          projectId: sourceConfig.projectId,
-          source: 'x',
-          sentiment: 'neutral' as const,
-          status: 'new' as const,
-          title: `Watching reputation query: ${query}`,
-          detail: `Derived from source config "${sourceConfig.label}" before live mentions arrive.`,
-        });
-      }
-    }
-
-    if (sourceConfig.sourceType === 'v2ex_search') {
-      for (const query of readQueryList(sourceConfig.configJson)) {
-        signals.push({
-          projectId: sourceConfig.projectId,
-          source: 'v2ex',
-          sentiment: 'neutral' as const,
-          status: 'new' as const,
-          title: `Watching reputation query: ${query}`,
-          detail: `Derived from source config "${sourceConfig.label}" before live mentions arrive.`,
-        });
-      }
-    }
-  }
-
-  return dedupeSignals(signals);
-}
-
-function mergeReputationSettings(
+function resolveReputationQueries(
   settings: {
     monitorXQueries?: string[];
     monitorRedditQueries?: string[];
@@ -123,9 +111,170 @@ function mergeReputationSettings(
   },
   sourceConfigs: SourceConfigRecord[],
 ) {
-  const xQueries = [...(settings.monitorXQueries ?? [])];
-  const redditQueries = [...(settings.monitorRedditQueries ?? [])];
-  const v2exQueries = [...(settings.monitorV2exQueries ?? [])];
+  const sourceConfigQueries = resolveSourceConfigQueries(sourceConfigs);
+
+  return {
+    xQueries: resolveScopedQueries(
+      settings.monitorXQueries,
+      sourceConfigQueries.xQueries,
+      process.env.MONITOR_X_QUERIES,
+    ),
+    redditQueries: resolveScopedQueries(
+      settings.monitorRedditQueries,
+      sourceConfigQueries.redditQueries,
+      process.env.MONITOR_REDDIT_QUERIES,
+    ),
+    v2exQueries: resolveScopedQueries(
+      settings.monitorV2exQueries,
+      sourceConfigQueries.v2exQueries,
+      process.env.MONITOR_V2EX_QUERIES,
+    ),
+  };
+}
+
+function resolveScopedQueries(
+  settingQueries: string[] | undefined,
+  sourceConfigQueries: ScopedQuery[],
+  envValue: string | undefined,
+) {
+  if (settingQueries && settingQueries.length > 0) {
+    return dedupeScopedQueries([
+      ...settingQueries.map((value) => ({ value })),
+      ...sourceConfigQueries,
+    ]);
+  }
+
+  if (sourceConfigQueries.length > 0) {
+    return dedupeScopedQueries(sourceConfigQueries);
+  }
+
+  return dedupeScopedQueries(parseList(envValue).map((value) => ({ value })));
+}
+
+async function collectLiveReputationSignals(queries: {
+  xQueries: ScopedQuery[];
+  redditQueries: ScopedQuery[];
+  v2exQueries: ScopedQuery[];
+}) {
+  const signals: ReputationSearchRecord[] = [];
+
+  for (const query of queries.xQueries) {
+    try {
+      const items = await searchX(query.value);
+      signals.push(
+        ...items.map((item) => ({
+          ...(query.projectId !== undefined ? { projectId: query.projectId } : {}),
+          source: item.source,
+          title: item.title,
+          detail: item.detail,
+          content: item.content,
+          summary: item.summary,
+          url: item.url,
+        })),
+      );
+    } catch {
+      continue;
+    }
+  }
+
+  for (const query of queries.redditQueries) {
+    try {
+      const items = await searchReddit(query.value);
+      signals.push(
+        ...items.map((item) => ({
+          ...(query.projectId !== undefined ? { projectId: query.projectId } : {}),
+          source: item.source,
+          title: item.title,
+          detail: item.detail,
+          content: item.content,
+          summary: item.summary,
+          url: item.url,
+        })),
+      );
+    } catch {
+      continue;
+    }
+  }
+
+  for (const query of queries.v2exQueries) {
+    try {
+      const items = await searchV2ex(query.value);
+      signals.push(
+        ...items.map((item) => ({
+          ...(query.projectId !== undefined ? { projectId: query.projectId } : {}),
+          source: item.source,
+          title: item.title,
+          detail: item.detail,
+          content: item.content,
+          summary: item.summary,
+          url: item.url,
+        })),
+      );
+    } catch {
+      continue;
+    }
+  }
+
+  return signals;
+}
+
+function buildDetail(record: Pick<ReputationSearchRecord, 'detail' | 'content' | 'summary' | 'url'>) {
+  const sections = [record.detail, record.content || record.summary, record.url]
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+
+  const dedupedSections: string[] = [];
+  for (const section of sections) {
+    if (!dedupedSections.includes(section)) {
+      dedupedSections.push(section);
+    }
+  }
+
+  return dedupedSections.join('\n\n');
+}
+
+function buildAnalysisDetail(record: Pick<ReputationSearchRecord, 'content' | 'summary'>) {
+  return [record.content, record.summary]
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0)
+    .join('\n\n');
+}
+
+function emptyReputationSettings() {
+  return {
+    monitorXQueries: [],
+    monitorRedditQueries: [],
+    monitorV2exQueries: [],
+  };
+}
+
+function shouldDisableSeedDataInProduction() {
+  return process.env.NODE_ENV === 'production';
+}
+
+function buildSeedSignals() {
+  return [
+    {
+      source: 'reddit',
+      sentiment: 'positive',
+      status: 'new',
+      title: 'Lower APAC latency praise',
+      detail: 'A user praised lower Claude routing latency from Perth compared with larger aggregators.',
+    },
+    {
+      source: 'facebook-group',
+      sentiment: 'negative',
+      status: 'escalate',
+      title: 'Billing confusion mention',
+      detail: 'A prospect asked whether usage caps and billing are transparent enough for agency workflows.',
+    },
+  ];
+}
+
+function resolveSourceConfigQueries(sourceConfigs: SourceConfigRecord[]) {
+  const xQueries: ScopedQuery[] = [];
+  const redditQueries: ScopedQuery[] = [];
+  const v2exQueries: ScopedQuery[] = [];
 
   for (const sourceConfig of sourceConfigs) {
     if (
@@ -133,7 +282,10 @@ function mergeReputationSettings(
       sourceConfig.platform === 'reddit'
     ) {
       for (const query of readQueryList(sourceConfig.configJson)) {
-        redditQueries.push(query);
+        redditQueries.push({
+          projectId: sourceConfig.projectId,
+          value: query,
+        });
       }
     }
 
@@ -142,29 +294,27 @@ function mergeReputationSettings(
       sourceConfig.platform === 'x'
     ) {
       for (const query of readQueryList(sourceConfig.configJson)) {
-        xQueries.push(query);
+        xQueries.push({
+          projectId: sourceConfig.projectId,
+          value: query,
+        });
       }
     }
 
     if (sourceConfig.sourceType === 'v2ex_search') {
       for (const query of readQueryList(sourceConfig.configJson)) {
-        v2exQueries.push(query);
+        v2exQueries.push({
+          projectId: sourceConfig.projectId,
+          value: query,
+        });
       }
     }
   }
 
   return {
-    monitorXQueries: dedupeStrings(xQueries),
-    monitorRedditQueries: dedupeStrings(redditQueries),
-    monitorV2exQueries: dedupeStrings(v2exQueries),
-  };
-}
-
-function emptyReputationSettings() {
-  return {
-    monitorXQueries: [],
-    monitorRedditQueries: [],
-    monitorV2exQueries: [],
+    xQueries: dedupeScopedQueries(xQueries),
+    redditQueries: dedupeScopedQueries(redditQueries),
+    v2exQueries: dedupeScopedQueries(v2exQueries),
   };
 }
 
@@ -195,14 +345,22 @@ function dedupeStrings(values: string[]) {
   return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
 }
 
-function dedupeSignals<T extends { source: string; title: string }>(signals: T[]) {
+function dedupeScopedQueries(values: ScopedQuery[]) {
   const seen = new Set<string>();
-  return signals.filter((signal) => {
-    const key = `${signal.source}:${signal.title}`;
+
+  return values.filter((value) => {
+    const key = `${value.projectId ?? 'global'}:${value.value}`;
     if (seen.has(key)) {
       return false;
     }
     seen.add(key);
     return true;
   });
+}
+
+function parseList(value: string | undefined) {
+  return (value ?? '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
 }

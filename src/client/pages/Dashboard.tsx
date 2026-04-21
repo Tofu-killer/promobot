@@ -23,6 +23,12 @@ export interface DashboardResponse {
   publishLogs?: {
     failedCount?: number;
   };
+  monitorConfig?: {
+    directFeeds: number;
+    directQueries: number;
+    enabledSourceConfigs: number;
+    totalInputs: number;
+  };
   inbox?: {
     total: number;
     unread: number;
@@ -30,6 +36,17 @@ export interface DashboardResponse {
   channelAccounts?: {
     total: number;
     connected: number;
+  };
+  browserLaneRequests?: {
+    total: number;
+    pending: number;
+    resolved: number;
+  };
+  browserHandoffs?: {
+    total: number;
+    pending: number;
+    resolved: number;
+    obsolete: number;
   };
   jobQueue?: {
     pending: number;
@@ -94,10 +111,13 @@ export function DashboardPage({
   const viewData = displayState.status === 'success' && displayState.data ? displayState.data : null;
   const inboxMetrics = viewData?.inbox ?? null;
   const channelAccountMetrics = viewData?.channelAccounts ?? null;
+  const browserLaneMetrics = viewData?.browserLaneRequests ?? null;
+  const browserHandoffMetrics = viewData?.browserHandoffs ?? null;
   const draftLifecycleMetrics = {
     scheduled: viewData?.drafts.scheduled,
     published: viewData?.drafts.published,
   };
+  const monitorConfigMetrics = viewData?.monitorConfig ?? null;
   const publishLogMetrics = {
     failedCount: viewData?.publishLogs?.failedCount,
   };
@@ -150,8 +170,8 @@ export function DashboardPage({
           >
             <div style={{ fontWeight: 700, color: '#9a3412' }}>首发运营范围</div>
             <div style={{ color: '#7c2d12' }}>自动发布：X、Reddit</div>
-            <div style={{ color: '#7c2d12' }}>人工接管：Facebook Group（人工接管）</div>
-            <div style={{ color: '#9a3412' }}>暂缓首发：小红书、微博、Blog</div>
+            <div style={{ color: '#7c2d12' }}>人工接管：Facebook Group、小红书、微博</div>
+            <div style={{ color: '#166534' }}>本地文件发布：Blog</div>
           </section>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
@@ -159,11 +179,75 @@ export function DashboardPage({
             <StatCard label="待审核" value={String(viewData.drafts.review)} detail="status=review 的草稿数量" />
             <StatCard label="Follow-up 草稿" value={String(viewData.monitor.followUpDrafts)} detail="标题命中 follow-up 的草稿数" />
             <StatCard label="新线索" value={String(viewData.monitor.new)} detail="当前 monitor 中 status=new 的条目数" />
+            <StatCard label="监控总条目" value={String(viewData.monitor.total)} detail="monitor 表中当前累计的条目数" />
+            <StatCard label="累计线索" value={String(viewData.totals.items)} detail="当前项目累计沉淀的线索总数" />
+            <StatCard label="累计 Follow-up" value={String(viewData.totals.followUps)} detail="当前项目累计 follow-up 数量" />
+            <StatCard
+              label="监控直配源"
+              value={formatOptionalMetricValue(monitorConfigMetrics?.directFeeds)}
+              detail="Settings 中直接配置的 RSS feeds 数量"
+            />
+            <StatCard
+              label="监控查询词"
+              value={formatOptionalMetricValue(monitorConfigMetrics?.directQueries)}
+              detail="Settings 中直接配置的 X / Reddit / V2EX 查询总数"
+            />
+            <StatCard
+              label="项目源配置"
+              value={formatOptionalMetricValue(monitorConfigMetrics?.enabledSourceConfigs)}
+              detail="已启用 source configs 的数量"
+            />
+            <StatCard
+              label="监控总输入"
+              value={formatOptionalMetricValue(monitorConfigMetrics?.totalInputs)}
+              detail="直配源、查询词和项目 source configs 合并后的总输入数"
+            />
+            <StatCard label="收件箱总会话" value={formatOptionalMetricValue(inboxMetrics?.total)} detail="当前 inbox 已收录的总会话数" />
             <StatCard label="未 handled 会话" value={formatOptionalMetricValue(inboxMetrics?.unread)} detail="收件箱中 status != handled 的会话数" />
+            <StatCard
+              label="账号总数"
+              value={formatOptionalMetricValue(channelAccountMetrics?.total)}
+              detail="当前已登记的 channel accounts 总数"
+            />
             <StatCard
               label="status=healthy 账号"
               value={formatOptionalMetricValue(channelAccountMetrics?.connected)}
               detail="仅统计账号状态为 healthy 的数量，不等于发布就绪"
+            />
+            <StatCard
+              label="Browser Lane 总工单"
+              value={formatOptionalMetricValue(browserLaneMetrics?.total)}
+              detail="browser lane artifact 总数，包含待处理与已结单"
+            />
+            <StatCard
+              label="Browser Lane 待处理"
+              value={formatOptionalMetricValue(browserLaneMetrics?.pending)}
+              detail="尚未结单的 browser lane request 工单数量"
+            />
+            <StatCard
+              label="Browser Lane 已结单"
+              value={formatOptionalMetricValue(browserLaneMetrics?.resolved)}
+              detail="已经被 session 保存动作回写为 resolved 的工单数量"
+            />
+            <StatCard
+              label="Browser Handoff 总工单"
+              value={formatOptionalMetricValue(browserHandoffMetrics?.total)}
+              detail="browser manual handoff artifact 总数"
+            />
+            <StatCard
+              label="Browser Handoff 待处理"
+              value={formatOptionalMetricValue(browserHandoffMetrics?.pending)}
+              detail="仍在等待人工浏览器接管的 handoff 数量"
+            />
+            <StatCard
+              label="Browser Handoff 已完成"
+              value={formatOptionalMetricValue(browserHandoffMetrics?.resolved)}
+              detail="后续 publish 已完成、artifact 已结单的 handoff 数量"
+            />
+            <StatCard
+              label="Browser Handoff 已作废"
+              value={formatOptionalMetricValue(browserHandoffMetrics?.obsolete)}
+              detail="因 session 缺失或过期而作废的 handoff 数量"
             />
             <StatCard
               label="待发布"
@@ -191,6 +275,11 @@ export function DashboardPage({
               detail="当前被 scheduler 占用的任务数量"
             />
             <StatCard
+              label="队列已完成"
+              value={formatOptionalMetricValue(jobQueueMetrics?.done)}
+              detail="job_queue 中 done 的任务数量"
+            />
+            <StatCard
               label="到期待执行（pending 子集）"
               value={formatOptionalMetricValue(jobQueueMetrics?.duePending)}
               detail="已经到执行时间、等待本轮 tick 处理的 pending 子集"
@@ -199,6 +288,11 @@ export function DashboardPage({
               label="队列失败"
               value={formatOptionalMetricValue(jobQueueMetrics?.failed)}
               detail="job_queue 中 failed 的任务数量"
+            />
+            <StatCard
+              label="队列已取消"
+              value={formatOptionalMetricValue(jobQueueMetrics?.canceled)}
+              detail="job_queue 中 canceled 的任务数量"
             />
           </div>
         </div>

@@ -27,6 +27,7 @@ interface ReviewActionState {
   publishUrl: string | null;
   contractMessage: string | null;
   contractStatus: string | null;
+  contractDetails: Record<string, unknown> | null;
 }
 
 function parseProjectId(value: string) {
@@ -98,6 +99,7 @@ function createIdleActionState(): ReviewActionState {
     publishUrl: null,
     contractMessage: null,
     contractStatus: null,
+    contractDetails: null,
   };
 }
 
@@ -125,7 +127,6 @@ const manualHandoffReviewPlatforms = new Set([
   'facebookGroup',
   'xiaohongshu',
   'weibo',
-  'blog',
 ]);
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -254,6 +255,7 @@ function formatPublishActionSummaryStatus(actionState: ReviewActionState) {
 
 function getReviewDraftPublishContract(draft: DraftRecord, actionState: ReviewActionState) {
   const draftRecord = asRecord(draft);
+  const browserHandoff = readBrowserHandoffContract(actionState.contractDetails);
 
   return {
     publishUrl:
@@ -273,6 +275,20 @@ function getReviewDraftPublishContract(draft: DraftRecord, actionState: ReviewAc
       actionState.action === 'publish'
         ? actionState.error ?? readString(draftRecord?.publishError) ?? readString(draftRecord?.lastPublishError)
         : readString(draftRecord?.publishError) ?? readString(draftRecord?.lastPublishError),
+    browserHandoff,
+  };
+}
+
+function readBrowserHandoffContract(details: Record<string, unknown> | null) {
+  const browserHandoff = asRecord(details?.browserHandoff);
+  if (!browserHandoff) {
+    return null;
+  }
+
+  return {
+    readiness: readString(browserHandoff.readiness),
+    sessionAction: readString(browserHandoff.sessionAction),
+    artifactPath: readString(browserHandoff.artifactPath),
   };
 }
 
@@ -335,6 +351,7 @@ export function ReviewQueuePage({
         publishUrl: null,
         contractMessage: null,
         contractStatus: null,
+        contractDetails: null,
       },
     }));
 
@@ -353,6 +370,7 @@ export function ReviewQueuePage({
           publishUrl: null,
           contractMessage: null,
           contractStatus: null,
+          contractDetails: null,
         },
       }));
     } catch (error) {
@@ -366,6 +384,7 @@ export function ReviewQueuePage({
           publishUrl: null,
           contractMessage: null,
           contractStatus: null,
+          contractDetails: null,
         },
       }));
     }
@@ -389,26 +408,30 @@ export function ReviewQueuePage({
         publishUrl: null,
         contractMessage: null,
         contractStatus: null,
+        contractDetails: null,
       },
     }));
 
     try {
       const result = await publishReviewDraftAction(draftId);
-      const publishSucceeded = result.success || result.status === 'manual_required' || result.status === 'queued';
+      const publishSucceeded = result.success || result.status === 'queued';
       if (publishSucceeded) {
         setLocalDrafts((currentDrafts) => removeReviewQueueDraft(currentDrafts ?? visibleDrafts, draftId));
       }
       setActionStateById((currentState) => ({
         ...currentState,
         [draftId]: {
-          status: publishSucceeded ? 'success' : 'error',
+          status:
+            result.status === 'manual_required' || publishSucceeded
+              ? 'success'
+              : 'error',
           message:
             result.success
               ? `已发布：${sourceDraft.title ?? sourceDraft.platform}`
               : result.status === 'queued'
                 ? `已入队等待发布：${sourceDraft.title ?? sourceDraft.platform}`
               : result.status === 'manual_required'
-                ? `已转入人工接管：${sourceDraft.title ?? sourceDraft.platform}`
+                ? `已生成人工接管回执：${sourceDraft.title ?? sourceDraft.platform}`
                 : null,
           error:
             result.success || result.status === 'manual_required' || result.status === 'queued'
@@ -418,6 +441,7 @@ export function ReviewQueuePage({
           publishUrl: result.publishUrl,
           contractMessage: result.message,
           contractStatus: result.status ?? null,
+          contractDetails: asRecord(result.details),
         },
       }));
     } catch (error) {
@@ -431,6 +455,7 @@ export function ReviewQueuePage({
           publishUrl: null,
           contractMessage: getErrorMessage(error),
           contractStatus: 'failed',
+          contractDetails: null,
         },
       }));
     }
@@ -456,6 +481,7 @@ export function ReviewQueuePage({
         publishUrl: null,
         contractMessage: null,
         contractStatus: null,
+        contractDetails: null,
       },
     }));
 
@@ -483,6 +509,7 @@ export function ReviewQueuePage({
           publishUrl: null,
           contractMessage: null,
           contractStatus: null,
+          contractDetails: null,
         },
       }));
     } catch (error) {
@@ -496,6 +523,7 @@ export function ReviewQueuePage({
           publishUrl: null,
           contractMessage: null,
           contractStatus: null,
+          contractDetails: null,
         },
       }));
     }
@@ -698,6 +726,15 @@ export function ReviewQueuePage({
                         <div>回执状态：{formatPublishContractStatus(draft, actionState)}</div>
                         <div>发布链接：{publishContract.publishUrl ?? '未返回'}</div>
                         <div>回执消息：{publishContract.contractMessage ?? '待触发发布'}</div>
+                        {publishContract.browserHandoff?.readiness ? (
+                          <div>Handoff 状态：{publishContract.browserHandoff.readiness}</div>
+                        ) : null}
+                        {publishContract.browserHandoff?.sessionAction ? (
+                          <div>Handoff 动作：{publishContract.browserHandoff.sessionAction}</div>
+                        ) : null}
+                        {publishContract.browserHandoff?.artifactPath ? (
+                          <div>Handoff 路径：{publishContract.browserHandoff.artifactPath}</div>
+                        ) : null}
                         {publishContract.publishError ? <div>最近错误：{publishContract.publishError}</div> : null}
                       </div>
 
@@ -746,6 +783,15 @@ export function ReviewQueuePage({
                           <div>回执状态：{formatPublishActionSummaryStatus(state)}</div>
                           <div>发布链接：{state.publishUrl ?? '未返回'}</div>
                           <div>回执消息：{state.contractMessage ?? '待触发发布'}</div>
+                          {readBrowserHandoffContract(state.contractDetails)?.readiness ? (
+                            <div>Handoff 状态：{readBrowserHandoffContract(state.contractDetails)?.readiness}</div>
+                          ) : null}
+                          {readBrowserHandoffContract(state.contractDetails)?.artifactPath ? (
+                            <div>
+                              Handoff 路径：
+                              {readBrowserHandoffContract(state.contractDetails)?.artifactPath}
+                            </div>
+                          ) : null}
                         </>
                       ) : null}
                     </div>

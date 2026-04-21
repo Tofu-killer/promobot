@@ -12,6 +12,12 @@ import {
   type SessionStatus,
   type SessionSummary,
 } from '../services/browser/sessionStore.js';
+import {
+  createSessionRequestArtifact,
+  getLatestSessionRequestArtifact,
+  resolveSessionRequestArtifacts,
+} from '../services/browser/sessionRequestArtifacts.js';
+import { getLatestBrowserHandoffArtifact } from '../services/publishers/browserHandoffArtifacts.js';
 
 const channelAccountStore = createChannelAccountStore();
 const jobQueueStore = createJobQueueStore();
@@ -109,6 +115,17 @@ channelAccountsRouter.post('/:id/session/request', (request, response) => {
     payload,
     runAt: requestedAt,
   });
+  const nextStep = `/api/channel-accounts/${channelAccount.id}/session`;
+  const artifactPath = createSessionRequestArtifact({
+    channelAccountId: channelAccount.id,
+    platform: channelAccount.platform,
+    accountKey: channelAccount.accountKey,
+    action,
+    requestedAt: job.runAt,
+    jobId: job.id,
+    jobStatus: job.status,
+    nextStep,
+  });
 
   response.json({
     ok: true,
@@ -126,9 +143,10 @@ channelAccountsRouter.post('/:id/session/request', (request, response) => {
       status: job.status,
       requestedAt: job.runAt,
       message: getSessionRequestMessage(action),
-      nextStep: `/api/channel-accounts/${channelAccount.id}/session`,
+      nextStep,
       jobId: job.id,
       jobStatus: job.status,
+      artifactPath,
     },
     channelAccount: attachSessionSummary(channelAccount, createSessionStore()),
   });
@@ -148,34 +166,68 @@ channelAccountsRouter.post('/:id/session', (request, response) => {
   }
 
   const input = request.body ?? {};
+  const hasStorageStatePath = typeof input.storageStatePath === 'string';
+  const hasManagedStorageState = isPlainObject(input.storageState);
   if (
-    typeof input.storageStatePath !== 'string' ||
+    (!hasStorageStatePath && !hasManagedStorageState) ||
+    (hasStorageStatePath && hasManagedStorageState) ||
+    (input.storageStatePath !== undefined && !hasStorageStatePath) ||
+    (input.storageState !== undefined && !hasManagedStorageState) ||
     (input.status !== undefined && !isSessionStatus(input.status)) ||
     (input.validatedAt !== undefined &&
       input.validatedAt !== null &&
       typeof input.validatedAt !== 'string') ||
     (input.notes !== undefined && typeof input.notes !== 'string')
   ) {
-    response.status(400).json({ error: 'invalid channel account session payload' });
+    response.status(400).json({
+      error:
+        hasStorageStatePath && hasManagedStorageState
+          ? 'provide either storageStatePath or storageState, not both'
+          : 'invalid channel account session payload',
+    });
     return;
   }
 
   const sessionStore = createSessionStore();
-  const sessionMetadata = sessionStore.saveSession({
-    platform: channelAccount.platform,
-    accountKey: channelAccount.accountKey,
-    storageStatePath: input.storageStatePath,
-    status: input.status ?? 'active',
-    notes: input.notes,
-    lastValidatedAt:
-      input.validatedAt !== undefined ? (input.validatedAt as string | null) : undefined,
-  });
+  let sessionMetadata;
+  try {
+    sessionMetadata = sessionStore.saveSession({
+      platform: channelAccount.platform,
+      accountKey: channelAccount.accountKey,
+      storageStatePath: hasStorageStatePath ? input.storageStatePath : undefined,
+      storageState: hasManagedStorageState ? input.storageState : undefined,
+      status: input.status ?? 'active',
+      notes: input.notes,
+      lastValidatedAt:
+        input.validatedAt !== undefined ? (input.validatedAt as string | null) : undefined,
+    });
+  } catch (error) {
+    response.status(400).json({
+      error:
+        error instanceof Error && error.message.trim().length > 0
+          ? error.message
+          : 'invalid channel account session payload',
+    });
+    return;
+  }
   const session = buildSessionSummary(sessionMetadata);
   const updatedChannelAccount = channelAccountStore.update(id, {
     metadata: {
       ...channelAccount.metadata,
       session,
     },
+  });
+  resolveSessionRequestArtifacts({
+    channelAccountId: channelAccount.id,
+    platform: channelAccount.platform,
+    accountKey: channelAccount.accountKey,
+    resolvedAt: sessionMetadata.updatedAt,
+    resolvedJobStatus: 'resolved',
+    resolution: {
+      status: 'resolved',
+      session,
+    },
+    savedStorageStatePath: sessionMetadata.storageStatePath,
   });
 
   response.json({
@@ -192,6 +244,12 @@ channelAccountsRouter.patch('/:id', (request, response) => {
     return;
   }
 
+  const currentChannelAccount = channelAccountStore.getById(id);
+  if (!currentChannelAccount) {
+    response.status(404).json({ error: 'channel account not found' });
+    return;
+  }
+
   const input = request.body ?? {};
   if (
     input.platform !== undefined &&
@@ -201,22 +259,28 @@ channelAccountsRouter.patch('/:id', (request, response) => {
     return;
   }
 
+  const nextPlatform = typeof input.platform === 'string' ? input.platform : undefined;
+  const nextAccountKey = typeof input.accountKey === 'string' ? input.accountKey : undefined;
+  const metadataInput = isPlainObject(input.metadata) ? input.metadata : undefined;
+  const identityChanged =
+    (nextPlatform !== undefined && nextPlatform !== currentChannelAccount.platform) ||
+    (nextAccountKey !== undefined && nextAccountKey !== currentChannelAccount.accountKey);
+
   const channelAccount = channelAccountStore.update(id, {
     projectId: parseOptionalProjectId(input.projectId),
-    platform: typeof input.platform === 'string' ? input.platform : undefined,
-    accountKey: typeof input.accountKey === 'string' ? input.accountKey : undefined,
+    platform: nextPlatform,
+    accountKey: nextAccountKey,
     displayName: typeof input.displayName === 'string' ? input.displayName : undefined,
     authType: typeof input.authType === 'string' ? input.authType : undefined,
     status: typeof input.status === 'string' ? input.status : undefined,
-    metadata: isPlainObject(input.metadata) ? input.metadata : undefined,
+    metadata: identityChanged
+      ? omitMetadataSession(metadataInput ?? currentChannelAccount.metadata)
+      : metadataInput,
   });
 
-  if (!channelAccount) {
-    response.status(404).json({ error: 'channel account not found' });
-    return;
-  }
-
-  response.json({ channelAccount: attachSessionSummary(channelAccount, createSessionStore()) });
+  response.json({
+    channelAccount: attachSessionSummary(channelAccount ?? currentChannelAccount, createSessionStore()),
+  });
 });
 
 channelAccountsRouter.post('/:id/test', (request, response) => {
@@ -275,6 +339,11 @@ function parseOptionalProjectId(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined;
 }
 
+function omitMetadataSession(metadata: Record<string, unknown>) {
+  const { session: _session, ...rest } = metadata;
+  return rest;
+}
+
 function getSessionRequestMessage(action: BrowserSessionAction) {
   if (action === 'relogin') {
     return 'Browser relogin request queued. Refresh login manually and attach updated session metadata after the browser lane picks up the job.';
@@ -293,10 +362,22 @@ function attachSessionSummary<
 >(channelAccount: T, sessionStore = createSessionStore()): T & { session: SessionSummary } {
   const liveSession = sessionStore.getSession(channelAccount.platform, channelAccount.accountKey);
   const metadataSession = parseSessionSummary(channelAccount.metadata.session);
+  const latestBrowserLaneArtifact = getLatestSessionRequestArtifact({
+    channelAccountId: channelAccount.id,
+    platform: channelAccount.platform,
+    accountKey: channelAccount.accountKey,
+  });
+  const latestBrowserHandoffArtifact = getLatestBrowserHandoffArtifact({
+    channelAccountId: channelAccount.id,
+    platform: channelAccount.platform,
+    accountKey: channelAccount.accountKey,
+  });
 
   return {
     ...channelAccount,
     session: liveSession ? buildSessionSummary(liveSession) : metadataSession,
+    latestBrowserLaneArtifact,
+    latestBrowserHandoffArtifact,
     publishReadiness: getChannelAccountPublishReadiness({
       platform: channelAccount.platform,
       accountKey: channelAccount.accountKey,

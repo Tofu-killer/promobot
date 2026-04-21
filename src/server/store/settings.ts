@@ -36,46 +36,63 @@ export interface SettingsStore {
   update(input: UpdateSettingsInput): SettingsRecord;
 }
 
-export function createSettingsStore(): SettingsStore {
+interface CreateSettingsStoreOptions {
+  defaultSettings?: Partial<SettingsRecord>;
+}
+
+export function createSettingsStore(options: CreateSettingsStoreOptions = {}): SettingsStore {
+  const defaultSettings = {
+    ...DEFAULT_SETTINGS,
+    ...options.defaultSettings,
+  };
+
   return {
     get() {
-      return withDatabase((database) => readSettings(database));
+      return withDatabase((database) => readSettings(database, defaultSettings));
     },
     update(input) {
-      return withDatabase((database) => updateSettings(database, input));
+      return withDatabase((database) => updateSettings(database, input, defaultSettings));
     },
   };
 }
 
-function readSettings(database: DatabaseConnection): SettingsRecord {
+function readSettings(database: DatabaseConnection, defaultSettings: SettingsRecord): SettingsRecord {
   const rows = database
     .prepare('SELECT key, value FROM settings')
     .all() as Array<{ key: string; value: string }>;
 
-  const settings: SettingsRecord = { ...DEFAULT_SETTINGS };
+  const settings: SettingsRecord = {
+    ...defaultSettings,
+    allowlist: [...defaultSettings.allowlist],
+    rssDefaults: [...defaultSettings.rssDefaults],
+    monitorRssFeeds: [...defaultSettings.monitorRssFeeds],
+    monitorXQueries: [...defaultSettings.monitorXQueries],
+    monitorRedditQueries: [...defaultSettings.monitorRedditQueries],
+    monitorV2exQueries: [...defaultSettings.monitorV2exQueries],
+  };
   for (const row of rows) {
     if (row.key === 'allowlist') {
-      settings.allowlist = parseStringArray(row.value, DEFAULT_SETTINGS.allowlist);
+      settings.allowlist = parseStringArray(row.value, defaultSettings.allowlist);
     } else if (row.key === 'schedulerIntervalMinutes') {
-      settings.schedulerIntervalMinutes = parseInteger(row.value, DEFAULT_SETTINGS.schedulerIntervalMinutes);
+      settings.schedulerIntervalMinutes = parseInteger(row.value, defaultSettings.schedulerIntervalMinutes);
     } else if (row.key === 'rssDefaults') {
-      settings.rssDefaults = parseStringArray(row.value, DEFAULT_SETTINGS.rssDefaults);
+      settings.rssDefaults = parseStringArray(row.value, defaultSettings.rssDefaults);
     } else if (row.key === 'monitorRssFeeds') {
-      settings.monitorRssFeeds = parseStringArray(row.value, DEFAULT_SETTINGS.monitorRssFeeds);
+      settings.monitorRssFeeds = parseStringArray(row.value, defaultSettings.monitorRssFeeds);
     } else if (row.key === 'monitorXQueries') {
       settings.monitorXQueries = parseStringArray(
         row.value,
-        DEFAULT_SETTINGS.monitorXQueries,
+        defaultSettings.monitorXQueries,
       );
     } else if (row.key === 'monitorRedditQueries') {
       settings.monitorRedditQueries = parseStringArray(
         row.value,
-        DEFAULT_SETTINGS.monitorRedditQueries,
+        defaultSettings.monitorRedditQueries,
       );
     } else if (row.key === 'monitorV2exQueries') {
       settings.monitorV2exQueries = parseStringArray(
         row.value,
-        DEFAULT_SETTINGS.monitorV2exQueries,
+        defaultSettings.monitorV2exQueries,
       );
     }
   }
@@ -83,7 +100,11 @@ function readSettings(database: DatabaseConnection): SettingsRecord {
   return settings;
 }
 
-function updateSettings(database: DatabaseConnection, input: UpdateSettingsInput): SettingsRecord {
+function updateSettings(
+  database: DatabaseConnection,
+  input: UpdateSettingsInput,
+  defaultSettings: SettingsRecord,
+): SettingsRecord {
   if (input.allowlist !== undefined) {
     upsertSetting(database, 'allowlist', JSON.stringify(input.allowlist));
   }
@@ -106,7 +127,7 @@ function updateSettings(database: DatabaseConnection, input: UpdateSettingsInput
     upsertSetting(database, 'monitorV2exQueries', JSON.stringify(input.monitorV2exQueries));
   }
 
-  return readSettings(database);
+  return readSettings(database, defaultSettings);
 }
 
 function upsertSetting(database: DatabaseConnection, key: string, value: string) {

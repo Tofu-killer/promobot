@@ -2,11 +2,12 @@ import { useState } from 'react';
 
 interface LoginPageProps {
   error?: string | null;
-  onSubmit?: (password: string) => void;
+  onSubmit?: (password: string, options?: { remember?: boolean }) => void;
 }
 
 export function LoginPage({ error, onSubmit }: LoginPageProps) {
   const [password, setPassword] = useState('');
+  const [remember, setRemember] = useState(false);
 
   return (
     <section
@@ -55,11 +56,20 @@ export function LoginPage({ error, onSubmit }: LoginPageProps) {
           />
         </label>
 
+        <label style={{ display: 'flex', gap: '10px', alignItems: 'center', color: '#334155' }}>
+          <input
+            type="checkbox"
+            checked={remember}
+            onChange={(event) => setRemember(event.target.checked)}
+          />
+          <span>记住这台浏览器</span>
+        </label>
+
         {error ? <div style={{ color: '#b91c1c', fontWeight: 700 }}>登录失败：{error}</div> : null}
 
         <button
           type="button"
-          onClick={() => onSubmit?.(password)}
+          onClick={() => onSubmit?.(password, { remember })}
           style={{
             borderRadius: '12px',
             border: 'none',

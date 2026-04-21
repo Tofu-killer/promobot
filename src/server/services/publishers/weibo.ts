@@ -1,7 +1,3 @@
-import { createStubPublisher } from './stub.js';
+import { createBrowserHandoffPublisher } from './browserHandoff.js';
 
-export const publishToWeibo = createStubPublisher({
-  platform: 'weibo',
-  mode: 'browser',
-  status: 'manual_required',
-});
+export const publishToWeibo = createBrowserHandoffPublisher('weibo');

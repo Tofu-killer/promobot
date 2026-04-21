@@ -1,4 +1,4 @@
-import { isIP } from 'node:net';
+import { isSupportedAllowlistEntry } from './middleware/ipAllowlist.js';
 
 export type AppConfig = {
   allowedIps: string[];
@@ -16,7 +16,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const adminPassword = env.ADMIN_PASSWORD?.trim() || DEFAULT_ADMIN_PASSWORD;
 
   if (allowedIps.some((value) => !isSupportedAllowlistValue(value))) {
-    throw new Error('ALLOWED_IPS must contain exact IPs or *');
+    throw new Error('ALLOWED_IPS must contain IPs, CIDR subnets, or *');
   }
 
   if (env.NODE_ENV === 'production' && adminPassword === DEFAULT_ADMIN_PASSWORD) {
@@ -30,9 +30,5 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
 }
 
 function isSupportedAllowlistValue(value: string) {
-  return value === '*' || isIP(normalizeIp(value)) !== 0;
-}
-
-function normalizeIp(value: string) {
-  return value.startsWith('::ffff:') ? value.slice('::ffff:'.length) : value;
+  return isSupportedAllowlistEntry(value);
 }

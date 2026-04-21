@@ -82,6 +82,41 @@ export interface SystemJobsResponse {
   recentJobs: SystemJobRecord[];
 }
 
+export interface BrowserLaneRequestRecord {
+  channelAccountId: number;
+  platform: string;
+  accountKey: string;
+  action: string;
+  jobStatus: string;
+  requestedAt: string;
+  artifactPath: string;
+  resolvedAt: string | null;
+  resolution?: unknown;
+}
+
+export interface BrowserLaneRequestsResponse {
+  requests: BrowserLaneRequestRecord[];
+  total: number;
+}
+
+export interface BrowserHandoffRecord {
+  platform: string;
+  draftId: string;
+  title: string | null;
+  accountKey: string;
+  status: string;
+  artifactPath: string;
+  createdAt: string;
+  updatedAt: string;
+  resolvedAt: string | null;
+  resolution?: unknown;
+}
+
+export interface BrowserHandoffsResponse {
+  handoffs: BrowserHandoffRecord[];
+  total: number;
+}
+
 export interface SystemJobMutationResponse {
   job: SystemJobRecord;
   runtime: Record<string, unknown>;
@@ -125,6 +160,14 @@ export async function fetchReputationSignalsRequest(): Promise<FetchControlRespo
 
 export async function loadSystemJobsRequest(limit = 20): Promise<SystemJobsResponse> {
   return apiRequest<SystemJobsResponse>(`/api/system/jobs?limit=${limit}`);
+}
+
+export async function loadBrowserLaneRequestsRequest(limit = 20): Promise<BrowserLaneRequestsResponse> {
+  return apiRequest<BrowserLaneRequestsResponse>(`/api/system/browser-lane-requests?limit=${limit}`);
+}
+
+export async function loadBrowserHandoffsRequest(limit = 20): Promise<BrowserHandoffsResponse> {
+  return apiRequest<BrowserHandoffsResponse>(`/api/system/browser-handoffs?limit=${limit}`);
 }
 
 export async function retrySystemJobRequest(
@@ -182,8 +225,8 @@ export async function submitSettingsForm(
     return { ok: false, error: 'allowlist 不能为空' };
   }
 
-  if (allowlist.some((entry) => entry.includes('/'))) {
-    return { ok: false, error: 'allowlist 只支持精确 IP 或 *，不支持 CIDR' };
+  if (allowlist.some((entry) => !isSupportedAllowlistEntry(entry))) {
+    return { ok: false, error: 'allowlist 只支持精确 IP、CIDR 子网或 *' };
   }
 
   if (!Number.isInteger(schedulerIntervalMinutes) || schedulerIntervalMinutes <= 0) {
@@ -211,6 +254,8 @@ export async function submitSettingsForm(
 interface SettingsPageProps {
   loadSettingsAction?: () => Promise<SettingsResponse>;
   loadSystemJobsAction?: () => Promise<SystemJobsResponse>;
+  loadBrowserLaneRequestsAction?: () => Promise<BrowserLaneRequestsResponse>;
+  loadBrowserHandoffsAction?: () => Promise<BrowserHandoffsResponse>;
   reloadSchedulerAction?: () => Promise<RuntimeControlResponse>;
   tickSchedulerAction?: () => Promise<RuntimeControlResponse>;
   fetchMonitorAction?: () => Promise<FetchControlResponse>;
@@ -221,6 +266,8 @@ interface SettingsPageProps {
   cancelSystemJobAction?: (jobId: number) => Promise<SystemJobMutationResponse>;
   stateOverride?: AsyncState<SettingsResponse>;
   jobsStateOverride?: AsyncState<SystemJobsResponse>;
+  browserLaneStateOverride?: AsyncState<BrowserLaneRequestsResponse>;
+  browserHandoffStateOverride?: AsyncState<BrowserHandoffsResponse>;
   updateStateOverride?: AsyncState<SettingsResponse>;
   validationMessageOverride?: string;
 }
@@ -261,6 +308,18 @@ const statusPillStyle = {
   fontWeight: 700,
 } as const;
 
+function defaultLoadSystemJobsAction() {
+  return loadSystemJobsRequest(20);
+}
+
+function defaultLoadBrowserLaneRequestsAction() {
+  return loadBrowserLaneRequestsRequest(20);
+}
+
+function defaultLoadBrowserHandoffsAction() {
+  return loadBrowserHandoffsRequest(20);
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -269,6 +328,12 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function readString(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value : null;
+}
+
+function readStatusValue(value: unknown) {
+  return typeof (value as { status?: unknown } | null)?.status === 'string'
+    ? ((value as { status: string }).status)
+    : null;
 }
 
 function readNumber(value: unknown): number | null {
@@ -487,7 +552,9 @@ function renderInfoRows(rows: Array<{ label: string; value: string }>) {
 
 export function SettingsPage({
   loadSettingsAction = loadSettingsRequest,
-  loadSystemJobsAction = () => loadSystemJobsRequest(20),
+  loadSystemJobsAction = defaultLoadSystemJobsAction,
+  loadBrowserLaneRequestsAction = defaultLoadBrowserLaneRequestsAction,
+  loadBrowserHandoffsAction = defaultLoadBrowserHandoffsAction,
   reloadSchedulerAction = reloadSchedulerRuntimeRequest,
   tickSchedulerAction = tickSchedulerRuntimeRequest,
   fetchMonitorAction = fetchMonitorSignalsRequest,
@@ -498,11 +565,21 @@ export function SettingsPage({
   cancelSystemJobAction = cancelSystemJobRequest,
   stateOverride,
   jobsStateOverride,
+  browserLaneStateOverride,
+  browserHandoffStateOverride,
   updateStateOverride,
   validationMessageOverride,
 }: SettingsPageProps) {
   const { state, reload } = useAsyncQuery(loadSettingsAction, [loadSettingsAction]);
   const { state: jobsState, reload: reloadJobs } = useAsyncQuery(loadSystemJobsAction, [loadSystemJobsAction]);
+  const { state: browserLaneState, reload: reloadBrowserLane } = useAsyncQuery(
+    loadBrowserLaneRequestsAction,
+    [loadBrowserLaneRequestsAction],
+  );
+  const { state: browserHandoffState, reload: reloadBrowserHandoffs } = useAsyncQuery(
+    loadBrowserHandoffsAction,
+    [loadBrowserHandoffsAction],
+  );
   const { state: updateState, run: saveSettings } = useAsyncAction(updateSettingsRequest);
   const { run: enqueueJob } = useAsyncAction(enqueueSystemJobAction);
   const { run: mutateJob } = useAsyncAction(
@@ -511,6 +588,8 @@ export function SettingsPage({
   );
   const displayState = stateOverride ?? state;
   const displayJobsState = jobsStateOverride ?? jobsState;
+  const displayBrowserLaneState = browserLaneStateOverride ?? browserLaneState;
+  const displayBrowserHandoffState = browserHandoffStateOverride ?? browserHandoffState;
   const displayUpdateState = updateStateOverride ?? updateState;
   const loadedData = displayState.status === 'success' ? displayState.data : undefined;
   const savedData = displayUpdateState.status === 'success' ? displayUpdateState.data : undefined;
@@ -563,9 +642,15 @@ export function SettingsPage({
   const runtimeQueueDepth =
     readNumber(runtimeContract?.queueDepth) ?? readNumber(asRecord(schedulerContract?.runtime)?.queueDepth);
   const runtimeQueue = asRecord(runtimeContract?.queue);
+  const jobsQueueContract =
+    displayJobsState.status === 'success' ? asRecord(displayJobsState.data?.queue) : null;
+  const liveQueue = {
+    ...(runtimeQueue ?? {}),
+    ...(jobsQueueContract ?? {}),
+  };
   const recentJobs =
-    displayJobsState.status === 'success' && displayJobsState.data?.jobs.length > 0
-      ? displayJobsState.data.jobs
+    displayJobsState.status === 'success' && displayJobsState.data?.recentJobs.length > 0
+      ? displayJobsState.data.recentJobs
       : readRecordArray(runtimeContract?.recentJobs);
 
   function handleSaveSettings() {
@@ -608,6 +693,8 @@ export function SettingsPage({
       setControlMessage(successBuilder(result));
       reload();
       reloadJobs();
+      reloadBrowserLane();
+      reloadBrowserHandoffs();
     } catch (error) {
       setControlError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -625,6 +712,8 @@ export function SettingsPage({
         setControlMessage(action === 'retry' ? `作业 #${result.job.id} 已重试` : `作业 #${result.job.id} 已取消`);
         reload();
         reloadJobs();
+        reloadBrowserLane();
+        reloadBrowserHandoffs();
       })
       .catch((error) => {
         setControlError(error instanceof Error ? error.message : String(error));
@@ -648,6 +737,8 @@ export function SettingsPage({
         setControlMessage(`已将 ${result.job.type} 加入队列，job #${result.job.id}`);
         reload();
         reloadJobs();
+        reloadBrowserLane();
+        reloadBrowserHandoffs();
       })
       .catch((error) => {
         setControlError(error instanceof Error ? error.message : String(error));
@@ -677,7 +768,7 @@ export function SettingsPage({
       />
 
       <div style={cardGridStyle}>
-        <SectionCard title="设置总览" description="这里区分当前加载值与最近保存回执，避免把“已保存”误读成“已经生效”。">
+        <SectionCard title="设置总览" description="这里区分当前加载值与最近保存回执，便于确认当前进程是否已经同步到最新设置。">
           <div style={{ display: 'grid', gap: '14px' }}>
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
               <span style={{ ...statusPillStyle, background: '#dbeafe', color: '#1d4ed8' }}>兼容接口 `/api/settings`</span>
@@ -685,7 +776,7 @@ export function SettingsPage({
                 当前加载：{displayState.status === 'success' ? '已同步' : displayState.status === 'error' ? '失败' : '等待同步'}
               </span>
               <span style={{ ...statusPillStyle, background: '#fef3c7', color: '#92400e' }}>
-                保存状态：{displayUpdateState.status === 'success' ? '待重载生效' : displayUpdateState.status === 'error' ? '失败' : '未提交'}
+                保存状态：{displayUpdateState.status === 'success' ? '已写回并已触发 reload' : displayUpdateState.status === 'error' ? '失败' : '未提交'}
               </span>
             </div>
 
@@ -731,7 +822,7 @@ export function SettingsPage({
             {savedData?.settings ? (
               <div style={{ display: 'grid', gap: '8px', color: '#92400e' }}>
                 <div style={{ fontWeight: 700 }}>最近保存返回</div>
-                <div>allowlist、调度间隔等配置项可能仍需重载后才会真正生效。</div>
+                <div>allowlist 已立即同步到当前进程；其它运行参数请结合当前 runtime / reload 结果确认是否已生效。</div>
                 <div>schedulerIntervalMinutes: {savedData.settings.schedulerIntervalMinutes}</div>
                 <div>allowlist: {savedData.settings.allowlist.length > 0 ? formatList(savedData.settings.allowlist) : '未提供'}</div>
               </div>
@@ -824,10 +915,12 @@ export function SettingsPage({
             {controlError ? <div style={{ color: '#b91c1c', fontWeight: 700 }}>控制台动作失败：{controlError}</div> : null}
 
             {renderInfoRows([
-              { label: 'Pending Jobs', value: formatContractValue(runtimeQueue?.pending) },
-              { label: 'Running Jobs', value: formatContractValue(runtimeQueue?.running) },
-              { label: 'Failed Jobs', value: formatContractValue(runtimeQueue?.failed) },
-              { label: 'Due Pending', value: formatContractValue(runtimeQueue?.duePending) },
+              { label: 'Pending Jobs', value: formatContractValue(liveQueue.pending) },
+              { label: 'Running Jobs', value: formatContractValue(liveQueue.running) },
+              { label: 'Done Jobs', value: formatContractValue(liveQueue.done) },
+              { label: 'Failed Jobs', value: formatContractValue(liveQueue.failed) },
+              { label: 'Canceled Jobs', value: formatContractValue(liveQueue.canceled) },
+              { label: 'Due Pending', value: formatContractValue(liveQueue.duePending) },
             ])}
 
             <div style={{ display: 'grid', gap: '10px' }}>
@@ -945,6 +1038,86 @@ export function SettingsPage({
                 <div style={{ color: '#475569' }}>runtime 尚未返回 recentJobs。</div>
               )}
             </div>
+
+            <div style={{ display: 'grid', gap: '10px' }}>
+              <div style={{ fontWeight: 700 }}>Browser Lane 工单</div>
+              {displayBrowserLaneState.status === 'loading' ? (
+                <div style={{ color: '#475569' }}>正在加载 browser lane requests...</div>
+              ) : null}
+              {displayBrowserLaneState.status === 'error' ? (
+                <div style={{ color: '#b91c1c' }}>
+                  browser lane requests 加载失败：{displayBrowserLaneState.error}
+                </div>
+              ) : null}
+              {displayBrowserLaneState.status === 'success' && displayBrowserLaneState.data.requests.length > 0 ? (
+                displayBrowserLaneState.data.requests.map((request) => (
+                  <div
+                    key={`${request.channelAccountId}-${request.artifactPath}-${request.requestedAt}`}
+                    style={{
+                      borderRadius: '14px',
+                      background: '#f8fafc',
+                      border: '1px solid #e2e8f0',
+                      padding: '12px 14px',
+                      display: 'grid',
+                      gap: '4px',
+                    }}
+                  >
+                    <div style={{ fontWeight: 700 }}>
+                      #{request.channelAccountId} · {request.platform} · {request.action} · {request.jobStatus}
+                    </div>
+                    <div style={{ color: '#475569' }}>requestedAt: {request.requestedAt}</div>
+                    <div style={{ color: '#475569' }}>artifactPath: {request.artifactPath}</div>
+                    <div style={{ color: '#475569' }}>
+                      resolvedAt: {request.resolvedAt ?? '未结单'}
+                    </div>
+                  </div>
+                ))
+              ) : displayBrowserLaneState.status === 'success' ? (
+                <div style={{ color: '#475569' }}>当前没有 browser lane requests。</div>
+              ) : null}
+            </div>
+
+            <div style={{ display: 'grid', gap: '10px' }}>
+              <div style={{ fontWeight: 700 }}>Browser Handoff 工单</div>
+              {displayBrowserHandoffState.status === 'loading' ? (
+                <div style={{ color: '#475569' }}>正在加载 browser handoffs...</div>
+              ) : null}
+              {displayBrowserHandoffState.status === 'error' ? (
+                <div style={{ color: '#b91c1c' }}>
+                  browser handoffs 加载失败：{displayBrowserHandoffState.error}
+                </div>
+              ) : null}
+              {displayBrowserHandoffState.status === 'success' && displayBrowserHandoffState.data.handoffs.length > 0 ? (
+                displayBrowserHandoffState.data.handoffs.map((handoff) => (
+                  <div
+                    key={`${handoff.artifactPath}-${handoff.updatedAt}`}
+                    style={{
+                      borderRadius: '14px',
+                      background: '#f8fafc',
+                      border: '1px solid #e2e8f0',
+                      padding: '12px 14px',
+                      display: 'grid',
+                      gap: '4px',
+                    }}
+                  >
+                    <div style={{ fontWeight: 700 }}>
+                      {handoff.platform} · draft #{handoff.draftId} · {handoff.status}
+                    </div>
+                    <div style={{ color: '#475569' }}>title: {handoff.title ?? '未提供'}</div>
+                    <div style={{ color: '#475569' }}>artifactPath: {handoff.artifactPath}</div>
+                    <div style={{ color: '#475569' }}>updatedAt: {handoff.updatedAt}</div>
+                    <div style={{ color: '#475569' }}>
+                      resolvedAt: {handoff.resolvedAt ?? '未结单'}
+                    </div>
+                    <div style={{ color: '#475569' }}>
+                      resolution: {formatContractValue(readStatusValue(handoff.resolution))}
+                    </div>
+                  </div>
+                ))
+              ) : displayBrowserHandoffState.status === 'success' ? (
+                <div style={{ color: '#475569' }}>当前没有 browser handoffs。</div>
+              ) : null}
+            </div>
           </div>
         </SectionCard>
 
@@ -990,7 +1163,7 @@ export function SettingsPage({
         <SectionCard title="LAN allowlist" description="当前设置载入后会直接回填到表单，便于基于真实值继续编辑。">
           <div style={{ display: 'grid', gap: '14px' }}>
             <div style={{ color: '#92400e', fontWeight: 700 }}>
-              allowlist 变更需要重启服务或重新加载进程后才会真正生效。
+              allowlist 保存后会立即影响当前进程的访问控制，可填写精确 IP、CIDR 子网或 *。
             </div>
             <label style={{ display: 'grid', gap: '8px' }}>
               <span style={{ fontWeight: 700 }}>allowlist</span>
@@ -1169,7 +1342,7 @@ export function SettingsPage({
             ) : null}
             {displayUpdateState.status === 'success' ? (
               <div style={{ color: '#166534', display: 'grid', gap: '8px' }}>
-                <div style={{ fontWeight: 700 }}>设置已保存，待重载生效</div>
+              <div style={{ fontWeight: 700 }}>设置已保存；allowlist 已生效，其它运行参数请结合 runtime 结果确认</div>
                 {displayUpdateState.data?.settings ? (
                   <>
                     <div>allowlist：{displayUpdateState.data.settings.allowlist.join(', ')}</div>
@@ -1205,4 +1378,63 @@ export function SettingsPage({
       </div>
     </section>
   );
+}
+
+function isSupportedAllowlistEntry(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  if (trimmed === '*') {
+    return true;
+  }
+
+  const slashIndex = trimmed.indexOf('/');
+  if (slashIndex === -1) {
+    return getIpVersion(trimmed) !== null;
+  }
+
+  const address = trimmed.slice(0, slashIndex).trim();
+  const prefixText = trimmed.slice(slashIndex + 1).trim();
+  if (!address || !/^\d+$/.test(prefixText) || prefixText.includes('/')) {
+    return false;
+  }
+
+  const version = getIpVersion(address);
+  if (!version) {
+    return false;
+  }
+
+  const prefix = Number(prefixText);
+  return prefix >= 0 && prefix <= (version === 4 ? 32 : 128);
+}
+
+function getIpVersion(value: string) {
+  const normalized = value.startsWith('::ffff:') ? value.slice('::ffff:'.length) : value;
+  if (isValidIpv4(normalized)) {
+    return 4;
+  }
+  if (isValidIpv6(normalized)) {
+    return 6;
+  }
+  return null;
+}
+
+function isValidIpv4(value: string) {
+  const parts = value.split('.');
+  if (parts.length !== 4) {
+    return false;
+  }
+
+  return parts.every((part) => /^\d+$/.test(part) && Number(part) >= 0 && Number(part) <= 255);
+}
+
+function isValidIpv6(value: string) {
+  try {
+    new URL(`http://[${value}]`);
+    return true;
+  } catch {
+    return false;
+  }
 }

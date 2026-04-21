@@ -1,8 +1,23 @@
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import express from 'express';
 import { describe, expect, it } from 'vitest';
 import { channelAccountsRouter } from '../../src/server/routes/channelAccounts';
 import { createJobQueueStore } from '../../src/server/store/jobQueue';
 import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
+
+const defaultStorageState = {
+  cookies: [],
+  origins: [],
+};
+
+function writeStorageStateFile(rootDir: string, storageStatePath: string) {
+  const filePath = path.join(rootDir, storageStatePath);
+  mkdirSync(path.dirname(filePath), { recursive: true });
+  writeFileSync(filePath, JSON.stringify(defaultStorageState, null, 2));
+  return filePath;
+}
 
 async function requestApp(method: string, url: string, body?: unknown) {
   const app = express();
@@ -445,6 +460,8 @@ describe('channel accounts api', () => {
         status: 'unknown',
       });
 
+      writeStorageStateFile(rootDir, 'artifacts/browser-sessions/reddit-promobot.json');
+
       await requestApp('POST', '/api/channel-accounts/1/session', {
         storageStatePath: 'artifacts/browser-sessions/reddit-promobot.json',
         status: 'expired',
@@ -554,6 +571,8 @@ describe('channel accounts api', () => {
         authType: 'browser',
         status: 'unknown',
       });
+
+      writeStorageStateFile(rootDir, 'artifacts/browser-sessions/facebook-group.json');
 
       await requestApp('POST', '/api/channel-accounts/1/session', {
         storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
@@ -670,6 +689,8 @@ describe('channel accounts api', () => {
         status: 'healthy',
       });
 
+      writeStorageStateFile(rootDir, 'artifacts/browser-sessions/x-promobot.json');
+
       const attachResponse = await requestApp('POST', '/api/channel-accounts/1/session', {
         storageStatePath: 'artifacts/browser-sessions/x-promobot.json',
         status: 'active',
@@ -691,12 +712,21 @@ describe('channel accounts api', () => {
         channelAccount: expect.objectContaining({
           id: 1,
           authType: 'browser',
+          session: {
+            hasSession: true,
+            id: 'x:-promobot',
+            status: 'active',
+            validatedAt: '2026-04-19T12:34:56.000Z',
+            storageStatePath: 'artifacts/browser-sessions/x-promobot.json',
+            notes: 'manual relogin completed',
+          },
           metadata: expect.objectContaining({
             session: expect.objectContaining({
               id: 'x:-promobot',
               status: 'active',
               validatedAt: '2026-04-19T12:34:56.000Z',
               storageStatePath: 'artifacts/browser-sessions/x-promobot.json',
+              notes: 'manual relogin completed',
             }),
           }),
         }),
@@ -719,6 +749,502 @@ describe('channel accounts api', () => {
             },
           }),
         ],
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('clears stale session metadata when the channel account identity changes', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'x',
+        accountKey: '@promobot',
+        displayName: 'PromoBot X',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      writeStorageStateFile(rootDir, 'artifacts/browser-sessions/x-promobot.json');
+
+      await requestApp('POST', '/api/channel-accounts/1/session', {
+        storageStatePath: 'artifacts/browser-sessions/x-promobot.json',
+        status: 'active',
+        validatedAt: '2026-04-19T12:34:56.000Z',
+      });
+
+      const patched = await requestApp('PATCH', '/api/channel-accounts/1', {
+        accountKey: '@promobot-apac',
+      });
+
+      expect(patched.status).toBe(200);
+      expect(JSON.parse(patched.body)).toEqual({
+        channelAccount: expect.objectContaining({
+          id: 1,
+          accountKey: '@promobot-apac',
+          session: {
+            hasSession: false,
+            status: 'missing',
+            validatedAt: null,
+            storageStatePath: null,
+          },
+          metadata: {},
+        }),
+      });
+
+      const listed = await requestApp('GET', '/api/channel-accounts');
+
+      expect(listed.status).toBe(200);
+      expect(JSON.parse(listed.body)).toEqual({
+        channelAccounts: [
+          expect.objectContaining({
+            id: 1,
+            accountKey: '@promobot-apac',
+            session: {
+              hasSession: false,
+              status: 'missing',
+              validatedAt: null,
+              storageStatePath: null,
+            },
+            metadata: {},
+          }),
+        ],
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('rejects session metadata saves when the provided storage state path does not exist', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'x',
+        accountKey: '@promobot',
+        displayName: 'PromoBot X',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      const attachResponse = await requestApp('POST', '/api/channel-accounts/1/session', {
+        storageStatePath: 'artifacts/browser-sessions/missing.json',
+        status: 'active',
+      });
+
+      expect(attachResponse.status).toBe(400);
+      expect(JSON.parse(attachResponse.body)).toEqual({
+        error: 'storage state path does not exist for platform x: artifacts/browser-sessions/missing.json',
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('rejects session metadata saves when the provided storage state file is not a Playwright storage state', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'x',
+        accountKey: '@promobot',
+        displayName: 'PromoBot X',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      const invalidStorageStatePath = path.join(rootDir, 'artifacts', 'browser-sessions', 'invalid.json');
+      mkdirSync(path.dirname(invalidStorageStatePath), { recursive: true });
+      writeFileSync(invalidStorageStatePath, JSON.stringify({ foo: 'bar' }, null, 2));
+
+      const attachResponse = await requestApp('POST', '/api/channel-accounts/1/session', {
+        storageStatePath: 'artifacts/browser-sessions/invalid.json',
+        status: 'active',
+      });
+
+      expect(attachResponse.status).toBe(400);
+      expect(JSON.parse(attachResponse.body)).toEqual({
+        error:
+          'storage state file is invalid for platform x: artifacts/browser-sessions/invalid.json',
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('rejects absolute storage state paths outside the allowed session roots', async () => {
+    const { rootDir } = createTestDatabasePath();
+    const externalRoot = mkdtempSync(path.join(tmpdir(), 'promobot-session-external-'));
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'x',
+        accountKey: '@promobot',
+        displayName: 'PromoBot X',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      const externalStorageStatePath = path.join(externalRoot, 'storage-state.json');
+      writeFileSync(
+        externalStorageStatePath,
+        JSON.stringify({ cookies: [], origins: [] }, null, 2),
+      );
+
+      const attachResponse = await requestApp('POST', '/api/channel-accounts/1/session', {
+        storageStatePath: externalStorageStatePath,
+        status: 'active',
+      });
+
+      expect(attachResponse.status).toBe(400);
+      expect(JSON.parse(attachResponse.body)).toEqual({
+        error: `storage state path is outside allowed roots for platform x: ${externalStorageStatePath}`,
+      });
+    } finally {
+      rmSync(externalRoot, { force: true, recursive: true });
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('rejects inline storageState payloads that are not valid Playwright storage state JSON', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'x',
+        accountKey: '@promobot',
+        displayName: 'PromoBot X',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      const attachResponse = await requestApp('POST', '/api/channel-accounts/1/session', {
+        storageState: {
+          foo: 'bar',
+        },
+        status: 'active',
+      });
+
+      expect(attachResponse.status).toBe(400);
+      expect(JSON.parse(attachResponse.body)).toEqual({
+        error: 'storage state payload is invalid for platform x',
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('rejects session saves that provide both storageStatePath and storageState', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'x',
+        accountKey: '@promobot',
+        displayName: 'PromoBot X',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      writeStorageStateFile(rootDir, 'artifacts/browser-sessions/x-promobot.json');
+
+      const attachResponse = await requestApp('POST', '/api/channel-accounts/1/session', {
+        storageStatePath: 'artifacts/browser-sessions/x-promobot.json',
+        storageState: defaultStorageState,
+        status: 'active',
+      });
+
+      expect(attachResponse.status).toBe(400);
+      expect(JSON.parse(attachResponse.body)).toEqual({
+        error: 'provide either storageStatePath or storageState, not both',
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('degrades browser session summaries to missing when the storage state file disappears', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'facebookGroup',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB Group',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      const storageStatePath = 'artifacts/browser-sessions/facebook-group.json';
+      const filePath = writeStorageStateFile(rootDir, storageStatePath);
+
+      const attached = await requestApp('POST', '/api/channel-accounts/1/session', {
+        storageStatePath,
+        status: 'active',
+        validatedAt: '2026-04-20T12:34:56.000Z',
+      });
+
+      expect(attached.status).toBe(200);
+      expect(JSON.parse(attached.body)).toEqual({
+        ok: true,
+        session: {
+          hasSession: true,
+          id: 'facebookGroup:launch-campaign',
+          status: 'active',
+          validatedAt: '2026-04-20T12:34:56.000Z',
+          storageStatePath,
+        },
+        channelAccount: expect.objectContaining({
+          id: 1,
+          session: {
+            hasSession: true,
+            id: 'facebookGroup:launch-campaign',
+            status: 'active',
+            validatedAt: '2026-04-20T12:34:56.000Z',
+            storageStatePath,
+          },
+        }),
+      });
+
+      rmSync(filePath, { force: true });
+
+      const listed = await requestApp('GET', '/api/channel-accounts');
+
+      expect(listed.status).toBe(200);
+      expect(JSON.parse(listed.body)).toEqual({
+        channelAccounts: [
+          expect.objectContaining({
+            id: 1,
+            session: {
+              hasSession: false,
+              id: 'facebookGroup:launch-campaign',
+              status: 'missing',
+              validatedAt: '2026-04-20T12:34:56.000Z',
+              storageStatePath,
+            },
+            publishReadiness: expect.objectContaining({
+              platform: 'facebookGroup',
+              ready: false,
+              status: 'needs_session',
+              action: 'request_session',
+            }),
+          }),
+        ],
+      });
+
+      const tested = await requestApp('POST', '/api/channel-accounts/1/test');
+
+      expect(tested.status).toBe(200);
+      expect(JSON.parse(tested.body)).toEqual({
+        ok: true,
+        test: {
+          checkedAt: expect.any(String),
+          status: 'needs_session',
+          summary: '需要登录会话',
+          message: 'Facebook Group 浏览器 session 缺失，请先登录并保存 session 元数据。',
+          action: 'request_session',
+          nextStep: '/api/channel-accounts/1/session',
+          details: {
+            ready: false,
+            mode: 'browser',
+            authType: 'browser',
+            session: {
+              hasSession: false,
+              id: 'facebookGroup:launch-campaign',
+              status: 'missing',
+              validatedAt: '2026-04-20T12:34:56.000Z',
+              storageStatePath,
+            },
+          },
+        },
+        channelAccount: expect.objectContaining({
+          id: 1,
+          session: {
+            hasSession: false,
+            id: 'facebookGroup:launch-campaign',
+            status: 'missing',
+            validatedAt: '2026-04-20T12:34:56.000Z',
+            storageStatePath,
+          },
+        }),
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('imports storage state JSON into a managed session file and returns its managed path', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'x',
+        accountKey: '@promobot',
+        displayName: 'PromoBot X',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      const storageState = {
+        cookies: [
+          {
+            name: 'auth_token',
+            value: 'secret',
+            domain: '.x.com',
+            path: '/',
+            expires: -1,
+            httpOnly: true,
+            secure: true,
+            sameSite: 'Lax',
+          },
+        ],
+        origins: [
+          {
+            origin: 'https://x.com',
+            localStorage: [
+              {
+                name: 'session',
+                value: 'managed-import',
+              },
+            ],
+          },
+        ],
+      };
+
+      const attachResponse = await requestApp('POST', '/api/channel-accounts/1/session', {
+        storageState,
+        status: 'active',
+        validatedAt: '2026-04-20T12:34:56.000Z',
+        notes: 'managed import',
+      });
+
+      const managedPath = path.join('browser-sessions', 'managed', 'x', '-promobot.json');
+      const managedFilePath = path.join(rootDir, managedPath);
+
+      expect(attachResponse.status).toBe(200);
+      expect(JSON.parse(attachResponse.body)).toEqual({
+        ok: true,
+        session: {
+          hasSession: true,
+          id: 'x:-promobot',
+          status: 'active',
+          validatedAt: '2026-04-20T12:34:56.000Z',
+          storageStatePath: managedPath,
+          notes: 'managed import',
+        },
+        channelAccount: expect.objectContaining({
+          id: 1,
+          authType: 'browser',
+          metadata: expect.objectContaining({
+            session: expect.objectContaining({
+              id: 'x:-promobot',
+              status: 'active',
+              validatedAt: '2026-04-20T12:34:56.000Z',
+              storageStatePath: managedPath,
+            }),
+          }),
+        }),
+      });
+
+      expect(existsSync(managedFilePath)).toBe(true);
+      expect(JSON.parse(readFileSync(managedFilePath, 'utf8'))).toEqual(storageState);
+
+      const listed = await requestApp('GET', '/api/channel-accounts');
+
+      expect(listed.status).toBe(200);
+      expect(JSON.parse(listed.body)).toEqual({
+        channelAccounts: [
+          expect.objectContaining({
+            id: 1,
+            session: {
+              hasSession: true,
+              id: 'x:-promobot',
+              status: 'active',
+              validatedAt: '2026-04-20T12:34:56.000Z',
+              storageStatePath: managedPath,
+              notes: 'managed import',
+            },
+          }),
+        ],
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('downgrades a saved browser session to missing when the storage state file disappears', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'x',
+        accountKey: '@promobot',
+        displayName: 'PromoBot X',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      const attachResponse = await requestApp('POST', '/api/channel-accounts/1/session', {
+        storageState: defaultStorageState,
+        status: 'active',
+        validatedAt: '2026-04-20T12:34:56.000Z',
+        notes: 'managed import',
+      });
+      expect(attachResponse.status).toBe(200);
+
+      const managedPath = path.join('browser-sessions', 'managed', 'x', '-promobot.json');
+      const managedFilePath = path.join(rootDir, managedPath);
+      expect(existsSync(managedFilePath)).toBe(true);
+
+      rmSync(managedFilePath);
+
+      const listed = await requestApp('GET', '/api/channel-accounts');
+      expect(listed.status).toBe(200);
+      expect(JSON.parse(listed.body)).toEqual({
+        channelAccounts: [
+          expect.objectContaining({
+            id: 1,
+            session: {
+              hasSession: false,
+              id: 'x:-promobot',
+              status: 'missing',
+              validatedAt: '2026-04-20T12:34:56.000Z',
+              storageStatePath: managedPath,
+              notes: 'managed import',
+            },
+          }),
+        ],
+      });
+
+      const testResponse = await requestApp('POST', '/api/channel-accounts/1/test');
+      expect(testResponse.status).toBe(200);
+      expect(JSON.parse(testResponse.body)).toEqual({
+        ok: true,
+        test: {
+          checkedAt: expect.any(String),
+          status: 'needs_session',
+          summary: '需要登录会话',
+          message: 'X 浏览器 session 缺失，请先登录并保存 session 元数据。',
+          action: 'request_session',
+          nextStep: '/api/channel-accounts/1/session',
+          details: {
+            ready: false,
+            mode: 'browser',
+            authType: 'browser',
+            session: {
+              hasSession: false,
+              id: 'x:-promobot',
+              status: 'missing',
+              validatedAt: '2026-04-20T12:34:56.000Z',
+              storageStatePath: managedPath,
+              notes: 'managed import',
+            },
+          },
+        },
+        channelAccount: expect.objectContaining({
+          id: 1,
+          session: {
+            hasSession: false,
+            id: 'x:-promobot',
+            status: 'missing',
+            validatedAt: '2026-04-20T12:34:56.000Z',
+            storageStatePath: managedPath,
+            notes: 'managed import',
+          },
+        }),
       });
     } finally {
       cleanupTestDatabasePath(rootDir);
@@ -768,6 +1294,7 @@ describe('channel accounts api', () => {
           nextStep: string;
           jobId: number;
           jobStatus: string;
+          artifactPath: string;
         };
         channelAccount: { id: number };
       };
@@ -796,6 +1323,8 @@ describe('channel accounts api', () => {
           nextStep: '/api/channel-accounts/1/session',
           jobId: expect.any(Number),
           jobStatus: 'pending',
+          artifactPath:
+            'artifacts/browser-lane-requests/x/-promobot/request-session-job-1.json',
         },
         channelAccount: expect.objectContaining({
           id: 1,
@@ -804,6 +1333,47 @@ describe('channel accounts api', () => {
 
       expect(requestSessionBody.sessionAction.jobId).toBe(requestSessionBody.job.id);
       expect(requestSessionBody.sessionAction.requestedAt).toBe(requestSessionBody.job.runAt);
+      expect(
+        existsSync(path.join(rootDir, requestSessionBody.sessionAction.artifactPath)),
+      ).toBe(true);
+      expect(
+        JSON.parse(
+          readFileSync(
+            path.join(rootDir, requestSessionBody.sessionAction.artifactPath),
+            'utf8',
+          ),
+        ),
+      ).toEqual({
+        type: 'browser_lane_request',
+        channelAccountId: 1,
+        platform: 'x',
+        accountKey: '@promobot',
+        action: 'request_session',
+        requestedAt: requestSessionBody.job.runAt,
+        jobId: requestSessionBody.job.id,
+        jobStatus: 'pending',
+        nextStep: '/api/channel-accounts/1/session',
+      });
+
+      const listedAfterRequest = await requestApp('GET', '/api/channel-accounts');
+      expect(JSON.parse(listedAfterRequest.body)).toEqual({
+        channelAccounts: [
+          expect.objectContaining({
+            id: 1,
+            latestBrowserLaneArtifact: expect.objectContaining({
+              channelAccountId: 1,
+              platform: 'x',
+              accountKey: '@promobot',
+              action: 'request_session',
+              jobStatus: 'pending',
+              requestedAt: requestSessionBody.job.runAt,
+              artifactPath:
+                'artifacts/browser-lane-requests/x/-promobot/request-session-job-1.json',
+              resolvedAt: null,
+            }),
+          }),
+        ],
+      });
 
       expect(jobQueueStore.list({ limit: 10 })).toEqual([
         expect.objectContaining({
@@ -819,6 +1389,8 @@ describe('channel accounts api', () => {
         accountKey: '@promobot',
         action: 'request_session',
       });
+
+      writeStorageStateFile(rootDir, 'artifacts/browser-sessions/x-promobot.json');
 
       await requestApp('POST', '/api/channel-accounts/1/session', {
         storageStatePath: 'artifacts/browser-sessions/x-promobot.json',
@@ -854,6 +1426,7 @@ describe('channel accounts api', () => {
           nextStep: string;
           jobId: number;
           jobStatus: string;
+          artifactPath: string;
         };
         channelAccount: { id: number };
       };
@@ -882,6 +1455,7 @@ describe('channel accounts api', () => {
           nextStep: '/api/channel-accounts/1/session',
           jobId: expect.any(Number),
           jobStatus: 'pending',
+          artifactPath: 'artifacts/browser-lane-requests/x/-promobot/relogin-job-2.json',
         },
         channelAccount: expect.objectContaining({
           id: 1,
@@ -891,6 +1465,22 @@ describe('channel accounts api', () => {
       expect(reloginBody.job.id).not.toBe(requestSessionBody.job.id);
       expect(reloginBody.sessionAction.jobId).toBe(reloginBody.job.id);
       expect(reloginBody.sessionAction.requestedAt).toBe(reloginBody.job.runAt);
+      expect(existsSync(path.join(rootDir, reloginBody.sessionAction.artifactPath))).toBe(true);
+      expect(
+        JSON.parse(
+          readFileSync(path.join(rootDir, reloginBody.sessionAction.artifactPath), 'utf8'),
+        ),
+      ).toEqual({
+        type: 'browser_lane_request',
+        channelAccountId: 1,
+        platform: 'x',
+        accountKey: '@promobot',
+        action: 'relogin',
+        requestedAt: reloginBody.job.runAt,
+        jobId: reloginBody.job.id,
+        jobStatus: 'pending',
+        nextStep: '/api/channel-accounts/1/session',
+      });
 
       const queuedJobs = jobQueueStore.list({ limit: 10 });
       expect(queuedJobs).toHaveLength(2);
@@ -930,6 +1520,729 @@ describe('channel accounts api', () => {
     }
   });
 
+  it('marks browser lane request artifacts as resolved after session metadata is saved', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'x',
+        accountKey: '@promobot',
+        displayName: 'PromoBot X',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      const requestSessionResponse = await requestApp('POST', '/api/channel-accounts/1/session/request');
+      const requestSessionBody = JSON.parse(requestSessionResponse.body) as {
+        sessionAction: {
+          artifactPath: string;
+        };
+      };
+      const artifactAbsolutePath = path.join(rootDir, requestSessionBody.sessionAction.artifactPath);
+
+      writeStorageStateFile(rootDir, 'artifacts/browser-sessions/x-promobot.json');
+
+      const saveResponse = await requestApp('POST', '/api/channel-accounts/1/session', {
+        storageStatePath: 'artifacts/browser-sessions/x-promobot.json',
+        status: 'active',
+        validatedAt: '2026-04-20T12:34:56.000Z',
+      });
+
+      expect(saveResponse.status).toBe(200);
+      expect(JSON.parse(readFileSync(artifactAbsolutePath, 'utf8'))).toEqual({
+        type: 'browser_lane_request',
+        channelAccountId: 1,
+        platform: 'x',
+        accountKey: '@promobot',
+        action: 'request_session',
+        requestedAt: expect.any(String),
+        jobId: 1,
+        jobStatus: 'resolved',
+        nextStep: '/api/channel-accounts/1/session',
+        resolvedAt: expect.any(String),
+        resolution: {
+          status: 'resolved',
+          session: {
+            hasSession: true,
+            id: 'x:-promobot',
+            status: 'active',
+            validatedAt: '2026-04-20T12:34:56.000Z',
+            storageStatePath: 'artifacts/browser-sessions/x-promobot.json',
+          },
+        },
+        savedStorageStatePath: 'artifacts/browser-sessions/x-promobot.json',
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('marks related browser-lane request artifacts as resolved after saving a session', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'x',
+        accountKey: '@promobot',
+        displayName: 'PromoBot X',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      const requestSessionResponse = await requestApp(
+        'POST',
+        '/api/channel-accounts/1/session/request',
+      );
+      expect(requestSessionResponse.status).toBe(200);
+
+      const requestSessionBody = JSON.parse(requestSessionResponse.body) as {
+        sessionAction: {
+          artifactPath: string;
+        };
+      };
+
+      const savedStorageStatePath = 'artifacts/browser-sessions/x-promobot.json';
+      writeStorageStateFile(rootDir, savedStorageStatePath);
+
+      const saveSessionResponse = await requestApp('POST', '/api/channel-accounts/1/session', {
+        storageStatePath: savedStorageStatePath,
+        status: 'expired',
+      });
+
+      expect(saveSessionResponse.status).toBe(200);
+      expect(
+        JSON.parse(
+          readFileSync(path.join(rootDir, requestSessionBody.sessionAction.artifactPath), 'utf8'),
+        ),
+      ).toEqual({
+        type: 'browser_lane_request',
+        channelAccountId: 1,
+        platform: 'x',
+        accountKey: '@promobot',
+        action: 'request_session',
+        requestedAt: expect.any(String),
+        jobId: expect.any(Number),
+        jobStatus: 'resolved',
+        nextStep: '/api/channel-accounts/1/session',
+        resolvedAt: expect.any(String),
+        resolution: {
+          status: 'resolved',
+          session: {
+            hasSession: true,
+            id: 'x:-promobot',
+            status: 'expired',
+            validatedAt: null,
+            storageStatePath: savedStorageStatePath,
+          },
+        },
+        savedStorageStatePath,
+      });
+
+      const reloginResponse = await requestApp('POST', '/api/channel-accounts/1/session/request', {
+        action: 'relogin',
+      });
+      expect(reloginResponse.status).toBe(200);
+
+      const reloginBody = JSON.parse(reloginResponse.body) as {
+        sessionAction: {
+          artifactPath: string;
+        };
+      };
+
+      const refreshedStorageStatePath = 'artifacts/browser-sessions/x-promobot-refreshed.json';
+      writeStorageStateFile(rootDir, refreshedStorageStatePath);
+
+      const refreshSessionResponse = await requestApp('POST', '/api/channel-accounts/1/session', {
+        storageStatePath: refreshedStorageStatePath,
+        status: 'active',
+      });
+
+      expect(refreshSessionResponse.status).toBe(200);
+      expect(
+        JSON.parse(readFileSync(path.join(rootDir, reloginBody.sessionAction.artifactPath), 'utf8')),
+      ).toEqual({
+        type: 'browser_lane_request',
+        channelAccountId: 1,
+        platform: 'x',
+        accountKey: '@promobot',
+        action: 'relogin',
+        requestedAt: expect.any(String),
+        jobId: expect.any(Number),
+        jobStatus: 'resolved',
+        nextStep: '/api/channel-accounts/1/session',
+        resolvedAt: expect.any(String),
+        resolution: {
+          status: 'resolved',
+          session: {
+            hasSession: true,
+            id: 'x:-promobot',
+            status: 'active',
+            validatedAt: null,
+            storageStatePath: refreshedStorageStatePath,
+          },
+        },
+        savedStorageStatePath: refreshedStorageStatePath,
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('closes the browser-lane artifact loop from request-session to saved session', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'x',
+        accountKey: '@promobot',
+        displayName: 'PromoBot X',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      const requestSessionResponse = await requestApp(
+        'POST',
+        '/api/channel-accounts/1/session/request',
+      );
+      expect(requestSessionResponse.status).toBe(200);
+
+      const requestSessionBody = JSON.parse(requestSessionResponse.body) as {
+        job: {
+          id: number;
+          status: string;
+          runAt: string;
+          payload: {
+            accountId: number;
+            platform: string;
+            accountKey: string;
+            action: 'request_session';
+          };
+        };
+        sessionAction: {
+          artifactPath: string;
+        };
+      };
+
+      const storageStatePath = 'artifacts/browser-sessions/x-promobot-resolved.json';
+      writeStorageStateFile(rootDir, storageStatePath);
+
+      expect(
+        JSON.parse(
+          readFileSync(path.join(rootDir, requestSessionBody.sessionAction.artifactPath), 'utf8'),
+        ),
+      ).toEqual({
+        type: 'browser_lane_request',
+        channelAccountId: 1,
+        platform: 'x',
+        accountKey: '@promobot',
+        action: 'request_session',
+        requestedAt: requestSessionBody.job.runAt,
+        jobId: requestSessionBody.job.id,
+        jobStatus: requestSessionBody.job.status,
+        nextStep: '/api/channel-accounts/1/session',
+      });
+
+      const saveSessionResponse = await requestApp('POST', '/api/channel-accounts/1/session', {
+        storageStatePath,
+        status: 'active',
+        validatedAt: '2026-04-21T08:00:00.000Z',
+        notes: 'browser lane completed',
+      });
+
+      expect(saveSessionResponse.status).toBe(200);
+      expect(JSON.parse(saveSessionResponse.body)).toEqual({
+        ok: true,
+        session: {
+          hasSession: true,
+          id: 'x:-promobot',
+          status: 'active',
+          validatedAt: '2026-04-21T08:00:00.000Z',
+          storageStatePath,
+          notes: 'browser lane completed',
+        },
+        channelAccount: expect.objectContaining({
+          id: 1,
+          session: {
+            hasSession: true,
+            id: 'x:-promobot',
+            status: 'active',
+            validatedAt: '2026-04-21T08:00:00.000Z',
+            storageStatePath,
+            notes: 'browser lane completed',
+          },
+        }),
+      });
+
+      expect(
+        JSON.parse(
+          readFileSync(path.join(rootDir, requestSessionBody.sessionAction.artifactPath), 'utf8'),
+        ),
+      ).toEqual({
+        type: 'browser_lane_request',
+        channelAccountId: 1,
+        platform: 'x',
+        accountKey: '@promobot',
+        action: 'request_session',
+        requestedAt: requestSessionBody.job.runAt,
+        jobId: requestSessionBody.job.id,
+        jobStatus: 'resolved',
+        nextStep: '/api/channel-accounts/1/session',
+        resolvedAt: expect.any(String),
+        resolution: {
+          status: 'resolved',
+          session: {
+            hasSession: true,
+            id: 'x:-promobot',
+            status: 'active',
+            validatedAt: '2026-04-21T08:00:00.000Z',
+            storageStatePath,
+            notes: 'browser lane completed',
+          },
+        },
+        savedStorageStatePath: storageStatePath,
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('returns the latest browser-lane artifact summary in request, save, and list responses', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'x',
+        accountKey: '@promobot',
+        displayName: 'PromoBot X',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      const requestSessionResponse = await requestApp(
+        'POST',
+        '/api/channel-accounts/1/session/request',
+      );
+      expect(requestSessionResponse.status).toBe(200);
+
+      const requestSessionBody = JSON.parse(requestSessionResponse.body) as {
+        job: {
+          runAt: string;
+        };
+        sessionAction: {
+          artifactPath: string;
+        };
+        channelAccount: {
+          latestBrowserLaneArtifact: {
+            action: string;
+            jobStatus: string;
+            requestedAt: string;
+            artifactPath: string;
+            resolvedAt: string | null;
+          } | null;
+        };
+      };
+
+      expect(requestSessionBody.channelAccount.latestBrowserLaneArtifact).toEqual(
+        expect.objectContaining({
+          channelAccountId: 1,
+          platform: 'x',
+          accountKey: '@promobot',
+          action: 'request_session',
+          jobStatus: 'pending',
+          requestedAt: requestSessionBody.job.runAt,
+          artifactPath: requestSessionBody.sessionAction.artifactPath,
+          resolvedAt: null,
+        }),
+      );
+
+      const initialStorageStatePath = 'artifacts/browser-sessions/x-promobot.json';
+      writeStorageStateFile(rootDir, initialStorageStatePath);
+
+      const saveResponse = await requestApp('POST', '/api/channel-accounts/1/session', {
+        storageStatePath: initialStorageStatePath,
+        status: 'active',
+      });
+      expect(saveResponse.status).toBe(200);
+
+      const saveBody = JSON.parse(saveResponse.body) as {
+        channelAccount: {
+          latestBrowserLaneArtifact: {
+            action: string;
+            jobStatus: string;
+            requestedAt: string;
+            artifactPath: string;
+            resolvedAt: string | null;
+          } | null;
+        };
+      };
+
+      expect(saveBody.channelAccount.latestBrowserLaneArtifact).toEqual(
+        expect.objectContaining({
+          channelAccountId: 1,
+          platform: 'x',
+          accountKey: '@promobot',
+          action: 'request_session',
+          jobStatus: 'resolved',
+          requestedAt: requestSessionBody.job.runAt,
+          artifactPath: requestSessionBody.sessionAction.artifactPath,
+          resolvedAt: expect.any(String),
+          resolution: {
+            status: 'resolved',
+            session: expect.objectContaining({
+              hasSession: true,
+              id: 'x:-promobot',
+              status: 'active',
+              storageStatePath: initialStorageStatePath,
+            }),
+          },
+        }),
+      );
+
+      const reloginResponse = await requestApp('POST', '/api/channel-accounts/1/session/request', {
+        action: 'relogin',
+      });
+      expect(reloginResponse.status).toBe(200);
+
+      const reloginBody = JSON.parse(reloginResponse.body) as {
+        job: {
+          runAt: string;
+        };
+        sessionAction: {
+          artifactPath: string;
+        };
+        channelAccount: {
+          latestBrowserLaneArtifact: {
+            action: string;
+            jobStatus: string;
+            requestedAt: string;
+            artifactPath: string;
+            resolvedAt: string | null;
+          } | null;
+        };
+      };
+
+      expect(reloginBody.channelAccount.latestBrowserLaneArtifact).toEqual(
+        expect.objectContaining({
+          channelAccountId: 1,
+          platform: 'x',
+          accountKey: '@promobot',
+          action: 'relogin',
+          jobStatus: 'pending',
+          requestedAt: reloginBody.job.runAt,
+          artifactPath: reloginBody.sessionAction.artifactPath,
+          resolvedAt: null,
+        }),
+      );
+
+      const listedResponse = await requestApp('GET', '/api/channel-accounts');
+      expect(listedResponse.status).toBe(200);
+      expect(JSON.parse(listedResponse.body)).toEqual({
+        channelAccounts: [
+          expect.objectContaining({
+            id: 1,
+            latestBrowserLaneArtifact: expect.objectContaining({
+              channelAccountId: 1,
+              platform: 'x',
+              accountKey: '@promobot',
+              action: 'relogin',
+              jobStatus: 'pending',
+              requestedAt: reloginBody.job.runAt,
+              artifactPath: reloginBody.sessionAction.artifactPath,
+              resolvedAt: null,
+            }),
+          }),
+        ],
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('returns the latest browser-handoff artifact summary in channel account list responses', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'facebookGroup',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB Group',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      const handoffDir = path.join(
+        rootDir,
+        'artifacts',
+        'browser-handoffs',
+        'facebookGroup',
+        'launch-campaign',
+      );
+      mkdirSync(handoffDir, { recursive: true });
+      writeFileSync(
+        path.join(handoffDir, 'facebookGroup-draft-21.json'),
+        JSON.stringify({
+          type: 'browser_manual_handoff',
+          status: 'pending',
+          platform: 'facebookGroup',
+          draftId: '21',
+          title: 'Community update',
+          content: 'Need handoff',
+          target: 'group-123',
+          accountKey: 'launch-campaign',
+          session: {
+            hasSession: true,
+            id: 'facebookGroup:launch-campaign',
+            status: 'active',
+            validatedAt: '2026-04-21T08:55:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
+          },
+          createdAt: '2026-04-21T09:00:00.000Z',
+          updatedAt: '2026-04-21T09:00:00.000Z',
+          resolvedAt: null,
+          resolution: null,
+        }),
+      );
+      writeFileSync(
+        path.join(handoffDir, 'facebookGroup-draft-22.json'),
+        JSON.stringify({
+          type: 'browser_manual_handoff',
+          status: 'obsolete',
+          platform: 'facebookGroup',
+          draftId: '22',
+          title: 'Stale handoff',
+          content: 'Need relogin',
+          target: 'group-123',
+          accountKey: 'launch-campaign',
+          session: {
+            hasSession: true,
+            id: 'facebookGroup:launch-campaign',
+            status: 'expired',
+            validatedAt: '2026-04-21T09:05:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
+          },
+          createdAt: '2026-04-21T09:10:00.000Z',
+          updatedAt: '2026-04-21T09:20:00.000Z',
+          resolvedAt: '2026-04-21T09:20:00.000Z',
+          resolution: {
+            status: 'obsolete',
+            reason: 'relogin',
+          },
+        }),
+      );
+
+      const listedResponse = await requestApp('GET', '/api/channel-accounts');
+      expect(listedResponse.status).toBe(200);
+      expect(JSON.parse(listedResponse.body)).toEqual({
+        channelAccounts: [
+          expect.objectContaining({
+            id: 1,
+            latestBrowserHandoffArtifact: {
+              platform: 'facebookGroup',
+              draftId: '22',
+              title: 'Stale handoff',
+              accountKey: 'launch-campaign',
+              status: 'obsolete',
+              artifactPath:
+                'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-22.json',
+              createdAt: '2026-04-21T09:10:00.000Z',
+              updatedAt: '2026-04-21T09:20:00.000Z',
+              resolvedAt: '2026-04-21T09:20:00.000Z',
+              resolution: {
+                status: 'obsolete',
+                reason: 'relogin',
+              },
+            },
+          }),
+        ],
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('normalizes facebook-group channel accounts when resolving latest browser-handoff artifacts', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'facebook-group',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB Group',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      const handoffDir = path.join(
+        rootDir,
+        'artifacts',
+        'browser-handoffs',
+        'facebookGroup',
+        'launch-campaign',
+      );
+      mkdirSync(handoffDir, { recursive: true });
+      writeFileSync(
+        path.join(handoffDir, 'facebookGroup-draft-23.json'),
+        JSON.stringify({
+          type: 'browser_manual_handoff',
+          status: 'pending',
+          platform: 'facebookGroup',
+          draftId: '23',
+          title: 'Alias handoff',
+          content: 'Need handoff',
+          target: 'group-123',
+          accountKey: 'launch-campaign',
+          session: {
+            hasSession: true,
+            id: 'facebookGroup:launch-campaign',
+            status: 'active',
+            validatedAt: '2026-04-21T10:00:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
+          },
+          createdAt: '2026-04-21T10:00:00.000Z',
+          updatedAt: '2026-04-21T10:00:00.000Z',
+          resolvedAt: null,
+          resolution: null,
+        }),
+      );
+
+      const listedResponse = await requestApp('GET', '/api/channel-accounts');
+      expect(listedResponse.status).toBe(200);
+      expect(JSON.parse(listedResponse.body)).toEqual({
+        channelAccounts: [
+          expect.objectContaining({
+            id: 1,
+            platform: 'facebook-group',
+            latestBrowserHandoffArtifact: expect.objectContaining({
+              platform: 'facebookGroup',
+              draftId: '23',
+              artifactPath:
+                'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-23.json',
+            }),
+          }),
+        ],
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('shares the same browser session namespace for facebook-group and facebookGroup aliases', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'facebook-group',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB Group',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      writeStorageStateFile(rootDir, 'artifacts/browser-sessions/facebook-group.json');
+
+      const saveResponse = await requestApp('POST', '/api/channel-accounts/1/session', {
+        storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
+        status: 'active',
+        validatedAt: '2026-04-21T11:00:00.000Z',
+      });
+      expect(saveResponse.status).toBe(200);
+
+      const listedResponse = await requestApp('GET', '/api/channel-accounts');
+      expect(listedResponse.status).toBe(200);
+      expect(JSON.parse(listedResponse.body)).toEqual({
+        channelAccounts: [
+          expect.objectContaining({
+            id: 1,
+            platform: 'facebook-group',
+            session: {
+              hasSession: true,
+              id: 'facebookGroup:launch-campaign',
+              status: 'active',
+              validatedAt: '2026-04-21T11:00:00.000Z',
+              storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
+            },
+            publishReadiness: expect.objectContaining({
+              platform: 'facebookGroup',
+              ready: true,
+              status: 'ready',
+            }),
+          }),
+        ],
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('prefers channelAccountId when multiple channel accounts share the same handoff key', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        projectId: 11,
+        platform: 'facebookGroup',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB Group 11',
+        authType: 'browser',
+        status: 'healthy',
+      });
+      await requestApp('POST', '/api/channel-accounts', {
+        projectId: 22,
+        platform: 'facebookGroup',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB Group 22',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      const handoffDir = path.join(
+        rootDir,
+        'artifacts',
+        'browser-handoffs',
+        'facebookGroup',
+        'launch-campaign',
+      );
+      mkdirSync(handoffDir, { recursive: true });
+      writeFileSync(
+        path.join(handoffDir, 'facebookGroup-draft-24.json'),
+        JSON.stringify({
+          type: 'browser_manual_handoff',
+          channelAccountId: 2,
+          status: 'pending',
+          platform: 'facebookGroup',
+          draftId: '24',
+          title: 'Scoped handoff',
+          content: 'Need handoff',
+          target: 'group-123',
+          accountKey: 'launch-campaign',
+          session: {
+            hasSession: true,
+            id: 'facebookGroup:launch-campaign',
+            status: 'active',
+            validatedAt: '2026-04-21T10:30:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
+          },
+          createdAt: '2026-04-21T10:30:00.000Z',
+          updatedAt: '2026-04-21T10:30:00.000Z',
+          resolvedAt: null,
+          resolution: null,
+        }),
+      );
+
+      const listedResponse = await requestApp('GET', '/api/channel-accounts');
+      expect(listedResponse.status).toBe(200);
+      expect(JSON.parse(listedResponse.body)).toEqual({
+        channelAccounts: [
+          expect.objectContaining({
+            id: 1,
+            latestBrowserHandoffArtifact: null,
+          }),
+          expect.objectContaining({
+            id: 2,
+            latestBrowserHandoffArtifact: expect.objectContaining({
+              channelAccountId: 2,
+              draftId: '24',
+            }),
+          }),
+        ],
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('adds facebookGroup publish readiness based on browser session state', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
@@ -955,6 +2268,8 @@ describe('channel accounts api', () => {
         ],
       });
 
+      writeStorageStateFile(rootDir, 'artifacts/browser-sessions/facebook-group.json');
+
       await requestApp('POST', '/api/channel-accounts/1/session', {
         storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
         status: 'active',
@@ -968,6 +2283,83 @@ describe('channel accounts api', () => {
               platform: 'facebookGroup',
               ready: true,
               status: 'ready',
+            }),
+          }),
+        ],
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('adds xiaohongshu and weibo publish readiness based on browser session state', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'xiaohongshu',
+        accountKey: 'xhs-main',
+        displayName: 'PromoBot XHS',
+        authType: 'browser',
+        status: 'healthy',
+      });
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'weibo',
+        accountKey: 'weibo-main',
+        displayName: 'PromoBot Weibo',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      const listedBeforeSession = await requestApp('GET', '/api/channel-accounts');
+      expect(JSON.parse(listedBeforeSession.body)).toEqual({
+        channelAccounts: [
+          expect.objectContaining({
+            publishReadiness: expect.objectContaining({
+              platform: 'xiaohongshu',
+              ready: false,
+              status: 'needs_session',
+              action: 'request_session',
+            }),
+          }),
+          expect.objectContaining({
+            publishReadiness: expect.objectContaining({
+              platform: 'weibo',
+              ready: false,
+              status: 'needs_session',
+              action: 'request_session',
+            }),
+          }),
+        ],
+      });
+
+      writeStorageStateFile(rootDir, 'artifacts/browser-sessions/xiaohongshu.json');
+      writeStorageStateFile(rootDir, 'artifacts/browser-sessions/weibo.json');
+
+      await requestApp('POST', '/api/channel-accounts/1/session', {
+        storageStatePath: 'artifacts/browser-sessions/xiaohongshu.json',
+        status: 'active',
+      });
+      await requestApp('POST', '/api/channel-accounts/2/session', {
+        storageStatePath: 'artifacts/browser-sessions/weibo.json',
+        status: 'expired',
+      });
+
+      const listedAfterSession = await requestApp('GET', '/api/channel-accounts');
+      expect(JSON.parse(listedAfterSession.body)).toEqual({
+        channelAccounts: [
+          expect.objectContaining({
+            publishReadiness: expect.objectContaining({
+              platform: 'xiaohongshu',
+              ready: true,
+              status: 'ready',
+            }),
+          }),
+          expect.objectContaining({
+            publishReadiness: expect.objectContaining({
+              platform: 'weibo',
+              ready: false,
+              status: 'needs_relogin',
+              action: 'relogin',
             }),
           }),
         ],

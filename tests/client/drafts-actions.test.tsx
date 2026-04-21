@@ -101,20 +101,20 @@ describe('Drafts publish actions', () => {
     });
   });
 
-  it('shows published drafts as read-only summary instead of editable controls', async () => {
+  it('shows blog published drafts as read-only summary instead of editable or manual-handoff controls', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
     const { DraftsPage } = await import('../../src/client/pages/Drafts');
 
     const loadDraftsAction = vi.fn().mockResolvedValue({
-      drafts: [
-        {
-          id: 15,
-          platform: 'x',
-          title: 'Published launch thread',
-          content: 'Published body',
-          hashtags: ['#launch'],
-          status: 'published',
+        drafts: [
+          {
+            id: 15,
+            platform: 'blog',
+            title: 'Published blog launch post',
+            content: 'Published body',
+            hashtags: ['#launch'],
+            status: 'published',
           createdAt: '2026-04-19T00:00:00.000Z',
           updatedAt: '2026-04-19T00:05:00.000Z',
           publishedAt: '2026-04-19T00:05:00.000Z',
@@ -146,9 +146,13 @@ describe('Drafts publish actions', () => {
       container,
       (element) => element.tagName === 'BUTTON' && collectText(element).includes('触发发布'),
     );
+    const manualHandoffButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('发起人工接管'),
+    );
     const titleInput = findElement(
       container,
-      (element) => element.tagName === 'INPUT' && element.value === 'Published launch thread',
+      (element) => element.tagName === 'INPUT' && element.value === 'Published blog launch post',
     );
     const contentTextarea = findElement(
       container,
@@ -157,8 +161,148 @@ describe('Drafts publish actions', () => {
 
     expect(saveButton).toBeNull();
     expect(publishButton).toBeNull();
+    expect(manualHandoffButton).toBeNull();
     expect(titleInput).toBeNull();
     expect(contentTextarea).toBeNull();
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('shows browser handoff details when publish returns manual_required', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { DraftsPage } = await import('../../src/client/pages/Drafts');
+
+    const loadDraftsAction = vi.fn().mockResolvedValue({
+      drafts: [
+        {
+          id: 31,
+          platform: 'facebook-group',
+          title: 'Community handoff',
+          content: 'Draft body',
+          hashtags: ['#community'],
+          status: 'draft',
+          createdAt: '2026-04-19T00:00:00.000Z',
+          updatedAt: '2026-04-19T00:00:00.000Z',
+        },
+      ],
+    });
+    const publishDraftAction = vi.fn().mockResolvedValue({
+      success: false,
+      status: 'manual_required',
+      publishUrl: null,
+      message: 'facebookGroup draft 31 is ready for manual browser handoff with the saved session.',
+      details: {
+        browserHandoff: {
+          readiness: 'ready',
+          sessionAction: null,
+          artifactPath:
+            'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-31.json',
+        },
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(DraftsPage as never, {
+          loadDraftsAction,
+          publishDraftAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const publishButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('发起人工接管'),
+    );
+
+    expect(publishButton).not.toBeNull();
+
+    await act(async () => {
+      publishButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(publishDraftAction).toHaveBeenCalledWith(31);
+    expect(collectText(container)).toContain('已转入人工接管：Community handoff');
+    expect(collectText(container)).toContain(
+      'facebookGroup draft 31 is ready for manual browser handoff with the saved session.',
+    );
+    expect(collectText(container)).toContain('Handoff 状态：ready');
+    expect(collectText(container)).toContain(
+      'Handoff 路径：artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-31.json',
+    );
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('shows browser handoff session actions when manual_required still needs login work', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { DraftsPage } = await import('../../src/client/pages/Drafts');
+
+    const loadDraftsAction = vi.fn().mockResolvedValue({
+      drafts: [
+        {
+          id: 41,
+          platform: 'facebook-group',
+          title: 'Blocked handoff',
+          content: 'Draft body',
+          hashtags: ['#community'],
+          status: 'draft',
+          createdAt: '2026-04-19T00:00:00.000Z',
+          updatedAt: '2026-04-19T00:00:00.000Z',
+        },
+      ],
+    });
+    const publishDraftAction = vi.fn().mockResolvedValue({
+      success: false,
+      status: 'manual_required',
+      publishUrl: null,
+      message: 'facebookGroup draft 41 requires a saved browser session before manual handoff.',
+      details: {
+        browserHandoff: {
+          readiness: 'blocked',
+          sessionAction: 'request_session',
+        },
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(DraftsPage as never, {
+          loadDraftsAction,
+          publishDraftAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const publishButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('发起人工接管'),
+    );
+
+    await act(async () => {
+      publishButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('Handoff 状态：blocked');
+    expect(collectText(container)).toContain('Handoff 动作：request_session');
 
     await act(async () => {
       root.unmount();

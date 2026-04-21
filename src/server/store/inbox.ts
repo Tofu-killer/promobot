@@ -54,6 +54,11 @@ function insertInboxItem(
   database: DatabaseConnection,
   input: CreateInboxItemInput,
 ): InboxItemRecord {
+  const existingRow = findInboxItemByContent(database, input);
+  if (existingRow) {
+    return normalizeInboxItem(existingRow);
+  }
+
   const result = database
     .prepare(
       `
@@ -70,21 +75,44 @@ function insertInboxItem(
       excerpt: input.excerpt,
     });
 
-  const row = database
-    .prepare(
-      `
-        SELECT id, project_id AS projectId, source, status, author, title, excerpt, created_at AS createdAt
-        FROM inbox_items
-        WHERE id = ?
-      `,
-    )
-    .get([result.lastInsertRowid]);
+  const row = selectInboxItemById(database, result.lastInsertRowid);
 
   if (!row) {
     throw new Error('inbox item insert failed');
   }
 
   return normalizeInboxItem(row as Record<string, unknown>);
+}
+
+function findInboxItemByContent(
+  database: DatabaseConnection,
+  input: CreateInboxItemInput,
+): Record<string, unknown> | undefined {
+  const row = database
+    .prepare(
+      `
+        SELECT id, project_id AS projectId, source, status, author, title, excerpt, created_at AS createdAt
+        FROM inbox_items
+        WHERE ((project_id = @project_id) OR (project_id IS NULL AND @project_id IS NULL))
+          AND source = @source
+          AND status = @status
+          AND ((author = @author) OR (author IS NULL AND @author IS NULL))
+          AND title = @title
+          AND excerpt = @excerpt
+        ORDER BY id ASC
+        LIMIT 1
+      `,
+    )
+    .get({
+      project_id: input.projectId ?? null,
+      source: input.source,
+      status: input.status,
+      author: input.author ?? null,
+      title: input.title,
+      excerpt: input.excerpt,
+    });
+
+  return row as Record<string, unknown> | undefined;
 }
 
 function listInboxItems(database: DatabaseConnection, projectId?: number): InboxItemRecord[] {
@@ -132,6 +160,19 @@ function updateInboxItemStatus(
     return undefined;
   }
 
+  const row = selectInboxItemById(database, id);
+
+  if (!row) {
+    return undefined;
+  }
+
+  return normalizeInboxItem(row as Record<string, unknown>);
+}
+
+function selectInboxItemById(
+  database: DatabaseConnection,
+  id: number | bigint,
+): Record<string, unknown> | undefined {
   const row = database
     .prepare(
       `
@@ -142,11 +183,7 @@ function updateInboxItemStatus(
     )
     .get([id]);
 
-  if (!row) {
-    return undefined;
-  }
-
-  return normalizeInboxItem(row as Record<string, unknown>);
+  return row as Record<string, unknown> | undefined;
 }
 
 function normalizeInboxItem(row: Record<string, unknown>): InboxItemRecord {

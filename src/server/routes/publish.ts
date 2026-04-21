@@ -6,6 +6,7 @@ import type { PublishMode, PublishResult, PublishStatus, Publisher } from '../se
 import { publishToWeibo } from '../services/publishers/weibo.js';
 import { publishToX } from '../services/publishers/x.js';
 import { publishToXiaohongshu } from '../services/publishers/xiaohongshu.js';
+import { resolveBrowserHandoffArtifact } from '../services/publishers/browserHandoffArtifacts.js';
 import type { DraftStatus } from './drafts.js';
 import { createSQLiteDraftStore } from '../store/drafts.js';
 import { createJobQueueStore } from '../store/jobQueue.js';
@@ -138,6 +139,7 @@ function createPublishResultPersister() {
     });
 
     jobQueueStore.deletePendingPublishJobs(draftId);
+    maybeResolveBrowserHandoffArtifact(draftId, result, draft);
   };
 }
 
@@ -282,6 +284,81 @@ function getDraftStatusForPublishStatus(status: PublishStatus): DraftStatus {
     case 'failed':
       return 'failed';
   }
+}
+
+function maybeResolveBrowserHandoffArtifact(
+  draftId: number,
+  result: PublishContract,
+  draft?: PublishableDraft,
+) {
+  if (!draft || result.status === 'manual_required') {
+    return;
+  }
+
+  const platform = normalizePlatform(undefined, draft.platform);
+  if (platform !== 'facebookGroup' && platform !== 'xiaohongshu' && platform !== 'weibo') {
+    return;
+  }
+
+  const accountKey = resolveBrowserHandoffAccountKey(draft.metadata);
+  if (!accountKey) {
+    return;
+  }
+
+  resolveBrowserHandoffArtifact({
+    platform,
+    accountKey,
+    draftId: String(draftId),
+    publishStatus: result.status,
+    draftStatus: result.draftStatus,
+    publishUrl: result.publishUrl,
+    externalId: result.externalId,
+    message: result.message,
+    publishedAt: result.publishedAt,
+  });
+}
+
+function resolveBrowserHandoffAccountKey(metadata: PublishableDraft['metadata']) {
+  if (!isPlainObject(metadata)) {
+    return null;
+  }
+
+  const candidate =
+    readString(metadata.accountKey) ??
+    readNestedString(metadata, ['channelAccount', 'accountKey']) ??
+    readNestedString(metadata, ['browserSession', 'accountKey']);
+
+  if (!candidate) {
+    return null;
+  }
+
+  const normalized = candidate.trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function readNestedString(
+  value: Record<string, unknown>,
+  segments: string[],
+): string | null {
+  let current: unknown = value;
+
+  for (const segment of segments) {
+    if (!isPlainObject(current)) {
+      return null;
+    }
+
+    current = current[segment];
+  }
+
+  return readString(current);
+}
+
+function readString(value: unknown): string | null {
+  return typeof value === 'string' ? value : null;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 export function createPublishRouter(dependencies: PublishRouteDependencies) {

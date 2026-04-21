@@ -36,7 +36,7 @@ reputationRouter.get('/stats', (request, response) => {
   response.json(reputationStore.getStats(projectId));
 });
 
-reputationRouter.post('/fetch', (request, response) => {
+reputationRouter.post('/fetch', async (request, response, next) => {
   const projectId = parseOptionalProjectId(request.body?.projectId);
 
   if (request.body?.projectId !== undefined && projectId === undefined) {
@@ -44,14 +44,18 @@ reputationRouter.post('/fetch', (request, response) => {
     return;
   }
 
-  const result = reputationFetchService.fetchNow(projectId);
-  const stats = reputationStore.getStats(projectId);
+  try {
+    const result = await reputationFetchService.fetchNow(projectId);
+    const stats = reputationStore.getStats(projectId);
 
-  response.status(201).json({
-    items: result.items,
-    inserted: result.inserted,
-    total: stats.total,
-  });
+    response.status(201).json({
+      items: result.items,
+      inserted: result.inserted,
+      total: stats.total,
+    });
+  } catch (error) {
+    next(error);
+  }
 });
 
 reputationRouter.patch('/:id', (request, response) => {

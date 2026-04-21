@@ -596,6 +596,59 @@ describe('monitor api', () => {
     }
   });
 
+  it('dedupes monitor writes by project, source, title, and detail', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const monitorStore = createMonitorStore();
+      const legacyItem = monitorStore.create({
+        source: 'rss',
+        title: 'Latency signal',
+        detail: 'Repeated legacy scrape payload.',
+        status: 'new',
+      });
+      const duplicateLegacyItem = monitorStore.create({
+        source: 'rss',
+        title: 'Latency signal',
+        detail: 'Repeated legacy scrape payload.',
+        status: 'new',
+      });
+      const projectOneItem = monitorStore.create({
+        projectId: 1,
+        source: 'rss',
+        title: 'Latency signal',
+        detail: 'Repeated legacy scrape payload.',
+        status: 'new',
+      });
+      const duplicateProjectOneItem = monitorStore.create({
+        projectId: 1,
+        source: 'rss',
+        title: 'Latency signal',
+        detail: 'Repeated legacy scrape payload.',
+        status: 'new',
+      });
+
+      expect(duplicateLegacyItem.id).toBe(legacyItem.id);
+      expect(duplicateProjectOneItem.id).toBe(projectOneItem.id);
+      expect(projectOneItem.id).not.toBe(legacyItem.id);
+      expect(monitorStore.list()).toEqual([
+        expect.objectContaining({
+          id: legacyItem.id,
+          projectId: undefined,
+          source: 'rss',
+          title: 'Latency signal',
+        }),
+        expect.objectContaining({
+          id: projectOneItem.id,
+          projectId: 1,
+          source: 'rss',
+          title: 'Latency signal',
+        }),
+      ]);
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('filters the monitor feed by optional projectId query', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
@@ -887,6 +940,84 @@ describe('monitor api', () => {
         inserted: 1,
         total: 1,
       });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('does not insert duplicate monitor items when the same fetch result is collected twice', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      delete process.env.X_ACCESS_TOKEN;
+      delete process.env.X_BEARER_TOKEN;
+      process.env.MONITOR_X_SEARCH_SEEDS = JSON.stringify([
+        {
+          id: '1888888888888',
+          query: 'openrouter failover',
+          title: 'OpenRouter failover thread',
+          text: 'Operators comparing AU routing and warm failover.',
+          author: 'routingwatch',
+          url: 'https://x.com/routingwatch/status/1888888888888',
+        },
+      ]);
+
+      const settingsResponse = await requestApp('PATCH', '/api/settings', {
+        monitorXQueries: ['openrouter failover'],
+      });
+      expect(settingsResponse.status).toBe(200);
+
+      const firstResponse = await requestApp('POST', '/api/monitor/fetch');
+      const firstBody = JSON.parse(firstResponse.body) as {
+        items: Array<{ id: number; projectId?: number; source: string; title: string; detail: string }>;
+        inserted: number;
+        total: number;
+      };
+
+      expect(firstResponse.status).toBe(201);
+      expect(firstBody).toEqual({
+        items: [
+          expect.objectContaining({
+            id: 1,
+            source: 'x',
+            title: 'OpenRouter failover thread',
+            detail:
+              '@routingwatch · matched x search seed for openrouter failover\n\nhttps://x.com/routingwatch/status/1888888888888',
+            status: 'new',
+          }),
+        ],
+        inserted: 1,
+        total: 1,
+      });
+
+      const secondResponse = await requestApp('POST', '/api/monitor/fetch');
+      const secondBody = JSON.parse(secondResponse.body) as {
+        items: Array<{ id: number; source: string; title: string; detail: string }>;
+        inserted: number;
+        total: number;
+      };
+
+      expect(secondResponse.status).toBe(201);
+      expect(secondBody).toEqual({
+        items: [
+          expect.objectContaining({
+            id: firstBody.items[0]?.id,
+            source: 'x',
+            title: 'OpenRouter failover thread',
+            detail:
+              '@routingwatch · matched x search seed for openrouter failover\n\nhttps://x.com/routingwatch/status/1888888888888',
+            status: 'new',
+          }),
+        ],
+        inserted: 0,
+        total: 1,
+      });
+      expect(createMonitorStore().list()).toEqual([
+        expect.objectContaining({
+          id: firstBody.items[0]?.id,
+          source: 'x',
+          title: 'OpenRouter failover thread',
+        }),
+      ]);
     } finally {
       cleanupTestDatabasePath(rootDir);
     }

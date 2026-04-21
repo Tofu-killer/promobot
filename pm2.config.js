@@ -27,7 +27,7 @@ export default {
       out_file: path.join(logDir, 'promobot-out.log'),
       error_file: path.join(logDir, 'promobot-error.log'),
       env: {
-        // The app inherits the current shell env. It does not parse .env files by itself.
+        // The app inherits the current shell env, and the server bootstrap also auto-loads repo-root .env when present.
         ...process.env,
         NODE_ENV: process.env.NODE_ENV ?? 'production',
         PORT: process.env.PORT ?? '3001',

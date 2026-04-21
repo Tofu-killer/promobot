@@ -1,8 +1,12 @@
+import { mkdirSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createApp } from '../../src/server/app';
 import { createChannelAccountStore } from '../../src/server/store/channelAccounts';
 import { createInboxStore } from '../../src/server/store/inbox';
 import { createJobQueueStore } from '../../src/server/store/jobQueue';
+import { createSourceConfigStore } from '../../src/server/store/sourceConfigs';
+import { createSettingsStore } from '../../src/server/store/settings';
 import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
 
 async function requestApp(method: string, url: string) {
@@ -97,6 +101,102 @@ describe('dashboard metrics api', () => {
       const inboxStore = createInboxStore();
       const channelAccountStore = createChannelAccountStore();
       const jobQueueStore = createJobQueueStore();
+      const settingsStore = createSettingsStore();
+      const sourceConfigStore = createSourceConfigStore();
+      const artifactDir = path.join(rootDir, 'artifacts', 'browser-lane-requests', 'x', '-promobot');
+      mkdirSync(artifactDir, { recursive: true });
+      writeFileSync(
+        path.join(artifactDir, 'request-session-job-17.json'),
+        JSON.stringify({
+          type: 'browser_lane_request',
+          channelAccountId: 1,
+          platform: 'x',
+          accountKey: '@promobot',
+          action: 'request_session',
+          requestedAt: '2026-04-21T09:00:00.000Z',
+          jobId: 17,
+          jobStatus: 'pending',
+          nextStep: '/api/channel-accounts/1/session',
+        }),
+      );
+      writeFileSync(
+        path.join(artifactDir, 'relogin-job-18.json'),
+        JSON.stringify({
+          type: 'browser_lane_request',
+          channelAccountId: 1,
+          platform: 'x',
+          accountKey: '@promobot',
+          action: 'relogin',
+          requestedAt: '2026-04-21T09:10:00.000Z',
+          jobId: 18,
+          jobStatus: 'resolved',
+          nextStep: '/api/channel-accounts/1/session',
+          resolvedAt: '2026-04-21T09:12:00.000Z',
+          resolution: {
+            status: 'resolved',
+          },
+          savedStorageStatePath: 'artifacts/browser-sessions/x-promobot.json',
+        }),
+      );
+      const handoffDir = path.join(
+        rootDir,
+        'artifacts',
+        'browser-handoffs',
+        'facebookGroup',
+        'launch-campaign',
+      );
+      mkdirSync(handoffDir, { recursive: true });
+      writeFileSync(
+        path.join(handoffDir, 'facebookGroup-draft-17.json'),
+        JSON.stringify({
+          type: 'browser_manual_handoff',
+          status: 'pending',
+          platform: 'facebookGroup',
+          draftId: '17',
+          title: 'Community update',
+          content: 'Need handoff',
+          target: 'group-123',
+          accountKey: 'launch-campaign',
+          session: {
+            hasSession: true,
+            id: 'facebookGroup:launch-campaign',
+            status: 'active',
+            validatedAt: '2026-04-21T08:55:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
+          },
+          createdAt: '2026-04-21T09:00:00.000Z',
+          updatedAt: '2026-04-21T09:00:00.000Z',
+          resolvedAt: null,
+          resolution: null,
+        }),
+      );
+      writeFileSync(
+        path.join(handoffDir, 'facebookGroup-draft-18.json'),
+        JSON.stringify({
+          type: 'browser_manual_handoff',
+          status: 'obsolete',
+          platform: 'facebookGroup',
+          draftId: '18',
+          title: 'Stale handoff',
+          content: 'Need relogin',
+          target: 'group-123',
+          accountKey: 'launch-campaign',
+          session: {
+            hasSession: true,
+            id: 'facebookGroup:launch-campaign',
+            status: 'expired',
+            validatedAt: '2026-04-21T09:05:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
+          },
+          createdAt: '2026-04-21T09:10:00.000Z',
+          updatedAt: '2026-04-21T09:20:00.000Z',
+          resolvedAt: '2026-04-21T09:20:00.000Z',
+          resolution: {
+            status: 'obsolete',
+            reason: 'relogin',
+          },
+        }),
+      );
 
       inboxStore.create({
         source: 'x',
@@ -133,6 +233,23 @@ describe('dashboard metrics api', () => {
         payload: { source: 'rss' },
         runAt: '2026-04-19T09:00:00.000Z',
       });
+      settingsStore.update({
+        monitorRssFeeds: ['https://openai.com/blog/rss.xml'],
+        monitorXQueries: ['openrouter failover'],
+        monitorRedditQueries: ['claude latency'],
+        monitorV2exQueries: ['llm router'],
+      });
+      sourceConfigStore.create({
+        projectId: 1,
+        sourceType: 'keyword+reddit',
+        platform: 'reddit',
+        label: 'Reddit mentions',
+        configJson: {
+          keywords: ['brand latency'],
+        },
+        enabled: true,
+        pollIntervalMinutes: 30,
+      });
 
       const response = await requestApp('GET', '/api/monitor/dashboard');
 
@@ -141,6 +258,23 @@ describe('dashboard metrics api', () => {
         inbox: {
           total: 2,
           unread: 1,
+        },
+        browserLaneRequests: {
+          total: 2,
+          pending: 1,
+          resolved: 1,
+        },
+        browserHandoffs: {
+          total: 2,
+          pending: 1,
+          resolved: 0,
+          obsolete: 1,
+        },
+        monitorConfig: {
+          directFeeds: 1,
+          directQueries: 3,
+          enabledSourceConfigs: 1,
+          totalInputs: 5,
         },
         channelAccounts: {
           total: 2,
@@ -162,6 +296,39 @@ describe('dashboard metrics api', () => {
       const inboxStore = createInboxStore();
       const channelAccountStore = createChannelAccountStore();
       const jobQueueStore = createJobQueueStore();
+      const sourceConfigStore = createSourceConfigStore();
+      const projectOneArtifactDir = path.join(rootDir, 'artifacts', 'browser-lane-requests', 'x', '-promobot-project-11');
+      const projectTwoArtifactDir = path.join(rootDir, 'artifacts', 'browser-lane-requests', 'facebook', 'page-22');
+      mkdirSync(projectOneArtifactDir, { recursive: true });
+      mkdirSync(projectTwoArtifactDir, { recursive: true });
+      writeFileSync(
+        path.join(projectOneArtifactDir, 'request-session-job-31.json'),
+        JSON.stringify({
+          type: 'browser_lane_request',
+          channelAccountId: 1,
+          platform: 'x',
+          accountKey: '@promobot-project-11',
+          action: 'request_session',
+          requestedAt: '2026-04-21T10:00:00.000Z',
+          jobId: 31,
+          jobStatus: 'pending',
+          nextStep: '/api/channel-accounts/1/session',
+        }),
+      );
+      writeFileSync(
+        path.join(projectTwoArtifactDir, 'request-session-job-32.json'),
+        JSON.stringify({
+          type: 'browser_lane_request',
+          channelAccountId: 2,
+          platform: 'facebook',
+          accountKey: 'page-22',
+          action: 'request_session',
+          requestedAt: '2026-04-21T10:01:00.000Z',
+          jobId: 32,
+          jobStatus: 'pending',
+          nextStep: '/api/channel-accounts/2/session',
+        }),
+      );
 
       inboxStore.create({
         source: 'x',
@@ -200,11 +367,44 @@ describe('dashboard metrics api', () => {
         payload: { source: 'rss' },
         runAt: '2026-04-19T09:00:00.000Z',
       });
+      sourceConfigStore.create({
+        projectId: 11,
+        sourceType: 'keyword+x',
+        platform: 'x',
+        label: 'Project 11 X',
+        configJson: {
+          keywords: ['project 11 keyword'],
+        },
+        enabled: true,
+        pollIntervalMinutes: 30,
+      });
+      sourceConfigStore.create({
+        projectId: 22,
+        sourceType: 'keyword+reddit',
+        platform: 'reddit',
+        label: 'Project 22 Reddit',
+        configJson: {
+          keywords: ['project 22 keyword'],
+        },
+        enabled: true,
+        pollIntervalMinutes: 30,
+      });
 
       const response = await requestApp('GET', '/api/monitor/dashboard?projectId=11');
 
       expect(response.status).toBe(200);
       expect(JSON.parse(response.body)).toMatchObject({
+        monitorConfig: {
+          directFeeds: 0,
+          directQueries: 0,
+          enabledSourceConfigs: 1,
+          totalInputs: 1,
+        },
+        browserLaneRequests: {
+          total: 1,
+          pending: 1,
+          resolved: 0,
+        },
         channelAccounts: {
           total: 1,
           connected: 1,
@@ -260,6 +460,23 @@ describe('dashboard metrics api', () => {
           items: 0,
           followUps: 0,
         },
+        monitorConfig: {
+          directFeeds: 0,
+          directQueries: 0,
+          enabledSourceConfigs: 0,
+          totalInputs: 0,
+        },
+        browserLaneRequests: {
+          total: 0,
+          pending: 0,
+          resolved: 0,
+        },
+        browserHandoffs: {
+          total: 0,
+          pending: 0,
+          resolved: 0,
+          obsolete: 0,
+        },
         jobQueue: {
           pending: 1,
           running: 1,
@@ -267,6 +484,209 @@ describe('dashboard metrics api', () => {
           failed: 0,
           canceled: 0,
           duePending: 1,
+        },
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('counts parsed source-config queries in totalInputs instead of raw enabled config rows', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const sourceConfigStore = createSourceConfigStore();
+
+      sourceConfigStore.create({
+        projectId: 11,
+        sourceType: 'keyword+x',
+        platform: 'x',
+        label: 'Project 11 X',
+        configJson: {
+          query: 'primary keyword',
+          keywords: ['secondary keyword', 'tertiary keyword'],
+        },
+        enabled: true,
+        pollIntervalMinutes: 30,
+      });
+
+      const response = await requestApp('GET', '/api/monitor/dashboard?projectId=11');
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toMatchObject({
+        monitorConfig: {
+          directFeeds: 0,
+          directQueries: 0,
+          enabledSourceConfigs: 1,
+          totalInputs: 3,
+        },
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('excludes invalid enabled source configs from totalInputs while preserving enabledSourceConfigs count', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const sourceConfigStore = createSourceConfigStore();
+
+      sourceConfigStore.create({
+        projectId: 11,
+        sourceType: 'keyword+x',
+        platform: 'x',
+        label: 'Invalid Project 11 X',
+        configJson: {
+          query: '   ',
+          keywords: [],
+        },
+        enabled: true,
+        pollIntervalMinutes: 30,
+      });
+
+      const response = await requestApp('GET', '/api/monitor/dashboard?projectId=11');
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toMatchObject({
+        monitorConfig: {
+          directFeeds: 0,
+          directQueries: 0,
+          enabledSourceConfigs: 1,
+          totalInputs: 0,
+        },
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('normalizes facebook-group channel accounts when scoping browser handoff metrics by projectId', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const channelAccountStore = createChannelAccountStore();
+
+      channelAccountStore.create({
+        projectId: 11,
+        platform: 'facebook-group',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB 11',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      const handoffDir = path.join(
+        rootDir,
+        'artifacts',
+        'browser-handoffs',
+        'facebookGroup',
+        'launch-campaign',
+      );
+      mkdirSync(handoffDir, { recursive: true });
+      writeFileSync(
+        path.join(handoffDir, 'facebookGroup-draft-41.json'),
+        JSON.stringify({
+          type: 'browser_manual_handoff',
+          status: 'pending',
+          platform: 'facebookGroup',
+          draftId: '41',
+          title: 'Community update',
+          content: 'Need handoff',
+          target: 'group-123',
+          accountKey: 'launch-campaign',
+          session: {
+            hasSession: true,
+            id: 'facebookGroup:launch-campaign',
+            status: 'active',
+            validatedAt: '2026-04-21T08:55:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
+          },
+          createdAt: '2026-04-21T09:00:00.000Z',
+          updatedAt: '2026-04-21T09:00:00.000Z',
+          resolvedAt: null,
+          resolution: null,
+        }),
+      );
+
+      const response = await requestApp('GET', '/api/monitor/dashboard?projectId=11');
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toMatchObject({
+        browserHandoffs: {
+          total: 1,
+          pending: 1,
+          resolved: 0,
+          obsolete: 0,
+        },
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('prefers channelAccountId when project-scoping browser handoff metrics for shared account keys', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const channelAccountStore = createChannelAccountStore();
+
+      channelAccountStore.create({
+        projectId: 11,
+        platform: 'facebookGroup',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB 11',
+        authType: 'browser',
+        status: 'healthy',
+      });
+      channelAccountStore.create({
+        projectId: 22,
+        platform: 'facebookGroup',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB 22',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      const handoffDir = path.join(
+        rootDir,
+        'artifacts',
+        'browser-handoffs',
+        'facebookGroup',
+        'launch-campaign',
+      );
+      mkdirSync(handoffDir, { recursive: true });
+      writeFileSync(
+        path.join(handoffDir, 'facebookGroup-draft-42.json'),
+        JSON.stringify({
+          type: 'browser_manual_handoff',
+          channelAccountId: 2,
+          status: 'pending',
+          platform: 'facebookGroup',
+          draftId: '42',
+          title: 'Scoped handoff',
+          content: 'Need handoff',
+          target: 'group-123',
+          accountKey: 'launch-campaign',
+          session: {
+            hasSession: true,
+            id: 'facebookGroup:launch-campaign',
+            status: 'active',
+            validatedAt: '2026-04-21T11:00:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
+          },
+          createdAt: '2026-04-21T11:00:00.000Z',
+          updatedAt: '2026-04-21T11:00:00.000Z',
+          resolvedAt: null,
+          resolution: null,
+        }),
+      );
+
+      const response = await requestApp('GET', '/api/monitor/dashboard?projectId=11');
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toMatchObject({
+        browserHandoffs: {
+          total: 0,
+          pending: 0,
+          resolved: 0,
+          obsolete: 0,
         },
       });
     } finally {

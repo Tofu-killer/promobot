@@ -1,4 +1,4 @@
-import type { MonitorItemRecord } from '../store/monitor.js';
+import type { CreateMonitorItemInput, MonitorItemRecord, MonitorStore } from '../store/monitor.js';
 import { createMonitorRssService } from './monitor/rss.js';
 import { searchReddit } from './monitor/redditSearch.js';
 import { searchX } from './monitor/xSearch.js';
@@ -28,20 +28,17 @@ export function createMonitorFetchService() {
         sourceConfigs,
       );
       if (collected.length > 0) {
-        const items = collected.map((item) =>
-          monitorStore.create({
+        return persistMonitorItems(
+          monitorStore,
+          projectId,
+          collected.map((item) => ({
             ...(item.projectId !== undefined ? { projectId: item.projectId } : {}),
             source: item.source,
             title: item.title,
             detail: item.detail,
             status: 'new',
-          }),
+          })),
         );
-
-        return {
-          items,
-          inserted: items.length,
-        };
       }
 
       if (projectId !== undefined) {
@@ -77,18 +74,30 @@ export function createMonitorFetchService() {
         },
       ];
 
-      const items = seeds.map((seed) =>
-        monitorStore.create({
+      return persistMonitorItems(
+        monitorStore,
+        projectId,
+        seeds.map((seed) => ({
           ...seed,
           status: 'new',
-        }),
+        })),
       );
-
-      return {
-        items,
-        inserted: items.length,
-      };
     },
+  };
+}
+
+function persistMonitorItems(
+  monitorStore: MonitorStore,
+  projectId: number | undefined,
+  itemsToCreate: CreateMonitorItemInput[],
+): MonitorFetchResult {
+  const totalBefore = monitorStore.list(projectId).length;
+  const items = itemsToCreate.map((item) => monitorStore.create(item));
+  const totalAfter = monitorStore.list(projectId).length;
+
+  return {
+    items,
+    inserted: totalAfter - totalBefore,
   };
 }
 
@@ -256,7 +265,7 @@ function parseList(value: string | undefined) {
     .filter((entry) => entry.length > 0);
 }
 
-function resolveSourceConfigInputs(sourceConfigs: SourceConfigRecord[]) {
+export function resolveSourceConfigInputs(sourceConfigs: SourceConfigRecord[]) {
   const rssFeeds: ScopedStringValue[] = [];
   const redditQueries: ScopedStringValue[] = [];
   const xQueries: ScopedStringValue[] = [];

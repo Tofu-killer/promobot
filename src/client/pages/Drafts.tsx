@@ -87,6 +87,9 @@ function createIdleMutationState(): DraftMutationState {
     message: null,
     error: null,
     publishUrl: null,
+    contractMessage: null,
+    contractStatus: null,
+    contractDetails: null,
   };
 }
 
@@ -183,12 +186,15 @@ export function DraftsPage({
 
     setSaveStateById((currentState) => ({
       ...currentState,
-      [draftId]: {
-        status: 'loading',
-        message: null,
-        error: null,
-        publishUrl: null,
-      },
+        [draftId]: {
+          status: 'loading',
+          message: null,
+          error: null,
+          publishUrl: null,
+          contractMessage: null,
+          contractStatus: null,
+          contractDetails: null,
+        },
     }));
 
     try {
@@ -207,6 +213,9 @@ export function DraftsPage({
           message: '草稿已保存',
           error: null,
           publishUrl: null,
+          contractMessage: null,
+          contractStatus: null,
+          contractDetails: null,
         },
       }));
     } catch (error) {
@@ -217,6 +226,9 @@ export function DraftsPage({
           message: null,
           error: getErrorMessage(error),
           publishUrl: null,
+          contractMessage: null,
+          contractStatus: null,
+          contractDetails: null,
         },
       }));
     }
@@ -225,12 +237,15 @@ export function DraftsPage({
   async function handlePublishDraft(draftId: number) {
     setPublishStateById((currentState) => ({
       ...currentState,
-      [draftId]: {
-        status: 'loading',
-        message: null,
-        error: null,
-        publishUrl: null,
-      },
+        [draftId]: {
+          status: 'loading',
+          message: null,
+          error: null,
+          publishUrl: null,
+          contractMessage: null,
+          contractStatus: null,
+          contractDetails: null,
+        },
     }));
 
     try {
@@ -269,6 +284,12 @@ export function DraftsPage({
               ? null
               : result.message,
           publishUrl: result.publishUrl,
+          contractMessage: result.message,
+          contractStatus: result.status ?? null,
+          contractDetails:
+            typeof result.details === 'object' && result.details !== null && !Array.isArray(result.details)
+              ? (result.details as Record<string, unknown>)
+              : null,
         },
       }));
     } catch (error) {
@@ -279,6 +300,9 @@ export function DraftsPage({
           message: null,
           error: getErrorMessage(error),
           publishUrl: null,
+          contractMessage: getErrorMessage(error),
+          contractStatus: 'failed',
+          contractDetails: null,
         },
       }));
     }
