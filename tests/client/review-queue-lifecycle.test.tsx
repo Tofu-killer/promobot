@@ -683,7 +683,7 @@ describe('Review Queue lifecycle actions', () => {
     expect(result.draft.scheduledAt).toBe('2026-04-20T09:30');
   });
 
-  it('shows publish now and schedule success feedback', async () => {
+  it('shows publish success feedback and removes the draft from the review queue', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
     const { ReviewQueuePage } = await import('../../src/client/pages/ReviewQueue');
@@ -737,18 +737,8 @@ describe('Review Queue lifecycle actions', () => {
       container,
       (element) => element.tagName === 'BUTTON' && element.getAttribute('data-review-publish-id') === '11',
     );
-    const scheduleField = findElement(
-      container,
-      (element) => element.getAttribute('data-review-scheduled-at-id') === '11',
-    );
-    const scheduleButton = findElement(
-      container,
-      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-review-schedule-id') === '11',
-    );
 
     expect(publishButton).not.toBeNull();
-    expect(scheduleField).not.toBeNull();
-    expect(scheduleButton).not.toBeNull();
 
     await act(async () => {
       publishButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
@@ -759,6 +749,74 @@ describe('Review Queue lifecycle actions', () => {
     expect(collectText(container)).toContain('已发布：Launch thread');
     expect(collectText(container)).toContain('发布链接：https://x.com/promobot/status/11');
     expect(collectText(container)).toContain('回执消息：published immediately');
+    expect(
+      Boolean(
+        findElement(container, (element) => element.tagName === 'BUTTON' && element.getAttribute('data-review-publish-id') === '11'),
+      ),
+    ).toBe(false);
+    expect(collectText(container)).toContain('暂无待审核草稿');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('shows schedule success feedback and removes the draft from the review queue', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ReviewQueuePage } = await import('../../src/client/pages/ReviewQueue');
+
+    const loadReviewQueueAction = vi.fn().mockResolvedValue({
+      drafts: [
+        {
+          id: 12,
+          platform: 'x',
+          title: 'Scheduled launch thread',
+          content: 'Draft body',
+          hashtags: ['#launch'],
+          status: 'review',
+          createdAt: '2026-04-19T00:00:00.000Z',
+          updatedAt: '2026-04-19T00:00:00.000Z',
+        },
+      ],
+    });
+    const scheduleReviewDraftAction = vi.fn().mockResolvedValue({
+      draft: {
+        id: 12,
+        platform: 'x',
+        title: 'Scheduled launch thread',
+        content: 'Draft body',
+        hashtags: ['#launch'],
+        status: 'scheduled',
+        scheduledAt: '2026-04-20T09:30',
+        createdAt: '2026-04-19T00:00:00.000Z',
+        updatedAt: '2026-04-19T01:20:00.000Z',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ReviewQueuePage as never, {
+          loadReviewQueueAction,
+          scheduleReviewDraftAction,
+        }),
+      );
+      await flush();
+    });
+
+    const scheduleField = findElement(
+      container,
+      (element) => element.getAttribute('data-review-scheduled-at-id') === '12',
+    );
+    const scheduleButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-review-schedule-id') === '12',
+    );
+
+    expect(scheduleField).not.toBeNull();
+    expect(scheduleButton).not.toBeNull();
 
     await act(async () => {
       updateFieldValue(scheduleField, '2026-04-20T09:30', window);
@@ -770,20 +828,18 @@ describe('Review Queue lifecycle actions', () => {
       await flush();
     });
 
-    expect(scheduleReviewDraftAction).toHaveBeenCalledWith(11, {
+    expect(scheduleReviewDraftAction).toHaveBeenCalledWith(12, {
       scheduledAt: '2026-04-20T09:30',
       status: 'scheduled',
     });
-    expect(collectText(container)).toContain('已排程：Launch thread');
+    expect(collectText(container)).toContain('已排程：Scheduled launch thread');
     expect(collectText(container)).toContain('排程时间：2026-04-20T09:30');
-    expect(collectText(container)).toContain('当前去向：已推入 Publish Calendar，等待发布窗口。');
-    expect(collectText(container)).toContain('计划推送时间：2026-04-20T09:30');
-
-    const updatedScheduleField = findElement(
-      container,
-      (element) => element.getAttribute('data-review-scheduled-at-id') === '11',
-    );
-    expect(updatedScheduleField?.value).toBe('2026-04-20T09:30');
+    expect(
+      Boolean(
+        findElement(container, (element) => element.tagName === 'BUTTON' && element.getAttribute('data-review-schedule-id') === '12'),
+      ),
+    ).toBe(false);
+    expect(collectText(container)).toContain('暂无待审核草稿');
 
     await act(async () => {
       root.unmount();
@@ -946,7 +1002,12 @@ describe('Review Queue lifecycle actions', () => {
       status: 'scheduled',
     });
     expect(collectText(container)).toContain('已标记待补排程：Launch thread');
-    expect(collectText(container)).toContain('当前去向：待补排程，尚未进入 Publish Calendar。');
+    expect(
+      Boolean(
+        findElement(container, (element) => element.tagName === 'BUTTON' && element.getAttribute('data-review-schedule-id') === '41'),
+      ),
+    ).toBe(false);
+    expect(collectText(container)).toContain('暂无待审核草稿');
 
     await act(async () => {
       root.unmount();
@@ -1008,6 +1069,12 @@ describe('Review Queue lifecycle actions', () => {
     expect(collectText(container)).toContain('已转入人工接管：Community handoff');
     expect(collectText(container)).toContain('回执状态：人工接管');
     expect(collectText(container)).toContain('回执消息：facebookGroup draft 31 is ready for manual browser handoff with the saved session.');
+    expect(
+      Boolean(
+        findElement(container, (element) => element.tagName === 'BUTTON' && element.getAttribute('data-review-publish-id') === '31'),
+      ),
+    ).toBe(false);
+    expect(collectText(container)).toContain('暂无待审核草稿');
 
     await act(async () => {
       root.unmount();
@@ -1068,6 +1135,12 @@ describe('Review Queue lifecycle actions', () => {
     expect(collectText(container)).toContain('已入队等待发布：Queued launch thread');
     expect(collectText(container)).toContain('回执状态：已入队');
     expect(collectText(container)).toContain('回执消息：queued for downstream publisher');
+    expect(
+      Boolean(
+        findElement(container, (element) => element.tagName === 'BUTTON' && element.getAttribute('data-review-publish-id') === '51'),
+      ),
+    ).toBe(false);
+    expect(collectText(container)).toContain('暂无待审核草稿');
 
     await act(async () => {
       root.unmount();

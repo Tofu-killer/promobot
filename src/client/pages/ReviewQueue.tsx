@@ -183,6 +183,18 @@ function getReviewDraftBadgeStyle(status: DraftRecord['status']) {
   };
 }
 
+function filterReviewQueueDrafts(drafts: DraftRecord[]) {
+  return drafts.filter((draft) => draft.status === 'review');
+}
+
+function upsertReviewQueueDraft(drafts: DraftRecord[], updatedDraft: DraftRecord) {
+  return filterReviewQueueDrafts(upsertDraftRecord(drafts, updatedDraft));
+}
+
+function removeReviewQueueDraft(drafts: DraftRecord[], draftId: number) {
+  return drafts.filter((draft) => draft.id !== draftId);
+}
+
 function formatReviewDraftDestination(draft: DraftRecord, scheduledAtValue: string) {
   switch (draft.status) {
     case 'scheduled':
@@ -228,6 +240,18 @@ function formatPublishContractStatus(draft: DraftRecord, actionState: ReviewActi
   return '待触发';
 }
 
+function formatPublishActionSummaryStatus(actionState: ReviewActionState) {
+  if (actionState.contractStatus === 'queued') {
+    return '已入队';
+  }
+
+  if (actionState.contractStatus === 'manual_required') {
+    return '人工接管';
+  }
+
+  return '已确认';
+}
+
 function getReviewDraftPublishContract(draft: DraftRecord, actionState: ReviewActionState) {
   const draftRecord = asRecord(draft);
 
@@ -265,28 +289,25 @@ export function ReviewQueuePage({
     () => (projectId === undefined ? loadReviewQueueAction() : loadReviewQueueAction(projectId)),
     [loadReviewQueueAction, projectId],
   );
-  const [localDrafts, setLocalDrafts] = useState<DraftRecord[]>([]);
+  const [localDrafts, setLocalDrafts] = useState<DraftRecord[] | null>(null);
   const [scheduledAtById, setScheduledAtById] = useState<Record<number, string>>({});
   const [actionStateById, setActionStateById] = useState<Record<number, ReviewActionState>>({});
   const displayState = stateOverride ?? state;
+  const loadedReviewDrafts =
+    displayState.status === 'success' && displayState.data ? filterReviewQueueDrafts(displayState.data.drafts) : [];
 
-  const visibleDrafts =
-    displayState.status === 'success' && displayState.data
-      ? localDrafts.length > 0
-        ? localDrafts
-        : displayState.data.drafts
-      : [];
+  const visibleDrafts = displayState.status === 'success' ? (localDrafts ?? loadedReviewDrafts) : [];
 
   useEffect(() => {
     if (displayState.status !== 'success' || !displayState.data) {
       return;
     }
 
-    setLocalDrafts(displayState.data.drafts);
+    setLocalDrafts(filterReviewQueueDrafts(displayState.data.drafts));
     setScheduledAtById((currentScheduleById) => {
       const nextScheduleById = { ...currentScheduleById };
 
-      for (const draft of displayState.data.drafts) {
+      for (const draft of filterReviewQueueDrafts(displayState.data.drafts)) {
         if (!(draft.id in nextScheduleById)) {
           nextScheduleById[draft.id] = draft.scheduledAt ?? '';
         }
@@ -320,7 +341,7 @@ export function ReviewQueuePage({
     try {
       const result = await updateReviewDraftAction(draftId, { status: nextStatus });
       setLocalDrafts((currentDrafts) =>
-        upsertDraftRecord(currentDrafts.length > 0 ? currentDrafts : visibleDrafts, result.draft),
+        upsertReviewQueueDraft(currentDrafts ?? visibleDrafts, result.draft),
       );
       setActionStateById((currentState) => ({
         ...currentState,
@@ -331,6 +352,7 @@ export function ReviewQueuePage({
           action: 'review',
           publishUrl: null,
           contractMessage: null,
+          contractStatus: null,
         },
       }));
     } catch (error) {
@@ -343,6 +365,7 @@ export function ReviewQueuePage({
           action: 'review',
           publishUrl: null,
           contractMessage: null,
+          contractStatus: null,
         },
       }));
     }
@@ -365,18 +388,20 @@ export function ReviewQueuePage({
         action: 'publish',
         publishUrl: null,
         contractMessage: null,
+        contractStatus: null,
       },
     }));
 
     try {
       const result = await publishReviewDraftAction(draftId);
+      const publishSucceeded = result.success || result.status === 'manual_required' || result.status === 'queued';
+      if (publishSucceeded) {
+        setLocalDrafts((currentDrafts) => removeReviewQueueDraft(currentDrafts ?? visibleDrafts, draftId));
+      }
       setActionStateById((currentState) => ({
         ...currentState,
         [draftId]: {
-          status:
-            result.success || result.status === 'manual_required' || result.status === 'queued'
-              ? 'success'
-              : 'error',
+          status: publishSucceeded ? 'success' : 'error',
           message:
             result.success
               ? `已发布：${sourceDraft.title ?? sourceDraft.platform}`
@@ -440,7 +465,7 @@ export function ReviewQueuePage({
         status: 'scheduled',
       });
       setLocalDrafts((currentDrafts) =>
-        upsertDraftRecord(currentDrafts.length > 0 ? currentDrafts : visibleDrafts, result.draft),
+        upsertReviewQueueDraft(currentDrafts ?? visibleDrafts, result.draft),
       );
       setScheduledAtById((currentScheduleById) => ({
         ...currentScheduleById,
@@ -504,7 +529,7 @@ export function ReviewQueuePage({
 
         {displayState.status === 'success' && displayState.data ? (
           <div style={{ display: 'grid', gap: '16px' }}>
-            <div style={{ fontWeight: 700 }}>已加载 {displayState.data.drafts.length} 条待审核草稿</div>
+            <div style={{ fontWeight: 700 }}>已加载 {visibleDrafts.length} 条待审核草稿</div>
 
             {visibleDrafts.length === 0 ? (
               <p style={{ margin: 0, color: '#475569' }}>暂无待审核草稿</p>
@@ -704,7 +729,26 @@ export function ReviewQueuePage({
                 {Object.values(actionStateById)
                   .filter((state): state is ReviewActionState & { message: string } => state.status === 'success' && Boolean(state.message))
                   .map((state, index) => (
-                    <div key={`${index}-${state.message}`}>{state.message}</div>
+                    <div
+                      key={`${index}-${state.message}`}
+                      style={{
+                        borderRadius: '14px',
+                        border: '1px solid #bbf7d0',
+                        background: '#f0fdf4',
+                        padding: '12px 14px',
+                        display: 'grid',
+                        gap: '6px',
+                      }}
+                    >
+                      <div>{state.message}</div>
+                      {state.action === 'publish' ? (
+                        <>
+                          <div>回执状态：{formatPublishActionSummaryStatus(state)}</div>
+                          <div>发布链接：{state.publishUrl ?? '未返回'}</div>
+                          <div>回执消息：{state.contractMessage ?? '待触发发布'}</div>
+                        </>
+                      ) : null}
+                    </div>
                   ))}
               </div>
             ) : null}

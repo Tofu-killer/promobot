@@ -744,6 +744,11 @@ describe('review queue wiring', () => {
 
     expect(updateReviewDraftAction).toHaveBeenCalledWith(11, { status: 'approved' });
     expect(collectText(container)).toContain('已通过：Launch thread');
+    expect(
+      Boolean(
+        findElement(container, (element) => element.tagName === 'BUTTON' && element.getAttribute('data-review-approve-id') === '11'),
+      ),
+    ).toBe(false);
 
     await act(async () => {
       rejectButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
@@ -752,6 +757,12 @@ describe('review queue wiring', () => {
 
     expect(updateReviewDraftAction).toHaveBeenCalledWith(12, { status: 'draft' });
     expect(collectText(container)).toContain('已退回：Launch post');
+    expect(
+      Boolean(
+        findElement(container, (element) => element.tagName === 'BUTTON' && element.getAttribute('data-review-reject-id') === '12'),
+      ),
+    ).toBe(false);
+    expect(collectText(container)).toContain('暂无待审核草稿');
 
     await act(async () => {
       root.unmount();
