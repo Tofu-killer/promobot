@@ -992,6 +992,47 @@ describe('client API page wiring', () => {
     expect(html).toContain('已入队等待发布：Queued launch thread');
   });
 
+  it('renders queued drafts as read-only state summaries instead of editable controls', async () => {
+    const { DraftsPage } = await import('../../src/client/pages/Drafts');
+
+    const html = renderPage(DraftsPage, {
+      stateOverride: {
+        status: 'success',
+        data: {
+          drafts: [
+            {
+              id: 9,
+              platform: 'x',
+              title: 'Queued launch thread',
+              content: 'Draft body',
+              hashtags: ['#launch'],
+              status: 'queued',
+              createdAt: '2026-04-19T00:00:00.000Z',
+              updatedAt: '2026-04-19T00:05:00.000Z',
+            },
+          ],
+        },
+      },
+      draftInteractionStateOverride: {
+        publishStateById: {
+          9: {
+            status: 'success',
+            message: '已入队等待发布：Queued launch thread',
+          },
+        },
+      },
+    });
+
+    expect(html).toContain('queued');
+    expect(html).toContain('当前状态已脱离 Draft 编辑流转，Drafts 页面仅展示服务器返回结果。');
+    expect(html).toContain('已入队等待发布：Queued launch thread');
+    expect(html).toContain('最新内容</span><p');
+    expect(html).not.toContain('保存修改');
+    expect(html).not.toContain('触发发布');
+    expect(html).not.toContain('<textarea');
+    expect(html).not.toContain('<select');
+  });
+
   it('loads channel accounts through the shared API helper', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({
