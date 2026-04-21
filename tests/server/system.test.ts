@@ -949,6 +949,15 @@ describe('system runtime api', () => {
           },
         }),
       );
+      fs.writeFileSync(
+        path.join(artifactDir, 'garbage.json'),
+        JSON.stringify({
+          type: 'not_browser_manual_handoff',
+          status: 'resolved',
+          platform: 'facebookGroup',
+          draftId: '999',
+        }),
+      );
 
       const response = await requestExistingApp(app, {
         method: 'GET',

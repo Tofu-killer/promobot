@@ -328,7 +328,8 @@ function readBrowserHandoffArtifact(absolutePath: string): BrowserHandoffArtifac
   }
 
   try {
-    return JSON.parse(fs.readFileSync(absolutePath, 'utf8')) as BrowserHandoffArtifactRecord;
+    const artifact = JSON.parse(fs.readFileSync(absolutePath, 'utf8')) as BrowserHandoffArtifactRecord;
+    return artifact.type === 'browser_manual_handoff' ? artifact : null;
   } catch {
     return null;
   }
