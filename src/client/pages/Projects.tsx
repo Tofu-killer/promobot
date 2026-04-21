@@ -258,6 +258,9 @@ export function ProjectsPage({
   const { state, run } = useAsyncAction(createProjectAction);
   const { state: projectsState, reload } = useAsyncQuery(loadProjectsAction, [loadProjectsAction]);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [pendingProjectSaveId, setPendingProjectSaveId] = useState<number | null>(null);
+  const [pendingSourceConfigCreateProjectId, setPendingSourceConfigCreateProjectId] = useState<number | null>(null);
+  const [pendingSourceConfigSaveId, setPendingSourceConfigSaveId] = useState<number | null>(null);
   const [projectForms, setProjectForms] = useState<Record<number, ProjectFormValue>>({});
   const [sourceConfigsState, setSourceConfigsState] = useState<AsyncState<SourceConfigsByProjectResponse>>({
     status: 'idle',
@@ -367,6 +370,7 @@ export function ProjectsPage({
   }, [displaySourceConfigsState.data, sourceConfigsStateOverride]);
 
   function handleCreateProject() {
+    setSaveMessage(null);
     void run({
       name,
       siteName,
@@ -424,6 +428,8 @@ export function ProjectsPage({
       },
     );
 
+    setSaveMessage(null);
+    setPendingProjectSaveId(projectId);
     void updateProjectAction(projectId, {
       name: form.name,
       siteDescription: form.siteDescription,
@@ -442,7 +448,10 @@ export function ProjectsPage({
       }));
       setSaveMessage('项目已保存');
       reload();
-    }).catch(() => undefined);
+    }).catch(() => undefined)
+      .finally(() => {
+        setPendingProjectSaveId((current) => (current === projectId ? null : current));
+      });
   }
 
   function getSourceConfigFormValue(
@@ -525,6 +534,8 @@ export function ProjectsPage({
   function handleCreateSourceConfig(projectId: number) {
     const form = getNewSourceConfigForm(projectId);
 
+    setSaveMessage(null);
+    setPendingSourceConfigCreateProjectId(projectId);
     void createSourceConfigAction(projectId, {
       projectId,
       sourceType: form.sourceType,
@@ -560,7 +571,10 @@ export function ProjectsPage({
           })
           .catch(() => undefined);
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => {
+        setPendingSourceConfigCreateProjectId((current) => (current === projectId ? null : current));
+      });
   }
 
   function handleSaveSourceConfig(projectId: number, sourceConfigId: number) {
@@ -572,6 +586,8 @@ export function ProjectsPage({
 
     const form = getSourceConfigFormValue(sourceConfig);
 
+    setSaveMessage(null);
+    setPendingSourceConfigSaveId(sourceConfigId);
     void updateSourceConfigAction(projectId, sourceConfigId, {
       projectId,
       sourceType: form.sourceType,
@@ -600,7 +616,10 @@ export function ProjectsPage({
         }));
         setSaveMessage('SourceConfig 已保存');
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => {
+        setPendingSourceConfigSaveId((current) => (current === sourceConfigId ? null : current));
+      });
   }
 
   return (
@@ -651,6 +670,7 @@ export function ProjectsPage({
             <button
               type="button"
               onClick={handleCreateProject}
+              disabled={displayState.status === 'loading'}
               style={{
                 border: 'none',
                 borderRadius: '12px',
@@ -713,7 +733,7 @@ export function ProjectsPage({
 
         {displayProjectsState.status === 'success' && projects.length === 0 ? (
           <p style={{ margin: 0, color: '#475569' }}>暂无项目</p>
-        ) : (
+        ) : projects.length > 0 ? (
           <div style={{ display: 'grid', gap: '16px' }}>
             <div style={{ fontWeight: 700 }}>已加载 {projects.length} 个项目</div>
             {projects.map((project) => {
@@ -774,6 +794,7 @@ export function ProjectsPage({
                     type="button"
                     data-project-save-id={String(project.id)}
                     onClick={() => handleSaveProject(project.id)}
+                    disabled={pendingProjectSaveId === project.id}
                     style={{
                       border: 'none',
                       borderRadius: '12px',
@@ -784,7 +805,7 @@ export function ProjectsPage({
                       justifySelf: 'flex-start',
                     }}
                   >
-                    保存项目
+                    {pendingProjectSaveId === project.id ? '正在保存项目...' : '保存项目'}
                   </button>
 
                   <SectionCard title="Source Configs" description="项目级监控源配置，驱动 monitor / inbox / reputation 抓取。">
@@ -796,7 +817,8 @@ export function ProjectsPage({
                         <div style={{ color: '#b91c1c' }}>SourceConfig 加载失败：{displaySourceConfigsState.error}</div>
                       ) : null}
 
-                      {(visibleSourceConfigsByProject[project.id] ?? []).length === 0 ? (
+                      {displaySourceConfigsState.status === 'success' &&
+                      (visibleSourceConfigsByProject[project.id] ?? []).length === 0 ? (
                         <div style={{ color: '#64748b' }}>暂无 SourceConfig</div>
                       ) : null}
 
@@ -917,6 +939,7 @@ export function ProjectsPage({
                               type="button"
                               data-source-config-save-id={String(sourceConfig.id)}
                               onClick={() => handleSaveSourceConfig(project.id, sourceConfig.id)}
+                              disabled={pendingSourceConfigSaveId === sourceConfig.id}
                               style={{
                                 border: 'none',
                                 borderRadius: '12px',
@@ -927,7 +950,9 @@ export function ProjectsPage({
                                 justifySelf: 'flex-start',
                               }}
                             >
-                              保存 SourceConfig
+                              {pendingSourceConfigSaveId === sourceConfig.id
+                                ? '正在保存 SourceConfig...'
+                                : '保存 SourceConfig'}
                             </button>
                           </div>
                         );
@@ -1042,6 +1067,7 @@ export function ProjectsPage({
                           type="button"
                           data-source-config-create-id={String(project.id)}
                           onClick={() => handleCreateSourceConfig(project.id)}
+                          disabled={pendingSourceConfigCreateProjectId === project.id}
                           style={{
                             border: 'none',
                             borderRadius: '12px',
@@ -1052,7 +1078,9 @@ export function ProjectsPage({
                             justifySelf: 'flex-start',
                           }}
                         >
-                          创建 SourceConfig
+                          {pendingSourceConfigCreateProjectId === project.id
+                            ? '正在创建 SourceConfig...'
+                            : '创建 SourceConfig'}
                         </button>
                       </div>
                     </div>
@@ -1061,7 +1089,7 @@ export function ProjectsPage({
               );
             })}
           </div>
-        )}
+        ) : null}
       </SectionCard>
     </section>
   );

@@ -550,6 +550,21 @@ async function flush() {
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+function createDeferredPromise<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((nextResolve, nextReject) => {
+    resolve = nextResolve;
+    reject = nextReject;
+  });
+
+  return {
+    promise,
+    resolve,
+    reject,
+  };
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -848,6 +863,82 @@ describe('PublishCalendar and Projects pages', () => {
     expect(errorHtml).toContain('项目列表加载失败');
     expect(errorHtml).toContain('Acme Launch');
     expect(errorHtml).not.toContain('暂无项目');
+  });
+
+  it('does not mix loading or error placeholders with empty project and source config states', async () => {
+    const { ProjectsPage } = await import('../../src/client/pages/Projects');
+
+    const loadingProjectsHtml = renderComponent(ProjectsPage, {
+      stateOverride: { status: 'loading' },
+      projectsStateOverride: { status: 'loading' },
+    });
+
+    expect(loadingProjectsHtml).toContain('正在创建项目...');
+    expect(loadingProjectsHtml).toContain('disabled=""');
+    expect(loadingProjectsHtml).toContain('正在加载项目列表');
+    expect(loadingProjectsHtml).not.toContain('暂无项目');
+    expect(loadingProjectsHtml).not.toContain('已加载 0 个项目');
+
+    const errorProjectsHtml = renderComponent(ProjectsPage, {
+      stateOverride: { status: 'idle' },
+      projectsStateOverride: {
+        status: 'error',
+        error: 'Request failed with status 500',
+      },
+    });
+
+    expect(errorProjectsHtml).toContain('项目列表加载失败');
+    expect(errorProjectsHtml).not.toContain('暂无项目');
+    expect(errorProjectsHtml).not.toContain('已加载 0 个项目');
+
+    const loadingSourceConfigsHtml = renderComponent(ProjectsPage, {
+      stateOverride: { status: 'idle' },
+      projectsStateOverride: {
+        status: 'success',
+        data: {
+          projects: [
+            {
+              id: 7,
+              name: 'Acme Launch',
+              siteName: 'Acme',
+              siteUrl: 'https://acme.test',
+              siteDescription: 'Launch week campaign',
+              sellingPoints: ['Cheap', 'Fast'],
+            },
+          ],
+        },
+      },
+      sourceConfigsStateOverride: { status: 'loading' },
+    });
+
+    expect(loadingSourceConfigsHtml).toContain('正在加载 SourceConfig');
+    expect(loadingSourceConfigsHtml).not.toContain('暂无 SourceConfig');
+
+    const errorSourceConfigsHtml = renderComponent(ProjectsPage, {
+      stateOverride: { status: 'idle' },
+      projectsStateOverride: {
+        status: 'success',
+        data: {
+          projects: [
+            {
+              id: 7,
+              name: 'Acme Launch',
+              siteName: 'Acme',
+              siteUrl: 'https://acme.test',
+              siteDescription: 'Launch week campaign',
+              sellingPoints: ['Cheap', 'Fast'],
+            },
+          ],
+        },
+      },
+      sourceConfigsStateOverride: {
+        status: 'error',
+        error: 'Request failed with status 500',
+      },
+    });
+
+    expect(errorSourceConfigsHtml).toContain('SourceConfig 加载失败');
+    expect(errorSourceConfigsHtml).not.toContain('暂无 SourceConfig');
   });
 
   it('shows source config loading, error, and success states inside loaded projects', async () => {
@@ -1203,6 +1294,132 @@ describe('PublishCalendar and Projects pages', () => {
     });
   });
 
+  it('shows pending project actions and clears old save success while a new project request is in flight', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ProjectsPage } = await import('../../src/client/pages/Projects');
+
+    const pendingCreateProject = createDeferredPromise<{
+      project: {
+        id: number;
+        name: string;
+        siteName: string;
+        siteUrl: string;
+        siteDescription: string;
+        sellingPoints: string[];
+      };
+    }>();
+    const loadProjectsAction = vi.fn().mockResolvedValue({
+      projects: [
+        {
+          id: 7,
+          name: 'Acme Launch',
+          siteName: 'Acme',
+          siteUrl: 'https://acme.test',
+          siteDescription: 'Launch week campaign',
+          sellingPoints: ['Cheap', 'Fast'],
+          createdAt: '2026-04-19T08:00:00.000Z',
+        },
+      ],
+    });
+    const updateProjectAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        project: {
+          id: 7,
+          name: 'Acme Launch Updated',
+          siteName: 'Acme',
+          siteUrl: 'https://acme.test',
+          siteDescription: 'Updated brief',
+          sellingPoints: ['Faster', 'Cheaper'],
+          createdAt: '2026-04-19T08:00:00.000Z',
+        },
+      })
+      .mockResolvedValueOnce({
+        project: {
+          id: 7,
+          name: 'Acme Launch Updated Again',
+          siteName: 'Acme',
+          siteUrl: 'https://acme.test',
+          siteDescription: 'Updated brief v2',
+          sellingPoints: ['Faster', 'Cheaper'],
+          createdAt: '2026-04-19T08:00:00.000Z',
+        },
+      });
+    const createProjectAction = vi.fn().mockReturnValue(pendingCreateProject.promise);
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ProjectsPage as never, {
+          loadProjectsAction,
+          createProjectAction,
+          updateProjectAction,
+        }),
+      );
+      await flush();
+    });
+
+    const saveButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-project-save-id') === '7' &&
+        collectText(element).includes('保存项目'),
+    );
+
+    await act(async () => {
+      saveButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('项目已保存');
+
+    const createButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('创建项目'),
+    );
+
+    await act(async () => {
+      createButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    const pendingCreateButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.textContent.includes('正在创建项目...'),
+    );
+
+    expect(createProjectAction).toHaveBeenCalledWith({
+      name: 'Acme Launch',
+      siteName: 'Acme',
+      siteUrl: 'https://acme.test',
+      siteDescription: 'Launch week campaign',
+      sellingPoints: ['Cheap', 'Fast'],
+    });
+    expect(pendingCreateButton?.disabled).toBe(true);
+    expect(collectText(container)).not.toContain('项目已保存');
+
+    await act(async () => {
+      pendingCreateProject.resolve({
+        project: {
+          id: 8,
+          name: 'Acme Expansion',
+          siteName: 'Acme',
+          siteUrl: 'https://acme.test/expansion',
+          siteDescription: 'Expansion brief',
+          sellingPoints: ['Fast'],
+        },
+      });
+      await flush();
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('loads, creates, and updates project source configs through the project page', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
@@ -1382,6 +1599,214 @@ describe('PublishCalendar and Projects pages', () => {
       pollIntervalMinutes: 60,
     });
     expect(collectText(container)).toContain('SourceConfig 已保存');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('shows pending source config actions and clears old success while a new source config request is in flight', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ProjectsPage } = await import('../../src/client/pages/Projects');
+
+    const pendingCreateSourceConfig = createDeferredPromise<{
+      sourceConfig: {
+        id: number;
+        projectId: number;
+        sourceType: string;
+        platform: string;
+        label: string;
+        configJson: Record<string, unknown>;
+        enabled: boolean;
+        pollIntervalMinutes: number;
+      };
+    }>();
+    const pendingUpdateSourceConfig = createDeferredPromise<{
+      sourceConfig: {
+        id: number;
+        projectId: number;
+        sourceType: string;
+        platform: string;
+        label: string;
+        configJson: Record<string, unknown>;
+        enabled: boolean;
+        pollIntervalMinutes: number;
+      };
+    }>();
+    const loadProjectsAction = vi.fn().mockResolvedValue({
+      projects: [
+        {
+          id: 7,
+          name: 'Acme Launch',
+          siteName: 'Acme',
+          siteUrl: 'https://acme.test',
+          siteDescription: 'Launch week campaign',
+          sellingPoints: ['Cheap', 'Fast'],
+          createdAt: '2026-04-19T08:00:00.000Z',
+        },
+      ],
+    });
+    const loadSourceConfigsAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        sourceConfigs: [
+          {
+            id: 3,
+            projectId: 7,
+            sourceType: 'keyword+reddit',
+            platform: 'reddit',
+            label: 'Reddit mentions',
+            configJson: { keywords: ['claude latency australia'] },
+            enabled: true,
+            pollIntervalMinutes: 30,
+          },
+        ],
+      })
+      .mockResolvedValue({
+        sourceConfigs: [
+          {
+            id: 3,
+            projectId: 7,
+            sourceType: 'keyword+reddit',
+            platform: 'reddit',
+            label: 'Reddit mentions',
+            configJson: { keywords: ['claude latency australia'] },
+            enabled: true,
+            pollIntervalMinutes: 30,
+          },
+          {
+            id: 4,
+            projectId: 7,
+            sourceType: 'v2ex_search',
+            platform: 'v2ex',
+            label: 'V2EX mentions',
+            configJson: { query: 'cursor api' },
+            enabled: true,
+            pollIntervalMinutes: 45,
+          },
+        ],
+      });
+    const createSourceConfigAction = vi
+      .fn()
+      .mockReturnValueOnce(pendingCreateSourceConfig.promise)
+      .mockResolvedValue({
+        sourceConfig: {
+          id: 4,
+          projectId: 7,
+          sourceType: 'v2ex_search',
+          platform: 'v2ex',
+          label: 'V2EX mentions',
+          configJson: { query: 'cursor api' },
+          enabled: true,
+          pollIntervalMinutes: 45,
+        },
+      });
+    const updateSourceConfigAction = vi.fn().mockReturnValue(pendingUpdateSourceConfig.promise);
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ProjectsPage as never, {
+          loadProjectsAction,
+          loadSourceConfigsAction,
+          createSourceConfigAction,
+          updateSourceConfigAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const newLabelField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'new-label-7',
+    );
+    const newConfigJsonField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'new-config-json-7',
+    );
+    const newPollField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'new-poll-7',
+    );
+
+    await act(async () => {
+      updateFieldValue(newLabelField, 'V2EX mentions', window);
+      updateFieldValue(newConfigJsonField, '{"query":"cursor api"}', window);
+      updateFieldValue(newPollField, '45', window);
+      await flush();
+    });
+
+    const createButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-source-config-create-id') === '7',
+    );
+
+    await act(async () => {
+      createButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    const pendingCreateButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-source-config-create-id') === '7',
+    );
+
+    expect(pendingCreateButton?.disabled).toBe(true);
+    expect(collectText(pendingCreateButton as FakeElement)).toContain('正在创建 SourceConfig...');
+
+    await act(async () => {
+      pendingCreateSourceConfig.resolve({
+        sourceConfig: {
+          id: 4,
+          projectId: 7,
+          sourceType: 'v2ex_search',
+          platform: 'v2ex',
+          label: 'V2EX mentions',
+          configJson: { query: 'cursor api' },
+          enabled: true,
+          pollIntervalMinutes: 45,
+        },
+      });
+      await flush();
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('SourceConfig 已保存');
+
+    const updateButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-source-config-save-id') === '4',
+    );
+
+    await act(async () => {
+      updateButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    const pendingUpdateButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-source-config-save-id') === '4',
+    );
+
+    expect(pendingUpdateButton?.disabled).toBe(true);
+    expect(collectText(pendingUpdateButton as FakeElement)).toContain('正在保存 SourceConfig...');
+    expect(collectText(container)).not.toContain('SourceConfig 已保存');
+
+    await act(async () => {
+      pendingUpdateSourceConfig.reject(new Error('Request failed with status 500'));
+      await flush();
+    });
 
     await act(async () => {
       root.unmount();
