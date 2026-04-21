@@ -174,13 +174,16 @@ export function PublishCalendarPage({
     ({ id, scheduledAt }: { id: number; scheduledAt: string | null }) =>
       updateDraftScheduleAction(id, { scheduledAt }),
   );
+  const [draftsById, setDraftsById] = useState<Record<number, DraftRecord>>({});
   const [scheduledAtById, setScheduledAtById] = useState<Record<number, string>>({});
   const [mutationStateById, setMutationStateById] = useState<Record<number, ScheduleMutationState>>({});
+  const [calendarFeedback, setCalendarFeedback] = useState<ScheduleMutationState>(createIdleMutationState());
   const displayState = stateOverride ?? state;
-  const calendarDrafts =
+  const visibleDrafts =
     displayState.status === 'success' && displayState.data
-      ? displayState.data.drafts.filter((draft) => isCalendarDraftStatus(draft.status))
+      ? displayState.data.drafts.map((draft) => draftsById[draft.id] ?? draft)
       : [];
+  const calendarDrafts = visibleDrafts.filter((draft) => isCalendarDraftStatus(draft.status));
 
   function getScheduledAtValue(draft: DraftRecord) {
     return scheduledAtById[draft.id] ?? draft.scheduledAt ?? '';
@@ -199,6 +202,7 @@ export function PublishCalendarPage({
   }
 
   function updateScheduledAtDraftInput(draftId: number, value: string) {
+    setCalendarFeedback(createIdleMutationState());
     setScheduledAtById((current) => ({
       ...current,
       [draftId]: value,
@@ -211,6 +215,7 @@ export function PublishCalendarPage({
 
   async function handleSaveSchedule(draft: DraftRecord) {
     const scheduledAt = normalizeScheduledAtInput(getScheduledAtValue(draft));
+    setCalendarFeedback(createIdleMutationState());
     setMutationStateById((current) => ({
       ...current,
       [draft.id]: {
@@ -226,18 +231,26 @@ export function PublishCalendarPage({
         scheduledAt,
       });
 
+      setDraftsById((current) => ({
+        ...current,
+        [draft.id]: result.draft,
+      }));
+
       setScheduledAtById((current) => ({
         ...current,
         [draft.id]: result.draft.scheduledAt ?? '',
       }));
+      setCalendarFeedback(createScheduleSuccessState(result.draft.scheduledAt ?? null));
       setMutationStateById((current) => ({
         ...current,
         [draft.id]: createScheduleSuccessState(result.draft.scheduledAt ?? null),
       }));
     } catch (error) {
+      const nextErrorState = createScheduleErrorState(getErrorMessage(error));
+      setCalendarFeedback(nextErrorState);
       setMutationStateById((current) => ({
         ...current,
-        [draft.id]: createScheduleErrorState(getErrorMessage(error)),
+        [draft.id]: nextErrorState,
       }));
     }
   }
@@ -266,6 +279,16 @@ export function PublishCalendarPage({
 
         {displayState.status === 'error' ? (
           <p style={{ margin: 0, color: '#b91c1c' }}>发布日历加载失败：{displayState.error}</p>
+        ) : null}
+
+        {calendarFeedback.status === 'success' && calendarFeedback.message ? (
+          <p style={{ margin: 0, color: '#166534', fontWeight: 700 }}>{calendarFeedback.message}</p>
+        ) : null}
+
+        {calendarFeedback.status === 'error' && calendarFeedback.error ? (
+          <p style={{ margin: 0, color: '#b91c1c', fontWeight: 700 }}>
+            排程保存失败：{calendarFeedback.error}
+          </p>
         ) : null}
 
         {displayState.status === 'success' && displayState.data ? (

@@ -607,7 +607,7 @@ describe('Publish Calendar lifecycle', () => {
         title: 'Scheduled launch thread',
         content: 'Queued for later',
         hashtags: ['#launch'],
-        status: 'scheduled',
+        status: 'approved',
         scheduledAt: null,
         createdAt: '2026-04-19T08:00:00.000Z',
         updatedAt: '2026-04-19T08:10:00.000Z',
@@ -681,8 +681,9 @@ describe('Publish Calendar lifecycle', () => {
       scheduledAt: null,
     });
     expect(collectText(container)).toContain('排程已清空');
-    expect(collectText(container)).toContain('待补排程 1');
-    expect(collectText(container)).toContain('当前排程状态：尚未提供 scheduledAt');
+    expect(collectText(container)).toContain('待补排程 0');
+    expect(collectText(container)).toContain('暂无 scheduled 或 published 草稿。');
+    expect(collectText(container)).not.toContain('当前排程状态：尚未提供 scheduledAt');
 
     await act(async () => {
       root.unmount();
