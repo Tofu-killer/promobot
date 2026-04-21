@@ -100,6 +100,7 @@ export interface BrowserLaneRequestsResponse {
 }
 
 export interface BrowserHandoffRecord {
+  channelAccountId?: number;
   platform: string;
   draftId: string;
   title: string | null;
@@ -1108,6 +1109,9 @@ export function SettingsPage({
                     <div style={{ fontWeight: 700 }}>
                       {handoff.platform} · draft #{handoff.draftId} · {handoff.status}
                     </div>
+                    {typeof handoff.channelAccountId === 'number' ? (
+                      <div style={{ color: '#475569' }}>account #{handoff.channelAccountId}</div>
+                    ) : null}
                     <div style={{ color: '#475569' }}>title: {handoff.title ?? '未提供'}</div>
                     <div style={{ color: '#475569' }}>artifactPath: {handoff.artifactPath}</div>
                     <div style={{ color: '#475569' }}>updatedAt: {handoff.updatedAt}</div>

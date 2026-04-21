@@ -505,6 +505,7 @@ describe('settings save validation and feedback', () => {
         data: {
           handoffs: [
             {
+              channelAccountId: 9,
               platform: 'facebookGroup',
               draftId: '33',
               title: 'Community update',
@@ -518,6 +519,7 @@ describe('settings save validation and feedback', () => {
               resolution: null,
             },
             {
+              channelAccountId: 10,
               platform: 'weibo',
               draftId: '34',
               title: 'Published handoff',
@@ -567,6 +569,7 @@ describe('settings save validation and feedback', () => {
     expect(successHtml).toContain('#19 · monitor_fetch · done');
     expect(successHtml).toContain('作业控制');
     expect(successHtml).toContain('Browser Handoff 工单');
+    expect(successHtml).toContain('account #9');
     expect(successHtml).toContain(
       'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-33.json',
     );
