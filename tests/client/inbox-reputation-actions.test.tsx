@@ -361,6 +361,25 @@ describe('Inbox action wiring', () => {
     expect(html).not.toContain('当前会话：Reddit · preview-user');
   });
 
+  it('disables AI reply generation when the inbox loads successfully with no items', async () => {
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    const html = renderPage(InboxPage, {
+      stateOverride: {
+        status: 'success',
+        data: {
+          items: [],
+          total: 0,
+          unread: 0,
+        },
+      } satisfies ApiState<unknown>,
+    });
+
+    expectDisabledButton(html, 'AI 生成回复');
+    expect(html).toContain('暂无可生成回复的会话');
+    expect(html).toContain('收件箱为空，暂无可生成回复的会话。');
+  });
+
   it('renders the original-post CTA as a disabled manual handoff placeholder', async () => {
     const { InboxPage } = await import('../../src/client/pages/Inbox');
 

@@ -247,6 +247,7 @@ export function InboxPage({
     ? viewData.items.map((item) => (item.id === updatedInboxItem.id ? updatedInboxItem : item))
     : viewData.items;
   const selectedItem = isPreview ? null : displayItems.find((item) => item.id === selectedItemId) ?? displayItems[0] ?? null;
+  const canGenerateReply = !isPreview && selectedItem !== null;
   const inboxStatusFeedback =
     displayInboxUpdateState.status === 'success' && displayInboxUpdateState.data
       ? `已将“${displayInboxUpdateState.data.item.title}”回写为 ${displayInboxUpdateState.data.item.status}`
@@ -324,7 +325,7 @@ export function InboxPage({
             <ActionButton
               label={displayReplySuggestionState.status === 'loading' ? '正在生成回复...' : 'AI 生成回复'}
               tone="primary"
-              disabled={isPreview}
+              disabled={!canGenerateReply}
               onClick={() => {
                 void handleGenerateReply(selectedItem);
               }}
@@ -495,7 +496,12 @@ export function InboxPage({
                 >
                   {displayReplySuggestionState.status === 'loading'
                     ? '正在生成回复建议...'
-                    : suggestedReply ?? (isPreview ? '预览数据不可生成回复。' : '点击“AI 生成回复”后，这里会展示最新的 AI 草稿。')}
+                    : suggestedReply ??
+                      (isPreview
+                        ? '预览数据不可生成回复。'
+                        : selectedItem
+                          ? '点击“AI 生成回复”后，这里会展示最新的 AI 草稿。'
+                          : '收件箱为空，暂无可生成回复的会话。')}
                 </div>
                 <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                   <PlaceholderActionButton
