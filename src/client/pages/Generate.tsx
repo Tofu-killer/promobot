@@ -41,6 +41,16 @@ function parseProjectId(value: string) {
   return Number.isInteger(projectId) && projectId > 0 ? projectId : undefined;
 }
 
+function getProjectIdValidationError(value: string) {
+  const normalizedValue = value.trim();
+
+  if (normalizedValue.length === 0) {
+    return null;
+  }
+
+  return parseProjectId(value) === undefined ? '项目 ID 必须是大于 0 的整数' : null;
+}
+
 const projectInputStyle = {
   width: '100%',
   maxWidth: '240px',
@@ -135,12 +145,14 @@ export function GeneratePage({
   const [localProjectIdDraft, setLocalProjectIdDraft] = useState('');
   const activeProjectIdDraft = projectIdDraft ?? localProjectIdDraft;
   const projectId = parseProjectId(activeProjectIdDraft);
+  const projectIdValidationError = getProjectIdValidationError(activeProjectIdDraft);
   const [tone, setTone] = useState<(typeof toneOptions)[number]['value']>('professional');
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>(defaultLaunchPlatforms);
   const [reviewStateByDraftId, setReviewStateByDraftId] = useState<Record<number, ReviewMutationState>>({});
   const { state, run } = useAsyncAction(generateAction);
 
   const displayState = stateOverride ?? state;
+  const generateControlsDisabled = displayState.status === 'loading' || projectIdValidationError !== null;
 
   function togglePlatform(platformValue: string) {
     setSelectedPlatforms((currentPlatforms) =>
@@ -151,6 +163,10 @@ export function GeneratePage({
   }
 
   function handleGenerate(saveAsDraft: boolean) {
+    if (projectIdValidationError) {
+      return;
+    }
+
     void run({
       topic,
       tone,
@@ -162,6 +178,10 @@ export function GeneratePage({
 
   function getReviewState(draftId: number): ReviewMutationState {
     return reviewStateByDraftId[draftId] ?? createIdleReviewMutationState();
+  }
+
+  function getDisplayedDraftStatus(draftId: number) {
+    return getReviewState(draftId).reviewStatus ?? 'draft';
   }
 
   async function handleSendDraftToReview(draftId: number) {
@@ -251,6 +271,9 @@ export function GeneratePage({
               style={projectInputStyle}
             />
           </label>
+          {projectIdValidationError ? (
+            <div style={{ marginTop: '8px', color: '#b91c1c', fontWeight: 700 }}>{projectIdValidationError}</div>
+          ) : null}
 
           <div style={{ marginTop: '18px', display: 'grid', gap: '10px' }}>
             <div style={{ fontWeight: 700 }}>语气</div>
@@ -339,7 +362,7 @@ export function GeneratePage({
             <button
               type="button"
               onClick={() => handleGenerate(false)}
-              disabled={displayState.status === 'loading'}
+              disabled={generateControlsDisabled}
               style={{
                 border: 'none',
                 borderRadius: '12px',
@@ -354,7 +377,7 @@ export function GeneratePage({
             <button
               type="button"
               onClick={() => handleGenerate(true)}
-              disabled={displayState.status === 'loading'}
+              disabled={generateControlsDisabled}
               style={{
                 borderRadius: '12px',
                 border: '1px solid #cbd5e1',
@@ -386,60 +409,71 @@ export function GeneratePage({
           <div style={{ display: 'grid', gap: '12px' }}>
             <div style={{ fontWeight: 700, color: '#0f172a' }}>已返回 {displayState.data.results.length} 条生成结果</div>
             {displayState.data.results.map((result, index) => (
-              <article
-                key={`${result.platform}-${index}`}
-                style={{
-                  borderRadius: '16px',
-                  border: '1px solid #dbe4f0',
-                  background: '#f8fafc',
-                  padding: '16px',
-                }}
-              >
-                <div style={{ fontSize: '13px', color: '#2563eb', textTransform: 'uppercase' }}>{result.platform}</div>
-                <div style={{ marginTop: '8px', fontWeight: 700 }}>{result.title ?? 'Untitled draft'}</div>
-                <p style={{ margin: '8px 0 0', color: '#475569', lineHeight: 1.5 }}>{result.content}</p>
-                <div style={{ marginTop: '8px', color: '#64748b' }}>
-                  Hashtags: {result.hashtags.length > 0 ? result.hashtags.join(', ') : 'None'}
-                </div>
-                {result.draftId !== undefined ? (
-                  <>
-                    <div style={{ marginTop: '6px', color: '#64748b' }}>draftId: {result.draftId}</div>
-                    <div style={{ marginTop: '12px', display: 'grid', gap: '8px' }}>
-                      <button
-                        data-review-draft-id={String(result.draftId)}
-                        type="button"
-                        onClick={() => {
-                          void handleSendDraftToReview(result.draftId as number);
-                        }}
-                        disabled={getReviewState(result.draftId).status === 'loading'}
-                        style={{
-                          width: 'fit-content',
-                          borderRadius: '10px',
-                          border: '1px solid #cbd5e1',
-                          background: '#ffffff',
-                          padding: '10px 14px',
-                          fontWeight: 700,
-                        }}
-                      >
-                        {getReviewState(result.draftId).status === 'loading' ? '正在送审...' : '送审'}
-                      </button>
-                      {getReviewState(result.draftId).status === 'success' ? (
-                        <div style={{ color: '#166534', fontWeight: 700 }}>
-                          {getReviewState(result.draftId).message}
-                          {getReviewState(result.draftId).reviewStatus
-                            ? `，当前状态：${getReviewState(result.draftId).reviewStatus}`
-                            : ''}
-                        </div>
-                      ) : null}
-                      {getReviewState(result.draftId).status === 'error' ? (
-                        <div style={{ color: '#b91c1c', fontWeight: 700 }}>
-                          送审失败：{getReviewState(result.draftId).error}
-                        </div>
-                      ) : null}
+              (() => {
+                const reviewState = result.draftId !== undefined ? getReviewState(result.draftId) : null;
+                const displayedDraftStatus = result.draftId !== undefined ? getDisplayedDraftStatus(result.draftId) : null;
+                const reviewActionDisabled =
+                  reviewState !== null &&
+                  (reviewState.status === 'loading' || displayedDraftStatus !== 'draft');
+
+                return (
+                  <article
+                    key={`${result.platform}-${index}`}
+                    style={{
+                      borderRadius: '16px',
+                      border: '1px solid #dbe4f0',
+                      background: '#f8fafc',
+                      padding: '16px',
+                    }}
+                  >
+                    <div style={{ fontSize: '13px', color: '#2563eb', textTransform: 'uppercase' }}>{result.platform}</div>
+                    <div style={{ marginTop: '8px', fontWeight: 700 }}>{result.title ?? 'Untitled draft'}</div>
+                    <p style={{ margin: '8px 0 0', color: '#475569', lineHeight: 1.5 }}>{result.content}</p>
+                    <div style={{ marginTop: '8px', color: '#64748b' }}>
+                      Hashtags: {result.hashtags.length > 0 ? result.hashtags.join(', ') : 'None'}
                     </div>
-                  </>
-                ) : null}
-              </article>
+                    {result.draftId !== undefined ? (
+                      <>
+                        <div style={{ marginTop: '6px', color: '#64748b' }}>draftId: {result.draftId}</div>
+                        <div style={{ marginTop: '6px', color: '#64748b' }}>status: {displayedDraftStatus}</div>
+                        <div style={{ marginTop: '12px', display: 'grid', gap: '8px' }}>
+                          <button
+                            data-review-draft-id={String(result.draftId)}
+                            type="button"
+                            onClick={() => {
+                              void handleSendDraftToReview(result.draftId as number);
+                            }}
+                            disabled={reviewActionDisabled}
+                            style={{
+                              width: 'fit-content',
+                              borderRadius: '10px',
+                              border: '1px solid #cbd5e1',
+                              background: '#ffffff',
+                              padding: '10px 14px',
+                              fontWeight: 700,
+                            }}
+                          >
+                            {reviewState?.status === 'loading'
+                              ? '正在送审...'
+                              : displayedDraftStatus === 'review'
+                                ? '已送审'
+                                : '送审'}
+                          </button>
+                          {reviewState?.status === 'success' ? (
+                            <div style={{ color: '#166534', fontWeight: 700 }}>
+                              {reviewState.message}
+                              {reviewState.reviewStatus ? `，当前状态：${reviewState.reviewStatus}` : ''}
+                            </div>
+                          ) : null}
+                          {reviewState?.status === 'error' ? (
+                            <div style={{ color: '#b91c1c', fontWeight: 700 }}>送审失败：{reviewState.error}</div>
+                          ) : null}
+                        </div>
+                      </>
+                    ) : null}
+                  </article>
+                );
+              })()
             ))}
           </div>
         ) : null}

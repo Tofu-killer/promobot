@@ -277,4 +277,21 @@ describe('content generation api', () => {
       }),
     ]);
   });
+
+  it('rejects an invalid projectId instead of silently dropping it', async () => {
+    installFetchStub();
+
+    const response = await requestApp('POST', '/api/content/generate', {
+      topic: 'Invalid scoped draft',
+      platforms: ['x'],
+      tone: 'professional',
+      saveAsDraft: true,
+      projectId: 0,
+    });
+
+    expect(response.status).toBe(400);
+    expect(JSON.parse(response.body)).toEqual({
+      error: 'invalid project id',
+    });
+  });
 });

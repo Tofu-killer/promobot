@@ -827,6 +827,56 @@ describe('Generate review actions', () => {
     });
   });
 
+  it('shows a validation error and blocks saving drafts when projectId is invalid', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { GeneratePage } = await import('../../src/client/pages/Generate');
+
+    const generateAction = vi.fn().mockResolvedValue({ results: [] });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(GeneratePage as never, {
+          generateAction,
+        }),
+      );
+      await flush();
+    });
+
+    const projectIdInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    );
+    const saveDraftButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('保存为草稿'),
+    );
+
+    expect(projectIdInput).not.toBeNull();
+    expect(saveDraftButton).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(projectIdInput, 'invalid-project-id', window);
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('项目 ID 必须是大于 0 的整数');
+    expect((saveDraftButton as FakeElement | null)?.disabled).toBe(true);
+
+    await act(async () => {
+      saveDraftButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(generateAction).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('prefers a controlled projectId draft prop and reports raw string changes', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
@@ -1042,7 +1092,17 @@ describe('Generate review actions', () => {
 
     expect(sendDraftToReviewAction).toHaveBeenCalledWith(42);
     expect(collectText(container)).toContain('已送审');
+    expect(collectText(container)).toContain('status: review');
     expect(collectText(container)).toContain('当前状态：review');
+
+    const updatedReviewButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-review-draft-id') === '42',
+    );
+
+    expect(updatedReviewButton).not.toBeNull();
+    expect(collectText(updatedReviewButton as FakeElement)).toContain('已送审');
+    expect((updatedReviewButton as FakeElement).disabled).toBe(true);
 
     await act(async () => {
       root.unmount();

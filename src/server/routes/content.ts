@@ -68,7 +68,14 @@ export function createContentRouter(draftStore: DraftStore) {
       siteContext: request.body?.siteContext,
     };
     const shouldSaveAsDraft = request.body?.saveAsDraft === true;
-    const projectId = shouldSaveAsDraft ? parseOptionalProjectId(request.body?.projectId) : undefined;
+    const parsedProjectId = parseOptionalProjectId(request.body?.projectId);
+
+    if (request.body?.projectId !== undefined && parsedProjectId === undefined) {
+      response.status(400).json({ error: 'invalid project id' });
+      return;
+    }
+
+    const projectId = shouldSaveAsDraft ? parsedProjectId : undefined;
 
     const results = await Promise.all(
       platforms.map(async (platform: SupportedPlatform) => {
