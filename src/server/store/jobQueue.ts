@@ -44,7 +44,7 @@ export interface JobQueueStore extends JobStore {
   enqueue(input: EnqueueJobInput): JobQueueEntry;
   list(options?: ListJobQueueOptions): JobQueueEntry[];
   get(jobId: number): JobQueueEntry | undefined;
-  getStats(nowIso?: string): JobQueueStats;
+  getStats(nowIso?: string, projectId?: number): JobQueueStats;
   requeueRunningJobs(nowIso?: string): number;
   retry(jobId: number, runAt?: string): JobQueueEntry | undefined;
   cancel(jobId: number, canceledAtIso?: string): JobQueueEntry | undefined;
@@ -75,8 +75,10 @@ export function createJobQueueStore(): JobQueueStore {
     get(jobId) {
       return withDatabase((database) => getJobById(database, jobId));
     },
-    getStats(nowIso) {
-      return withDatabase((database) => getJobQueueStats(database, nowIso ?? new Date().toISOString()));
+    getStats(nowIso, projectId) {
+      return withDatabase((database) =>
+        getJobQueueStats(database, nowIso ?? new Date().toISOString(), projectId),
+      );
     },
     requeueRunningJobs(nowIso) {
       return withDatabase((database) => requeueRunningJobs(database, nowIso ?? new Date().toISOString()));
@@ -244,7 +246,43 @@ function listJobs(
   return rows.map((row) => normalizeJobQueueEntry(row as Record<string, unknown>));
 }
 
-function getJobQueueStats(database: DatabaseConnection, nowIso: string): JobQueueStats {
+function getJobQueueStats(
+  database: DatabaseConnection,
+  nowIso: string,
+  projectId?: number,
+): JobQueueStats {
+  if (projectId === undefined) {
+    return getGlobalJobQueueStats(database, nowIso);
+  }
+
+  const rows = database
+    .prepare(
+      `
+        SELECT status, run_at AS runAt, payload
+        FROM job_queue
+      `,
+    )
+    .all() as Array<{ status: string; runAt: string; payload: string }>;
+
+  const counts = createEmptyJobQueueStats();
+
+  for (const row of rows) {
+    const rowProjectId = normalizePositiveInteger(parsePayloadObject(row.payload)?.projectId);
+    if (rowProjectId !== projectId) {
+      continue;
+    }
+
+    incrementJobQueueStatusCount(counts, row.status);
+
+    if (row.status === 'pending' && row.runAt <= nowIso) {
+      counts.duePending += 1;
+    }
+  }
+
+  return counts;
+}
+
+function getGlobalJobQueueStats(database: DatabaseConnection, nowIso: string): JobQueueStats {
   const rows = database
     .prepare(
       `
@@ -255,27 +293,10 @@ function getJobQueueStats(database: DatabaseConnection, nowIso: string): JobQueu
     )
     .all() as Array<{ status: string; count: number }>;
 
-  const counts: JobQueueStats = {
-    pending: 0,
-    running: 0,
-    done: 0,
-    failed: 0,
-    canceled: 0,
-    duePending: 0,
-  };
+  const counts = createEmptyJobQueueStats();
 
   for (const row of rows) {
-    if (row.status === 'pending') {
-      counts.pending = Number(row.count);
-    } else if (row.status === 'running') {
-      counts.running = Number(row.count);
-    } else if (row.status === 'done') {
-      counts.done = Number(row.count);
-    } else if (row.status === 'failed') {
-      counts.failed = Number(row.count);
-    } else if (row.status === 'canceled') {
-      counts.canceled = Number(row.count);
-    }
+    setJobQueueStatusCount(counts, row.status, Number(row.count));
   }
 
   const dueRow = database
@@ -291,6 +312,59 @@ function getJobQueueStats(database: DatabaseConnection, nowIso: string): JobQueu
   counts.duePending = Number(dueRow?.count ?? 0);
 
   return counts;
+}
+
+function createEmptyJobQueueStats(): JobQueueStats {
+  return {
+    pending: 0,
+    running: 0,
+    done: 0,
+    failed: 0,
+    canceled: 0,
+    duePending: 0,
+  };
+}
+
+function incrementJobQueueStatusCount(counts: JobQueueStats, status: string) {
+  setJobQueueStatusCount(counts, status, getJobQueueStatusCount(counts, status) + 1);
+}
+
+function getJobQueueStatusCount(counts: JobQueueStats, status: string) {
+  if (status === 'pending') {
+    return counts.pending;
+  }
+
+  if (status === 'running') {
+    return counts.running;
+  }
+
+  if (status === 'done') {
+    return counts.done;
+  }
+
+  if (status === 'failed') {
+    return counts.failed;
+  }
+
+  if (status === 'canceled') {
+    return counts.canceled ?? 0;
+  }
+
+  return 0;
+}
+
+function setJobQueueStatusCount(counts: JobQueueStats, status: string, count: number) {
+  if (status === 'pending') {
+    counts.pending = count;
+  } else if (status === 'running') {
+    counts.running = count;
+  } else if (status === 'done') {
+    counts.done = count;
+  } else if (status === 'failed') {
+    counts.failed = count;
+  } else if (status === 'canceled') {
+    counts.canceled = count;
+  }
 }
 
 function requeueRunningJobs(database: DatabaseConnection, nowIso: string): number {

@@ -156,7 +156,7 @@ describe('dashboard metrics api', () => {
     }
   });
 
-  it('filters project-aware channel account metrics by projectId and excludes legacy inbox rows from scoped views', async () => {
+  it('filters project-aware channel account metrics and excludes unscoped inbox and job queue rows from scoped views', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
       const inboxStore = createInboxStore();
@@ -210,11 +210,65 @@ describe('dashboard metrics api', () => {
           connected: 1,
         },
         jobQueue: {
-          pending: 1,
-          duePending: 1,
+          pending: 0,
+          duePending: 0,
         },
       });
       expect(JSON.parse(response.body)).not.toHaveProperty('inbox');
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('filters job queue metrics by projectId and excludes unscoped jobs from scoped views', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const jobQueueStore = createJobQueueStore();
+
+      jobQueueStore.enqueue({
+        type: 'monitor_fetch',
+        payload: { source: 'rss' },
+        runAt: '2020-01-01T00:00:00.000Z',
+      });
+      jobQueueStore.schedulePublishJob(101, '2020-01-01T00:00:00.000Z', 11);
+      const scopedRunningJob = jobQueueStore.schedulePublishJob(102, '2099-01-01T00:00:00.000Z', 11);
+      const otherProjectJob = jobQueueStore.schedulePublishJob(201, '2020-01-01T00:00:00.000Z', 22);
+      jobQueueStore.enqueue({
+        type: 'publish',
+        payload: { draftId: 999 },
+        runAt: '2020-01-01T00:00:00.000Z',
+      });
+
+      await jobQueueStore.markRunning(scopedRunningJob.id, '2020-01-01T00:01:00.000Z');
+      await jobQueueStore.markRunning(otherProjectJob.id, '2020-01-01T00:02:00.000Z');
+      await jobQueueStore.markFailed(otherProjectJob.id, 'project 22 failed', '2020-01-01T00:03:00.000Z');
+
+      const response = await requestApp('GET', '/api/monitor/dashboard?projectId=11');
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        monitor: {
+          total: 0,
+          new: 0,
+          followUpDrafts: 0,
+        },
+        drafts: {
+          total: 0,
+          review: 0,
+        },
+        totals: {
+          items: 0,
+          followUps: 0,
+        },
+        jobQueue: {
+          pending: 1,
+          running: 1,
+          done: 0,
+          failed: 0,
+          canceled: 0,
+          duePending: 1,
+        },
+      });
     } finally {
       cleanupTestDatabasePath(rootDir);
     }

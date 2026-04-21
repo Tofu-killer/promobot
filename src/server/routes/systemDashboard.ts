@@ -29,7 +29,7 @@ systemDashboardRouter.get('/dashboard', (request, response) => {
   const followUpDrafts = drafts.filter((draft) => draft.title?.toLowerCase().includes('follow-up'));
   const unreadInboxItems = inboxItems.filter((item) => item.status !== 'handled');
   const connectedChannelAccounts = channelAccounts.filter((account) => account.status === 'healthy');
-  const jobQueueStats = jobQueueStore.getStats(new Date().toISOString());
+  const jobQueueStats = jobQueueStore.getStats(new Date().toISOString(), projectId);
   const scheduledDraftCount = drafts.filter((draft) => draft.status === 'scheduled').length;
   const publishedDraftCount = drafts.filter((draft) => draft.status === 'published').length;
   const publishLogMetrics = getPublishLogMetrics(projectId);
