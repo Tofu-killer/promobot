@@ -562,6 +562,39 @@ afterEach(() => {
 });
 
 describe('Monitor follow-up actions', () => {
+  it('disables follow-up generation for preview monitor data', async () => {
+    const { container } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { MonitorPage } = await import('../../src/client/pages/Monitor');
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(MonitorPage as never, {
+          stateOverride: {
+            status: 'idle',
+            error: null,
+          },
+        }),
+      );
+      await flush();
+    });
+
+    const button = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('生成跟进草稿'),
+    );
+
+    expect(button).not.toBeNull();
+    expect(button?.getAttribute('disabled')).toBe('');
+    expect(collectText(container)).toContain('当前展示的是预览数据');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('posts monitor fetch enqueue through the shared API helper', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({

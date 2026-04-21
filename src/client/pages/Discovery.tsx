@@ -96,6 +96,7 @@ export function DiscoveryPage({
   );
   const [draftStateByItemId, setDraftStateByItemId] = useState<Record<string, DiscoveryDraftState>>({});
   const displayState = stateOverride ?? state;
+  const isPreview = displayState.status !== 'success';
   const fallbackData: DiscoveryResponse = {
     items: [
       {
@@ -122,6 +123,18 @@ export function DiscoveryPage({
 
   async function handleGenerateDraft(item: DiscoveryItem) {
     const itemKey = String(item.id);
+
+    if (isPreview) {
+      setDraftStateByItemId((currentState) => ({
+        ...currentState,
+        [itemKey]: {
+          status: 'error',
+          error: '预览数据不可直接生成草稿，请先加载真实发现池。',
+        },
+      }));
+      return;
+    }
+
     const platform = resolveDraftPlatform(item.source);
 
     if (!platform) {
@@ -239,7 +252,7 @@ export function DiscoveryPage({
                         <ActionButton
                           label={draftState.status === 'loading' ? '正在生成草稿...' : '生成草稿'}
                           tone="primary"
-                          disabled={!canGenerateDraft}
+                          disabled={isPreview || !canGenerateDraft}
                           onClick={() => {
                             void handleGenerateDraft(item);
                           }}

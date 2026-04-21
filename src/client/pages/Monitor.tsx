@@ -190,6 +190,7 @@ export function MonitorPage({
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
   const [followUpSelectionMessage, setFollowUpSelectionMessage] = useState<string | null>(null);
   const displayState = stateOverride ?? state;
+  const isPreview = displayState.status !== 'success';
   const displayFollowUpState = followUpStateOverride ?? followUpState;
   const displayFetchState = fetchStateOverride ?? fetchState;
   const displayEnqueueState = enqueueStateOverride ?? enqueueState;
@@ -211,6 +212,11 @@ export function MonitorPage({
   const selectedItem = filteredItems.find((item) => item.id === selectedItemId) ?? null;
 
   function handleGenerateFollowUp() {
+    if (isPreview) {
+      setFollowUpSelectionMessage('预览数据不可直接生成跟进草稿，请先加载真实监控信号');
+      return;
+    }
+
     if (!selectedItem) {
       setFollowUpSelectionMessage('请先从当前列表中选择一条动态');
       return;
@@ -285,7 +291,7 @@ export function MonitorPage({
             <ActionButton
               label={displayFollowUpState.status === 'loading' ? '正在生成跟进草稿...' : '生成跟进草稿'}
               tone="primary"
-              disabled={displayFollowUpState.status === 'loading'}
+              disabled={isPreview || displayFollowUpState.status === 'loading'}
               onClick={handleGenerateFollowUp}
             />
           </>

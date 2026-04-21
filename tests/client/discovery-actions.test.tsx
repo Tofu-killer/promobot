@@ -545,6 +545,39 @@ afterEach(() => {
 });
 
 describe('Discovery draft actions', () => {
+  it('disables draft generation for preview discovery data', async () => {
+    const { container } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { DiscoveryPage } = await import('../../src/client/pages/Discovery');
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(DiscoveryPage as never, {
+          stateOverride: {
+            status: 'idle',
+            error: null,
+          },
+        }),
+      );
+      await flush();
+    });
+
+    const button = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('生成草稿'),
+    );
+
+    expect(button).not.toBeNull();
+    expect(button?.getAttribute('disabled')).toBe('');
+    expect(collectText(container)).toContain('当前展示的是预览数据');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('generates a saved draft for a discovery item and shows the returned identifiers', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
