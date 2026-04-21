@@ -706,6 +706,125 @@ describe('channel account edit actions', () => {
     });
   });
 
+  it('keeps the recent create CTA pinned to the newly created account instead of the global target', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ChannelAccountsPage } = await import('../../src/client/pages/ChannelAccounts');
+
+    const testChannelAccountAction = vi.fn().mockResolvedValue({
+      ok: true,
+      test: {
+        checkedAt: '2026-04-19T02:30:00.000Z',
+        status: 'healthy',
+      },
+      channelAccount: {
+        id: 11,
+        platform: 'reddit',
+        accountKey: 'acct-new',
+        displayName: 'Reddit Fresh',
+        authType: 'oauth',
+        status: 'healthy',
+        metadata: {},
+        createdAt: '2026-04-19T02:00:00.000Z',
+        updatedAt: '2026-04-19T02:00:00.000Z',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ChannelAccountsPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              channelAccounts: [
+                {
+                  id: 3,
+                  platform: 'x',
+                  accountKey: 'acct-x',
+                  displayName: 'X / Twitter',
+                  authType: 'api',
+                  status: 'healthy',
+                  metadata: {},
+                  createdAt: '2026-04-19T00:00:00.000Z',
+                  updatedAt: '2026-04-19T00:00:00.000Z',
+                },
+                {
+                  id: 7,
+                  platform: 'reddit',
+                  accountKey: 'acct-reddit',
+                  displayName: 'Reddit Ops',
+                  authType: 'oauth',
+                  status: 'healthy',
+                  metadata: {},
+                  createdAt: '2026-04-19T00:00:00.000Z',
+                  updatedAt: '2026-04-19T00:00:00.000Z',
+                },
+              ],
+            },
+          },
+          createStateOverride: {
+            status: 'success',
+            data: {
+              channelAccount: {
+                id: 11,
+                platform: 'reddit',
+                accountKey: 'acct-new',
+                displayName: 'Reddit Fresh',
+                authType: 'oauth',
+                status: 'healthy',
+                metadata: {},
+                createdAt: '2026-04-19T02:00:00.000Z',
+                updatedAt: '2026-04-19T02:00:00.000Z',
+              },
+            },
+          },
+          testChannelAccountAction,
+        }),
+      );
+      await flush();
+    });
+
+    const actionTargetButton = findElement(
+      container,
+      (element) => element.getAttribute('data-action-target-account') === '7',
+    );
+
+    expect(actionTargetButton).not.toBeNull();
+
+    await act(async () => {
+      actionTargetButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('当前目标账号：Reddit Ops');
+    expect(collectText(container)).toContain('账号：Reddit Fresh');
+
+    const recentCreateTestButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        collectText(element) === '测试连接' &&
+        element.getAttribute('data-header-test-connection-action') !== 'true' &&
+        element.getAttribute('data-recovery-test-connection-action') !== 'true',
+    );
+
+    expect(recentCreateTestButton).not.toBeNull();
+
+    await act(async () => {
+      recentCreateTestButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(testChannelAccountAction).toHaveBeenCalledWith(11);
+    expect(testChannelAccountAction).not.toHaveBeenCalledWith(7);
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('disables the no-target connection test CTAs without reloading the account list', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');

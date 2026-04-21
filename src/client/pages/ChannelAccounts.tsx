@@ -645,12 +645,12 @@ export function ChannelAccountsPage({
     }).catch(() => undefined);
   }
 
-  function handleTestConnection() {
-    if (!actionTargetAccount) {
+  function handleTestConnection(targetAccount: ChannelAccountRecord | null = actionTargetAccount) {
+    if (!targetAccount) {
       return;
     }
 
-    void requestConnectionTest({ accountId: actionTargetAccount.id }).catch(() => undefined);
+    void requestConnectionTest({ accountId: targetAccount.id }).catch(() => undefined);
   }
 
   return (
@@ -681,7 +681,7 @@ export function ChannelAccountsPage({
               type="button"
               data-header-test-connection-action="true"
               disabled={testConnectionActionDisabled}
-              onClick={testConnectionActionDisabled ? undefined : handleTestConnection}
+              onClick={testConnectionActionDisabled ? undefined : () => handleTestConnection()}
               style={
                 testConnectionActionDisabled
                   ? disabledHeaderPrimaryButtonStyle
@@ -812,7 +812,7 @@ export function ChannelAccountsPage({
                         : '测试连接'
                   }
                   tone="primary"
-                  onClick={handleTestConnection}
+                  onClick={() => handleTestConnection(latestCreatedAccount)}
                 />
               </div>
             </div>
@@ -1160,7 +1160,7 @@ export function ChannelAccountsPage({
                 type="button"
                 data-recovery-test-connection-action="true"
                 disabled={testConnectionActionDisabled}
-                onClick={testConnectionActionDisabled ? undefined : handleTestConnection}
+                onClick={testConnectionActionDisabled ? undefined : () => handleTestConnection()}
                 style={
                   testConnectionActionDisabled
                     ? disabledHeaderPrimaryButtonStyle
