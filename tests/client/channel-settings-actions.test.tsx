@@ -510,6 +510,7 @@ describe('settings save validation and feedback', () => {
               draftId: '33',
               title: 'Community update',
               accountKey: 'launch-campaign',
+              ownership: 'direct',
               status: 'pending',
               artifactPath:
                 'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-33.json',
@@ -524,6 +525,7 @@ describe('settings save validation and feedback', () => {
               draftId: '34',
               title: 'Published handoff',
               accountKey: 'launch-campaign',
+              ownership: 'direct',
               status: 'resolved',
               artifactPath:
                 'artifacts/browser-handoffs/weibo/launch-campaign/weibo-draft-34.json',
@@ -570,6 +572,7 @@ describe('settings save validation and feedback', () => {
     expect(successHtml).toContain('作业控制');
     expect(successHtml).toContain('Browser Handoff 工单');
     expect(successHtml).toContain('account #9');
+    expect(successHtml).toContain('ownership: direct');
     expect(successHtml).toContain(
       'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-33.json',
     );

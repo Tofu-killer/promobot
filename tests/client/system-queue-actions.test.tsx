@@ -107,6 +107,7 @@ describe('System Queue actions', () => {
             draftId: '13',
             title: 'Community update',
             accountKey: 'launch-campaign',
+            ownership: 'direct',
             status: 'resolved',
             artifactPath:
               'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-13.json',
@@ -342,6 +343,7 @@ describe('System Queue actions', () => {
               draftId: '13',
               title: 'Community update',
               accountKey: 'launch-campaign',
+              ownership: 'direct',
               status: 'resolved',
               artifactPath:
                 'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-13.json',
@@ -387,6 +389,7 @@ describe('System Queue actions', () => {
     expect(html).toContain('request_session');
     expect(html).toContain('artifacts/browser-lane-requests/x/acct-browser/request-session-job-17.json');
     expect(html).toContain('account #7');
+    expect(html).toContain('ownership: direct');
     expect(html).toContain('artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-13.json');
     expect(html).toContain('resolution: resolved');
     expect(html).toContain('resolution detail: published');

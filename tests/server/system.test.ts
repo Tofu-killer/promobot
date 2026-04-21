@@ -975,6 +975,7 @@ describe('system runtime api', () => {
             platform: 'facebookGroup',
             draftId: '13',
             accountKey: 'launch-campaign',
+            ownership: 'unmatched',
             status: 'resolved',
             artifactPath:
               'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-13.json',
@@ -984,6 +985,7 @@ describe('system runtime api', () => {
             platform: 'facebookGroup',
             draftId: '12',
             accountKey: 'launch-campaign',
+            ownership: 'unmatched',
             status: 'pending',
             artifactPath:
               'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-12.json',

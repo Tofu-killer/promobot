@@ -11,6 +11,7 @@ const channelAccountStore = createChannelAccountStore();
 const draftStore = createSQLiteDraftStore();
 
 type BrowserHandoffArtifactStatus = 'pending' | 'resolved' | 'obsolete';
+type BrowserHandoffOwnership = 'direct' | 'draft_project' | 'unmatched';
 
 interface BrowserHandoffArtifactRecord {
   type: 'browser_manual_handoff';
@@ -31,6 +32,7 @@ interface BrowserHandoffArtifactRecord {
 
 export interface BrowserHandoffArtifactSummary {
   channelAccountId?: number;
+  ownership: BrowserHandoffOwnership;
   platform: Extract<PublisherPlatform, 'facebookGroup' | 'xiaohongshu' | 'weibo'>;
   draftId: string;
   title: string | null;
@@ -201,15 +203,13 @@ export function listBrowserHandoffArtifacts(limit?: number): BrowserHandoffArtif
           continue;
         }
 
-        const inferredChannelAccountId =
-          typeof artifact.channelAccountId === 'number'
-            ? artifact.channelAccountId
-            : inferChannelAccountIdFromDraft(artifact);
+        const ownership = resolveBrowserHandoffOwnership(artifact);
 
         artifacts.push({
-          ...(typeof inferredChannelAccountId === 'number'
-            ? { channelAccountId: inferredChannelAccountId }
+          ...(typeof ownership.channelAccountId === 'number'
+            ? { channelAccountId: ownership.channelAccountId }
             : {}),
+          ownership: ownership.ownership,
           platform: artifact.platform,
           draftId: artifact.draftId,
           title: artifact.title,
@@ -262,6 +262,27 @@ export function getLatestBrowserHandoffArtifact(input: {
   const latest = artifacts[0];
 
   return latest ?? null;
+}
+
+function resolveBrowserHandoffOwnership(artifact: BrowserHandoffArtifactRecord) {
+  if (typeof artifact.channelAccountId === 'number') {
+    return {
+      channelAccountId: artifact.channelAccountId,
+      ownership: 'direct' as const,
+    };
+  }
+
+  const inferredChannelAccountId = inferChannelAccountIdFromDraft(artifact);
+  if (typeof inferredChannelAccountId === 'number') {
+    return {
+      channelAccountId: inferredChannelAccountId,
+      ownership: 'draft_project' as const,
+    };
+  }
+
+  return {
+    ownership: 'unmatched' as const,
+  };
 }
 
 function buildArtifactPath(platform: string, accountKey: string, draftId: string) {

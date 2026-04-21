@@ -54,6 +54,7 @@ export interface BrowserLaneRequestsResponse {
 
 export interface BrowserHandoffRecord {
   channelAccountId?: number;
+  ownership?: string;
   platform: string;
   draftId: string;
   title: string | null;
@@ -462,6 +463,9 @@ export function SystemQueuePage({
                     </div>
                     {typeof handoff.channelAccountId === 'number' ? (
                       <div style={{ color: '#475569' }}>account #{handoff.channelAccountId}</div>
+                    ) : null}
+                    {handoff.ownership ? (
+                      <div style={{ color: '#475569' }}>ownership: {handoff.ownership}</div>
                     ) : null}
                     <div style={{ color: '#475569' }}>title: {handoff.title ?? '未提供'}</div>
                     <div style={{ color: '#475569' }}>accountKey: {handoff.accountKey}</div>
