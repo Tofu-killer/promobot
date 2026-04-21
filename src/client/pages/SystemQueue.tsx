@@ -469,6 +469,11 @@ export function SystemQueuePage({
                         resolution: {readResolutionStatus(handoff.resolution)}
                       </div>
                     ) : null}
+                    {readResolutionDetail(handoff.resolution) ? (
+                      <div style={{ color: '#475569' }}>
+                        resolution detail: {readResolutionDetail(handoff.resolution)}
+                      </div>
+                    ) : null}
                   </article>
                 ))}
               </div>
@@ -512,4 +517,18 @@ function readResolutionStatus(value: unknown) {
   return typeof (value as { status?: unknown } | null)?.status === 'string'
     ? ((value as { status: string }).status)
     : null;
+}
+
+function readResolutionDetail(value: unknown) {
+  const record =
+    typeof value === 'object' && value !== null && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
+  return typeof record?.reason === 'string'
+    ? record.reason
+    : typeof record?.publishStatus === 'string'
+      ? record.publishStatus
+      : typeof record?.draftStatus === 'string'
+        ? record.draftStatus
+        : null;
 }

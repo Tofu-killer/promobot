@@ -386,6 +386,7 @@ describe('System Queue actions', () => {
     expect(html).toContain('artifacts/browser-lane-requests/x/acct-browser/request-session-job-17.json');
     expect(html).toContain('artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-13.json');
     expect(html).toContain('resolution: resolved');
+    expect(html).toContain('resolution detail: published');
     expect(html).toContain('#11 · publish');
     expect(html).toContain('#17 · monitor_fetch · done');
     expect(html).toContain('lastError: boom');

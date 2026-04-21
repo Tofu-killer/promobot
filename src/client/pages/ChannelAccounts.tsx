@@ -1023,6 +1023,12 @@ export function ChannelAccountsPage({
                                   {readStatusValue(account.latestBrowserHandoffArtifact.resolution)}
                                 </div>
                               ) : null}
+                              {readResolutionDetail(account.latestBrowserHandoffArtifact.resolution) ? (
+                                <div>
+                                  Handoff 详情：
+                                  {readResolutionDetail(account.latestBrowserHandoffArtifact.resolution)}
+                                </div>
+                              ) : null}
                               <div>
                                 Handoff 路径：{account.latestBrowserHandoffArtifact.artifactPath}
                               </div>
@@ -1676,6 +1682,16 @@ function readStatusValue(value: unknown): string | undefined {
   return typeof readObjectValue(value)?.status === 'string'
     ? (readObjectValue(value)?.status as string)
     : undefined;
+}
+
+function readResolutionDetail(value: unknown): string | undefined {
+  const record = readObjectValue(value);
+  return (
+    readTextValue(record?.reason) ??
+    readTextValue(record?.publishStatus) ??
+    readTextValue(record?.draftStatus) ??
+    undefined
+  );
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

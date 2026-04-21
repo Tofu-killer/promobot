@@ -1496,6 +1496,7 @@ describe('client API page wiring', () => {
     expect(html).toContain('Handoff 时间：2026-04-19T00:25:00.000Z');
     expect(html).toContain('Handoff 结单：2026-04-19T00:25:00.000Z');
     expect(html).toContain('Handoff 结果：obsolete');
+    expect(html).toContain('Handoff 详情：relogin');
     expect(html).toContain(
       'Handoff 路径：artifacts/browser-handoffs/reddit/acct-reddit/reddit-draft-31.json',
     );
