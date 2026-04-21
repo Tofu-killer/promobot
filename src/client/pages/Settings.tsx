@@ -101,6 +101,7 @@ export interface BrowserLaneRequestsResponse {
 
 export interface BrowserHandoffRecord {
   channelAccountId?: number;
+  accountDisplayName?: string;
   ownership?: string;
   platform: string;
   draftId: string;
@@ -1112,6 +1113,9 @@ export function SettingsPage({
                     </div>
                     {typeof handoff.channelAccountId === 'number' ? (
                       <div style={{ color: '#475569' }}>account #{handoff.channelAccountId}</div>
+                    ) : null}
+                    {handoff.accountDisplayName ? (
+                      <div style={{ color: '#475569' }}>account: {handoff.accountDisplayName}</div>
                     ) : null}
                     {handoff.ownership ? (
                       <div style={{ color: '#475569' }}>ownership: {handoff.ownership}</div>

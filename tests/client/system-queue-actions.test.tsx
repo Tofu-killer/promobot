@@ -103,6 +103,7 @@ describe('System Queue actions', () => {
         handoffs: [
           {
             channelAccountId: 7,
+            accountDisplayName: 'FB Group Manual',
             platform: 'facebookGroup',
             draftId: '13',
             title: 'Community update',
@@ -339,6 +340,7 @@ describe('System Queue actions', () => {
           handoffs: [
             {
               channelAccountId: 7,
+              accountDisplayName: 'FB Group Manual',
               platform: 'facebookGroup',
               draftId: '13',
               title: 'Community update',
@@ -389,6 +391,7 @@ describe('System Queue actions', () => {
     expect(html).toContain('request_session');
     expect(html).toContain('artifacts/browser-lane-requests/x/acct-browser/request-session-job-17.json');
     expect(html).toContain('account #7');
+    expect(html).toContain('account: FB Group Manual');
     expect(html).toContain('ownership: direct');
     expect(html).toContain('artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-13.json');
     expect(html).toContain('resolution: resolved');

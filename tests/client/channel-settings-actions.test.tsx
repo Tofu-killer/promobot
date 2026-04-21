@@ -506,6 +506,7 @@ describe('settings save validation and feedback', () => {
           handoffs: [
             {
               channelAccountId: 9,
+              accountDisplayName: 'FB Group Manual',
               platform: 'facebookGroup',
               draftId: '33',
               title: 'Community update',
@@ -521,6 +522,7 @@ describe('settings save validation and feedback', () => {
             },
             {
               channelAccountId: 10,
+              accountDisplayName: 'Weibo Manual',
               platform: 'weibo',
               draftId: '34',
               title: 'Published handoff',
@@ -572,6 +574,7 @@ describe('settings save validation and feedback', () => {
     expect(successHtml).toContain('作业控制');
     expect(successHtml).toContain('Browser Handoff 工单');
     expect(successHtml).toContain('account #9');
+    expect(successHtml).toContain('account: FB Group Manual');
     expect(successHtml).toContain('ownership: direct');
     expect(successHtml).toContain(
       'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-33.json',

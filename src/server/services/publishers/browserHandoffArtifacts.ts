@@ -32,6 +32,7 @@ interface BrowserHandoffArtifactRecord {
 
 export interface BrowserHandoffArtifactSummary {
   channelAccountId?: number;
+  accountDisplayName?: string;
   ownership: BrowserHandoffOwnership;
   platform: Extract<PublisherPlatform, 'facebookGroup' | 'xiaohongshu' | 'weibo'>;
   draftId: string;
@@ -178,6 +179,7 @@ export function listBrowserHandoffArtifacts(limit?: number): BrowserHandoffArtif
     return [];
   }
 
+  const channelAccounts = channelAccountStore.list();
   const artifacts: BrowserHandoffArtifactSummary[] = [];
 
   for (const platformEntry of fs.readdirSync(browserHandoffDir, { withFileTypes: true })) {
@@ -203,12 +205,13 @@ export function listBrowserHandoffArtifacts(limit?: number): BrowserHandoffArtif
           continue;
         }
 
-        const ownership = resolveBrowserHandoffOwnership(artifact);
+        const ownership = resolveBrowserHandoffOwnership(artifact, channelAccounts);
 
         artifacts.push({
           ...(typeof ownership.channelAccountId === 'number'
             ? { channelAccountId: ownership.channelAccountId }
             : {}),
+          ...(ownership.accountDisplayName ? { accountDisplayName: ownership.accountDisplayName } : {}),
           ownership: ownership.ownership,
           platform: artifact.platform,
           draftId: artifact.draftId,
@@ -264,18 +267,45 @@ export function getLatestBrowserHandoffArtifact(input: {
   return latest ?? null;
 }
 
-function resolveBrowserHandoffOwnership(artifact: BrowserHandoffArtifactRecord) {
+function resolveBrowserHandoffOwnership(
+  artifact: BrowserHandoffArtifactRecord,
+  channelAccounts: Array<{
+    id: number;
+    projectId: number | null;
+    platform: string;
+    accountKey: string;
+    displayName: string;
+  }>,
+) {
   if (typeof artifact.channelAccountId === 'number') {
+    const channelAccount = channelAccounts.find((account) => account.id === artifact.channelAccountId);
     return {
       channelAccountId: artifact.channelAccountId,
+      ...(channelAccount ? { accountDisplayName: channelAccount.displayName } : {}),
       ownership: 'direct' as const,
     };
   }
 
-  const inferredChannelAccountId = inferChannelAccountIdFromDraft(artifact);
+  const matchingChannelAccounts = channelAccounts.filter(
+    (channelAccount) =>
+      normalizeBrowserHandoffPlatform(channelAccount.platform) === artifact.platform &&
+      channelAccount.accountKey === artifact.accountKey,
+  );
+
+  if (matchingChannelAccounts.length === 1) {
+    return {
+      channelAccountId: matchingChannelAccounts[0]?.id,
+      accountDisplayName: matchingChannelAccounts[0]?.displayName,
+      ownership: 'direct' as const,
+    };
+  }
+
+  const inferredChannelAccountId = inferChannelAccountIdFromDraft(artifact, channelAccounts);
   if (typeof inferredChannelAccountId === 'number') {
+    const channelAccount = channelAccounts.find((account) => account.id === inferredChannelAccountId);
     return {
       channelAccountId: inferredChannelAccountId,
+      ...(channelAccount ? { accountDisplayName: channelAccount.displayName } : {}),
       ownership: 'draft_project' as const,
     };
   }
@@ -370,7 +400,15 @@ function normalizeBrowserHandoffPlatform(platform: string) {
   return platform === 'facebook-group' ? 'facebookGroup' : platform;
 }
 
-function inferChannelAccountIdFromDraft(artifact: BrowserHandoffArtifactRecord) {
+function inferChannelAccountIdFromDraft(
+  artifact: BrowserHandoffArtifactRecord,
+  channelAccounts: Array<{
+    id: number;
+    projectId: number | null;
+    platform: string;
+    accountKey: string;
+  }>,
+) {
   const draftId = Number(artifact.draftId);
   if (!Number.isInteger(draftId) || draftId <= 0) {
     return undefined;
@@ -381,9 +419,7 @@ function inferChannelAccountIdFromDraft(artifact: BrowserHandoffArtifactRecord) 
     return undefined;
   }
 
-  const matches = channelAccountStore
-    .list()
-    .filter(
+  const matches = channelAccounts.filter(
       (channelAccount) =>
         channelAccount.projectId === draft.projectId &&
         normalizeBrowserHandoffPlatform(channelAccount.platform) === artifact.platform &&

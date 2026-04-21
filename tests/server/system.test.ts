@@ -890,6 +890,23 @@ describe('system runtime api', () => {
         adminPassword: 'secret',
       });
 
+      const created = await requestExistingApp(app, {
+        method: 'POST',
+        url: '/api/channel-accounts',
+        remoteAddress: '127.0.0.1',
+        headers: {
+          'x-admin-password': 'secret',
+        },
+        body: {
+          platform: 'facebookGroup',
+          accountKey: 'launch-campaign',
+          displayName: 'FB Group Manual',
+          authType: 'browser',
+          status: 'healthy',
+        },
+      });
+      expect(created.status).toBe(201);
+
       const artifactDir = path.join(
         rootDir,
         'artifacts',
@@ -972,20 +989,24 @@ describe('system runtime api', () => {
       expect(JSON.parse(response.body)).toEqual({
         handoffs: [
           expect.objectContaining({
+            channelAccountId: 1,
+            accountDisplayName: 'FB Group Manual',
             platform: 'facebookGroup',
             draftId: '13',
             accountKey: 'launch-campaign',
-            ownership: 'unmatched',
+            ownership: 'direct',
             status: 'resolved',
             artifactPath:
               'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-13.json',
             resolvedAt: '2026-04-21T09:20:00.000Z',
           }),
           expect.objectContaining({
+            channelAccountId: 1,
+            accountDisplayName: 'FB Group Manual',
             platform: 'facebookGroup',
             draftId: '12',
             accountKey: 'launch-campaign',
-            ownership: 'unmatched',
+            ownership: 'direct',
             status: 'pending',
             artifactPath:
               'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-12.json',
