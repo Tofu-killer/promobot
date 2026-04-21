@@ -922,6 +922,92 @@ describe('Reputation action wiring', () => {
     expect(html).toContain('预览数据不可设为重点项');
   });
 
+  it('normalizes reputation sentiment bars against total mentions before rendering percentages', async () => {
+    const { ReputationPage } = await import('../../src/client/pages/Reputation');
+
+    const html = renderPage(ReputationPage, {
+      stateOverride: {
+        status: 'success',
+        data: {
+          total: 5,
+          positive: 2,
+          neutral: 1,
+          negative: 2,
+          trend: [
+            { label: '正向', value: 2 },
+            { label: '中性', value: 1 },
+            { label: '负向', value: 2 },
+          ],
+          items: [
+            {
+              id: 4,
+              source: 'x',
+              sentiment: 'negative',
+              status: 'new',
+              title: 'Session expired complaint',
+              detail: 'Users report being logged out unexpectedly.',
+              createdAt: '2026-04-19T10:00:00.000Z',
+            },
+          ],
+        },
+      } satisfies ApiState<unknown>,
+    });
+
+    expect(html).toContain('<strong>40%</strong>');
+    expect(html).toContain('<strong>20%</strong>');
+    expect(html).toContain('width:40%');
+    expect(html).toContain('width:20%');
+    expect(html).not.toContain('<strong>2%</strong>');
+    expect(html).not.toContain('<strong>1%</strong>');
+  });
+
+  it('renders only negative mentions in the priority list and labels them as negative', async () => {
+    const { ReputationPage } = await import('../../src/client/pages/Reputation');
+
+    const html = renderPage(ReputationPage, {
+      stateOverride: {
+        status: 'success',
+        data: {
+          total: 3,
+          positive: 1,
+          neutral: 0,
+          negative: 1,
+          trend: [
+            { label: '正向', value: 1 },
+            { label: '中性', value: 0 },
+            { label: '负向', value: 1 },
+          ],
+          items: [
+            {
+              id: 4,
+              source: 'x',
+              sentiment: 'negative',
+              status: 'escalate',
+              title: 'Session expired complaint',
+              detail: 'Users report being logged out unexpectedly.',
+              createdAt: '2026-04-19T10:00:00.000Z',
+            },
+            {
+              id: 5,
+              source: 'reddit',
+              sentiment: 'mixed',
+              status: 'new',
+              title: 'Pricing feedback thread',
+              detail: 'Some users like the new plan, others are confused by limits.',
+              createdAt: '2026-04-19T12:00:00.000Z',
+            },
+          ],
+        },
+      } satisfies ApiState<unknown>,
+    });
+
+    expect(html).toContain('Session expired complaint');
+    expect(html).toContain('>负面<');
+    expect(html).not.toContain('Pricing feedback thread');
+    expect(html).not.toContain('>mixed<');
+    expect(html).not.toContain('background:#fef3c7;color:#92400e');
+  });
+
   it('renders reputation fetch feedback when available', async () => {
     const { ReputationPage } = await import('../../src/client/pages/Reputation');
 

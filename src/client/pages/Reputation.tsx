@@ -7,7 +7,6 @@ import { PageHeader } from '../components/PageHeader';
 import { SectionCard } from '../components/SectionCard';
 import { SentimentChart } from '../components/SentimentChart';
 import { StatCard } from '../components/StatCard';
-import { StatusBadge } from '../components/StatusBadge';
 
 export interface ReputationItem {
   id: number;
@@ -66,6 +65,14 @@ function createProjectIdBody(projectId?: number) {
 
 function createProjectPayload(projectId?: number) {
   return projectId === undefined ? {} : { projectId };
+}
+
+function toSentimentPercentage(value: number, total: number) {
+  if (total <= 0) {
+    return 0;
+  }
+
+  return Math.round((value / total) * 100);
 }
 
 export async function loadReputationRequest(projectId?: number): Promise<ReputationStatsResponse> {
@@ -149,6 +156,16 @@ const queueInputStyle = {
   font: 'inherit',
   background: '#ffffff',
 } as const;
+const negativeSentimentBadgeStyle = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  borderRadius: '999px',
+  padding: '4px 10px',
+  fontSize: '12px',
+  fontWeight: 700,
+  background: '#fee2e2',
+  color: '#991b1b',
+} as const;
 
 export function ReputationPage({
   loadReputationAction = loadReputationRequest,
@@ -213,7 +230,13 @@ export function ReputationPage({
   const displayItems = updatedReputationItem
     ? viewData.items.map((item) => (item.id === updatedReputationItem.id ? updatedReputationItem : item))
     : viewData.items;
-  const selectedItem = isPreview ? null : displayItems.find((item) => item.id === selectedItemId) ?? displayItems[0] ?? null;
+  const priorityItems = displayItems.filter((item) => item.sentiment === 'negative');
+  const selectedItem = isPreview ? null : priorityItems.find((item) => item.id === selectedItemId) ?? priorityItems[0] ?? null;
+  const sentimentBars = viewData.trend.map((bar) => ({
+    label: bar.label,
+    value: toSentimentPercentage(bar.value, viewData.total),
+    color: bar.label === '正向' ? '#16a34a' : bar.label === '负向' ? '#dc2626' : '#64748b',
+  }));
   const reputationFeedback =
     displayReputationUpdateState.status === 'success' && displayReputationUpdateState.data
       ? displayReputationUpdateState.data.inboxItem
@@ -381,25 +404,15 @@ export function ReputationPage({
 
           <div style={{ marginTop: '20px', display: 'grid', gap: '20px', gridTemplateColumns: 'minmax(320px, 1fr) minmax(320px, 1fr)' }}>
             <SectionCard title="情绪分布" description={`已加载 ${viewData.total} 条口碑提及`}>
-              <SentimentChart
-                bars={viewData.trend.map((bar) => ({
-                  ...bar,
-                  color:
-                    bar.label === '正向'
-                      ? '#16a34a'
-                      : bar.label === '负向'
-                        ? '#dc2626'
-                        : '#64748b',
-                }))}
-              />
+              <SentimentChart bars={sentimentBars} />
             </SectionCard>
 
             <SectionCard title="重点负面提及" description="高风险条目需要优先回应，避免在多个渠道重复扩散。">
               <div style={{ display: 'grid', gap: '12px' }}>
-                {displayItems.length === 0 ? (
-                  <p style={{ margin: 0, color: '#475569' }}>暂无口碑记录</p>
+                {priorityItems.length === 0 ? (
+                  <p style={{ margin: 0, color: '#475569' }}>暂无重点负面提及</p>
                 ) : (
-                  displayItems.map((item) => (
+                  priorityItems.map((item) => (
                     <article
                       key={item.id}
                       onClick={() => {
@@ -422,7 +435,7 @@ export function ReputationPage({
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
                         <div style={{ fontWeight: 700 }}>{item.title}</div>
-                        <StatusBadge tone="review" label={item.sentiment} />
+                        <span style={negativeSentimentBadgeStyle}>负面</span>
                       </div>
                       <p style={{ margin: '12px 0 0', color: item.sentiment === 'negative' ? '#7f1d1d' : '#475569', lineHeight: 1.5 }}>
                         {item.detail}

@@ -2675,7 +2675,7 @@ describe('client API page wiring', () => {
     });
 
     expect(html).toContain('已加载 3 条口碑提及');
-    expect(html).toContain('negative');
+    expect(html).toContain('负面');
     expect(html).toContain('Session expired complaint');
     expect(html).toContain('项目 ID（可选）');
   });
