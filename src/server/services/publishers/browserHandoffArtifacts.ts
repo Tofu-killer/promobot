@@ -89,6 +89,59 @@ export function markBrowserHandoffArtifactObsolete(input: {
   });
 }
 
+export function markBrowserHandoffArtifactsObsoleteForAccount(input: {
+  platform: Extract<PublisherPlatform, 'facebookGroup' | 'xiaohongshu' | 'weibo'>;
+  accountKey: string;
+  reason: 'request_session' | 'relogin';
+}) {
+  const artifactRootDir = resolveArtifactRootDir();
+  const accountDir = path.join(
+    artifactRootDir,
+    'artifacts',
+    'browser-handoffs',
+    sanitizeSegment(input.platform),
+    sanitizeSegment(input.accountKey),
+  );
+  if (!fs.existsSync(accountDir)) {
+    return [];
+  }
+
+  const updatedArtifacts: Array<{ artifactPath: string; resolvedAt: string }> = [];
+
+  for (const artifactEntry of fs.readdirSync(accountDir, { withFileTypes: true })) {
+    if (!artifactEntry.isFile() || !artifactEntry.name.endsWith('.json')) {
+      continue;
+    }
+
+    const absolutePath = path.join(accountDir, artifactEntry.name);
+    const artifact = readBrowserHandoffArtifact(absolutePath);
+    if (!artifact || artifact.status !== 'pending') {
+      continue;
+    }
+
+    const nextArtifact = updateBrowserHandoffArtifact(
+      {
+        platform: input.platform,
+        accountKey: input.accountKey,
+        draftId: artifact.draftId,
+      },
+      {
+        status: 'obsolete',
+        reason: input.reason,
+      },
+    );
+
+    if (nextArtifact?.artifactPath && nextArtifact.resolvedAt) {
+      updatedArtifacts.push({
+        artifactPath: nextArtifact.artifactPath,
+        resolvedAt: nextArtifact.resolvedAt,
+      });
+    }
+  }
+
+  return updatedArtifacts;
+}
+
 export function resolveBrowserHandoffArtifact(input: {
   platform: Extract<PublisherPlatform, 'facebookGroup' | 'xiaohongshu' | 'weibo'>;
   accountKey: string;

@@ -4,7 +4,7 @@ import {
 } from '../browser/sessionStore.js';
 import { createChannelAccountStore } from '../../store/channelAccounts.js';
 import { createStubPublisher } from './stub.js';
-import { markBrowserHandoffArtifactObsolete, writeBrowserHandoffArtifact } from './browserHandoffArtifacts.js';
+import { markBrowserHandoffArtifactsObsoleteForAccount, writeBrowserHandoffArtifact } from './browserHandoffArtifacts.js';
 import type { PublishRequest, PublishResult, Publisher, PublisherPlatform } from './types.js';
 
 export function createBrowserHandoffPublisher(
@@ -35,10 +35,9 @@ export function createBrowserHandoffPublisher(
       request.metadata,
     );
     if (resolution.sessionAction) {
-      markBrowserHandoffArtifactObsolete({
+      markBrowserHandoffArtifactsObsoleteForAccount({
         platform,
         accountKey,
-        draftId,
         reason: resolution.sessionAction,
       });
     }

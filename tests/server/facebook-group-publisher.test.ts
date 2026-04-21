@@ -218,6 +218,92 @@ describe('publishToFacebookGroup', () => {
     );
   });
 
+  it('marks all pending browser handoff artifacts for the same account obsolete when relogin is required', async () => {
+    mockSession({
+      id: 'facebookGroup:launch-campaign',
+      platform: 'facebookGroup',
+      accountKey: 'launch-campaign',
+      storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
+      status: 'active',
+      createdAt: '2026-04-19T10:00:00.000Z',
+      updatedAt: '2026-04-19T10:30:00.000Z',
+      lastValidatedAt: '2026-04-19T10:25:00.000Z',
+    });
+
+    await publishToFacebookGroup({
+      draftId: 31,
+      content: 'Ready for browser handoff 31',
+      target: 'group-123',
+      metadata: {
+        accountKey: 'launch-campaign',
+      },
+    });
+    await publishToFacebookGroup({
+      draftId: 32,
+      content: 'Ready for browser handoff 32',
+      target: 'group-123',
+      metadata: {
+        accountKey: 'launch-campaign',
+      },
+    });
+
+    mockSession({
+      id: 'facebookGroup:launch-campaign',
+      platform: 'facebookGroup',
+      accountKey: 'launch-campaign',
+      storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
+      status: 'expired',
+      createdAt: '2026-04-19T10:00:00.000Z',
+      updatedAt: '2026-04-19T11:30:00.000Z',
+      lastValidatedAt: '2026-04-19T11:25:00.000Z',
+    });
+
+    await publishToFacebookGroup({
+      draftId: 32,
+      content: 'Needs relogin now',
+      target: 'group-123',
+      metadata: {
+        accountKey: 'launch-campaign',
+      },
+    });
+
+    const artifact31Path = path.join(
+      outputDir,
+      'artifacts',
+      'browser-handoffs',
+      'facebookGroup',
+      'launch-campaign',
+      'facebookGroup-draft-31.json',
+    );
+    const artifact32Path = path.join(
+      outputDir,
+      'artifacts',
+      'browser-handoffs',
+      'facebookGroup',
+      'launch-campaign',
+      'facebookGroup-draft-32.json',
+    );
+
+    expect(JSON.parse(readFileSync(artifact31Path, 'utf8'))).toEqual(
+      expect.objectContaining({
+        status: 'obsolete',
+        resolution: {
+          status: 'obsolete',
+          reason: 'relogin',
+        },
+      }),
+    );
+    expect(JSON.parse(readFileSync(artifact32Path, 'utf8'))).toEqual(
+      expect.objectContaining({
+        status: 'obsolete',
+        resolution: {
+          status: 'obsolete',
+          reason: 'relogin',
+        },
+      }),
+    );
+  });
+
   it('requests relogin when the saved session is expired', async () => {
     const sessionStore = mockSession({
       id: 'facebookGroup:launch-campaign',
