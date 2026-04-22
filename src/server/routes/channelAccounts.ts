@@ -385,7 +385,10 @@ function attachSessionSummary<
   },
 >(channelAccount: T, sessionStore = createSessionStore()): T & { session: SessionSummary } {
   const liveSession = sessionStore.getSession(channelAccount.platform, channelAccount.accountKey);
-  const metadataSession = parseSessionSummary(channelAccount.metadata.session);
+  const metadataSession = normalizeMetadataSessionFallback(
+    parseSessionSummary(channelAccount.metadata.session),
+  );
+  const session = liveSession ? buildSessionSummary(liveSession) : metadataSession;
   const latestBrowserLaneArtifact = getLatestSessionRequestArtifact({
     channelAccountId: channelAccount.id,
     platform: channelAccount.platform,
@@ -399,7 +402,8 @@ function attachSessionSummary<
 
   return {
     ...channelAccount,
-    session: liveSession ? buildSessionSummary(liveSession) : metadataSession,
+    metadata: syncResponseMetadataSession(channelAccount.metadata, session),
+    session,
     latestBrowserLaneArtifact,
     latestBrowserHandoffArtifact,
     publishReadiness: getChannelAccountPublishReadiness({
@@ -435,5 +439,36 @@ function parseSessionSummary(value: unknown): SessionSummary {
         ? (value.storageStatePath as string | null)
         : null,
     notes: typeof value.notes === 'string' ? value.notes : undefined,
+  };
+}
+
+function normalizeMetadataSessionFallback(session: SessionSummary): SessionSummary {
+  if (!session.hasSession && session.status === 'missing') {
+    return session;
+  }
+
+  return {
+    ...session,
+    hasSession: false,
+    status: 'missing',
+  };
+}
+
+function syncResponseMetadataSession(
+  metadata: Record<string, unknown>,
+  session: SessionSummary,
+): Record<string, unknown> {
+  if (!Object.prototype.hasOwnProperty.call(metadata, 'session')) {
+    return metadata;
+  }
+
+  const metadataSession = isPlainObject(metadata.session) ? metadata.session : {};
+
+  return {
+    ...metadata,
+    session: {
+      ...metadataSession,
+      ...session,
+    },
   };
 }

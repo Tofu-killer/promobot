@@ -1105,6 +1105,15 @@ describe('channel accounts api', () => {
         channelAccounts: [
           expect.objectContaining({
             id: 1,
+            metadata: {
+              session: {
+                hasSession: false,
+                id: 'facebookGroup:launch-campaign',
+                status: 'missing',
+                validatedAt: '2026-04-20T12:34:56.000Z',
+                storageStatePath,
+              },
+            },
             session: {
               hasSession: false,
               id: 'facebookGroup:launch-campaign',
@@ -1157,6 +1166,68 @@ describe('channel accounts api', () => {
             storageStatePath,
           },
         }),
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('degrades metadata-only session fallbacks to missing when no live session exists', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const storageStatePath = 'artifacts/browser-sessions/facebook-group.json';
+
+      const created = await requestApp('POST', '/api/channel-accounts', {
+        platform: 'facebookGroup',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB Group',
+        authType: 'browser',
+        status: 'healthy',
+        metadata: {
+          session: {
+            hasSession: true,
+            id: 'facebookGroup:launch-campaign',
+            status: 'active',
+            validatedAt: '2026-04-20T12:34:56.000Z',
+            storageStatePath,
+            source: 'legacy-cache',
+          },
+        },
+      });
+
+      expect(created.status).toBe(201);
+
+      const listed = await requestApp('GET', '/api/channel-accounts');
+
+      expect(listed.status).toBe(200);
+      expect(JSON.parse(listed.body)).toEqual({
+        channelAccounts: [
+          expect.objectContaining({
+            id: 1,
+            metadata: {
+              session: {
+                hasSession: false,
+                id: 'facebookGroup:launch-campaign',
+                status: 'missing',
+                validatedAt: '2026-04-20T12:34:56.000Z',
+                storageStatePath,
+                source: 'legacy-cache',
+              },
+            },
+            session: {
+              hasSession: false,
+              id: 'facebookGroup:launch-campaign',
+              status: 'missing',
+              validatedAt: '2026-04-20T12:34:56.000Z',
+              storageStatePath,
+            },
+            publishReadiness: expect.objectContaining({
+              platform: 'facebookGroup',
+              ready: false,
+              status: 'needs_session',
+            }),
+          }),
+        ],
       });
     } finally {
       cleanupTestDatabasePath(rootDir);
