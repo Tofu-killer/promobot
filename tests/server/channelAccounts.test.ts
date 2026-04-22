@@ -177,6 +177,27 @@ describe('channel accounts api', () => {
     }
   });
 
+  it('rejects channel account creation with invalid metadata type', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const response = await requestApp('POST', '/api/channel-accounts', {
+        platform: 'x',
+        accountKey: '@promobot',
+        displayName: 'PromoBot X',
+        authType: 'api',
+        status: 'healthy',
+        metadata: 'not-an-object',
+      });
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'invalid channel account payload',
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('preserves and updates projectId bindings when patching a channel account', async () => {
     const { rootDir } = createTestDatabasePath();
     try {

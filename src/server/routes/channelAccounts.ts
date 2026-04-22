@@ -67,6 +67,11 @@ channelAccountsRouter.post('/', (request, response) => {
     return;
   }
 
+  if (metadata !== undefined && !isPlainObject(metadata)) {
+    response.status(400).json({ error: 'invalid channel account payload' });
+    return;
+  }
+
   const parsedProjectId = parseProjectIdInput(projectId, { allowNull: true });
   if (!parsedProjectId.ok) {
     response.status(400).json({ error: 'invalid project id' });
