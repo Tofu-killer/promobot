@@ -18,6 +18,30 @@ function renderPage(Component: unknown, props: Record<string, unknown>) {
   );
 }
 
+function updateFieldValue(element: { value?: string } | null, value: string, window: { Event: typeof Event }) {
+  if (!element) {
+    throw new Error('expected input element');
+  }
+
+  element.value = value;
+
+  const reactPropsKey = Object.keys(element as object).find((key) => key.startsWith('__reactProps'));
+  const reactProps =
+    reactPropsKey && reactPropsKey in (element as object)
+      ? ((element as Record<string, unknown>)[reactPropsKey] as {
+          onChange?: (event: { target: { value: string } }) => void;
+        })
+      : null;
+
+  if (reactProps?.onChange) {
+    reactProps.onChange({ target: { value } });
+    return;
+  }
+
+  (element as { dispatchEvent: (event: Event) => void }).dispatchEvent(new window.Event('input', { bubbles: true }));
+  (element as { dispatchEvent: (event: Event) => void }).dispatchEvent(new window.Event('change', { bubbles: true }));
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -468,6 +492,256 @@ describe('System Queue actions', () => {
 
     expect(enqueueSystemQueueJobAction).not.toHaveBeenCalled();
     expect(document.activeElement).toBe(typeField);
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('passes a user-provided payload when enqueueing a system job from the System Queue page', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { SystemQueuePage } = await import('../../src/client/pages/SystemQueue');
+
+    const loadSystemQueueAction = vi.fn().mockResolvedValue({
+      jobs: [],
+      queue: {
+        pending: 0,
+        running: 0,
+        failed: 0,
+        duePending: 0,
+      },
+      recentJobs: [],
+    });
+    const loadBrowserLaneRequestsAction = vi.fn().mockResolvedValue({
+      requests: [],
+      total: 0,
+    });
+    const loadBrowserHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+    const enqueueSystemQueueJobAction = vi.fn().mockResolvedValue({
+      job: {
+        id: 13,
+        type: 'reputation_fetch',
+        status: 'pending',
+        runAt: '2026-04-20T09:00:00.000Z',
+        attempts: 0,
+      },
+      runtime: { available: true },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(SystemQueuePage as never, {
+          loadSystemQueueAction,
+          loadBrowserLaneRequestsAction,
+          loadBrowserHandoffsAction,
+          enqueueSystemQueueJobAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const typeField = findElement(container, (element) => element.getAttribute('data-system-queue-field') === 'type');
+    const payloadField = findElement(container, (element) => element.getAttribute('data-system-queue-field') === 'payload');
+    const runAtField = findElement(container, (element) => element.getAttribute('data-system-queue-field') === 'runAt');
+    const createButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('创建作业'),
+    );
+
+    await act(async () => {
+      updateFieldValue(typeField as never, 'reputation_fetch', window as never);
+      updateFieldValue(payloadField as never, '{"source":"reddit","limit":5}', window as never);
+      updateFieldValue(runAtField as never, '2026-04-20T09:00:00.000Z', window as never);
+      await flush();
+    });
+
+    await act(async () => {
+      createButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(enqueueSystemQueueJobAction).toHaveBeenCalledWith({
+      type: 'reputation_fetch',
+      payload: {
+        source: 'reddit',
+        limit: 5,
+      },
+      runAt: '2026-04-20T09:00:00.000Z',
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('omits payload when enqueue payload JSON is blank', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { SystemQueuePage } = await import('../../src/client/pages/SystemQueue');
+
+    const loadSystemQueueAction = vi.fn().mockResolvedValue({
+      jobs: [],
+      queue: {
+        pending: 0,
+        running: 0,
+        failed: 0,
+        duePending: 0,
+      },
+      recentJobs: [],
+    });
+    const loadBrowserLaneRequestsAction = vi.fn().mockResolvedValue({
+      requests: [],
+      total: 0,
+    });
+    const loadBrowserHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+    const enqueueSystemQueueJobAction = vi.fn().mockResolvedValue({
+      job: {
+        id: 14,
+        type: 'monitor_fetch',
+        status: 'pending',
+        runAt: '2026-04-20T09:00:00.000Z',
+        attempts: 0,
+      },
+      runtime: { available: true },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(SystemQueuePage as never, {
+          loadSystemQueueAction,
+          loadBrowserLaneRequestsAction,
+          loadBrowserHandoffsAction,
+          enqueueSystemQueueJobAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const typeField = findElement(container, (element) => element.getAttribute('data-system-queue-field') === 'type');
+    const payloadField = findElement(container, (element) => element.getAttribute('data-system-queue-field') === 'payload');
+    const createButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('创建作业'),
+    );
+
+    await act(async () => {
+      updateFieldValue(typeField as never, 'monitor_fetch', window as never);
+      updateFieldValue(payloadField as never, '   ', window as never);
+      await flush();
+    });
+
+    await act(async () => {
+      createButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(enqueueSystemQueueJobAction).toHaveBeenCalledWith({
+      type: 'monitor_fetch',
+      runAt: undefined,
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('shows enqueue payload validation errors when payload JSON is invalid or not an object', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { SystemQueuePage } = await import('../../src/client/pages/SystemQueue');
+
+    const loadSystemQueueAction = vi.fn().mockResolvedValue({
+      jobs: [],
+      queue: {
+        pending: 0,
+        running: 0,
+        failed: 0,
+        duePending: 0,
+      },
+      recentJobs: [],
+    });
+    const loadBrowserLaneRequestsAction = vi.fn().mockResolvedValue({
+      requests: [],
+      total: 0,
+    });
+    const loadBrowserHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+    const enqueueSystemQueueJobAction = vi.fn().mockResolvedValue({
+      job: {
+        id: 13,
+        type: 'reputation_fetch',
+        status: 'pending',
+        runAt: '2026-04-20T09:00:00.000Z',
+        attempts: 0,
+      },
+      runtime: { available: true },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(SystemQueuePage as never, {
+          loadSystemQueueAction,
+          loadBrowserLaneRequestsAction,
+          loadBrowserHandoffsAction,
+          enqueueSystemQueueJobAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const payloadField = findElement(container, (element) => element.getAttribute('data-system-queue-field') === 'payload');
+    const createButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('创建作业'),
+    );
+
+    await act(async () => {
+      updateFieldValue(payloadField as never, '{"source":"reddit"', window as never);
+      await flush();
+    });
+
+    await act(async () => {
+      createButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(enqueueSystemQueueJobAction).not.toHaveBeenCalled();
+    expect(collectText(container)).toContain('队列动作失败：payload JSON 必须是合法的 JSON 对象');
+
+    await act(async () => {
+      updateFieldValue(payloadField as never, '[]', window as never);
+      await flush();
+    });
+
+    await act(async () => {
+      createButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(enqueueSystemQueueJobAction).not.toHaveBeenCalled();
+    expect(collectText(container)).toContain('队列动作失败：payload JSON 必须是 JSON 对象');
 
     await act(async () => {
       root.unmount();

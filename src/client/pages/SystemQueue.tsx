@@ -168,6 +168,10 @@ export function SystemQueuePage({
   browserHandoffStateOverride,
   mutationStateOverride,
 }: SystemQueuePageProps) {
+  type QueueMutationInput =
+    | { mode: 'retry'; jobId?: number; runAt?: string }
+    | { mode: 'cancel'; jobId?: number }
+    | { mode: 'enqueue'; runAt?: string; type?: string; payloadJson?: string };
   const { state, reload } = useAsyncQuery(loadSystemQueueAction, [loadSystemQueueAction]);
   const { state: browserLaneState, reload: reloadBrowserLane } = useAsyncQuery(
     loadBrowserLaneRequestsAction,
@@ -178,7 +182,7 @@ export function SystemQueuePage({
     [loadBrowserHandoffsAction],
   );
   const { state: mutationState, run: mutateQueue } = useAsyncAction(
-    (input: { mode: 'retry' | 'cancel' | 'enqueue'; jobId?: number; runAt?: string; type?: string }) => {
+    (input: QueueMutationInput) => {
       if (input.mode === 'retry') {
         return retrySystemQueueJobAction(input.jobId ?? -1, input.runAt);
       }
@@ -187,9 +191,11 @@ export function SystemQueuePage({
         return cancelSystemQueueJobAction(input.jobId ?? -1);
       }
 
+      const payload = parseEnqueuePayload(input.payloadJson);
+
       return enqueueSystemQueueJobAction({
         type: input.type ?? 'monitor_fetch',
-        payload: {},
+        ...(payload === undefined ? {} : { payload }),
         runAt: input.runAt,
       });
     },
@@ -199,6 +205,7 @@ export function SystemQueuePage({
   const displayBrowserHandoffState = browserHandoffStateOverride ?? browserHandoffState;
   const displayMutationState = mutationStateOverride ?? mutationState;
   const [enqueueType, setEnqueueType] = useState('monitor_fetch');
+  const [enqueuePayloadJson, setEnqueuePayloadJson] = useState('');
   const [enqueueRunAt, setEnqueueRunAt] = useState('');
   const enqueueTypeFieldRef = useRef<HTMLInputElement | null>(null);
 
@@ -262,6 +269,7 @@ export function SystemQueuePage({
     void mutateQueue({
       mode: 'enqueue',
       type: enqueueType,
+      payloadJson: enqueuePayloadJson,
       runAt: enqueueRunAt.trim().length > 0 ? enqueueRunAt.trim() : undefined,
     })
       .then(() => {
@@ -336,6 +344,20 @@ export function SystemQueuePage({
                     value={enqueueRunAt}
                     onChange={(event) => setEnqueueRunAt(event.target.value)}
                     style={fieldStyle}
+                  />
+                </label>
+                <label style={{ display: 'grid', gap: '8px' }}>
+                  <span style={{ fontWeight: 700 }}>payload JSON</span>
+                  <textarea
+                    data-system-queue-field="payload"
+                    value={enqueuePayloadJson}
+                    onChange={(event) => setEnqueuePayloadJson(event.target.value)}
+                    placeholder='例如 {"source":"rss"}'
+                    style={{
+                      ...fieldStyle,
+                      minHeight: '120px',
+                      resize: 'vertical',
+                    }}
                   />
                 </label>
                 <ActionButton
@@ -544,4 +566,24 @@ function readResolutionDetail(value: unknown) {
       : typeof record?.draftStatus === 'string'
         ? record.draftStatus
         : null;
+}
+
+function parseEnqueuePayload(value: string | undefined) {
+  const normalizedValue = value?.trim() ?? '';
+  if (normalizedValue.length === 0) {
+    return undefined;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(normalizedValue);
+  } catch {
+    throw new Error('payload JSON 必须是合法的 JSON 对象');
+  }
+
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new Error('payload JSON 必须是 JSON 对象');
+  }
+
+  return parsed as Record<string, unknown>;
 }
