@@ -15,7 +15,7 @@ export interface ChannelAccountRecord {
 }
 
 export interface CreateChannelAccountInput {
-  projectId?: number;
+  projectId?: number | null;
   platform: string;
   accountKey: string;
   displayName: string;
@@ -25,7 +25,7 @@ export interface CreateChannelAccountInput {
 }
 
 export interface UpdateChannelAccountInput {
-  projectId?: number;
+  projectId?: number | null;
   platform?: string;
   accountKey?: string;
   displayName?: string;
@@ -139,7 +139,7 @@ function updateChannelAccount(
 
   const nextRecord: ChannelAccountRecord = {
     ...current,
-    projectId: input.projectId ?? current.projectId,
+    projectId: input.projectId === undefined ? current.projectId : input.projectId,
     platform: input.platform ?? current.platform,
     accountKey: input.accountKey ?? current.accountKey,
     displayName: input.displayName ?? current.displayName,

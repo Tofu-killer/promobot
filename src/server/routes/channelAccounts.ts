@@ -66,8 +66,14 @@ channelAccountsRouter.post('/', (request, response) => {
     return;
   }
 
+  const parsedProjectId = parseProjectIdInput(projectId, { allowNull: true });
+  if (!parsedProjectId.ok) {
+    response.status(400).json({ error: 'invalid project id' });
+    return;
+  }
+
   const channelAccount = channelAccountStore.create({
-    projectId: parseOptionalProjectId(projectId),
+    projectId: parsedProjectId.value,
     platform,
     accountKey,
     displayName,
@@ -262,12 +268,17 @@ channelAccountsRouter.patch('/:id', (request, response) => {
   const nextPlatform = typeof input.platform === 'string' ? input.platform : undefined;
   const nextAccountKey = typeof input.accountKey === 'string' ? input.accountKey : undefined;
   const metadataInput = isPlainObject(input.metadata) ? input.metadata : undefined;
+  const parsedProjectId = parseProjectIdInput(input.projectId, { allowNull: true });
+  if (!parsedProjectId.ok) {
+    response.status(400).json({ error: 'invalid project id' });
+    return;
+  }
   const identityChanged =
     (nextPlatform !== undefined && nextPlatform !== currentChannelAccount.platform) ||
     (nextAccountKey !== undefined && nextAccountKey !== currentChannelAccount.accountKey);
 
   const channelAccount = channelAccountStore.update(id, {
-    projectId: parseOptionalProjectId(input.projectId),
+    projectId: parsedProjectId.value,
     platform: nextPlatform,
     accountKey: nextAccountKey,
     displayName: typeof input.displayName === 'string' ? input.displayName : undefined,
@@ -335,8 +346,21 @@ function isSessionStatus(value: string): value is SessionStatus {
   return value === 'active' || value === 'expired' || value === 'missing';
 }
 
-function parseOptionalProjectId(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined;
+function parseProjectIdInput(
+  value: unknown,
+  options: { allowNull?: boolean } = {},
+): { ok: true; value: number | null | undefined } | { ok: false } {
+  if (value === undefined) {
+    return { ok: true, value: undefined };
+  }
+
+  if (value === null) {
+    return options.allowNull ? { ok: true, value: null } : { ok: false };
+  }
+
+  return typeof value === 'number' && Number.isInteger(value) && value > 0
+    ? { ok: true, value }
+    : { ok: false };
 }
 
 function omitMetadataSession(metadata: Record<string, unknown>) {

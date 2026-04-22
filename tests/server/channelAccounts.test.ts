@@ -244,6 +244,100 @@ describe('channel accounts api', () => {
     }
   });
 
+  it('clears the projectId binding when patching a channel account with null', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/projects', {
+        name: 'AU Launch',
+        siteName: 'MyModelHub',
+        siteUrl: 'https://example.com',
+        siteDescription: 'Multi-model API gateway',
+        sellingPoints: ['Lower cost'],
+      });
+      await requestApp('POST', '/api/channel-accounts', {
+        projectId: 1,
+        platform: 'x',
+        accountKey: '@promobot',
+        displayName: 'PromoBot X',
+        authType: 'api',
+        status: 'healthy',
+      });
+
+      const cleared = await requestApp('PATCH', '/api/channel-accounts/1', {
+        projectId: null,
+      });
+
+      expect(cleared.status).toBe(200);
+      expect(JSON.parse(cleared.body)).toEqual({
+        channelAccount: expect.objectContaining({
+          id: 1,
+          projectId: null,
+        }),
+      });
+
+      const listed = await requestApp('GET', '/api/channel-accounts');
+      expect(JSON.parse(listed.body)).toEqual({
+        channelAccounts: [
+          expect.objectContaining({
+            id: 1,
+            projectId: null,
+          }),
+        ],
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('rejects channel account creation when projectId is not a positive integer', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      for (const projectId of ['abc', 0, -1, 1.5]) {
+        const response = await requestApp('POST', '/api/channel-accounts', {
+          projectId,
+          platform: 'x',
+          accountKey: '@promobot',
+          displayName: 'PromoBot X',
+          authType: 'api',
+          status: 'healthy',
+        });
+
+        expect(response.status).toBe(400);
+        expect(JSON.parse(response.body)).toEqual({
+          error: 'invalid project id',
+        });
+      }
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('rejects channel account patches when projectId is not a positive integer', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'x',
+        accountKey: '@promobot',
+        displayName: 'PromoBot X',
+        authType: 'api',
+        status: 'healthy',
+      });
+
+      for (const projectId of ['abc', 0, -1, 1.5]) {
+        const response = await requestApp('PATCH', '/api/channel-accounts/1', {
+          projectId,
+        });
+
+        expect(response.status).toBe(400);
+        expect(JSON.parse(response.body)).toEqual({
+          error: 'invalid project id',
+        });
+      }
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('rejects platform changes to unsupported channel account values', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
