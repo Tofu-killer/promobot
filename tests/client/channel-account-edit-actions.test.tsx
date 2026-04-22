@@ -612,6 +612,218 @@ describe('channel account edit actions', () => {
     });
   });
 
+  it('passes projectId through the create form when creating a channel account', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ChannelAccountsPage } = await import('../../src/client/pages/ChannelAccounts');
+
+    const deferred = createDeferredPromise<{
+      channelAccount: {
+        id: number;
+        projectId: number | null;
+        platform: string;
+        accountKey: string;
+        displayName: string;
+        authType: string;
+        status: string;
+        metadata: Record<string, unknown>;
+        createdAt: string;
+        updatedAt: string;
+      };
+    }>();
+    const createChannelAccountAction = vi.fn().mockReturnValue(deferred.promise);
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ChannelAccountsPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              channelAccounts: [],
+            },
+          },
+          createChannelAccountAction,
+        }),
+      );
+      await flush();
+    });
+
+    await act(async () => {
+      updateFieldValue(
+        findElement(container, (element) => element.getAttribute('data-create-project-id') === 'true'),
+        '12',
+        window,
+      );
+      updateFieldValue(
+        findElement(container, (element) => element.getAttribute('data-create-account-key') === 'true'),
+        'acct-x-2',
+        window,
+      );
+      updateFieldValue(
+        findElement(container, (element) => element.getAttribute('data-create-display-name') === 'true'),
+        'X Secondary',
+        window,
+      );
+      await flush();
+    });
+
+    const createButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('创建账号'),
+    );
+
+    await act(async () => {
+      createButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(createChannelAccountAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: 12,
+        accountKey: 'acct-x-2',
+        displayName: 'X Secondary',
+      }),
+    );
+
+    await act(async () => {
+      deferred.resolve({
+        channelAccount: {
+          id: 11,
+          projectId: 12,
+          platform: 'x',
+          accountKey: 'acct-x-2',
+          displayName: 'X Secondary',
+          authType: 'api',
+          status: 'unknown',
+          metadata: {},
+          createdAt: '2026-04-19T00:00:00.000Z',
+          updatedAt: '2026-04-19T00:00:00.000Z',
+        },
+      });
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('X Secondary');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('blocks invalid projectId input in channel accounts create and edit forms', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ChannelAccountsPage } = await import('../../src/client/pages/ChannelAccounts');
+
+    const createChannelAccountAction = vi.fn();
+    const updateChannelAccountAction = vi.fn();
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ChannelAccountsPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              channelAccounts: [
+                {
+                  id: 3,
+                  projectId: 7,
+                  platform: 'x',
+                  accountKey: 'acct-x-2',
+                  displayName: 'X Secondary',
+                  authType: 'api-key',
+                  status: 'healthy',
+                  metadata: {},
+                  createdAt: '2026-04-19T00:00:00.000Z',
+                  updatedAt: '2026-04-19T00:00:00.000Z',
+                },
+              ],
+            },
+          },
+          createChannelAccountAction,
+          updateChannelAccountAction,
+        }),
+      );
+      await flush();
+    });
+
+    await act(async () => {
+      updateFieldValue(
+        findElement(container, (element) => element.getAttribute('data-create-project-id') === 'true'),
+        'invalid-project-id',
+        window,
+      );
+      await flush();
+    });
+
+    const createButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('创建账号'),
+    );
+
+    await act(async () => {
+      createButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(createChannelAccountAction).not.toHaveBeenCalled();
+    expect(collectText(container)).toContain('创建失败：项目 ID 必须是大于 0 的整数');
+
+    await act(async () => {
+      updateFieldValue(
+        findElement(container, (element) => element.getAttribute('data-create-project-id') === 'true'),
+        '12',
+        window,
+      );
+      await flush();
+    });
+
+    expect(collectText(container)).not.toContain('创建失败：项目 ID 必须是大于 0 的整数');
+
+    const editButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-edit-account-id') === '3',
+    );
+
+    await act(async () => {
+      editButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    await act(async () => {
+      updateFieldValue(
+        findElement(
+          container,
+          (element) => element.tagName === 'INPUT' && element.getAttribute('data-edit-project-id') === '3',
+        ),
+        'invalid-project-id',
+        window,
+      );
+      await flush();
+    });
+
+    const saveButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-save-account-id') === '3',
+    );
+
+    await act(async () => {
+      saveButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(updateChannelAccountAction).not.toHaveBeenCalled();
+    expect(collectText(container)).toContain('更新失败：项目 ID 必须是大于 0 的整数');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('uses the explicitly selected target account for header connection actions', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
@@ -1134,11 +1346,12 @@ describe('channel account edit actions', () => {
     const { ChannelAccountsPage } = await import('../../src/client/pages/ChannelAccounts');
 
     const deferred = createDeferredPromise<{
-      channelAccount: {
-        id: number;
-        platform: string;
-        accountKey: string;
-        displayName: string;
+        channelAccount: {
+          id: number;
+          projectId?: number | null;
+          platform: string;
+          accountKey: string;
+          displayName: string;
         authType: string;
         status: string;
         metadata: Record<string, unknown>;
@@ -1158,6 +1371,7 @@ describe('channel account edit actions', () => {
               channelAccounts: [
                 {
                   id: 3,
+                  projectId: 7,
                   platform: 'x',
                   accountKey: 'acct-x-2',
                   displayName: 'X Secondary',
@@ -1191,6 +1405,14 @@ describe('channel account edit actions', () => {
     });
 
     await act(async () => {
+      updateFieldValue(
+        findElement(
+          container,
+          (element) => element.tagName === 'INPUT' && element.getAttribute('data-edit-project-id') === '3',
+        ),
+        '',
+        window,
+      );
       updateFieldValue(
         findElement(
           container,
@@ -1231,6 +1453,7 @@ describe('channel account edit actions', () => {
     });
 
     expect(updateChannelAccountAction).toHaveBeenCalledWith(3, {
+      projectId: null,
       platform: 'x',
       accountKey: 'acct-x-2',
       displayName: 'X Growth',
@@ -1247,6 +1470,7 @@ describe('channel account edit actions', () => {
       deferred.resolve({
         channelAccount: {
           id: 3,
+          projectId: null,
           platform: 'x',
           accountKey: 'acct-x-2',
           displayName: 'X Growth',

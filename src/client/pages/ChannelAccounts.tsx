@@ -218,6 +218,7 @@ export async function runChannelAccountConnectionTest(
 }
 
 interface EditFormValue {
+  projectId: string;
   displayName: string;
   status: string;
   metadata: string;
@@ -377,6 +378,31 @@ function parseMetadataInput(value: string): Record<string, unknown> {
     }, {});
 }
 
+function parseOptionalProjectIdInput(value: string, mode: 'create' | 'edit') {
+  const normalizedValue = value.trim();
+  if (normalizedValue.length === 0) {
+    return mode === 'create' ? undefined : null;
+  }
+
+  const projectId = Number(normalizedValue);
+  return Number.isInteger(projectId) && projectId > 0
+    ? projectId
+    : mode === 'create'
+      ? undefined
+      : null;
+}
+
+function getProjectIdValidationError(value: string) {
+  const normalizedValue = value.trim();
+  if (normalizedValue.length === 0) {
+    return null;
+  }
+
+  return Number.isInteger(Number(normalizedValue)) && Number(normalizedValue) > 0
+    ? null
+    : '项目 ID 必须是大于 0 的整数';
+}
+
 function parseStorageStateJsonInput(value: string): Record<string, unknown> | undefined {
   const trimmedValue = value.trim();
   if (!trimmedValue) {
@@ -401,6 +427,7 @@ function buildEditFormValue(account: ChannelAccountRecord): EditFormValue {
   const session = getSessionSummary(account);
 
   return {
+    projectId: typeof account.projectId === 'number' ? String(account.projectId) : '',
     displayName: account.displayName,
     status: account.status,
     metadata: serializeMetadata(account.metadata),
@@ -485,6 +512,7 @@ export function ChannelAccountsPage({
   sessionActionStateOverride,
 }: ChannelAccountsPageProps) {
   const { state, reload } = useAsyncQuery(loadChannelAccountsAction, [loadChannelAccountsAction]);
+  const [projectId, setProjectId] = useState('');
   const [platform, setPlatform] = useState('x');
   const [accountKey, setAccountKey] = useState('x-main');
   const [displayName, setDisplayName] = useState('X Primary');
@@ -494,7 +522,9 @@ export function ChannelAccountsPage({
   const [actionTargetAccountId, setActionTargetAccountId] = useState<string>('');
   const [editingAccountId, setEditingAccountId] = useState<number | null>(null);
   const [editFormById, setEditFormById] = useState<Record<number, EditFormValue>>({});
+  const [accountFormErrorById, setAccountFormErrorById] = useState<Record<number, string>>({});
   const [sessionFormErrorById, setSessionFormErrorById] = useState<Record<number, string>>({});
+  const [createFormError, setCreateFormError] = useState<string | null>(null);
   const { state: createState, run: createChannelAccount } = useAsyncAction(createChannelAccountAction);
   const { state: updateState, run: updateAccount } = useAsyncAction(
     ({ accountId, input }: { accountId: number; input: UpdateChannelAccountPayload }) =>
@@ -596,11 +626,22 @@ export function ChannelAccountsPage({
       : null;
   const editingSessionFormError =
     editingAccountId !== null ? sessionFormErrorById[editingAccountId] ?? null : null;
+  const editingAccountFormError =
+    editingAccountId !== null ? accountFormErrorById[editingAccountId] ?? null : null;
 
   function handleCreateChannelAccount() {
+    const projectIdValidationError = getProjectIdValidationError(projectId);
+    if (projectIdValidationError) {
+      setCreateFormError(projectIdValidationError);
+      return;
+    }
+
+    setCreateFormError(null);
     const parsedMetadata = parseMetadataInput(metadata);
+    const parsedProjectId = parseOptionalProjectIdInput(projectId, 'create');
 
     void createChannelAccount({
+      ...(parsedProjectId === undefined ? {} : { projectId: parsedProjectId }),
       platform,
       accountKey,
       displayName,
@@ -645,6 +686,14 @@ export function ChannelAccountsPage({
         ...patch,
       },
     }));
+    setAccountFormErrorById((current) => {
+      if (!(accountId in current)) {
+        return current;
+      }
+
+      const { [accountId]: _removed, ...rest } = current;
+      return rest;
+    });
     setSessionFormErrorById((current) => {
       if (!(accountId in current)) {
         return current;
@@ -666,11 +715,22 @@ export function ChannelAccountsPage({
     }
 
     const formValue = getEditFormValue(account);
+    const projectIdValidationError = getProjectIdValidationError(formValue.projectId);
+    if (projectIdValidationError) {
+      setAccountFormErrorById((current) => ({
+        ...current,
+        [accountId]: projectIdValidationError,
+      }));
+      return;
+    }
+
     const parsedMetadata = parseMetadataInput(formValue.metadata);
+    const parsedProjectId = parseOptionalProjectIdInput(formValue.projectId, 'edit');
 
     void updateAccount({
       accountId,
       input: {
+        projectId: parsedProjectId,
         platform: account.platform,
         accountKey: account.accountKey,
         displayName: formValue.displayName,
@@ -790,6 +850,19 @@ export function ChannelAccountsPage({
             </p>
 
             <label style={{ display: 'grid', gap: '8px' }}>
+              <span style={{ fontWeight: 700 }}>项目 ID</span>
+              <input
+                data-create-project-id="true"
+                value={projectId}
+                onChange={(event) => {
+                  setProjectId(event.target.value);
+                  setCreateFormError(null);
+                }}
+                style={fieldStyle}
+              />
+            </label>
+
+            <label style={{ display: 'grid', gap: '8px' }}>
               <span style={{ fontWeight: 700 }}>平台</span>
               <input value={platform} onChange={(event) => setPlatform(event.target.value)} style={fieldStyle} />
             </label>
@@ -819,12 +892,22 @@ export function ChannelAccountsPage({
 
             <label style={{ display: 'grid', gap: '8px' }}>
               <span style={{ fontWeight: 700 }}>账号 Key</span>
-              <input value={accountKey} onChange={(event) => setAccountKey(event.target.value)} style={fieldStyle} />
+              <input
+                data-create-account-key="true"
+                value={accountKey}
+                onChange={(event) => setAccountKey(event.target.value)}
+                style={fieldStyle}
+              />
             </label>
 
             <label style={{ display: 'grid', gap: '8px' }}>
               <span style={{ fontWeight: 700 }}>显示名</span>
-              <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} style={fieldStyle} />
+              <input
+                data-create-display-name="true"
+                value={displayName}
+                onChange={(event) => setDisplayName(event.target.value)}
+                style={fieldStyle}
+              />
             </label>
 
             <label style={{ display: 'grid', gap: '8px' }}>
@@ -857,6 +940,9 @@ export function ChannelAccountsPage({
             >
               {displayCreateState.status === 'loading' ? '正在创建账号...' : '创建账号'}
             </button>
+            {createFormError ? (
+              <p style={{ margin: 0, color: '#b91c1c' }}>创建失败：{createFormError}</p>
+            ) : null}
           </div>
         </SectionCard>
 
@@ -1095,6 +1181,14 @@ export function ChannelAccountsPage({
                         {editingAccountId === account.id ? (
                           <div style={{ marginTop: '12px', display: 'grid', gap: '10px' }}>
                             <input
+                              data-edit-project-id={String(account.id)}
+                              value={editForm.projectId ?? ''}
+                              onChange={(event) =>
+                                updateEditFormValue(account.id, { projectId: event.target.value })
+                              }
+                              style={fieldStyle}
+                            />
+                            <input
                               data-edit-display-name-id={String(account.id)}
                               value={editForm.displayName ?? ''}
                               onChange={(event) =>
@@ -1228,6 +1322,9 @@ export function ChannelAccountsPage({
           ) : null}
           {displayUpdateState.status === 'error' ? (
             <p style={{ marginTop: '12px', color: '#b91c1c' }}>更新失败：{displayUpdateState.error}</p>
+          ) : null}
+          {editingAccountFormError ? (
+            <p style={{ marginTop: '12px', color: '#b91c1c' }}>更新失败：{editingAccountFormError}</p>
           ) : null}
           {displaySaveSessionState.status === 'loading' ? (
             <p style={{ marginTop: '12px', color: '#334155' }}>正在保存 Session...</p>
