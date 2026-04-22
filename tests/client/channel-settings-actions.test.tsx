@@ -612,6 +612,33 @@ describe('settings save validation and feedback', () => {
     });
 
     expect(validationHtml).toContain('保存前校验失败：schedulerIntervalMinutes 必须是大于 0 的整数');
+
+    const validationAfterSuccessHtml = renderPage(SettingsPage, {
+      validationMessageOverride: 'schedulerIntervalMinutes 必须是大于 0 的整数',
+      updateStateOverride: {
+        status: 'success',
+        data: {
+          settings: {
+            allowlist: ['127.0.0.1'],
+            schedulerIntervalMinutes: 15,
+            rssDefaults: ['OpenAI blog'],
+            monitorRssFeeds: ['https://openai.com/blog/rss.xml'],
+            monitorXQueries: ['openrouter failover'],
+            monitorRedditQueries: ['claude api latency'],
+            monitorV2exQueries: ['llm api'],
+          },
+        },
+      } satisfies ApiState,
+    });
+
+    expect(validationAfterSuccessHtml).toContain(
+      '保存前校验失败：schedulerIntervalMinutes 必须是大于 0 的整数',
+    );
+    expect(validationAfterSuccessHtml).toContain('保存状态：校验失败');
+    expect(validationAfterSuccessHtml).not.toContain('设置已保存；allowlist 已生效，其它运行参数请结合 runtime 结果确认');
+    expect(validationAfterSuccessHtml).not.toContain(
+      'allowlist 已立即同步到当前进程；其它运行参数请结合当前 runtime / reload 结果确认是否已生效。',
+    );
   });
 
   it('backfills the form after current settings finish loading', async () => {

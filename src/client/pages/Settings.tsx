@@ -621,6 +621,8 @@ export function SettingsPage({
   const [controlError, setControlError] = useState<string | null>(null);
   const [activeControl, setActiveControl] = useState<string | null>(null);
   const displayValidationMessage = validationMessageOverride ?? validationMessage;
+  const showPersistedSaveFeedback = !displayValidationMessage;
+  const visibleSavedSettings = showPersistedSaveFeedback ? savedData?.settings : undefined;
 
   const allowlist = allowlistDraft ?? loadedFormValues.allowlist;
   const schedulerIntervalMinutes = schedulerIntervalMinutesDraft ?? loadedFormValues.schedulerIntervalMinutes;
@@ -784,7 +786,14 @@ export function SettingsPage({
                 当前加载：{displayState.status === 'success' ? '已同步' : displayState.status === 'error' ? '失败' : '等待同步'}
               </span>
               <span style={{ ...statusPillStyle, background: '#fef3c7', color: '#92400e' }}>
-                保存状态：{displayUpdateState.status === 'success' ? '已写回并已触发 reload' : displayUpdateState.status === 'error' ? '失败' : '未提交'}
+                保存状态：
+                {displayValidationMessage
+                  ? '校验失败'
+                  : displayUpdateState.status === 'success'
+                    ? '已写回并已触发 reload'
+                    : displayUpdateState.status === 'error'
+                      ? '失败'
+                      : '未提交'}
               </span>
             </div>
 
@@ -827,12 +836,12 @@ export function SettingsPage({
               </div>
             ) : null}
 
-            {savedData?.settings ? (
+            {visibleSavedSettings ? (
               <div style={{ display: 'grid', gap: '8px', color: '#92400e' }}>
                 <div style={{ fontWeight: 700 }}>最近保存返回</div>
                 <div>allowlist 已立即同步到当前进程；其它运行参数请结合当前 runtime / reload 结果确认是否已生效。</div>
-                <div>schedulerIntervalMinutes: {savedData.settings.schedulerIntervalMinutes}</div>
-                <div>allowlist: {savedData.settings.allowlist.length > 0 ? formatList(savedData.settings.allowlist) : '未提供'}</div>
+                <div>schedulerIntervalMinutes: {visibleSavedSettings.schedulerIntervalMinutes}</div>
+                <div>allowlist: {visibleSavedSettings.allowlist.length > 0 ? formatList(visibleSavedSettings.allowlist) : '未提供'}</div>
               </div>
             ) : null}
 
@@ -1200,7 +1209,10 @@ export function SettingsPage({
             </label>
             {renderInfoRows([
               { label: '当前 allowlist', value: effectiveSettings?.allowlist.length ? formatList(effectiveSettings.allowlist) : '未提供' },
-              { label: '最近保存返回', value: savedData?.settings?.allowlist?.length ? formatList(savedData.settings.allowlist) : '未提供' },
+              {
+                label: '最近保存返回',
+                value: visibleSavedSettings?.allowlist?.length ? formatList(visibleSavedSettings.allowlist) : '未提供',
+              },
             ])}
           </div>
         </SectionCard>
@@ -1303,8 +1315,8 @@ export function SettingsPage({
               },
               {
                 label: '最近保存 Monitor RSS 源',
-                value: readSettingsList(savedData?.settings?.monitorRssFeeds).length
-                  ? formatList(readSettingsList(savedData?.settings?.monitorRssFeeds))
+                value: readSettingsList(visibleSavedSettings?.monitorRssFeeds).length
+                  ? formatList(readSettingsList(visibleSavedSettings?.monitorRssFeeds))
                   : '未提供',
               },
               {
@@ -1315,8 +1327,8 @@ export function SettingsPage({
               },
               {
                 label: '最近保存 X 查询词',
-                value: readSettingsList(savedData?.settings?.monitorXQueries).length
-                  ? formatList(readSettingsList(savedData?.settings?.monitorXQueries))
+                value: readSettingsList(visibleSavedSettings?.monitorXQueries).length
+                  ? formatList(readSettingsList(visibleSavedSettings?.monitorXQueries))
                   : '未提供',
               },
               {
@@ -1333,14 +1345,14 @@ export function SettingsPage({
               },
               {
                 label: '最近保存 Reddit 查询词',
-                value: readSettingsList(savedData?.settings?.monitorRedditQueries).length
-                  ? formatList(readSettingsList(savedData?.settings?.monitorRedditQueries))
+                value: readSettingsList(visibleSavedSettings?.monitorRedditQueries).length
+                  ? formatList(readSettingsList(visibleSavedSettings?.monitorRedditQueries))
                   : '未提供',
               },
               {
                 label: '最近保存 V2EX 关键词',
-                value: readSettingsList(savedData?.settings?.monitorV2exQueries).length
-                  ? formatList(readSettingsList(savedData?.settings?.monitorV2exQueries))
+                value: readSettingsList(visibleSavedSettings?.monitorV2exQueries).length
+                  ? formatList(readSettingsList(visibleSavedSettings?.monitorV2exQueries))
                   : '未提供',
               },
             ])}
@@ -1360,7 +1372,7 @@ export function SettingsPage({
             {displayValidationMessage ? (
               <p style={{ margin: 0, color: '#b91c1c' }}>保存前校验失败：{displayValidationMessage}</p>
             ) : null}
-            {displayUpdateState.status === 'success' ? (
+            {showPersistedSaveFeedback && displayUpdateState.status === 'success' ? (
               <div style={{ color: '#166534', display: 'grid', gap: '8px' }}>
               <div style={{ fontWeight: 700 }}>设置已保存；allowlist 已生效，其它运行参数请结合 runtime 结果确认</div>
                 {displayUpdateState.data?.settings ? (
@@ -1390,7 +1402,7 @@ export function SettingsPage({
                 )}
               </div>
             ) : null}
-            {displayUpdateState.status === 'error' ? (
+            {showPersistedSaveFeedback && displayUpdateState.status === 'error' ? (
               <p style={{ margin: 0, color: '#b91c1c' }}>保存失败：{displayUpdateState.error}</p>
             ) : null}
           </SectionCard>
