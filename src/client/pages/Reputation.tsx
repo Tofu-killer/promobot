@@ -320,7 +320,12 @@ export function ReputationPage({
               onClick={handleEnqueueReputationFetch}
             />
             <ActionButton
-              label={displayReputationUpdateState.status === 'loading' ? '正在回写状态...' : '标记已处理'}
+              label={
+                displayReputationUpdateState.status === 'loading' &&
+                selectedItem?.id === activeReputationMutationItemId
+                  ? '正在回写状态...'
+                  : '标记已处理'
+              }
               tone="primary"
               disabled={isPreview}
               onClick={() => {

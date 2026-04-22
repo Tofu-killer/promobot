@@ -56,6 +56,46 @@ function updateFieldValue(element: { value?: string } | null, value: string, win
   (element as { dispatchEvent: (event: Event) => void }).dispatchEvent(new window.Event('change', { bubbles: true }));
 }
 
+function findAllElements(
+  root: unknown,
+  predicate: (element: HTMLElement) => boolean,
+): HTMLElement[] {
+  const matches: HTMLElement[] = [];
+
+  function visit(node: unknown) {
+    if (!node || typeof node !== 'object') {
+      return;
+    }
+
+    const maybeElement = node as HTMLElement & { childNodes?: unknown[] };
+    if (typeof maybeElement.tagName === 'string' && predicate(maybeElement)) {
+      matches.push(maybeElement);
+    }
+
+    const childNodes = Array.isArray(maybeElement.childNodes) ? maybeElement.childNodes : [];
+    for (const childNode of childNodes) {
+      visit(childNode);
+    }
+  }
+
+  visit(root);
+  return matches;
+}
+
+function hasAncestorTag(element: HTMLElement, tagName: string) {
+  let current = (element as HTMLElement & { parentNode?: unknown }).parentNode;
+
+  while (current && typeof current === 'object') {
+    const maybeElement = current as HTMLElement & { parentNode?: unknown };
+    if (typeof maybeElement.tagName === 'string' && maybeElement.tagName === tagName) {
+      return true;
+    }
+    current = maybeElement.parentNode;
+  }
+
+  return false;
+}
+
 function createDeferredPromise<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
   let reject!: (reason?: unknown) => void;
@@ -1292,10 +1332,14 @@ describe('Reputation action wiring', () => {
       await flush();
     });
 
-    const headerHandledButton = findElement(
-      container,
-      (element) => element.tagName === 'BUTTON' && collectText(element).includes('标记已处理'),
-    );
+    const headerHandledButton =
+      findAllElements(
+        container,
+        (element) =>
+          element.tagName === 'BUTTON' &&
+          collectText(element).includes('标记已处理') &&
+          !hasAncestorTag(element, 'ARTICLE'),
+      )[0] ?? null;
     const firstArticle = findElement(
       container,
       (element) => element.tagName === 'ARTICLE' && collectText(element).includes('Session expired complaint'),
@@ -1360,6 +1404,135 @@ describe('Reputation action wiring', () => {
     });
 
     expect(collectText(container)).not.toContain('已将“Session expired complaint”回写为 handled');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('keeps the reputation header action scoped to the selected item while another item is updating', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ReputationPage } = await import('../../src/client/pages/Reputation');
+
+    const pendingUpdate = createDeferredPromise<{
+      item: {
+        id: number;
+        source: string;
+        sentiment: 'negative';
+        status: string;
+        title: string;
+        detail: string;
+        createdAt: string;
+      };
+    }>();
+    const updateReputationAction = vi.fn().mockReturnValue(pendingUpdate.promise);
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ReputationPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              total: 2,
+              positive: 0,
+              neutral: 0,
+              negative: 2,
+              trend: [
+                { label: '正向', value: 0 },
+                { label: '中性', value: 0 },
+                { label: '负向', value: 2 },
+              ],
+              items: [
+                {
+                  id: 4,
+                  source: 'x',
+                  sentiment: 'negative',
+                  status: 'new',
+                  title: 'Session expired complaint',
+                  detail: 'Users report being logged out unexpectedly.',
+                  createdAt: '2026-04-19T10:00:00.000Z',
+                },
+                {
+                  id: 5,
+                  source: 'reddit',
+                  sentiment: 'negative',
+                  status: 'new',
+                  title: 'Pricing feedback thread',
+                  detail: 'Prospects think the pricing page is unclear.',
+                  createdAt: '2026-04-19T10:30:00.000Z',
+                },
+              ],
+            },
+          } satisfies ApiState<unknown>,
+          updateReputationAction,
+        }),
+      );
+      await flush();
+    });
+
+    const headerHandledButton =
+      findAllElements(
+        container,
+        (element) =>
+          element.tagName === 'BUTTON' &&
+          collectText(element).includes('标记已处理') &&
+          !hasAncestorTag(element, 'ARTICLE'),
+      )[0] ?? null;
+    const secondArticle = findElement(
+      container,
+      (element) => element.tagName === 'ARTICLE' && collectText(element).includes('Pricing feedback thread'),
+    );
+
+    expect(headerHandledButton).not.toBeNull();
+    expect(secondArticle).not.toBeNull();
+
+    await act(async () => {
+      headerHandledButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    const headerHandledButtonAfterStart = findAllElements(container, (element) =>
+      element.tagName === 'BUTTON' &&
+      collectText(element).includes('正在回写状态...') &&
+      !hasAncestorTag(element, 'ARTICLE'),
+    )[0] ?? null;
+    expect(headerHandledButtonAfterStart).not.toBeNull();
+    expect(collectText(headerHandledButtonAfterStart as HTMLElement)).toContain('正在回写状态...');
+
+    await act(async () => {
+      secondArticle?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    const headerHandledButtonAfterSwitch = findAllElements(container, (element) => {
+      const text = collectText(element);
+      return (
+        element.tagName === 'BUTTON' &&
+        (text.includes('标记已处理') || text.includes('正在回写状态...')) &&
+        !hasAncestorTag(element, 'ARTICLE')
+      );
+    })[0] ?? null;
+
+    expect(headerHandledButtonAfterSwitch).not.toBeNull();
+    expect(collectText(headerHandledButtonAfterSwitch as HTMLElement)).toContain('标记已处理');
+
+    await act(async () => {
+      pendingUpdate.resolve({
+        item: {
+          id: 4,
+          source: 'x',
+          sentiment: 'negative',
+          status: 'handled',
+          title: 'Session expired complaint',
+          detail: 'Users report being logged out unexpectedly.',
+          createdAt: '2026-04-19T10:00:00.000Z',
+        },
+      });
+      await flush();
+    });
 
     await act(async () => {
       root.unmount();
