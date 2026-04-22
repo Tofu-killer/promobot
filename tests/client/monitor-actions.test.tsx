@@ -551,6 +551,21 @@ function updateFieldValue(element: FakeElement | null, value: string, window: Fa
   element.dispatchEvent(new window.Event('change', { bubbles: true }));
 }
 
+function createDeferredPromise<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((nextResolve, nextReject) => {
+    resolve = nextResolve;
+    reject = nextReject;
+  });
+
+  return {
+    promise,
+    resolve,
+    reject,
+  };
+}
+
 async function flush() {
   await Promise.resolve();
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -1890,6 +1905,90 @@ describe('Monitor follow-up actions', () => {
     });
 
     expect(enqueueMonitorAction).toHaveBeenCalledWith(undefined, 12);
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('keeps live monitor context visible while a project-scoped reload is pending', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { MonitorPage } = await import('../../src/client/pages/Monitor');
+
+    const pendingReload = createDeferredPromise<{
+      items: Array<{
+        id: number;
+        source: string;
+        title: string;
+        detail: string;
+        status: string;
+        createdAt: string;
+      }>;
+      total: number;
+    }>();
+    const loadMonitorAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: 7,
+            source: 'x',
+            title: 'Competitor launched a lower tier',
+            detail: 'Observed a cheaper plan and a follow-up opportunity.',
+            status: 'new',
+            createdAt: '2026-04-19T00:00:00.000Z',
+          },
+        ],
+        total: 1,
+      })
+      .mockImplementationOnce(() => pendingReload.promise);
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(MonitorPage as never, {
+          loadMonitorAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const projectIdInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    );
+
+    expect(projectIdInput).not.toBeNull();
+    expect(collectText(container)).toContain('Competitor launched a lower tier');
+
+    await act(async () => {
+      updateFieldValue(projectIdInput, '12', window);
+      await flush();
+    });
+
+    expect(loadMonitorAction).toHaveBeenLastCalledWith(12);
+    expect(collectText(container)).toContain('Competitor launched a lower tier');
+    expect(collectText(container)).not.toContain('当前展示的是预览数据，真实监控信号加载完成后会自动替换。');
+
+    await act(async () => {
+      pendingReload.resolve({
+        items: [
+          {
+            id: 9,
+            source: 'reddit',
+            title: 'Scoped monitor result',
+            detail: '切项目后的新 monitor 条目。',
+            status: 'new',
+            createdAt: '2026-04-19T01:00:00.000Z',
+          },
+        ],
+        total: 1,
+      });
+      await flush();
+    });
 
     await act(async () => {
       root.unmount();

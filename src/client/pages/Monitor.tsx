@@ -202,7 +202,6 @@ export function MonitorPage({
   const [followUpSelectionMessage, setFollowUpSelectionMessage] = useState<string | null>(null);
   const [latestFollowUpAttempt, setLatestFollowUpAttempt] = useState<FollowUpAttemptState>(null);
   const displayState = stateOverride ?? state;
-  const isPreview = displayState.status !== 'success';
   const displayFollowUpState = followUpStateOverride ?? followUpState;
   const displayFetchState = fetchStateOverride ?? fetchState;
   const displayEnqueueState = enqueueStateOverride ?? enqueueState;
@@ -219,7 +218,12 @@ export function MonitorPage({
     ],
     total: 1,
   };
-  const viewData = displayState.status === 'success' && displayState.data ? displayState.data : fallbackData;
+  const hasLiveData =
+    typeof displayState.data === 'object' &&
+    displayState.data !== null &&
+    Array.isArray((displayState.data as MonitorFeedResponse).items);
+  const isPreview = !hasLiveData;
+  const viewData = hasLiveData ? (displayState.data as MonitorFeedResponse) : fallbackData;
   const filteredItems = filterMonitorItems(viewData.items, activeSourceFilter);
   const selectedItem = filteredItems.find((item) => item.id === selectedItemId) ?? null;
   const activeFollowUpItemId = latestFollowUpAttempt?.itemId ?? selectedItem?.id ?? null;
@@ -391,7 +395,7 @@ export function MonitorPage({
         <p style={{ color: '#b45309', fontWeight: 700 }}>{followUpSelectionMessage}</p>
       ) : null}
 
-      {displayState.status === 'success' || displayState.status === 'idle' ? (
+      {hasLiveData || displayState.status === 'idle' ? (
         <>
           <SectionCard title="抓取排程" description="留空表示立即入队，也可以填写 ISO 时间，作为定时抓取的 runAt。">
             <div style={{ display: 'grid', gap: '16px' }}>
