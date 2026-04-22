@@ -32,6 +32,21 @@ function expectDisabledButton(html: string, label: string) {
   expect(html).toMatch(new RegExp(`<button[^>]*disabled=""[^>]*aria-disabled="true"[^>]*>${escapeRegExp(label)}</button>`));
 }
 
+function createDeferredPromise<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((nextResolve, nextReject) => {
+    resolve = nextResolve;
+    reject = nextReject;
+  });
+
+  return {
+    promise,
+    resolve,
+    reject,
+  };
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -992,6 +1007,143 @@ describe('Reputation action wiring', () => {
         expect(successHtml).toContain('needs_review');
       }
     }
+  });
+
+  it('keeps reputation loading feedback bound to the original item when another item is selected', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ReputationPage } = await import('../../src/client/pages/Reputation');
+
+    const pendingUpdate = createDeferredPromise<{
+      item: {
+        id: number;
+        source: string;
+        sentiment: 'negative';
+        status: string;
+        title: string;
+        detail: string;
+        createdAt: string;
+      };
+    }>();
+    const updateReputationAction = vi.fn().mockReturnValue(pendingUpdate.promise);
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ReputationPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              total: 2,
+              positive: 0,
+              neutral: 0,
+              negative: 2,
+              trend: [
+                { label: '正向', value: 0 },
+                { label: '中性', value: 0 },
+                { label: '负向', value: 2 },
+              ],
+              items: [
+                {
+                  id: 4,
+                  source: 'x',
+                  sentiment: 'negative',
+                  status: 'new',
+                  title: 'Session expired complaint',
+                  detail: 'Users report being logged out unexpectedly.',
+                  createdAt: '2026-04-19T10:00:00.000Z',
+                },
+                {
+                  id: 5,
+                  source: 'reddit',
+                  sentiment: 'negative',
+                  status: 'new',
+                  title: 'Pricing feedback thread',
+                  detail: 'Prospects think the pricing page is unclear.',
+                  createdAt: '2026-04-19T10:30:00.000Z',
+                },
+              ],
+            },
+          } satisfies ApiState<unknown>,
+          updateReputationAction,
+        }),
+      );
+      await flush();
+    });
+
+    const headerHandledButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('标记已处理'),
+    );
+    const firstArticle = findElement(
+      container,
+      (element) => element.tagName === 'ARTICLE' && collectText(element).includes('Session expired complaint'),
+    );
+    const secondArticle = findElement(
+      container,
+      (element) => element.tagName === 'ARTICLE' && collectText(element).includes('Pricing feedback thread'),
+    );
+
+    expect(headerHandledButton).not.toBeNull();
+    expect(firstArticle).not.toBeNull();
+    expect(secondArticle).not.toBeNull();
+
+    await act(async () => {
+      headerHandledButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    const firstArticleAfterStart = findElement(
+      container,
+      (element) => element.tagName === 'ARTICLE' && collectText(element).includes('Session expired complaint'),
+    );
+    const secondArticleAfterStart = findElement(
+      container,
+      (element) => element.tagName === 'ARTICLE' && collectText(element).includes('Pricing feedback thread'),
+    );
+
+    expect(updateReputationAction).toHaveBeenCalledWith(4, 'handled');
+    expect(collectText(firstArticleAfterStart as never)).toContain('正在回写状态...');
+    expect(collectText(secondArticleAfterStart as never)).not.toContain('正在回写状态...');
+
+    await act(async () => {
+      secondArticle?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    const firstArticleAfterSwitch = findElement(
+      container,
+      (element) => element.tagName === 'ARTICLE' && collectText(element).includes('Session expired complaint'),
+    );
+    const secondArticleAfterSwitch = findElement(
+      container,
+      (element) => element.tagName === 'ARTICLE' && collectText(element).includes('Pricing feedback thread'),
+    );
+
+    expect(collectText(firstArticleAfterSwitch as never)).toContain('正在回写状态...');
+    expect(collectText(secondArticleAfterSwitch as never)).not.toContain('正在回写状态...');
+
+    await act(async () => {
+      pendingUpdate.resolve({
+        item: {
+          id: 4,
+          source: 'x',
+          sentiment: 'negative',
+          status: 'handled',
+          title: 'Session expired complaint',
+          detail: 'Users report being logged out unexpectedly.',
+          createdAt: '2026-04-19T10:00:00.000Z',
+        },
+      });
+      await flush();
+    });
+
+    expect(collectText(container)).not.toContain('已将“Session expired complaint”回写为 handled');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
   });
 
   it('renders reputation preview data as read-only when live data has not loaded yet', async () => {

@@ -194,6 +194,7 @@ export function ReputationPage({
     ({ id, status }: { id: number; status: string }) => updateReputationAction(id, status),
   );
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
+  const [reputationMutationItemId, setReputationMutationItemId] = useState<number | null>(null);
   const [enqueueRunAtDraft, setEnqueueRunAtDraft] = useState('');
   const displayState = stateOverride ?? state;
   const displayFetchState = fetchStateOverride ?? fetchState;
@@ -232,17 +233,21 @@ export function ReputationPage({
     : viewData.items;
   const priorityItems = displayItems.filter((item) => item.sentiment === 'negative');
   const selectedItem = isPreview ? null : priorityItems.find((item) => item.id === selectedItemId) ?? priorityItems[0] ?? null;
+  const activeReputationMutationItemId = reputationMutationItemId ?? selectedItem?.id ?? null;
+  const showReputationMutationFeedback = selectedItem !== null && selectedItem.id === activeReputationMutationItemId;
   const sentimentBars = viewData.trend.map((bar) => ({
     label: bar.label,
     value: toSentimentPercentage(bar.value, viewData.total),
     color: bar.label === '正向' ? '#16a34a' : bar.label === '负向' ? '#dc2626' : '#64748b',
   }));
   const reputationFeedback =
-    displayReputationUpdateState.status === 'success' && displayReputationUpdateState.data
+    showReputationMutationFeedback &&
+    displayReputationUpdateState.status === 'success' &&
+    displayReputationUpdateState.data
       ? displayReputationUpdateState.data.inboxItem
         ? `已将“${displayReputationUpdateState.data.item.title}”回写为 ${displayReputationUpdateState.data.item.status}，并已转入 Social Inbox（inbox #${displayReputationUpdateState.data.inboxItem.id}，状态 ${displayReputationUpdateState.data.inboxItem.status}）`
         : `已将“${displayReputationUpdateState.data.item.title}”回写为 ${displayReputationUpdateState.data.item.status}`
-      : displayReputationUpdateState.status === 'error'
+      : showReputationMutationFeedback && displayReputationUpdateState.status === 'error'
         ? `口碑状态更新失败：${displayReputationUpdateState.error}`
         : null;
 
@@ -252,6 +257,7 @@ export function ReputationPage({
     }
 
     setSelectedItemId(item.id);
+    setReputationMutationItemId(item.id);
 
     try {
       await runReputationUpdate({ id: item.id, status });
@@ -449,7 +455,7 @@ export function ReputationPage({
                       <div style={{ marginTop: '16px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                         <ActionButton
                           label={
-                            displayReputationUpdateState.status === 'loading' && item.id === selectedItemId
+                            displayReputationUpdateState.status === 'loading' && item.id === activeReputationMutationItemId
                               ? '正在回写状态...'
                               : '标记已处理'
                           }
@@ -460,7 +466,11 @@ export function ReputationPage({
                           }}
                         />
                         <ActionButton
-                          label={displayReputationUpdateState.status === 'loading' && item.id === selectedItemId ? '正在回写状态...' : '转入 Social Inbox'}
+                          label={
+                            displayReputationUpdateState.status === 'loading' && item.id === activeReputationMutationItemId
+                              ? '正在回写状态...'
+                              : '转入 Social Inbox'
+                          }
                           disabled={isPreview}
                           onClick={() => {
                             void handleReputationStatus(item, 'escalate');
