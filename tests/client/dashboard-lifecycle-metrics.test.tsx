@@ -249,6 +249,7 @@ describe('dashboard lifecycle metrics', () => {
 
     expect(loadDashboardAction).toHaveBeenCalledTimes(1);
     expect(container.textContent).toContain('项目 ID 必须是大于 0 的整数');
+    expect(container.textContent).not.toContain('仪表盘加载失败');
 
     await act(async () => {
       updateFieldValue(projectIdInput as never, '12', window as never);

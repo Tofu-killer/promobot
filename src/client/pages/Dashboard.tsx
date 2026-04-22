@@ -126,6 +126,8 @@ export function DashboardPage({
     [loadDashboardAction, projectId, projectIdValidationError],
   );
   const displayState = stateOverride ?? state;
+  const showLoadError =
+    displayState.status === 'error' && displayState.error !== projectIdValidationError;
   const viewData = displayState.status === 'success' && displayState.data ? displayState.data : null;
   const inboxMetrics = viewData?.inbox ?? null;
   const channelAccountMetrics = viewData?.channelAccounts ?? null;
@@ -170,7 +172,7 @@ export function DashboardPage({
       </label>
 
       {displayState.status === 'loading' ? <p style={{ color: '#334155' }}>正在加载仪表盘...</p> : null}
-      {displayState.status === 'error' ? <p style={{ color: '#b91c1c' }}>仪表盘加载失败：{displayState.error}</p> : null}
+      {showLoadError ? <p style={{ color: '#b91c1c' }}>仪表盘加载失败：{displayState.error}</p> : null}
       {displayState.status === 'idle' ? (
         <p style={{ color: '#92400e', fontWeight: 700 }}>
           当前展示的是预览说明，真实仪表盘加载完成后会替换。
