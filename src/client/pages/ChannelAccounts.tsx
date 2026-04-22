@@ -847,7 +847,15 @@ export function ChannelAccountsPage({
         validatedAt: formValue.sessionValidatedAt.trim() ? formValue.sessionValidatedAt.trim() : null,
         notes: formValue.sessionNotes.trim() ? formValue.sessionNotes.trim() : undefined,
       },
-    }).catch(() => undefined);
+    })
+      .then((result) => {
+        const normalizedAccount = normalizeChannelAccountRecord(result.channelAccount);
+        setEditFormById((current) => ({
+          ...current,
+          [accountId]: buildEditFormValue(normalizedAccount),
+        }));
+      })
+      .catch(() => undefined);
   }
 
   function handleRequestSessionAction(account: ChannelAccountRecord, forcedAction?: 'request_session' | 'relogin') {

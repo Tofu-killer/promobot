@@ -1800,6 +1800,204 @@ describe('channel account edit actions', () => {
     });
   });
 
+  it('syncs session edit fields to the saved server response', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ChannelAccountsPage } = await import('../../src/client/pages/ChannelAccounts');
+
+    const saveSessionDeferred = createDeferredPromise<{
+      ok: boolean;
+      session: {
+        hasSession: boolean;
+        id: string;
+        status: string;
+        validatedAt: string | null;
+        storageStatePath: string | null;
+        notes?: string;
+      };
+      channelAccount: {
+        id: number;
+        platform: string;
+        accountKey: string;
+        displayName: string;
+        authType: string;
+        status: string;
+        metadata: Record<string, unknown>;
+        session: {
+          hasSession: boolean;
+          status: string;
+          validatedAt: string | null;
+          storageStatePath: string | null;
+          id?: string;
+          notes?: string;
+        };
+        createdAt: string;
+        updatedAt: string;
+      };
+    }>();
+    const saveChannelAccountSessionAction = vi.fn().mockReturnValue(saveSessionDeferred.promise);
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ChannelAccountsPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              channelAccounts: [
+                {
+                  id: 7,
+                  platform: 'x',
+                  accountKey: 'acct-browser',
+                  displayName: 'Browser X',
+                  authType: 'browser',
+                  status: 'healthy',
+                  metadata: {},
+                  session: {
+                    hasSession: true,
+                    status: 'expired',
+                    validatedAt: '2026-04-19T02:00:00.000Z',
+                    storageStatePath: 'artifacts/browser-sessions/acct-browser.json',
+                    id: 'x:acct-browser',
+                    notes: 'stale cookies',
+                  },
+                  createdAt: '2026-04-19T00:00:00.000Z',
+                  updatedAt: '2026-04-19T00:00:00.000Z',
+                },
+              ],
+            },
+          },
+          saveChannelAccountSessionAction,
+        }),
+      );
+      await flush();
+    });
+
+    const editButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-edit-account-id') === '7',
+    );
+
+    await act(async () => {
+      editButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    await act(async () => {
+      updateFieldValue(
+        findElement(
+          container,
+          (element) => element.tagName === 'INPUT' && element.getAttribute('data-edit-session-storage-path-id') === '7',
+        ),
+        'artifacts/browser-sessions/client-session.json',
+        window,
+      );
+      updateFieldValue(
+        findElement(
+          container,
+          (element) => element.tagName === 'INPUT' && element.getAttribute('data-edit-session-status-id') === '7',
+        ),
+        'active',
+        window,
+      );
+      updateFieldValue(
+        findElement(
+          container,
+          (element) => element.tagName === 'INPUT' && element.getAttribute('data-edit-session-validated-at-id') === '7',
+        ),
+        '2026-04-19T03:00:00.000Z',
+        window,
+      );
+      updateFieldValue(
+        findElement(
+          container,
+          (element) => element.tagName === 'INPUT' && element.getAttribute('data-edit-session-notes-id') === '7',
+        ),
+        'client note',
+        window,
+      );
+      await flush();
+    });
+
+    const saveSessionButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-save-session-id') === '7',
+    );
+
+    await act(async () => {
+      saveSessionButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(saveChannelAccountSessionAction).toHaveBeenCalledWith(7, {
+      storageStatePath: 'artifacts/browser-sessions/client-session.json',
+      status: 'active',
+      validatedAt: '2026-04-19T03:00:00.000Z',
+      notes: 'client note',
+    });
+
+    await act(async () => {
+      saveSessionDeferred.resolve({
+        ok: true,
+        session: {
+          hasSession: true,
+          id: 'x:acct-browser',
+          status: 'expired',
+          validatedAt: '2026-04-19T04:00:00.000Z',
+          storageStatePath: 'artifacts/browser-sessions/server-session.json',
+          notes: 'server note',
+        },
+        channelAccount: {
+          id: 7,
+          platform: 'x',
+          accountKey: 'acct-browser',
+          displayName: 'Browser X',
+          authType: 'browser',
+          status: 'healthy',
+          metadata: {},
+          session: {
+            hasSession: true,
+            id: 'x:acct-browser',
+            status: 'expired',
+            validatedAt: '2026-04-19T04:00:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/server-session.json',
+            notes: 'server note',
+          },
+          createdAt: '2026-04-19T00:00:00.000Z',
+          updatedAt: '2026-04-19T04:00:00.000Z',
+        },
+      });
+      await flush();
+    });
+
+    const updatedStoragePathField = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('data-edit-session-storage-path-id') === '7',
+    );
+    const updatedStatusField = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('data-edit-session-status-id') === '7',
+    );
+    const updatedValidatedAtField = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('data-edit-session-validated-at-id') === '7',
+    );
+    const updatedNotesField = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('data-edit-session-notes-id') === '7',
+    );
+
+    expect(updatedStoragePathField?.value).toBe('artifacts/browser-sessions/server-session.json');
+    expect(updatedStatusField?.value).toBe('expired');
+    expect(updatedValidatedAtField?.value).toBe('2026-04-19T04:00:00.000Z');
+    expect(updatedNotesField?.value).toBe('server note');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('hides stale update success when projectId validation blocks a later edit save', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
