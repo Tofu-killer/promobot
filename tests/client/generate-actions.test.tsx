@@ -1110,6 +1110,106 @@ describe('Generate review actions', () => {
     });
   });
 
+  it('clears stale review feedback when a new generate result reuses the same draftId', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { GeneratePage } = await import('../../src/client/pages/Generate');
+
+    const sendDraftToReviewAction = vi.fn().mockResolvedValue({
+      draft: {
+        id: 42,
+        platform: 'x',
+        title: 'Launch thread',
+        content: 'Draft body',
+        hashtags: ['#launch'],
+        status: 'review',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(GeneratePage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              results: [
+                {
+                  platform: 'x',
+                  title: 'Launch thread',
+                  content: 'Draft body',
+                  hashtags: ['#launch'],
+                  draftId: 42,
+                },
+              ],
+            },
+          },
+          sendDraftToReviewAction,
+        }),
+      );
+      await flush();
+    });
+
+    const reviewButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-review-draft-id') === '42' &&
+        collectText(element).includes('送审'),
+    );
+
+    expect(reviewButton).not.toBeNull();
+
+    await act(async () => {
+      reviewButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('已送审');
+    expect(collectText(container)).toContain('当前状态：review');
+
+    await act(async () => {
+      root.render(
+        createElement(GeneratePage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              results: [
+                {
+                  platform: 'x',
+                  title: 'Launch thread v2',
+                  content: 'Freshly generated draft body',
+                  hashtags: ['#launch'],
+                  draftId: 42,
+                },
+              ],
+            },
+          },
+          sendDraftToReviewAction,
+        }),
+      );
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('Launch thread v2');
+    expect(collectText(container)).not.toContain('已送审');
+    expect(collectText(container)).not.toContain('当前状态：review');
+
+    const refreshedReviewButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-review-draft-id') === '42',
+    );
+
+    expect(refreshedReviewButton).not.toBeNull();
+    expect(collectText(refreshedReviewButton as FakeElement)).toContain('送审');
+    expect((refreshedReviewButton as FakeElement).disabled).toBe(false);
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('shows review failure feedback when send to review fails', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');

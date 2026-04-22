@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { apiRequest, getErrorMessage } from '../lib/api';
 import type { AsyncState } from '../hooks/useAsyncRequest';
 import { useAsyncAction } from '../hooks/useAsyncRequest';
@@ -153,6 +153,14 @@ export function GeneratePage({
 
   const displayState = stateOverride ?? state;
   const generateControlsDisabled = displayState.status === 'loading' || projectIdValidationError !== null;
+
+  useEffect(() => {
+    if (displayState.status !== 'success' || !displayState.data) {
+      return;
+    }
+
+    setReviewStateByDraftId({});
+  }, [displayState]);
 
   function togglePlatform(platformValue: string) {
     setSelectedPlatforms((currentPlatforms) =>
