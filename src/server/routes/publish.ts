@@ -386,11 +386,17 @@ export function createPublishRouter(dependencies: PublishRouteDependencies) {
         lookedUpDraft?.projectId === undefined
           ? enrichPublishableDraft(lookedUpDraft, draftStore.getById(id))
           : lookedUpDraft;
-      if (!draft) {
-        response.status(404).json({ error: 'draft not found' });
-        return;
-      }
+    } catch (error) {
+      next(error);
+      return;
+    }
 
+    if (!draft) {
+      response.status(404).json({ error: 'draft not found' });
+      return;
+    }
+
+    try {
       const publishResult = await publishDraft(draft, request);
       contract = createPublishContract(draft, publishResult);
     } catch (error) {

@@ -729,6 +729,47 @@ describe('publish api', () => {
     expect(readJobQueue()).toEqual([]);
   });
 
+  it('does not mark a scheduled draft failed when draft lookup throws before publishing starts', async () => {
+    const testDatabase = createTestDatabasePath();
+    activeTestDbRoot = testDatabase.rootDir;
+    activeTestDatabasePath = testDatabase.databasePath;
+    const draftStore = createSQLiteDraftStore();
+    const draft = draftStore.create({
+      platform: 'x',
+      content: 'Should stay scheduled if lookup fails',
+    });
+    draftStore.update(draft.id, {
+      status: 'scheduled',
+      scheduledAt: '2026-04-20T09:30:00.000Z',
+    });
+    insertPendingPublishJob(draft.id, '2026-04-20T09:30:00.000Z');
+    const app = createTestApp(
+      {
+        lookupDraft: vi.fn().mockRejectedValue(new Error('db read timeout')),
+      },
+      { useDefaultPersistence: true },
+    );
+
+    await expect(requestApp(app, 'POST', `/api/drafts/${draft.id}/publish`)).rejects.toThrow(
+      'db read timeout',
+    );
+    expect(draftStore.getById(draft.id)).toEqual(
+      expect.objectContaining({
+        id: draft.id,
+        status: 'scheduled',
+        scheduledAt: '2026-04-20T09:30:00.000Z',
+        publishedAt: undefined,
+      }),
+    );
+    expect(readPublishLogs()).toEqual([]);
+    expect(readJobQueue()).toEqual([
+      expect.objectContaining({
+        type: 'publish',
+        status: 'pending',
+      }),
+    ]);
+  });
+
   it('does not record a publish failure when local persistence fails after a successful publish result', async () => {
     const publishDraft = vi.fn().mockResolvedValue({
       platform: 'x',
