@@ -77,7 +77,7 @@ describe('dashboard enhanced metrics page', () => {
             pending: 1,
             resolved: 0,
             obsolete: 1,
-            unmatched: 0,
+            unmatched: 11,
           },
           jobQueue: {
             pending: 4,
@@ -110,6 +110,7 @@ describe('dashboard enhanced metrics page', () => {
     expect(html).toContain('Browser Handoff 已完成');
     expect(html).toContain('Browser Handoff 已作废');
     expect(html).toContain('Browser Handoff 未归属');
+    expect(html).toContain('>11<');
     expect(html).toContain('队列待执行');
     expect(html).toContain('队列运行中');
     expect(html).toContain('队列已完成');
