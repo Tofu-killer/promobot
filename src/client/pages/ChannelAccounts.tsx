@@ -229,6 +229,17 @@ interface EditFormValue {
   sessionNotes: string;
 }
 
+type LatestSessionMutation =
+  | {
+      kind: 'save_session';
+      accountId: number;
+    }
+  | {
+      kind: 'session_action';
+      accountId: number;
+    }
+  | null;
+
 interface ChannelAccountsPageProps {
   loadChannelAccountsAction?: () => Promise<ChannelAccountsResponse>;
   createChannelAccountAction?: (input: CreateChannelAccountPayload) => Promise<CreateChannelAccountResponse>;
@@ -524,6 +535,7 @@ export function ChannelAccountsPage({
   const [editFormById, setEditFormById] = useState<Record<number, EditFormValue>>({});
   const [accountFormErrorById, setAccountFormErrorById] = useState<Record<number, string>>({});
   const [sessionFormErrorById, setSessionFormErrorById] = useState<Record<number, string>>({});
+  const [latestSessionMutation, setLatestSessionMutation] = useState<LatestSessionMutation>(null);
   const [createFormError, setCreateFormError] = useState<string | null>(null);
   const { state: createState, run: createChannelAccount } = useAsyncAction(createChannelAccountAction);
   const { state: updateState, run: updateAccount } = useAsyncAction(
@@ -570,6 +582,26 @@ export function ChannelAccountsPage({
   const sessionActionAccount = displaySessionActionState.data?.channelAccount
     ? normalizeChannelAccountRecord(displaySessionActionState.data.channelAccount)
     : null;
+  const showSaveSessionFeedback =
+    latestSessionMutation === null || latestSessionMutation.kind === 'save_session';
+  const showSessionActionFeedback =
+    latestSessionMutation === null || latestSessionMutation.kind === 'session_action';
+  const showSessionSavedOverlay =
+    sessionSavedAccount !== null &&
+    !(
+      sessionActionAccount &&
+      latestSessionMutation?.kind === 'session_action' &&
+      latestSessionMutation.accountId === sessionSavedAccount.id &&
+      sessionActionAccount.id === sessionSavedAccount.id
+    );
+  const showSessionActionOverlay =
+    sessionActionAccount !== null &&
+    !(
+      sessionSavedAccount &&
+      latestSessionMutation?.kind === 'save_session' &&
+      latestSessionMutation.accountId === sessionActionAccount.id &&
+      sessionSavedAccount.id === sessionActionAccount.id
+    );
 
   const visibleAccounts = useMemo(() => {
     let accounts = [...loadedAccounts];
@@ -584,7 +616,7 @@ export function ChannelAccountsPage({
       );
     }
 
-    if (sessionSavedAccount) {
+    if (showSessionSavedOverlay && sessionSavedAccount) {
       accounts = accounts.map((account) =>
         account.id === sessionSavedAccount.id
           ? mergeChannelAccountRecord(account, sessionSavedAccount)
@@ -592,7 +624,7 @@ export function ChannelAccountsPage({
       );
     }
 
-    if (sessionActionAccount) {
+    if (showSessionActionOverlay && sessionActionAccount) {
       accounts = accounts.map((account) =>
         account.id === sessionActionAccount.id
           ? mergeChannelAccountRecord(account, sessionActionAccount)
@@ -601,7 +633,15 @@ export function ChannelAccountsPage({
     }
 
     return accounts;
-  }, [loadedAccounts, createdAccount, updatedAccount, sessionSavedAccount, sessionActionAccount]);
+  }, [
+    loadedAccounts,
+    createdAccount,
+    updatedAccount,
+    sessionSavedAccount,
+    sessionActionAccount,
+    showSessionSavedOverlay,
+    showSessionActionOverlay,
+  ]);
 
   const latestCreatedAccount = createdAccount;
   const actionTargetAccount = resolveActionTargetAccount(
@@ -768,6 +808,10 @@ export function ChannelAccountsPage({
       return;
     }
 
+    setLatestSessionMutation({
+      kind: 'save_session',
+      accountId,
+    });
     void saveSession({
       accountId,
       input: {
@@ -785,6 +829,10 @@ export function ChannelAccountsPage({
   }
 
   function handleRequestSessionAction(account: ChannelAccountRecord, forcedAction?: 'request_session' | 'relogin') {
+    setLatestSessionMutation({
+      kind: 'session_action',
+      accountId: account.id,
+    });
     void requestSessionAction({
       accountId: account.id,
       input: {
@@ -1317,7 +1365,7 @@ export function ChannelAccountsPage({
             <p style={{ margin: 0, color: '#475569' }}>页面挂载后会自动请求真实渠道账号接口。</p>
           ) : null}
 
-          {displayUpdateState.status === 'success' ? (
+          {displayUpdateState.status === 'success' && !editingAccountFormError ? (
             <p style={{ marginTop: '12px', color: '#166534' }}>账号已更新</p>
           ) : null}
           {displayUpdateState.status === 'error' ? (
@@ -1332,15 +1380,17 @@ export function ChannelAccountsPage({
           {editingSessionFormError ? (
             <p style={{ marginTop: '12px', color: '#b91c1c' }}>Session 保存失败：{editingSessionFormError}</p>
           ) : null}
-          {displaySaveSessionState.status === 'success' ? (
+          {showSaveSessionFeedback && displaySaveSessionState.status === 'success' ? (
             <p style={{ marginTop: '12px', color: '#166534' }}>Session 元数据已保存</p>
           ) : null}
-          {displaySaveSessionState.status === 'error' ? (
+          {showSaveSessionFeedback && displaySaveSessionState.status === 'error' ? (
             <p style={{ marginTop: '12px', color: '#b91c1c' }}>
               Session 保存失败：{displaySaveSessionState.error}
             </p>
           ) : null}
-          {displaySessionActionState.status === 'success' && displaySessionActionState.data ? (
+          {showSessionActionFeedback &&
+          displaySessionActionState.status === 'success' &&
+          displaySessionActionState.data ? (
             <div style={{ marginTop: '12px', display: 'grid', gap: '6px', color: '#334155' }}>
               <div>{getSessionActionLabelFromAction(displaySessionActionState.data.sessionAction.action)}占位已记录</div>
               <div>{displaySessionActionState.data.sessionAction.message}</div>
@@ -1356,7 +1406,7 @@ export function ChannelAccountsPage({
               ) : null}
             </div>
           ) : null}
-          {displaySessionActionState.status === 'error' ? (
+          {showSessionActionFeedback && displaySessionActionState.status === 'error' ? (
             <p style={{ marginTop: '12px', color: '#b91c1c' }}>
               登录动作失败：{displaySessionActionState.error}
             </p>
