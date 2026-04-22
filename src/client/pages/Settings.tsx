@@ -802,7 +802,7 @@ export function SettingsPage({
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
               <span style={{ ...statusPillStyle, background: '#dbeafe', color: '#1d4ed8' }}>兼容接口 `/api/settings`</span>
               <span style={{ ...statusPillStyle, background: '#ecfdf5', color: '#047857' }}>
-                当前加载：{displayState.status === 'success' ? '已同步' : displayState.status === 'error' ? '失败' : '等待同步'}
+                当前加载：{hasLiveSettingsData ? '已同步' : displayState.status === 'error' ? '失败' : '等待同步'}
               </span>
               <span style={{ ...statusPillStyle, background: '#fef3c7', color: '#92400e' }}>
                 保存状态：

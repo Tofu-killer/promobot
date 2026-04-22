@@ -862,6 +862,7 @@ describe('settings save validation and feedback', () => {
     expect(loadSettingsAction).toHaveBeenCalledTimes(2);
     expect((allowlistField as { value?: string } | null)?.value).toBe('10.0.0.1');
     expect(collectText(container)).toContain('正在加载设置...');
+    expect(collectText(container)).toContain('当前加载：已同步');
     expect(collectText(container)).not.toContain('接口成功返回后，会在这里展示完整响应。');
 
     await act(async () => {
