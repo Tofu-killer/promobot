@@ -1352,6 +1352,130 @@ describe('Monitor follow-up actions', () => {
     });
   });
 
+  it('keeps the monitor header action scoped to the selected item while another follow-up request is in flight', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { MonitorPage } = await import('../../src/client/pages/Monitor');
+
+    const pendingFollowUp = createDeferredPromise<{
+      draft: {
+        id: number;
+        platform: string;
+        title?: string;
+        content: string;
+        status: string;
+      };
+    }>();
+    const generateFollowUpAction = vi.fn().mockReturnValue(pendingFollowUp.promise);
+    const stateOverride = {
+      status: 'success' as const,
+      data: {
+        items: [
+          {
+            id: 7,
+            source: 'x',
+            title: 'Competitor launched a lower tier',
+            detail: 'Observed a cheaper plan and a follow-up opportunity.',
+            status: 'new',
+            createdAt: '2026-04-19T00:00:00.000Z',
+          },
+          {
+            id: 9,
+            source: 'reddit',
+            title: 'Users are asking about APAC latency',
+            detail: 'A follow-up draft should mention recent infra work.',
+            status: 'new',
+            createdAt: '2026-04-19T01:00:00.000Z',
+          },
+        ],
+        total: 2,
+      },
+    };
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(MonitorPage as never, {
+          stateOverride,
+          generateFollowUpAction,
+        }),
+      );
+      await flush();
+    });
+
+    const firstItem = findElement(
+      container,
+      (element) => element.getAttribute('data-monitor-item-id') === '7',
+    );
+    const secondItem = findElement(
+      container,
+      (element) => element.getAttribute('data-monitor-item-id') === '9',
+    );
+
+    expect(firstItem).not.toBeNull();
+    expect(secondItem).not.toBeNull();
+
+    await act(async () => {
+      firstItem?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    const generateButtonBeforeStart = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('生成跟进草稿'),
+    );
+
+    expect(generateButtonBeforeStart).not.toBeNull();
+
+    await act(async () => {
+      generateButtonBeforeStart?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(generateFollowUpAction).toHaveBeenCalledWith(7, 'x');
+
+    const generateButtonAfterStart = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('正在生成跟进草稿...'),
+    );
+
+    expect(generateButtonAfterStart).not.toBeNull();
+
+    await act(async () => {
+      secondItem?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    const generateButtonAfterSwitch = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        (collectText(element).includes('生成跟进草稿') || collectText(element).includes('正在生成跟进草稿...')),
+    );
+
+    expect(generateButtonAfterSwitch).not.toBeNull();
+    expect(collectText(generateButtonAfterSwitch as FakeElement)).toBe('生成跟进草稿');
+    expect(generateButtonAfterSwitch?.getAttribute('disabled')).toBeNull();
+
+    await act(async () => {
+      pendingFollowUp.resolve({
+        draft: {
+          id: 52,
+          platform: 'x',
+          title: 'Follow-up: Competitor launched a lower tier',
+          content: 'Follow-up draft for x.',
+          status: 'draft',
+        },
+      });
+      await flush();
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('filters monitor items by source before generating a follow-up draft', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');

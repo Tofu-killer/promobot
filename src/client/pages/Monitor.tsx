@@ -231,6 +231,9 @@ export function MonitorPage({
     (latestFollowUpAttempt === null || latestFollowUpAttempt.kind === 'request') &&
     selectedItem !== null &&
     selectedItem.id === activeFollowUpItemId;
+  const showFollowUpLoadingForSelectedItem =
+    displayFollowUpState.status === 'loading' &&
+    (latestFollowUpAttempt === null || selectedItem?.id === activeFollowUpItemId);
 
   useEffect(() => {
     setSelectedItemId(null);
@@ -332,9 +335,9 @@ export function MonitorPage({
               onClick={handleEnqueueMonitorFetch}
             />
             <ActionButton
-              label={displayFollowUpState.status === 'loading' ? '正在生成跟进草稿...' : '生成跟进草稿'}
+              label={showFollowUpLoadingForSelectedItem ? '正在生成跟进草稿...' : '生成跟进草稿'}
               tone="primary"
-              disabled={isPreview || displayFollowUpState.status === 'loading'}
+              disabled={isPreview || showFollowUpLoadingForSelectedItem}
               onClick={handleGenerateFollowUp}
             />
           </>
