@@ -547,6 +547,115 @@ describe('system runtime api', () => {
     });
   });
 
+  it('reloads the scheduler runtime through /api/system/runtime/reload', async () => {
+    const schedulerRuntime = {
+      getStatus() {
+        return {
+          available: true,
+          started: true,
+          schedulerIntervalMinutes: 15,
+          pollMs: 900000,
+          bootedAt: '2026-04-19T12:00:00.000Z',
+          lastTickAt: '2026-04-19T12:05:00.000Z',
+          lastTickResults: [],
+          lastError: null,
+          recoveredRunningJobs: 0,
+          handlers: ['publish'],
+          queue: {
+            pending: 1,
+            running: 0,
+            done: 0,
+            failed: 0,
+            canceled: 0,
+            duePending: 1,
+          },
+          recentJobs: [],
+        };
+      },
+      listJobs() {
+        return {
+          jobs: [],
+          queue: {
+            pending: 1,
+            running: 0,
+            done: 0,
+            failed: 0,
+            canceled: 0,
+            duePending: 1,
+          },
+          recentJobs: [],
+        };
+      },
+      getJob() {
+        return undefined;
+      },
+      reload() {
+        return {
+          available: true,
+          started: true,
+          schedulerIntervalMinutes: 30,
+          pollMs: 1800000,
+          bootedAt: '2026-04-19T12:10:00.000Z',
+          lastTickAt: '2026-04-19T12:15:00.000Z',
+          lastTickResults: [],
+          lastError: null,
+          recoveredRunningJobs: 0,
+          handlers: ['publish', 'monitor_fetch'],
+          queue: {
+            pending: 2,
+            running: 0,
+            done: 0,
+            failed: 0,
+            canceled: 0,
+            duePending: 2,
+          },
+          recentJobs: [],
+        };
+      },
+      async tickNow() {
+        return [];
+      },
+      enqueueJob() {
+        throw new Error('not implemented');
+      },
+      stop() {},
+    };
+
+    const response = await requestApp({
+      remoteAddress: '127.0.0.1',
+      method: 'POST',
+      url: '/api/system/runtime/reload',
+      dependencies: { schedulerRuntime },
+    });
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({
+      runtime: expect.objectContaining({
+        available: true,
+        started: true,
+        schedulerIntervalMinutes: 30,
+        handlers: ['publish', 'monitor_fetch'],
+        queue: expect.objectContaining({
+          pending: 2,
+          duePending: 2,
+        }),
+      }),
+    });
+  });
+
+  it('returns 503 for /api/system/runtime/reload when the scheduler runtime is unavailable', async () => {
+    const response = await requestApp({
+      remoteAddress: '127.0.0.1',
+      method: 'POST',
+      url: '/api/system/runtime/reload',
+    });
+
+    expect(response.status).toBe(503);
+    expect(JSON.parse(response.body)).toEqual({
+      error: 'scheduler runtime unavailable',
+    });
+  });
+
   it('enqueues jobs through the scheduler runtime contract', async () => {
     const seen: Array<{ type: string; payload?: Record<string, unknown>; runAt: string }> = [];
     const schedulerRuntime = {
