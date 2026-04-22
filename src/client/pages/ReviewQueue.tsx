@@ -315,6 +315,10 @@ export function ReviewQueuePage({
   const visibleDrafts = displayState.status === 'success' ? (localDrafts ?? loadedReviewDrafts) : [];
 
   useEffect(() => {
+    setActionStateById({});
+  }, [projectId]);
+
+  useEffect(() => {
     if (displayState.status !== 'success' || !displayState.data) {
       return;
     }
@@ -324,9 +328,7 @@ export function ReviewQueuePage({
       const nextScheduleById = { ...currentScheduleById };
 
       for (const draft of filterReviewQueueDrafts(displayState.data.drafts)) {
-        if (!(draft.id in nextScheduleById)) {
-          nextScheduleById[draft.id] = draft.scheduledAt ?? '';
-        }
+        nextScheduleById[draft.id] = draft.scheduledAt ?? '';
       }
 
       return nextScheduleById;

@@ -847,6 +847,204 @@ describe('Review Queue lifecycle actions', () => {
     });
   });
 
+  it('refreshes scheduledAt from a later successful reload before scheduling the same review draft again', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ReviewQueuePage } = await import('../../src/client/pages/ReviewQueue');
+
+    const loadReviewQueueAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        drafts: [
+          {
+            id: 12,
+            platform: 'x',
+            title: 'Scheduled launch thread',
+            content: 'Draft body',
+            hashtags: ['#launch'],
+            status: 'review',
+            scheduledAt: '2026-04-20T09:30',
+            createdAt: '2026-04-19T00:00:00.000Z',
+            updatedAt: '2026-04-19T00:00:00.000Z',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        drafts: [
+          {
+            id: 12,
+            platform: 'x',
+            title: 'Scheduled launch thread',
+            content: 'Draft body',
+            hashtags: ['#launch'],
+            status: 'review',
+            scheduledAt: '2026-04-21T08:00',
+            createdAt: '2026-04-19T00:00:00.000Z',
+            updatedAt: '2026-04-19T02:00:00.000Z',
+          },
+        ],
+      });
+    const scheduleReviewDraftAction = vi.fn().mockResolvedValue({
+      draft: {
+        id: 12,
+        platform: 'x',
+        title: 'Scheduled launch thread',
+        content: 'Draft body',
+        hashtags: ['#launch'],
+        status: 'scheduled',
+        scheduledAt: '2026-04-21T08:00',
+        createdAt: '2026-04-19T00:00:00.000Z',
+        updatedAt: '2026-04-19T02:10:00.000Z',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ReviewQueuePage as never, {
+          loadReviewQueueAction,
+          scheduleReviewDraftAction,
+        }),
+      );
+      await flush();
+    });
+
+    const reloadButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('重新加载'),
+    );
+
+    expect(reloadButton).not.toBeNull();
+
+    await act(async () => {
+      reloadButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    const scheduleField = findElement(
+      container,
+      (element) => element.getAttribute('data-review-scheduled-at-id') === '12',
+    );
+    const scheduleButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-review-schedule-id') === '12',
+    );
+
+    expect(scheduleField?.value).toBe('2026-04-21T08:00');
+    expect(collectText(container)).toContain('计划推送时间：2026-04-21T08:00');
+
+    await act(async () => {
+      scheduleButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(scheduleReviewDraftAction).toHaveBeenCalledWith(12, {
+      scheduledAt: '2026-04-21T08:00',
+      status: 'scheduled',
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('clears stale review action feedback after switching to a different project scope', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ReviewQueuePage } = await import('../../src/client/pages/ReviewQueue');
+
+    const loadReviewQueueAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        drafts: [
+          {
+            id: 11,
+            platform: 'x',
+            title: 'Launch thread',
+            content: 'Draft body',
+            hashtags: ['#launch'],
+            status: 'review',
+            createdAt: '2026-04-19T00:00:00.000Z',
+            updatedAt: '2026-04-19T00:00:00.000Z',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        drafts: [
+          {
+            id: 11,
+            platform: 'reddit',
+            title: 'Scoped launch thread',
+            content: 'Draft body B',
+            hashtags: ['#scope'],
+            status: 'review',
+            createdAt: '2026-04-19T02:00:00.000Z',
+            updatedAt: '2026-04-19T02:00:00.000Z',
+          },
+        ],
+      });
+    const updateReviewDraftAction = vi.fn().mockResolvedValue({
+      draft: {
+        id: 11,
+        platform: 'x',
+        title: 'Launch thread',
+        content: 'Draft body',
+        hashtags: ['#launch'],
+        status: 'approved',
+        createdAt: '2026-04-19T00:00:00.000Z',
+        updatedAt: '2026-04-19T01:10:00.000Z',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ReviewQueuePage as never, {
+          loadReviewQueueAction,
+          updateReviewDraftAction,
+        }),
+      );
+      await flush();
+    });
+
+    const approveButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-review-approve-id') === '11',
+    );
+    const projectIdInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    );
+
+    expect(approveButton).not.toBeNull();
+    expect(projectIdInput).not.toBeNull();
+
+    await act(async () => {
+      approveButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('已通过：Launch thread');
+
+    await act(async () => {
+      updateFieldValue(projectIdInput, '12', window);
+      await flush();
+      await flush();
+    });
+
+    expect(loadReviewQueueAction).toHaveBeenLastCalledWith(12);
+    expect(collectText(container)).toContain('Scoped launch thread');
+    expect(collectText(container)).not.toContain('已通过：Launch thread');
+    expect(collectText(container)).toContain('回执状态：待触发');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('shows publish now and schedule failure feedback', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
