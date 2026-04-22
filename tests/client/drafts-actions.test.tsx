@@ -26,6 +26,21 @@ function updateFieldValue(element: { value?: string } | null, value: string, win
   (element as { dispatchEvent: (event: Event) => void }).dispatchEvent(new window.Event('change', { bubbles: true }));
 }
 
+function createDeferredPromise<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((nextResolve, nextReject) => {
+    resolve = nextResolve;
+    reject = nextReject;
+  });
+
+  return {
+    promise,
+    resolve,
+    reject,
+  };
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -311,6 +326,94 @@ describe('Drafts publish actions', () => {
     expect(collectText(container)).not.toContain('Draft body v1');
     expect(updatedTitleInput).not.toBeNull();
     expect(updatedContentField).not.toBeNull();
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('keeps live drafts visible while a reload is pending', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { DraftsPage } = await import('../../src/client/pages/Drafts');
+
+    const pendingReload = createDeferredPromise<{
+      drafts: Array<{
+        id: number;
+        platform: string;
+        title: string;
+        content: string;
+        hashtags: string[];
+        status: string;
+        createdAt: string;
+        updatedAt: string;
+      }>;
+    }>();
+    const loadDraftsAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        drafts: [
+          {
+            id: 8,
+            platform: 'x',
+            title: 'Queued launch thread',
+            content: 'Draft body',
+            hashtags: ['#launch'],
+            status: 'draft',
+            createdAt: '2026-04-19T00:00:00.000Z',
+            updatedAt: '2026-04-19T00:00:00.000Z',
+          },
+        ],
+      })
+      .mockImplementationOnce(() => pendingReload.promise);
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(DraftsPage as never, {
+          loadDraftsAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const reloadButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('重新加载'),
+    );
+
+    expect(reloadButton).not.toBeNull();
+    expect(collectText(container)).toContain('Queued launch thread');
+
+    await act(async () => {
+      reloadButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(loadDraftsAction).toHaveBeenCalledTimes(2);
+    expect(collectText(container)).toContain('正在加载草稿...');
+    expect(collectText(container)).toContain('Queued launch thread');
+    expect(collectText(container)).not.toContain('初始化后会自动加载真实草稿列表。');
+
+    await act(async () => {
+      pendingReload.resolve({
+        drafts: [
+          {
+            id: 9,
+            platform: 'reddit',
+            title: 'Scoped draft after reload',
+            content: 'Reloaded draft body',
+            hashtags: ['#scope'],
+            status: 'draft',
+            createdAt: '2026-04-19T01:00:00.000Z',
+            updatedAt: '2026-04-19T01:00:00.000Z',
+          },
+        ],
+      });
+      await flush();
+    });
 
     await act(async () => {
       root.unmount();

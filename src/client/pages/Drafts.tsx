@@ -125,12 +125,15 @@ export function DraftsPage({
   const [saveStateById, setSaveStateById] = useState<Record<number, DraftMutationState>>({});
   const [publishStateById, setPublishStateById] = useState<Record<number, DraftMutationState>>({});
   const displayState = stateOverride ?? state;
-  const visibleDrafts =
-    displayState.status === 'success' && displayState.data
-      ? localDrafts.length > 0
-        ? localDrafts
-        : displayState.data.drafts
-      : [];
+  const hasLiveDrafts =
+    typeof displayState.data === 'object' &&
+    displayState.data !== null &&
+    Array.isArray((displayState.data as DraftsResponse).drafts);
+  const visibleDrafts = hasLiveDrafts
+    ? localDrafts.length > 0
+      ? localDrafts
+      : (displayState.data as DraftsResponse).drafts
+    : [];
   const displayFormValuesById = draftInteractionStateOverride?.formValuesById ?? formValuesById;
   const displaySaveStateById = draftInteractionStateOverride?.saveStateById ?? saveStateById;
   const displayPublishStateById = draftInteractionStateOverride?.publishStateById ?? publishStateById;
@@ -339,9 +342,11 @@ export function DraftsPage({
           <p style={{ margin: 0, color: '#b91c1c' }}>草稿加载失败：{displayState.error}</p>
         ) : null}
 
-        {displayState.status === 'success' && displayState.data ? (
+        {hasLiveDrafts ? (
           <div style={{ display: 'grid', gap: '12px' }}>
-            <div style={{ fontWeight: 700 }}>已加载 {displayState.data.drafts.length} 条草稿</div>
+            <div style={{ fontWeight: 700 }}>
+              已加载 {(displayState.data as DraftsResponse).drafts.length} 条草稿
+            </div>
 
             {visibleDrafts.length === 0 ? (
               <p style={{ margin: 0, color: '#475569' }}>暂无草稿</p>
