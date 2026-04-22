@@ -282,11 +282,13 @@ function resolveBrowserHandoffOwnership(
 ) {
   if (typeof artifact.channelAccountId === 'number') {
     const channelAccount = channelAccounts.find((account) => account.id === artifact.channelAccountId);
-    return {
-      channelAccountId: artifact.channelAccountId,
-      ...(channelAccount ? { accountDisplayName: channelAccount.displayName } : {}),
-      ownership: 'direct' as const,
-    };
+    if (channelAccount) {
+      return {
+        channelAccountId: artifact.channelAccountId,
+        accountDisplayName: channelAccount.displayName,
+        ownership: 'direct' as const,
+      };
+    }
   }
 
   const matchingChannelAccounts = channelAccounts.filter(
@@ -294,6 +296,27 @@ function resolveBrowserHandoffOwnership(
       normalizeBrowserHandoffPlatform(channelAccount.platform) === artifact.platform &&
       channelAccount.accountKey === artifact.accountKey,
   );
+
+  const draftProjectId = readDraftProjectId(artifact);
+  if (typeof draftProjectId === 'number') {
+    const projectMatches = matchingChannelAccounts.filter(
+      (channelAccount) => channelAccount.projectId === draftProjectId,
+    );
+
+    if (projectMatches.length === 1) {
+      return {
+        channelAccountId: projectMatches[0]?.id,
+        accountDisplayName: projectMatches[0]?.displayName,
+        ownership: 'draft_project' as const,
+      };
+    }
+
+    if (projectMatches.length === 0) {
+      return {
+        ownership: 'unmatched' as const,
+      };
+    }
+  }
 
   if (matchingChannelAccounts.length === 1) {
     return {
@@ -417,17 +440,27 @@ function inferChannelAccountIdFromDraft(
     return undefined;
   }
 
-  const draft = draftStore.getById(draftId);
-  if (!draft || typeof draft.projectId !== 'number') {
+  const draftProjectId = readDraftProjectId(artifact);
+  if (typeof draftProjectId !== 'number') {
     return undefined;
   }
 
   const matches = channelAccounts.filter(
       (channelAccount) =>
-        channelAccount.projectId === draft.projectId &&
+        channelAccount.projectId === draftProjectId &&
         normalizeBrowserHandoffPlatform(channelAccount.platform) === artifact.platform &&
         channelAccount.accountKey === artifact.accountKey,
     );
 
   return matches.length === 1 ? matches[0]?.id : undefined;
+}
+
+function readDraftProjectId(artifact: BrowserHandoffArtifactRecord) {
+  const draftId = Number(artifact.draftId);
+  if (!Number.isInteger(draftId) || draftId <= 0) {
+    return undefined;
+  }
+
+  const draft = draftStore.getById(draftId);
+  return draft && typeof draft.projectId === 'number' ? draft.projectId : undefined;
 }

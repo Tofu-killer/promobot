@@ -83,6 +83,7 @@ systemDashboardRouter.get('/dashboard', (request, response) => {
         : (() => {
             const handoffKey = `${normalizeDashboardPlatform(handoff.platform)}:${handoff.accountKey}`;
             return (
+              handoff.ownership === 'direct' &&
               scopedChannelAccountKeys.has(handoffKey) &&
               (channelAccountKeyCounts.get(handoffKey) ?? 0) === 1
             );
