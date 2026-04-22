@@ -1200,19 +1200,34 @@ describe('PublishCalendar and Projects pages', () => {
     const { createRoot } = await import('react-dom/client');
     const { ProjectsPage } = await import('../../src/client/pages/Projects');
 
-    const loadProjectsAction = vi.fn().mockResolvedValue({
-      projects: [
-        {
-          id: 7,
-          name: 'Acme Launch',
-          siteName: 'Acme',
-          siteUrl: 'https://acme.test',
-          siteDescription: 'Launch week campaign',
-          sellingPoints: ['Cheap', 'Fast'],
-          createdAt: '2026-04-19T08:00:00.000Z',
-        },
-      ],
-    });
+    const loadProjectsAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        projects: [
+          {
+            id: 7,
+            name: 'Acme Launch',
+            siteName: 'Acme',
+            siteUrl: 'https://acme.test',
+            siteDescription: 'Launch week campaign',
+            sellingPoints: ['Cheap', 'Fast'],
+            createdAt: '2026-04-19T08:00:00.000Z',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        projects: [
+          {
+            id: 7,
+            name: 'Acme Launch',
+            siteName: 'Acme',
+            siteUrl: 'https://acme.test',
+            siteDescription: 'Launch week campaign',
+            sellingPoints: ['Cheap', 'Fast'],
+            createdAt: '2026-04-19T08:00:00.000Z',
+          },
+        ],
+      });
     const updateProjectAction = vi.fn().mockResolvedValue({
       project: {
         id: 7,
@@ -1599,6 +1614,104 @@ describe('PublishCalendar and Projects pages', () => {
       pollIntervalMinutes: 60,
     });
     expect(collectText(container)).toContain('SourceConfig 已保存');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('replaces cached source configs when a later successful reload returns an empty list', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ProjectsPage } = await import('../../src/client/pages/Projects');
+
+    const loadProjectsAction = vi.fn().mockResolvedValue({
+      projects: [
+        {
+          id: 7,
+          name: 'Acme Launch',
+          siteName: 'Acme',
+          siteUrl: 'https://acme.test',
+          siteDescription: 'Launch week campaign',
+          sellingPoints: ['Cheap', 'Fast'],
+          createdAt: '2026-04-19T08:00:00.000Z',
+        },
+      ],
+    });
+    const loadSourceConfigsAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        sourceConfigs: [
+          {
+            id: 3,
+            projectId: 7,
+            sourceType: 'keyword+reddit',
+            platform: 'reddit',
+            label: 'Reddit mentions',
+            configJson: { keywords: ['claude latency australia'] },
+            enabled: true,
+            pollIntervalMinutes: 30,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        sourceConfigs: [],
+      });
+    const updateProjectAction = vi.fn().mockResolvedValue({
+      project: {
+        id: 7,
+        name: 'Acme Launch',
+        siteName: 'Acme',
+        siteUrl: 'https://acme.test',
+        siteDescription: 'Launch week campaign',
+        sellingPoints: ['Cheap', 'Fast'],
+        createdAt: '2026-04-19T08:00:00.000Z',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ProjectsPage as never, {
+          loadProjectsAction,
+          loadSourceConfigsAction,
+          updateProjectAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    expect(loadSourceConfigsAction).toHaveBeenCalledTimes(1);
+    expect(collectText(container)).toContain('Reddit mentions');
+
+    const saveProjectButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-project-save-id') === '7' &&
+        collectText(element).includes('保存项目'),
+    );
+
+    expect(saveProjectButton).not.toBeNull();
+
+    await act(async () => {
+      saveProjectButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    expect(updateProjectAction).toHaveBeenCalledWith(7, {
+      name: 'Acme Launch',
+      siteDescription: 'Launch week campaign',
+      sellingPoints: ['Cheap', 'Fast'],
+    });
+    expect(collectText(container)).not.toContain('Reddit mentions');
+    expect(collectText(container)).toContain('暂无 SourceConfig');
 
     await act(async () => {
       root.unmount();

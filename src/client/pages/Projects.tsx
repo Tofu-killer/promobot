@@ -332,16 +332,14 @@ export function ProjectsPage({
           return;
         }
 
-        setSourceConfigsState((current) => ({
+        setSourceConfigsState({
           status: 'success',
           data: {
-            sourceConfigsByProject: mergeSourceConfigsByProject(
-              current.data?.sourceConfigsByProject ?? {},
-              result.sourceConfigsByProject,
-            ),
+            sourceConfigsByProject: result.sourceConfigsByProject,
           },
           error: null,
-        }));
+        });
+        setSourceConfigsByProject(result.sourceConfigsByProject);
       })
       .catch((error) => {
         if (cancelled) {
@@ -448,6 +446,12 @@ export function ProjectsPage({
       }));
       setSaveMessage('项目已保存');
       reload();
+
+      return loadSourceConfigsAction(projectId)
+        .then((reloaded) => {
+          setProjectSourceConfigs(projectId, reloaded.sourceConfigs);
+        })
+        .catch(() => undefined);
     }).catch(() => undefined)
       .finally(() => {
         setPendingProjectSaveId((current) => (current === projectId ? null : current));
