@@ -1234,6 +1234,81 @@ describe('channel accounts api', () => {
     }
   });
 
+  it('preserves metadata-only session diagnostics in channel account test responses when no live session exists', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const storageStatePath = 'artifacts/browser-sessions/facebook-group.json';
+
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'facebookGroup',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB Group',
+        authType: 'browser',
+        status: 'unknown',
+        metadata: {
+          session: {
+            hasSession: true,
+            id: 'facebookGroup:launch-campaign',
+            status: 'active',
+            validatedAt: '2026-04-20T12:34:56.000Z',
+            storageStatePath,
+            source: 'legacy-cache',
+          },
+        },
+      });
+
+      const response = await requestApp('POST', '/api/channel-accounts/1/test');
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        ok: true,
+        test: {
+          checkedAt: expect.any(String),
+          status: 'needs_session',
+          summary: '需要登录会话',
+          message: 'Facebook Group 浏览器 session 缺失，请先登录并保存 session 元数据。',
+          action: 'request_session',
+          nextStep: '/api/channel-accounts/1/session',
+          details: {
+            ready: false,
+            mode: 'browser',
+            authType: 'browser',
+            session: {
+              hasSession: false,
+              id: 'facebookGroup:launch-campaign',
+              status: 'missing',
+              validatedAt: '2026-04-20T12:34:56.000Z',
+              storageStatePath,
+            },
+          },
+        },
+        channelAccount: expect.objectContaining({
+          id: 1,
+          status: 'unknown',
+          metadata: {
+            session: {
+              hasSession: false,
+              id: 'facebookGroup:launch-campaign',
+              status: 'missing',
+              validatedAt: '2026-04-20T12:34:56.000Z',
+              storageStatePath,
+              source: 'legacy-cache',
+            },
+          },
+          session: {
+            hasSession: false,
+            id: 'facebookGroup:launch-campaign',
+            status: 'missing',
+            validatedAt: '2026-04-20T12:34:56.000Z',
+            storageStatePath,
+          },
+        }),
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('imports storage state JSON into a managed session file and returns its managed path', async () => {
     const { rootDir } = createTestDatabasePath();
     try {

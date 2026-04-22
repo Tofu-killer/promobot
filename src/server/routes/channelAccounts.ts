@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { createChannelAccountStore } from '../store/channelAccounts.js';
 import { createJobQueueStore } from '../store/jobQueue.js';
 import {
+  type ChannelAccountConnectionCheck,
   evaluateChannelAccountConnection,
   getChannelAccountPublishReadiness,
 } from '../services/platformReadiness.js';
@@ -323,12 +324,15 @@ channelAccountsRouter.post('/:id/test', (request, response) => {
   const channelAccount = attachSessionSummary(testedChannelAccount, createSessionStore());
   const test = {
     checkedAt: new Date().toISOString(),
-    ...evaluateChannelAccountConnection({
-      id: channelAccount.id,
-      platform: channelAccount.platform,
-      accountKey: channelAccount.accountKey,
-      authType: channelAccount.authType,
-    }),
+    ...syncConnectionCheckSession(
+      evaluateChannelAccountConnection({
+        id: channelAccount.id,
+        platform: channelAccount.platform,
+        accountKey: channelAccount.accountKey,
+        authType: channelAccount.authType,
+      }),
+      channelAccount.session,
+    ),
   };
 
   response.json({
@@ -469,6 +473,26 @@ function syncResponseMetadataSession(
     session: {
       ...metadataSession,
       ...session,
+    },
+  };
+}
+
+function syncConnectionCheckSession(
+  check: ChannelAccountConnectionCheck,
+  session: SessionSummary,
+): ChannelAccountConnectionCheck {
+  if (!isPlainObject(check.details) || !isPlainObject(check.details.session)) {
+    return check;
+  }
+
+  return {
+    ...check,
+    details: {
+      ...check.details,
+      session: {
+        ...check.details.session,
+        ...session,
+      },
     },
   };
 }
