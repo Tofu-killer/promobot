@@ -201,6 +201,11 @@ export function PublishCalendarPage({
     );
   }, [displayState]);
 
+  useEffect(() => {
+    setCalendarFeedback(createIdleMutationState());
+    setMutationStateById({});
+  }, [projectId]);
+
   function getScheduledAtValue(draft: DraftRecord) {
     return scheduledAtById[draft.id] ?? draft.scheduledAt ?? '';
   }
