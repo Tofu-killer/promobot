@@ -667,6 +667,16 @@ export function SettingsPage({
     ...(runtimeQueue ?? {}),
     ...(jobsQueueContract ?? {}),
   };
+  const hasLiveBrowserLaneData =
+    typeof displayBrowserLaneState.data === 'object' &&
+    displayBrowserLaneState.data !== null &&
+    Array.isArray(displayBrowserLaneState.data.requests);
+  const visibleBrowserLaneRequests = hasLiveBrowserLaneData ? displayBrowserLaneState.data.requests : [];
+  const hasLiveBrowserHandoffData =
+    typeof displayBrowserHandoffState.data === 'object' &&
+    displayBrowserHandoffState.data !== null &&
+    Array.isArray(displayBrowserHandoffState.data.handoffs);
+  const visibleBrowserHandoffs = hasLiveBrowserHandoffData ? displayBrowserHandoffState.data.handoffs : [];
   const recentJobs =
     hasLiveJobsData && displayJobsState.data?.recentJobs.length > 0
       ? displayJobsState.data.recentJobs
@@ -1075,8 +1085,8 @@ export function SettingsPage({
                   browser lane requests 加载失败：{displayBrowserLaneState.error}
                 </div>
               ) : null}
-              {displayBrowserLaneState.status === 'success' && displayBrowserLaneState.data.requests.length > 0 ? (
-                displayBrowserLaneState.data.requests.map((request) => (
+              {hasLiveBrowserLaneData && visibleBrowserLaneRequests.length > 0 ? (
+                visibleBrowserLaneRequests.map((request) => (
                   <div
                     key={`${request.channelAccountId}-${request.artifactPath}-${request.requestedAt}`}
                     style={{
@@ -1098,7 +1108,7 @@ export function SettingsPage({
                     </div>
                   </div>
                 ))
-              ) : displayBrowserLaneState.status === 'success' ? (
+              ) : hasLiveBrowserLaneData ? (
                 <div style={{ color: '#475569' }}>当前没有 browser lane requests。</div>
               ) : null}
             </div>
@@ -1113,8 +1123,8 @@ export function SettingsPage({
                   browser handoffs 加载失败：{displayBrowserHandoffState.error}
                 </div>
               ) : null}
-              {displayBrowserHandoffState.status === 'success' && displayBrowserHandoffState.data.handoffs.length > 0 ? (
-                displayBrowserHandoffState.data.handoffs.map((handoff) => (
+              {hasLiveBrowserHandoffData && visibleBrowserHandoffs.length > 0 ? (
+                visibleBrowserHandoffs.map((handoff) => (
                   <div
                     key={`${handoff.artifactPath}-${handoff.updatedAt}`}
                     style={{
@@ -1152,7 +1162,7 @@ export function SettingsPage({
                     </div>
                   </div>
                 ))
-              ) : displayBrowserHandoffState.status === 'success' ? (
+              ) : hasLiveBrowserHandoffData ? (
                 <div style={{ color: '#475569' }}>当前没有 browser handoffs。</div>
               ) : null}
             </div>
