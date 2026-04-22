@@ -200,4 +200,67 @@ describe('dashboard lifecycle metrics', () => {
       await flush();
     });
   });
+
+  it('does not fall back to an unscoped dashboard load when projectId is invalid', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { DashboardPage } = await import('../../src/client/pages/Dashboard');
+
+    const loadDashboardAction = vi.fn().mockResolvedValue({
+      monitor: {
+        total: 3,
+        new: 2,
+        followUpDrafts: 1,
+      },
+      drafts: {
+        total: 5,
+        review: 2,
+      },
+      totals: {
+        items: 8,
+        followUps: 1,
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(DashboardPage as never, {
+          loadDashboardAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    expect(loadDashboardAction).toHaveBeenCalledTimes(1);
+    expect(loadDashboardAction).toHaveBeenLastCalledWith();
+
+    const projectIdInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    );
+
+    await act(async () => {
+      updateFieldValue(projectIdInput as never, 'invalid-project-id', window as never);
+      await flush();
+      await flush();
+    });
+
+    expect(loadDashboardAction).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toContain('项目 ID 必须是大于 0 的整数');
+
+    await act(async () => {
+      updateFieldValue(projectIdInput as never, '12', window as never);
+      await flush();
+      await flush();
+    });
+
+    expect(loadDashboardAction).toHaveBeenCalledWith(12);
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
 });

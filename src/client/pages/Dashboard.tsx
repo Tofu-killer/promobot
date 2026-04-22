@@ -70,6 +70,16 @@ function parseProjectId(value: string) {
   return Number.isInteger(projectId) && projectId > 0 ? projectId : undefined;
 }
 
+function getProjectIdValidationError(value: string) {
+  const normalizedValue = value.trim();
+
+  if (normalizedValue.length === 0) {
+    return null;
+  }
+
+  return parseProjectId(value) === undefined ? '项目 ID 必须是大于 0 的整数' : null;
+}
+
 function buildProjectScopedPath(path: string, projectId?: number) {
   return projectId === undefined ? path : `${path}?projectId=${projectId}`;
 }
@@ -104,9 +114,16 @@ export function DashboardPage({
   const [localProjectIdDraft, setLocalProjectIdDraft] = useState('');
   const activeProjectIdDraft = projectIdDraft ?? localProjectIdDraft;
   const projectId = parseProjectId(activeProjectIdDraft);
+  const projectIdValidationError = getProjectIdValidationError(activeProjectIdDraft);
   const { state } = useAsyncQuery(
-    () => (projectId === undefined ? loadDashboardAction() : loadDashboardAction(projectId)),
-    [loadDashboardAction, projectId],
+    () => {
+      if (projectIdValidationError) {
+        return Promise.reject(new Error(projectIdValidationError));
+      }
+
+      return projectId === undefined ? loadDashboardAction() : loadDashboardAction(projectId);
+    },
+    [loadDashboardAction, projectId, projectIdValidationError],
   );
   const displayState = stateOverride ?? state;
   const viewData = displayState.status === 'success' && displayState.data ? displayState.data : null;
@@ -147,6 +164,9 @@ export function DashboardPage({
           placeholder="例如 12"
           style={projectInputStyle}
         />
+        {projectIdValidationError ? (
+          <span style={{ color: '#b91c1c', fontWeight: 700 }}>{projectIdValidationError}</span>
+        ) : null}
       </label>
 
       {displayState.status === 'loading' ? <p style={{ color: '#334155' }}>正在加载仪表盘...</p> : null}
