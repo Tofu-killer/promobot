@@ -362,6 +362,61 @@ describe('channel accounts api', () => {
     }
   });
 
+  it('rejects channel account patches with invalid optional field types', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'x',
+        accountKey: '@promobot',
+        displayName: 'PromoBot X',
+        authType: 'api',
+        status: 'healthy',
+      });
+
+      for (const body of [
+        { accountKey: 123 },
+        { displayName: ['PromoBot X Ops'] },
+        { authType: { value: 'api' } },
+        { status: false },
+        { metadata: 'not-an-object' },
+        { metadata: new Date('2026-04-21T00:00:00.000Z') },
+      ]) {
+        const response = await requestApp('PATCH', '/api/channel-accounts/1', body);
+
+        expect(response.status).toBe(400);
+        expect(JSON.parse(response.body)).toEqual({
+          error: 'invalid channel account payload',
+        });
+      }
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('rejects channel account patches when the payload body is not an object', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'x',
+        accountKey: '@promobot',
+        displayName: 'PromoBot X',
+        authType: 'api',
+        status: 'healthy',
+      });
+
+      for (const body of ['oops', 123, true, new Date('2026-04-21T00:00:00.000Z')]) {
+        const response = await requestApp('PATCH', '/api/channel-accounts/1', body);
+
+        expect(response.status).toBe(400);
+        expect(JSON.parse(response.body)).toEqual({
+          error: 'invalid channel account payload',
+        });
+      }
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('persists channel accounts in SQLite', async () => {
     const { rootDir } = createTestDatabasePath();
     try {

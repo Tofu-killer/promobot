@@ -257,10 +257,26 @@ channelAccountsRouter.patch('/:id', (request, response) => {
     return;
   }
 
+  if (request.body !== undefined && !isPlainObject(request.body)) {
+    response.status(400).json({ error: 'invalid channel account payload' });
+    return;
+  }
+
   const input = request.body ?? {};
   if (
     input.platform !== undefined &&
     (typeof input.platform !== 'string' || !supportedChannelAccountPlatforms.has(input.platform))
+  ) {
+    response.status(400).json({ error: 'invalid channel account payload' });
+    return;
+  }
+
+  if (
+    (input.accountKey !== undefined && typeof input.accountKey !== 'string') ||
+    (input.displayName !== undefined && typeof input.displayName !== 'string') ||
+    (input.authType !== undefined && typeof input.authType !== 'string') ||
+    (input.status !== undefined && typeof input.status !== 'string') ||
+    (input.metadata !== undefined && !isPlainObject(input.metadata))
   ) {
     response.status(400).json({ error: 'invalid channel account payload' });
     return;
@@ -344,7 +360,12 @@ channelAccountsRouter.post('/:id/test', (request, response) => {
 });
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
+
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
 }
 
 function isSessionStatus(value: string): value is SessionStatus {
