@@ -332,6 +332,7 @@ channelAccountsRouter.post('/:id/test', (request, response) => {
         authType: channelAccount.authType,
       }),
       channelAccount.session,
+      channelAccount.metadata.session,
     ),
   };
 
@@ -480,16 +481,20 @@ function syncResponseMetadataSession(
 function syncConnectionCheckSession(
   check: ChannelAccountConnectionCheck,
   session: SessionSummary,
+  metadataSessionValue?: unknown,
 ): ChannelAccountConnectionCheck {
   if (!isPlainObject(check.details) || !isPlainObject(check.details.session)) {
     return check;
   }
+
+  const metadataSession = isPlainObject(metadataSessionValue) ? metadataSessionValue : {};
 
   return {
     ...check,
     details: {
       ...check.details,
       session: {
+        ...metadataSession,
         ...check.details.session,
         ...session,
       },

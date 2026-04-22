@@ -1279,6 +1279,7 @@ describe('channel accounts api', () => {
               status: 'missing',
               validatedAt: '2026-04-20T12:34:56.000Z',
               storageStatePath,
+              source: 'legacy-cache',
             },
           },
         },
