@@ -422,6 +422,7 @@ export function SystemQueuePage({
                     <div style={{ fontWeight: 700 }}>
                       #{request.channelAccountId} · {request.platform} · {request.action} · {request.jobStatus}
                     </div>
+                    <div style={{ color: '#475569' }}>accountKey: {request.accountKey}</div>
                     <div style={{ color: '#475569' }}>requestedAt: {request.requestedAt}</div>
                     <div style={{ color: '#475569' }}>artifactPath: {request.artifactPath}</div>
                     <div style={{ color: '#475569' }}>

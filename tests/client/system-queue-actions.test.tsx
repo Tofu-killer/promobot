@@ -389,6 +389,7 @@ describe('System Queue actions', () => {
     expect(html).toContain('Browser Handoff 工单');
     expect(html).toContain('最近作业');
     expect(html).toContain('request_session');
+    expect(html).toContain('accountKey: acct-browser');
     expect(html).toContain('artifacts/browser-lane-requests/x/acct-browser/request-session-job-17.json');
     expect(html).toContain('account #7');
     expect(html).toContain('account: FB Group Manual');
