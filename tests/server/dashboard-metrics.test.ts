@@ -422,6 +422,181 @@ describe('dashboard metrics api', () => {
     }
   });
 
+  it('scopes browser lane request metrics by normalized platform and accountKey when artifact channelAccountId is stale', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const channelAccountStore = createChannelAccountStore();
+      const artifactDir = path.join(
+        rootDir,
+        'artifacts',
+        'browser-lane-requests',
+        'facebook-group',
+        'launch-campaign',
+      );
+      mkdirSync(artifactDir, { recursive: true });
+      writeFileSync(
+        path.join(artifactDir, 'request-session-job-41.json'),
+        JSON.stringify({
+          type: 'browser_lane_request',
+          channelAccountId: 999,
+          platform: 'facebook-group',
+          accountKey: 'launch-campaign',
+          action: 'request_session',
+          requestedAt: '2026-04-21T11:00:00.000Z',
+          jobId: 41,
+          jobStatus: 'pending',
+          nextStep: '/api/channel-accounts/999/session',
+        }),
+      );
+
+      channelAccountStore.create({
+        projectId: 11,
+        platform: 'facebookGroup',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB Group 11',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      const response = await requestApp('GET', '/api/monitor/dashboard?projectId=11');
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toMatchObject({
+        browserLaneRequests: {
+          total: 1,
+          pending: 1,
+          resolved: 0,
+        },
+        channelAccounts: {
+          total: 1,
+          connected: 1,
+        },
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('prefers channelAccountId over accountKey when scoping browser lane requests for shared keys', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const channelAccountStore = createChannelAccountStore();
+      const artifactDir = path.join(
+        rootDir,
+        'artifacts',
+        'browser-lane-requests',
+        'facebookGroup',
+        'launch-campaign',
+      );
+      mkdirSync(artifactDir, { recursive: true });
+
+      channelAccountStore.create({
+        projectId: 11,
+        platform: 'facebookGroup',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB 11',
+        authType: 'browser',
+        status: 'healthy',
+      });
+      channelAccountStore.create({
+        projectId: 22,
+        platform: 'facebookGroup',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB 22',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      writeFileSync(
+        path.join(artifactDir, 'request-session-job-42.json'),
+        JSON.stringify({
+          type: 'browser_lane_request',
+          channelAccountId: 2,
+          platform: 'facebookGroup',
+          accountKey: 'launch-campaign',
+          action: 'request_session',
+          requestedAt: '2026-04-21T11:10:00.000Z',
+          jobId: 42,
+          jobStatus: 'pending',
+          nextStep: '/api/channel-accounts/2/session',
+        }),
+      );
+
+      const response = await requestApp('GET', '/api/monitor/dashboard?projectId=11');
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toMatchObject({
+        browserLaneRequests: {
+          total: 0,
+          pending: 0,
+          resolved: 0,
+        },
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('does not attribute stale browser lane requests when normalized platform and accountKey are shared across projects', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const channelAccountStore = createChannelAccountStore();
+      const artifactDir = path.join(
+        rootDir,
+        'artifacts',
+        'browser-lane-requests',
+        'facebookGroup',
+        'launch-campaign',
+      );
+      mkdirSync(artifactDir, { recursive: true });
+
+      channelAccountStore.create({
+        projectId: 11,
+        platform: 'facebookGroup',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB 11',
+        authType: 'browser',
+        status: 'healthy',
+      });
+      channelAccountStore.create({
+        projectId: 22,
+        platform: 'facebookGroup',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB 22',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      writeFileSync(
+        path.join(artifactDir, 'request-session-job-43.json'),
+        JSON.stringify({
+          type: 'browser_lane_request',
+          channelAccountId: 999,
+          platform: 'facebookGroup',
+          accountKey: 'launch-campaign',
+          action: 'request_session',
+          requestedAt: '2026-04-21T11:20:00.000Z',
+          jobId: 43,
+          jobStatus: 'pending',
+          nextStep: '/api/channel-accounts/999/session',
+        }),
+      );
+
+      const response = await requestApp('GET', '/api/monitor/dashboard?projectId=11');
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toMatchObject({
+        browserLaneRequests: {
+          total: 0,
+          pending: 0,
+          resolved: 0,
+        },
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('filters job queue metrics by projectId and excludes unscoped jobs from scoped views', async () => {
     const { rootDir } = createTestDatabasePath();
     try {

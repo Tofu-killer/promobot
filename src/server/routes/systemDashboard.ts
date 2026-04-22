@@ -32,7 +32,8 @@ systemDashboardRouter.get('/dashboard', (request, response) => {
   const monitorItems = filterProjectAwareRecords(monitorStore.list(), projectId);
   const drafts = draftStore.list(undefined, projectId);
   const inboxItems = filterProjectAwareRecords(inboxStore.list(), projectId);
-  const channelAccounts = filterProjectAwareRecords(channelAccountStore.list(), projectId);
+  const allChannelAccounts = channelAccountStore.list();
+  const channelAccounts = filterProjectAwareRecords(allChannelAccounts, projectId);
   const followUpDrafts = drafts.filter((draft) => draft.title?.toLowerCase().includes('follow-up'));
   const unreadInboxItems = inboxItems.filter((item) => item.status !== 'handled');
   const connectedChannelAccounts = channelAccounts.filter((account) => account.status === 'healthy');
@@ -41,15 +42,29 @@ systemDashboardRouter.get('/dashboard', (request, response) => {
   const publishedDraftCount = drafts.filter((draft) => draft.status === 'published').length;
   const publishLogMetrics = getPublishLogMetrics(projectId);
   const monitorConfigMetrics = getMonitorConfigMetrics(projectId);
+  const allChannelAccountIds = new Set(allChannelAccounts.map((account) => account.id));
+  const channelAccountKeyCounts = countDashboardChannelAccountKeys(allChannelAccounts);
   const scopedChannelAccountIds = new Set(channelAccounts.map((account) => account.id));
-  const browserLaneRequests = listSessionRequestArtifacts().filter((request) =>
-    projectId === undefined ? true : scopedChannelAccountIds.has(request.channelAccountId),
-  );
-  const pendingBrowserLaneRequests = browserLaneRequests.filter((request) => request.resolvedAt === null).length;
-  const resolvedBrowserLaneRequests = browserLaneRequests.filter((request) => request.resolvedAt !== null).length;
   const scopedChannelAccountKeys = new Set(
     channelAccounts.map((account) => `${normalizeDashboardPlatform(account.platform)}:${account.accountKey}`),
   );
+  const browserLaneRequests = listSessionRequestArtifacts().filter((request) =>
+    projectId === undefined
+      ? true
+      : scopedChannelAccountIds.has(request.channelAccountId)
+        ? true
+        : allChannelAccountIds.has(request.channelAccountId)
+          ? false
+          : (() => {
+              const requestKey = `${normalizeDashboardPlatform(request.platform)}:${request.accountKey}`;
+              return (
+                scopedChannelAccountKeys.has(requestKey) &&
+                (channelAccountKeyCounts.get(requestKey) ?? 0) === 1
+              );
+            })(),
+  );
+  const pendingBrowserLaneRequests = browserLaneRequests.filter((request) => request.resolvedAt === null).length;
+  const resolvedBrowserLaneRequests = browserLaneRequests.filter((request) => request.resolvedAt !== null).length;
   const browserHandoffs = listBrowserHandoffArtifacts().filter((handoff) =>
     projectId === undefined
       ? true
@@ -131,6 +146,19 @@ function parseProjectIdQuery(value: unknown) {
 
 function normalizeDashboardPlatform(platform: string) {
   return platform === 'facebook-group' ? 'facebookGroup' : platform;
+}
+
+function countDashboardChannelAccountKeys(
+  channelAccounts: Array<{ platform: string; accountKey: string }>,
+) {
+  const counts = new Map<string, number>();
+
+  for (const channelAccount of channelAccounts) {
+    const key = `${normalizeDashboardPlatform(channelAccount.platform)}:${channelAccount.accountKey}`;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+
+  return counts;
 }
 
 function filterProjectAwareRecords<T extends { projectId?: number | null }>(
