@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   createPublishRouter,
+  UnsupportedDraftPlatformError,
   type PublishRouteDependencies,
 } from '../../src/server/routes/publish';
 import { initDb } from '../../src/server/db';
@@ -532,6 +533,64 @@ describe('publish api', () => {
     });
   });
 
+  it('does not mark a scheduled draft failed when the platform is unsupported before publishing starts', async () => {
+    const testDatabase = createTestDatabasePath();
+    activeTestDbRoot = testDatabase.rootDir;
+    activeTestDatabasePath = testDatabase.databasePath;
+    const draftStore = createSQLiteDraftStore();
+    const draft = draftStore.create({
+      platform: 'linkedin',
+      content: 'Unsupported platform draft',
+    });
+    draftStore.update(draft.id, {
+      status: 'scheduled',
+      scheduledAt: '2026-04-20T09:30:00.000Z',
+    });
+    insertPendingPublishJob(draft.id, '2026-04-20T09:30:00.000Z');
+    const app = createTestApp(
+      {
+        lookupDraft(id) {
+          const storedDraft = draftStore.getById(id);
+          if (!storedDraft) {
+            return undefined;
+          }
+
+          return {
+            id: storedDraft.id,
+            platform: storedDraft.platform,
+            title: storedDraft.title,
+            content: storedDraft.content,
+          };
+        },
+      },
+      { useDefaultPersistence: true },
+    );
+
+    const response = await requestApp(app, 'POST', `/api/drafts/${draft.id}/publish`);
+
+    expect(response.status).toBe(400);
+    expect(JSON.parse(response.body)).toEqual({
+      error: 'unsupported draft platform',
+    });
+    expect(draftStore.getById(draft.id)).toEqual(
+      expect.objectContaining({
+        id: draft.id,
+        status: 'scheduled',
+        scheduledAt: '2026-04-20T09:30:00.000Z',
+        publishedAt: undefined,
+      }),
+    );
+    expect(readPublishLogs()).toEqual([]);
+    expect(readJobQueue()).toEqual([
+      expect.objectContaining({
+        type: 'publish',
+        payload: JSON.stringify({ draftId: draft.id }),
+        status: 'pending',
+        runAt: '2026-04-20T09:30:00.000Z',
+      }),
+    ]);
+  });
+
   it('uses an injected publish adapter when one is provided', async () => {
     const testDatabase = createTestDatabasePath();
     activeTestDbRoot = testDatabase.rootDir;
@@ -724,6 +783,64 @@ describe('publish api', () => {
         status: 'failed',
         publishUrl: null,
         message: 'publisher exploded',
+      }),
+    ]);
+    expect(readJobQueue()).toEqual([]);
+  });
+
+  it('records a failed publish log when an injected adapter throws UnsupportedDraftPlatformError', async () => {
+    const testDatabase = createTestDatabasePath();
+    activeTestDbRoot = testDatabase.rootDir;
+    activeTestDatabasePath = testDatabase.databasePath;
+    const draftStore = createSQLiteDraftStore();
+    const draft = draftStore.create({
+      platform: 'custom',
+      content: 'Injected adapter will reject this draft',
+    });
+    draftStore.update(draft.id, {
+      status: 'scheduled',
+      scheduledAt: '2026-04-20T09:30:00.000Z',
+    });
+    insertPendingPublishJob(draft.id, '2026-04-20T09:30:00.000Z');
+    const app = createTestApp(
+      {
+        lookupDraft(id) {
+          const storedDraft = draftStore.getById(id);
+          if (!storedDraft) {
+            return undefined;
+          }
+
+          return {
+            id: storedDraft.id,
+            platform: storedDraft.platform,
+            title: storedDraft.title,
+            content: storedDraft.content,
+          };
+        },
+        publishDraft: vi
+          .fn()
+          .mockRejectedValue(new UnsupportedDraftPlatformError('custom')),
+      },
+      { useDefaultPersistence: true },
+    );
+
+    await expect(requestApp(app, 'POST', `/api/drafts/${draft.id}/publish`)).rejects.toThrow(
+      'unsupported draft platform: custom',
+    );
+    expect(draftStore.getById(draft.id)).toEqual(
+      expect.objectContaining({
+        id: draft.id,
+        status: 'failed',
+        scheduledAt: undefined,
+        publishedAt: undefined,
+      }),
+    );
+    expect(readPublishLogs()).toEqual([
+      expect.objectContaining({
+        draftId: draft.id,
+        status: 'failed',
+        publishUrl: null,
+        message: 'unsupported draft platform: custom',
       }),
     ]);
     expect(readJobQueue()).toEqual([]);

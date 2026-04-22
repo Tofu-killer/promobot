@@ -363,6 +363,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 export function createPublishRouter(dependencies: PublishRouteDependencies) {
   const publishDraft = dependencies.publishDraft ?? createDraftPublishAdapter();
+  const usesDefaultPublishAdapter = dependencies.publishDraft === undefined;
   const persistPublishResult =
     dependencies.persistPublishResult ?? createPublishResultPersister();
   const recordPublishFailure =
@@ -396,17 +397,16 @@ export function createPublishRouter(dependencies: PublishRouteDependencies) {
       return;
     }
 
+    if (usesDefaultPublishAdapter && !publishersByPlatform[draft.platform]) {
+      response.status(400).json({ error: 'unsupported draft platform' });
+      return;
+    }
+
     try {
       const publishResult = await publishDraft(draft, request);
       contract = createPublishContract(draft, publishResult);
     } catch (error) {
       await recordPublishFailure(id, error, request, draft);
-
-      if (error instanceof UnsupportedDraftPlatformError) {
-        response.status(400).json({ error: 'unsupported draft platform' });
-        return;
-      }
-
       next(error);
       return;
     }
