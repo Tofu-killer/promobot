@@ -1652,6 +1652,170 @@ describe('channel account edit actions', () => {
     });
   });
 
+  it('keeps stale update success hidden after switching to another account following local projectId validation failure', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ChannelAccountsPage } = await import('../../src/client/pages/ChannelAccounts');
+
+    const deferred = createDeferredPromise<{
+      channelAccount: {
+        id: number;
+        projectId?: number | null;
+        platform: string;
+        accountKey: string;
+        displayName: string;
+        authType: string;
+        status: string;
+        metadata: Record<string, unknown>;
+        createdAt: string;
+        updatedAt: string;
+      };
+    }>();
+    const updateChannelAccountAction = vi.fn().mockReturnValue(deferred.promise);
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ChannelAccountsPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              channelAccounts: [
+                {
+                  id: 3,
+                  projectId: 7,
+                  platform: 'x',
+                  accountKey: 'acct-x-2',
+                  displayName: 'X Secondary',
+                  authType: 'api-key',
+                  status: 'healthy',
+                  metadata: {
+                    team: 'growth',
+                  },
+                  createdAt: '2026-04-19T00:00:00.000Z',
+                  updatedAt: '2026-04-19T00:00:00.000Z',
+                },
+                {
+                  id: 4,
+                  projectId: 8,
+                  platform: 'reddit',
+                  accountKey: 'acct-reddit',
+                  displayName: 'Reddit Ops',
+                  authType: 'oauth',
+                  status: 'healthy',
+                  metadata: {},
+                  createdAt: '2026-04-19T00:00:00.000Z',
+                  updatedAt: '2026-04-19T00:00:00.000Z',
+                },
+              ],
+            },
+          },
+          updateChannelAccountAction,
+        }),
+      );
+      await flush();
+    });
+
+    const firstEditButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-edit-account-id') === '3',
+    );
+
+    await act(async () => {
+      firstEditButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    await act(async () => {
+      updateFieldValue(
+        findElement(
+          container,
+          (element) => element.tagName === 'INPUT' && element.getAttribute('data-edit-project-id') === '3',
+        ),
+        '',
+        window,
+      );
+      updateFieldValue(
+        findElement(
+          container,
+          (element) => element.tagName === 'INPUT' && element.getAttribute('data-edit-display-name-id') === '3',
+        ),
+        'X Growth',
+        window,
+      );
+      await flush();
+    });
+
+    const firstSaveButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-save-account-id') === '3',
+    );
+
+    await act(async () => {
+      firstSaveButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    await act(async () => {
+      deferred.resolve({
+        channelAccount: {
+          id: 3,
+          projectId: null,
+          platform: 'x',
+          accountKey: 'acct-x-2',
+          displayName: 'X Growth',
+          authType: 'api-key',
+          status: 'healthy',
+          metadata: {
+            team: 'growth',
+          },
+          createdAt: '2026-04-19T00:00:00.000Z',
+          updatedAt: '2026-04-19T01:00:00.000Z',
+        },
+      });
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('账号已更新');
+
+    await act(async () => {
+      updateFieldValue(
+        findElement(
+          container,
+          (element) => element.tagName === 'INPUT' && element.getAttribute('data-edit-project-id') === '3',
+        ),
+        'invalid-project-id',
+        window,
+      );
+      await flush();
+    });
+
+    await act(async () => {
+      firstSaveButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('更新失败：项目 ID 必须是大于 0 的整数');
+    expect(collectText(container)).not.toContain('账号已更新');
+
+    const secondEditButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-edit-account-id') === '4',
+    );
+
+    await act(async () => {
+      secondEditButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(collectText(container)).not.toContain('账号已更新');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('shows error feedback when saving an edited account fails', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
@@ -3194,6 +3358,331 @@ describe('channel account edit actions', () => {
 
     expect(saveChannelAccountSessionAction).not.toHaveBeenCalled();
     expect(collectText(container)).toContain('Session 保存失败：storage state JSON 必须是合法 JSON');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('hides stale session save success when a later local storage-state validation fails', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ChannelAccountsPage } = await import('../../src/client/pages/ChannelAccounts');
+
+    const saveSessionDeferred = createDeferredPromise<{
+      ok: boolean;
+      session: {
+        hasSession: boolean;
+        id: string;
+        status: string;
+        validatedAt: string | null;
+        storageStatePath: string | null;
+        notes?: string;
+      };
+      channelAccount: {
+        id: number;
+        platform: string;
+        accountKey: string;
+        displayName: string;
+        authType: string;
+        status: string;
+        metadata: Record<string, unknown>;
+        session: {
+          hasSession: boolean;
+          status: string;
+          validatedAt: string | null;
+          storageStatePath: string | null;
+          id?: string;
+          notes?: string;
+        };
+        createdAt: string;
+        updatedAt: string;
+      };
+    }>();
+    const saveChannelAccountSessionAction = vi.fn().mockReturnValue(saveSessionDeferred.promise);
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ChannelAccountsPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              channelAccounts: [
+                {
+                  id: 7,
+                  platform: 'x',
+                  accountKey: 'acct-browser',
+                  displayName: 'Browser X',
+                  authType: 'browser',
+                  status: 'healthy',
+                  metadata: {},
+                  session: {
+                    hasSession: false,
+                    status: 'missing',
+                    validatedAt: null,
+                    storageStatePath: null,
+                    id: 'x:acct-browser',
+                  },
+                  createdAt: '2026-04-19T00:00:00.000Z',
+                  updatedAt: '2026-04-19T00:00:00.000Z',
+                },
+              ],
+            },
+          },
+          saveChannelAccountSessionAction,
+        }),
+      );
+      await flush();
+    });
+
+    const editButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-edit-account-id') === '7',
+    );
+
+    await act(async () => {
+      editButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    await act(async () => {
+      updateFieldValue(
+        findElement(
+          container,
+          (element) => element.tagName === 'INPUT' && element.getAttribute('data-edit-session-storage-path-id') === '7',
+        ),
+        'artifacts/browser-sessions/browser-x-valid.json',
+        window,
+      );
+      await flush();
+    });
+
+    const saveSessionButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-save-session-id') === '7',
+    );
+
+    await act(async () => {
+      saveSessionButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(saveChannelAccountSessionAction).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      saveSessionDeferred.resolve({
+        ok: true,
+        session: {
+          hasSession: true,
+          id: 'x:acct-browser',
+          status: 'active',
+          validatedAt: '2026-04-19T04:30:00.000Z',
+          storageStatePath: 'artifacts/browser-sessions/browser-x-valid.json',
+        },
+        channelAccount: {
+          id: 7,
+          platform: 'x',
+          accountKey: 'acct-browser',
+          displayName: 'Browser X',
+          authType: 'browser',
+          status: 'healthy',
+          metadata: {},
+          session: {
+            hasSession: true,
+            id: 'x:acct-browser',
+            status: 'active',
+            validatedAt: '2026-04-19T04:30:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/browser-x-valid.json',
+          },
+          createdAt: '2026-04-19T00:00:00.000Z',
+          updatedAt: '2026-04-19T04:30:00.000Z',
+        },
+      });
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('Session 元数据已保存');
+
+    await act(async () => {
+      updateFieldValue(
+        findElement(
+          container,
+          (element) =>
+            element.tagName === 'TEXTAREA' &&
+            element.getAttribute('data-edit-session-storage-state-json-id') === '7',
+        ),
+        '{"cookies": [}',
+        window,
+      );
+      await flush();
+    });
+
+    await act(async () => {
+      saveSessionButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(saveChannelAccountSessionAction).toHaveBeenCalledTimes(1);
+    expect(collectText(container)).toContain('Session 保存失败：storage state JSON 必须是合法 JSON');
+    expect(collectText(container)).not.toContain('Session 元数据已保存');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('hides stale session-action overlays when a later local save validation fails for the same account', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ChannelAccountsPage } = await import('../../src/client/pages/ChannelAccounts');
+
+    const saveChannelAccountSessionAction = vi.fn();
+    const requestChannelAccountSessionAction = vi.fn().mockResolvedValue({
+      ok: true,
+      sessionAction: {
+        action: 'relogin',
+        accountId: 7,
+        status: 'pending',
+        requestedAt: '2026-04-19T05:00:00.000Z',
+        message:
+          'Browser relogin request queued. Refresh login manually and attach updated session metadata after the browser lane picks up the job.',
+        nextStep: '/api/channel-accounts/7/session',
+        jobId: 27,
+        jobStatus: 'pending',
+        artifactPath: 'artifacts/browser-lane-requests/x/acct-browser/relogin-job-27.json',
+      },
+      channelAccount: {
+        id: 7,
+        platform: 'x',
+        accountKey: 'acct-browser',
+        displayName: 'Browser X',
+        authType: 'browser',
+        status: 'healthy',
+        metadata: {},
+        session: {
+          hasSession: true,
+          status: 'expired',
+          validatedAt: '2026-04-19T02:00:00.000Z',
+          storageStatePath: 'artifacts/browser-sessions/acct-browser.json',
+          id: 'x:acct-browser',
+        },
+        latestBrowserLaneArtifact: {
+          action: 'relogin',
+          jobStatus: 'pending',
+          requestedAt: '2026-04-19T05:00:00.000Z',
+          artifactPath: 'artifacts/browser-lane-requests/x/acct-browser/relogin-job-27.json',
+          resolvedAt: null,
+        },
+        publishReadiness: {
+          platform: 'x',
+          ready: false,
+          mode: 'browser',
+          status: 'needs_relogin',
+          message: '已有 X 浏览器 session，但需要重新登录刷新。',
+          action: 'relogin',
+        },
+        createdAt: '2026-04-19T00:00:00.000Z',
+        updatedAt: '2026-04-19T00:00:00.000Z',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ChannelAccountsPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              channelAccounts: [
+                {
+                  id: 7,
+                  platform: 'x',
+                  accountKey: 'acct-browser',
+                  displayName: 'Browser X',
+                  authType: 'browser',
+                  status: 'healthy',
+                  metadata: {},
+                  session: {
+                    hasSession: true,
+                    status: 'expired',
+                    validatedAt: '2026-04-19T02:00:00.000Z',
+                    storageStatePath: 'artifacts/browser-sessions/acct-browser.json',
+                    id: 'x:acct-browser',
+                  },
+                  publishReadiness: {
+                    platform: 'x',
+                    ready: false,
+                    mode: 'browser',
+                    status: 'needs_relogin',
+                    message: '已有 X 浏览器 session，但需要重新登录刷新。',
+                    action: 'relogin',
+                  },
+                  createdAt: '2026-04-19T00:00:00.000Z',
+                  updatedAt: '2026-04-19T00:00:00.000Z',
+                },
+              ],
+            },
+          },
+          saveChannelAccountSessionAction,
+          requestChannelAccountSessionAction,
+        }),
+      );
+      await flush();
+    });
+
+    const reloginButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-session-action-id') === '7',
+    );
+
+    await act(async () => {
+      reloginButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('最近工单：重新登录');
+
+    const editButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-edit-account-id') === '7',
+    );
+
+    await act(async () => {
+      editButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    await act(async () => {
+      updateFieldValue(
+        findElement(
+          container,
+          (element) =>
+            element.tagName === 'TEXTAREA' &&
+            element.getAttribute('data-edit-session-storage-state-json-id') === '7',
+        ),
+        '{"cookies": [}',
+        window,
+      );
+      await flush();
+    });
+
+    const saveSessionButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-save-session-id') === '7',
+    );
+
+    await act(async () => {
+      saveSessionButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(saveChannelAccountSessionAction).not.toHaveBeenCalled();
+    expect(collectText(container)).toContain('Session 保存失败：storage state JSON 必须是合法 JSON');
+    expect(collectText(container)).not.toContain('重新登录占位已记录');
+    expect(collectText(container)).not.toContain('最近工单：重新登录');
 
     await act(async () => {
       root.unmount();

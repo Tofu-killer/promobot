@@ -536,6 +536,8 @@ export function ChannelAccountsPage({
   const [accountFormErrorById, setAccountFormErrorById] = useState<Record<number, string>>({});
   const [sessionFormErrorById, setSessionFormErrorById] = useState<Record<number, string>>({});
   const [latestSessionMutation, setLatestSessionMutation] = useState<LatestSessionMutation>(null);
+  const [latestBlockedAccountSaveId, setLatestBlockedAccountSaveId] = useState<number | null>(null);
+  const [latestBlockedSessionSaveId, setLatestBlockedSessionSaveId] = useState<number | null>(null);
   const [createFormError, setCreateFormError] = useState<string | null>(null);
   const { state: createState, run: createChannelAccount } = useAsyncAction(createChannelAccountAction);
   const { state: updateState, run: updateAccount } = useAsyncAction(
@@ -601,6 +603,11 @@ export function ChannelAccountsPage({
       latestSessionMutation?.kind === 'save_session' &&
       latestSessionMutation.accountId === sessionActionAccount.id &&
       sessionSavedAccount.id === sessionActionAccount.id
+    ) &&
+    !(
+      latestSessionMutation?.kind === 'save_session' &&
+      latestSessionMutation.accountId === sessionActionAccount.id &&
+      latestBlockedSessionSaveId === sessionActionAccount.id
     );
 
   const visibleAccounts = useMemo(() => {
@@ -757,6 +764,7 @@ export function ChannelAccountsPage({
     const formValue = getEditFormValue(account);
     const projectIdValidationError = getProjectIdValidationError(formValue.projectId);
     if (projectIdValidationError) {
+      setLatestBlockedAccountSaveId(accountId);
       setAccountFormErrorById((current) => ({
         ...current,
         [accountId]: projectIdValidationError,
@@ -764,6 +772,7 @@ export function ChannelAccountsPage({
       return;
     }
 
+    setLatestBlockedAccountSaveId(null);
     const parsedMetadata = parseMetadataInput(formValue.metadata);
     const parsedProjectId = parseOptionalProjectIdInput(formValue.projectId, 'edit');
 
@@ -787,11 +796,16 @@ export function ChannelAccountsPage({
       return;
     }
 
+    setLatestSessionMutation({
+      kind: 'save_session',
+      accountId,
+    });
     const formValue = getEditFormValue(account);
     let parsedStorageState: Record<string, unknown> | undefined;
 
     try {
       parsedStorageState = parseStorageStateJsonInput(formValue.sessionStorageStateJson);
+      setLatestBlockedSessionSaveId(null);
       setSessionFormErrorById((current) => {
         if (!(accountId in current)) {
           return current;
@@ -801,6 +815,7 @@ export function ChannelAccountsPage({
         return rest;
       });
     } catch (error) {
+      setLatestBlockedSessionSaveId(accountId);
       setSessionFormErrorById((current) => ({
         ...current,
         [accountId]: error instanceof Error ? error.message : 'storage state JSON 解析失败',
@@ -808,10 +823,6 @@ export function ChannelAccountsPage({
       return;
     }
 
-    setLatestSessionMutation({
-      kind: 'save_session',
-      accountId,
-    });
     void saveSession({
       accountId,
       input: {
@@ -1365,7 +1376,7 @@ export function ChannelAccountsPage({
             <p style={{ margin: 0, color: '#475569' }}>页面挂载后会自动请求真实渠道账号接口。</p>
           ) : null}
 
-          {displayUpdateState.status === 'success' && !editingAccountFormError ? (
+          {displayUpdateState.status === 'success' && updatedAccount?.id !== latestBlockedAccountSaveId ? (
             <p style={{ marginTop: '12px', color: '#166534' }}>账号已更新</p>
           ) : null}
           {displayUpdateState.status === 'error' ? (
@@ -1380,7 +1391,9 @@ export function ChannelAccountsPage({
           {editingSessionFormError ? (
             <p style={{ marginTop: '12px', color: '#b91c1c' }}>Session 保存失败：{editingSessionFormError}</p>
           ) : null}
-          {showSaveSessionFeedback && displaySaveSessionState.status === 'success' ? (
+          {showSaveSessionFeedback &&
+          displaySaveSessionState.status === 'success' &&
+          sessionSavedAccount?.id !== latestBlockedSessionSaveId ? (
             <p style={{ marginTop: '12px', color: '#166534' }}>Session 元数据已保存</p>
           ) : null}
           {showSaveSessionFeedback && displaySaveSessionState.status === 'error' ? (
