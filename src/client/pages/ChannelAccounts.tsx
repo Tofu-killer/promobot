@@ -9,6 +9,7 @@ import { SectionCard } from '../components/SectionCard';
 
 export interface ChannelAccountRecord {
   id: number;
+  projectId?: number | null;
   platform: string;
   accountKey: string;
   displayName: string;
@@ -64,6 +65,7 @@ export async function loadChannelAccountsRequest(): Promise<ChannelAccountsRespo
 }
 
 export interface CreateChannelAccountPayload {
+  projectId?: number | null;
   platform: string;
   accountKey: string;
   displayName: string;
@@ -77,6 +79,7 @@ export interface CreateChannelAccountResponse {
 }
 
 export interface UpdateChannelAccountPayload {
+  projectId?: number | null;
   platform?: string;
   accountKey?: string;
   displayName?: string;

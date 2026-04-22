@@ -1333,37 +1333,66 @@ describe('client API page wiring', () => {
   });
 
   it('posts a new channel account through the shared API helper', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      jsonResponse({
-        channelAccount: {
-          id: 3,
-          platform: 'x',
-          accountKey: 'acct-x-2',
-          displayName: 'X Secondary',
-          authType: 'api-key',
-          status: 'healthy',
-          metadata: {},
-          createdAt: '2026-04-19T00:00:00.000Z',
-          updatedAt: '2026-04-19T00:00:00.000Z',
-        },
-      }, 201),
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          channelAccount: {
+            id: 3,
+            projectId: 7,
+            platform: 'x',
+            accountKey: 'acct-x-2',
+            displayName: 'X Secondary',
+            authType: 'api-key',
+            status: 'healthy',
+            metadata: {},
+            createdAt: '2026-04-19T00:00:00.000Z',
+            updatedAt: '2026-04-19T00:00:00.000Z',
+          },
+        }, 201),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          channelAccount: {
+            id: 3,
+            projectId: null,
+            platform: 'x',
+            accountKey: 'acct-x-2',
+            displayName: 'X Secondary Ops',
+            authType: 'api-key',
+            status: 'healthy',
+            metadata: {},
+            createdAt: '2026-04-19T00:00:00.000Z',
+            updatedAt: '2026-04-19T00:05:00.000Z',
+          },
+        }),
+      );
     vi.stubGlobal('fetch', fetchMock);
 
     const channelsModule = (await import('../../src/client/pages/ChannelAccounts')) as Record<string, unknown>;
 
     expect(typeof channelsModule.createChannelAccountRequest).toBe('function');
+    expect(typeof channelsModule.updateChannelAccountRequest).toBe('function');
 
     const createChannelAccountRequest = channelsModule.createChannelAccountRequest as (input: {
+      projectId?: number | null;
       platform: string;
       accountKey: string;
       displayName: string;
       authType: string;
       status?: string;
       metadata?: Record<string, unknown>;
-    }) => Promise<{ channelAccount: { id: number; displayName: string } }>;
+    }) => Promise<{ channelAccount: { id: number; projectId?: number | null; displayName: string } }>;
+    const updateChannelAccountRequest = channelsModule.updateChannelAccountRequest as (
+      accountId: number,
+      input: {
+        projectId?: number | null;
+        displayName?: string;
+      },
+    ) => Promise<{ channelAccount: { id: number; projectId?: number | null; displayName: string } }>;
 
     const result = await createChannelAccountRequest({
+      projectId: 7,
       platform: 'x',
       accountKey: 'acct-x-2',
       displayName: 'X Secondary',
@@ -1371,13 +1400,19 @@ describe('client API page wiring', () => {
       status: 'healthy',
       metadata: { team: 'growth' },
     });
+    const updated = await updateChannelAccountRequest(3, {
+      projectId: null,
+      displayName: 'X Secondary Ops',
+    });
 
-    expect(fetchMock).toHaveBeenCalledWith(
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
       '/api/channel-accounts',
       expect.objectContaining({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          projectId: 7,
           platform: 'x',
           accountKey: 'acct-x-2',
           displayName: 'X Secondary',
@@ -1387,7 +1422,22 @@ describe('client API page wiring', () => {
         }),
       }),
     );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/channel-accounts/3',
+      expect.objectContaining({
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: null,
+          displayName: 'X Secondary Ops',
+        }),
+      }),
+    );
+    expect(result.channelAccount.projectId).toBe(7);
     expect(result.channelAccount.displayName).toBe('X Secondary');
+    expect(updated.channelAccount.projectId).toBeNull();
+    expect(updated.channelAccount.displayName).toBe('X Secondary Ops');
   });
 
   it('shows channel account loading, error, and success states', async () => {
