@@ -800,6 +800,70 @@ describe('dashboard metrics api', () => {
     }
   });
 
+  it('scopes browser handoff metrics by normalized platform and accountKey when artifact channelAccountId is stale', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const channelAccountStore = createChannelAccountStore();
+
+      channelAccountStore.create({
+        projectId: 11,
+        platform: 'facebookGroup',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB 11',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      const handoffDir = path.join(
+        rootDir,
+        'artifacts',
+        'browser-handoffs',
+        'facebookGroup',
+        'launch-campaign',
+      );
+      mkdirSync(handoffDir, { recursive: true });
+      writeFileSync(
+        path.join(handoffDir, 'facebookGroup-draft-51.json'),
+        JSON.stringify({
+          type: 'browser_manual_handoff',
+          channelAccountId: 999,
+          status: 'pending',
+          platform: 'facebookGroup',
+          draftId: '51',
+          title: 'Stale scoped handoff',
+          content: 'Need handoff',
+          target: 'group-123',
+          accountKey: 'launch-campaign',
+          session: {
+            hasSession: true,
+            id: 'facebookGroup:launch-campaign',
+            status: 'active',
+            validatedAt: '2026-04-21T11:05:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
+          },
+          createdAt: '2026-04-21T11:05:00.000Z',
+          updatedAt: '2026-04-21T11:05:00.000Z',
+          resolvedAt: null,
+          resolution: null,
+        }),
+      );
+
+      const response = await requestApp('GET', '/api/monitor/dashboard?projectId=11');
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toMatchObject({
+        browserHandoffs: {
+          total: 1,
+          pending: 1,
+          resolved: 0,
+          obsolete: 0,
+        },
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('prefers channelAccountId when project-scoping browser handoff metrics for shared account keys', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
@@ -851,6 +915,78 @@ describe('dashboard metrics api', () => {
           },
           createdAt: '2026-04-21T11:00:00.000Z',
           updatedAt: '2026-04-21T11:00:00.000Z',
+          resolvedAt: null,
+          resolution: null,
+        }),
+      );
+
+      const response = await requestApp('GET', '/api/monitor/dashboard?projectId=11');
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toMatchObject({
+        browserHandoffs: {
+          total: 0,
+          pending: 0,
+          resolved: 0,
+          obsolete: 0,
+        },
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('does not attribute stale browser handoffs when normalized platform and accountKey are shared across projects', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const channelAccountStore = createChannelAccountStore();
+
+      channelAccountStore.create({
+        projectId: 11,
+        platform: 'facebookGroup',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB 11',
+        authType: 'browser',
+        status: 'healthy',
+      });
+      channelAccountStore.create({
+        projectId: 22,
+        platform: 'facebookGroup',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB 22',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      const handoffDir = path.join(
+        rootDir,
+        'artifacts',
+        'browser-handoffs',
+        'facebookGroup',
+        'launch-campaign',
+      );
+      mkdirSync(handoffDir, { recursive: true });
+      writeFileSync(
+        path.join(handoffDir, 'facebookGroup-draft-52.json'),
+        JSON.stringify({
+          type: 'browser_manual_handoff',
+          channelAccountId: 999,
+          status: 'pending',
+          platform: 'facebookGroup',
+          draftId: '52',
+          title: 'Shared stale handoff',
+          content: 'Need handoff',
+          target: 'group-123',
+          accountKey: 'launch-campaign',
+          session: {
+            hasSession: true,
+            id: 'facebookGroup:launch-campaign',
+            status: 'active',
+            validatedAt: '2026-04-21T11:10:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
+          },
+          createdAt: '2026-04-21T11:10:00.000Z',
+          updatedAt: '2026-04-21T11:10:00.000Z',
           resolvedAt: null,
           resolution: null,
         }),

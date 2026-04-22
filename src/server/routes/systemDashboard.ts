@@ -70,9 +70,23 @@ systemDashboardRouter.get('/dashboard', (request, response) => {
       ? true
       : typeof handoff.channelAccountId === 'number'
         ? scopedChannelAccountIds.has(handoff.channelAccountId)
-        : scopedChannelAccountKeys.has(
-            `${normalizeDashboardPlatform(handoff.platform)}:${handoff.accountKey}`,
-          ),
+          ? true
+          : allChannelAccountIds.has(handoff.channelAccountId)
+            ? false
+            : (() => {
+                const handoffKey = `${normalizeDashboardPlatform(handoff.platform)}:${handoff.accountKey}`;
+                return (
+                  scopedChannelAccountKeys.has(handoffKey) &&
+                  (channelAccountKeyCounts.get(handoffKey) ?? 0) === 1
+                );
+              })()
+        : (() => {
+            const handoffKey = `${normalizeDashboardPlatform(handoff.platform)}:${handoff.accountKey}`;
+            return (
+              scopedChannelAccountKeys.has(handoffKey) &&
+              (channelAccountKeyCounts.get(handoffKey) ?? 0) === 1
+            );
+          })(),
   );
   const pendingBrowserHandoffs = browserHandoffs.filter((handoff) => handoff.status === 'pending').length;
   const resolvedBrowserHandoffs = browserHandoffs.filter((handoff) => handoff.status === 'resolved').length;
