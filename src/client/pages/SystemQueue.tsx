@@ -222,7 +222,11 @@ export function SystemQueuePage({
     },
     recentJobs: [],
   };
-  const viewData = displayState.status === 'success' && displayState.data ? displayState.data : fallbackData;
+  const hasLiveQueueData =
+    typeof displayState.data === 'object' &&
+    displayState.data !== null &&
+    Array.isArray((displayState.data as SystemQueueResponse).jobs);
+  const viewData = hasLiveQueueData ? (displayState.data as SystemQueueResponse) : fallbackData;
 
   const queueStats = {
     pending: viewData.queue.pending ?? 0,
@@ -328,7 +332,7 @@ export function SystemQueuePage({
         </p>
       ) : null}
 
-      {displayState.status === 'success' || displayState.status === 'idle' ? (
+      {hasLiveQueueData || displayState.status === 'idle' ? (
         <>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
             <StatCard label="Pending Jobs" value={String(queueStats.pending)} detail="等待 scheduler 执行的任务数量" />

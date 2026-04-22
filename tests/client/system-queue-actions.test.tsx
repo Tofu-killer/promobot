@@ -950,6 +950,128 @@ describe('System Queue actions', () => {
     });
   });
 
+  it('keeps live queue context visible while a queue reload is pending', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { SystemQueuePage } = await import('../../src/client/pages/SystemQueue');
+
+    const pendingReload = createDeferredPromise<{
+      jobs: Array<{
+        id: number;
+        type: string;
+        status: string;
+        runAt: string;
+        attempts: number;
+        canRetry?: boolean;
+        canCancel?: boolean;
+      }>;
+      queue: {
+        pending: number;
+        running: number;
+        failed: number;
+        duePending: number;
+      };
+      recentJobs: Array<{
+        id: number;
+        type: string;
+        status: string;
+        runAt: string;
+        attempts: number;
+      }>;
+    }>();
+    const loadSystemQueueAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        jobs: [
+          {
+            id: 11,
+            type: 'publish',
+            status: 'failed',
+            runAt: '2026-04-19T12:15:00.000Z',
+            attempts: 1,
+            canRetry: true,
+            canCancel: false,
+          },
+        ],
+        queue: {
+          pending: 1,
+          running: 0,
+          failed: 1,
+          duePending: 1,
+        },
+        recentJobs: [],
+      })
+      .mockImplementationOnce(() => pendingReload.promise);
+    const loadBrowserLaneRequestsAction = vi.fn().mockResolvedValue({
+      requests: [],
+      total: 0,
+    });
+    const loadBrowserHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(SystemQueuePage as never, {
+          loadSystemQueueAction,
+          loadBrowserLaneRequestsAction,
+          loadBrowserHandoffsAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const refreshButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('刷新队列'),
+    );
+
+    expect(refreshButton).not.toBeNull();
+    expect(collectText(container)).toContain('#11 · publish');
+
+    await act(async () => {
+      refreshButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(loadSystemQueueAction).toHaveBeenCalledTimes(2);
+    expect(collectText(container)).toContain('正在加载 system queue...');
+    expect(collectText(container)).toContain('#11 · publish');
+    expect(collectText(container)).not.toContain('当前没有 system jobs。');
+
+    await act(async () => {
+      pendingReload.resolve({
+        jobs: [
+          {
+            id: 12,
+            type: 'monitor_fetch',
+            status: 'pending',
+            runAt: '2026-04-19T12:20:00.000Z',
+            attempts: 2,
+            canRetry: false,
+            canCancel: true,
+          },
+        ],
+        queue: {
+          pending: 1,
+          running: 0,
+          failed: 0,
+          duePending: 0,
+        },
+        recentJobs: [],
+      });
+      await flush();
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('renders the create-job runAt field as blank by default', async () => {
     const { SystemQueuePage } = await import('../../src/client/pages/SystemQueue');
 
