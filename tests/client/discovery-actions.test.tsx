@@ -801,4 +801,109 @@ describe('Discovery draft actions', () => {
       await flush();
     });
   });
+
+  it('clears stale discovery draft feedback after switching project scope with the same item id', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { DiscoveryPage } = await import('../../src/client/pages/Discovery');
+
+    const loadDiscoveryAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: 103,
+            source: 'Reddit',
+            title: 'Project A signal',
+            summary: '适合做项目 A 的首发草稿。',
+            status: 'new',
+            score: 88,
+            createdAt: '2026-04-19T03:00:00.000Z',
+          },
+        ],
+        total: 1,
+        stats: {
+          sources: 1,
+          averageScore: 88,
+        },
+      })
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: 103,
+            source: 'Reddit',
+            title: 'Project B signal',
+            summary: '这是另一个项目下的新信号。',
+            status: 'new',
+            score: 91,
+            createdAt: '2026-04-19T04:00:00.000Z',
+          },
+        ],
+        total: 1,
+        stats: {
+          sources: 1,
+          averageScore: 91,
+        },
+      });
+    const generateAction = vi.fn().mockResolvedValue({
+      results: [
+        {
+          platform: 'reddit',
+          title: 'Project A Reddit draft',
+          content: 'Draft body',
+          hashtags: ['#claude'],
+          draftId: 99,
+        },
+      ],
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(DiscoveryPage as never, {
+          loadDiscoveryAction,
+          generateAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const projectIdInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    );
+    const button = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('生成草稿'),
+    );
+
+    expect(projectIdInput).not.toBeNull();
+    expect(button).not.toBeNull();
+
+    await act(async () => {
+      button?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('草稿已生成');
+    expect(collectText(container)).toContain('Project A signal');
+    expect(collectText(container)).toContain('draftId: 99');
+
+    await act(async () => {
+      updateFieldValue(projectIdInput, '12', window);
+      await flush();
+      await flush();
+    });
+
+    expect(loadDiscoveryAction).toHaveBeenLastCalledWith(12);
+    expect(collectText(container)).toContain('Project B signal');
+    expect(collectText(container)).not.toContain('草稿已生成');
+    expect(collectText(container)).not.toContain('draftId: 99');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
 });

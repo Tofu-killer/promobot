@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { loadDiscoveryRequest, type DiscoveryItem, type DiscoveryResponse } from '../lib/discovery';
 import { apiRequest, getErrorMessage } from '../lib/api';
 import type { AsyncState } from '../hooks/useAsyncRequest';
@@ -116,6 +116,10 @@ export function DiscoveryPage({
     },
   };
   const viewData = displayState.status === 'success' && displayState.data ? displayState.data : fallbackData;
+
+  useEffect(() => {
+    setDraftStateByItemId({});
+  }, [projectId]);
 
   function getDraftState(itemId: string | number) {
     return draftStateByItemId[String(itemId)] ?? createIdleDraftState();
