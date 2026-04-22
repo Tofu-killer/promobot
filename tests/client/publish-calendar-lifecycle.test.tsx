@@ -938,6 +938,117 @@ describe('Publish Calendar lifecycle', () => {
     });
   });
 
+  it('clears stale schedule feedback after a manual reload in the same project scope', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { PublishCalendarPage } = await import('../../src/client/pages/PublishCalendar');
+
+    const loadDraftsAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        drafts: [
+          {
+            id: 11,
+            platform: 'x',
+            title: 'Scheduled launch thread',
+            content: 'Queued for later',
+            hashtags: ['#launch'],
+            status: 'scheduled',
+            scheduledAt: '2026-04-19T09:00',
+            createdAt: '2026-04-19T08:00:00.000Z',
+            updatedAt: '2026-04-19T08:10:00.000Z',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        drafts: [
+          {
+            id: 21,
+            platform: 'reddit',
+            title: 'Reloaded AMA',
+            content: 'Refreshed scheduled draft',
+            hashtags: ['#ama'],
+            status: 'scheduled',
+            scheduledAt: '2026-04-21T10:00',
+            createdAt: '2026-04-20T08:00:00.000Z',
+            updatedAt: '2026-04-20T08:10:00.000Z',
+          },
+        ],
+      });
+    const updateDraftScheduleAction = vi.fn().mockResolvedValue({
+      draft: {
+        id: 11,
+        platform: 'x',
+        title: 'Scheduled launch thread',
+        content: 'Queued for later',
+        hashtags: ['#launch'],
+        status: 'scheduled',
+        scheduledAt: '2026-04-20T09:30',
+        createdAt: '2026-04-19T08:00:00.000Z',
+        updatedAt: '2026-04-19T08:20:00.000Z',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(PublishCalendarPage as never, {
+          loadDraftsAction,
+          updateDraftScheduleAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const scheduledAtField = findElement(
+      container,
+      (element) => element.getAttribute('data-calendar-scheduled-at-id') === '11',
+    );
+    const saveButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-calendar-save-id') === '11' &&
+        collectText(element).includes('保存排程'),
+    );
+    const reloadButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('重新加载'),
+    );
+
+    expect(scheduledAtField).not.toBeNull();
+    expect(saveButton).not.toBeNull();
+    expect(reloadButton).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(scheduledAtField, '2026-04-20T09:30', window);
+      await flush();
+    });
+
+    await act(async () => {
+      saveButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('排程已保存');
+
+    await act(async () => {
+      reloadButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('Reloaded AMA');
+    expect(collectText(container)).not.toContain('排程已保存');
+    expect(collectText(container)).not.toContain('排程时间：2026-04-20T09:30');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('surfaces scheduled drafts without scheduledAt as pending scheduling instead of scheduled', async () => {
     const { PublishCalendarPage } = await import('../../src/client/pages/PublishCalendar');
 

@@ -279,13 +279,19 @@ export function PublishCalendarPage({
     }
   }
 
+  function handleReloadCalendar() {
+    setCalendarFeedback(createIdleMutationState());
+    setMutationStateById({});
+    reload();
+  }
+
   return (
     <section>
       <PageHeader
         eyebrow="Publish Queue"
         title="Publish Calendar"
         description="当前页是草稿状态视图，不等同于真实 job_queue 或发布执行结果。"
-        actions={<ActionButton label="重新加载" onClick={reload} />}
+        actions={<ActionButton label="重新加载" onClick={handleReloadCalendar} />}
       />
 
       <label style={{ display: 'grid', gap: '8px', marginBottom: '20px' }}>
