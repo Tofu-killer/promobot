@@ -96,7 +96,6 @@ export function DiscoveryPage({
   );
   const [draftStateByItemId, setDraftStateByItemId] = useState<Record<string, DiscoveryDraftState>>({});
   const displayState = stateOverride ?? state;
-  const isPreview = displayState.status !== 'success';
   const fallbackData: DiscoveryResponse = {
     items: [
       {
@@ -115,7 +114,12 @@ export function DiscoveryPage({
       averageScore: 92,
     },
   };
-  const viewData = displayState.status === 'success' && displayState.data ? displayState.data : fallbackData;
+  const hasLiveData =
+    typeof displayState.data === 'object' &&
+    displayState.data !== null &&
+    Array.isArray((displayState.data as DiscoveryResponse).items);
+  const isPreview = !hasLiveData;
+  const viewData = hasLiveData ? (displayState.data as DiscoveryResponse) : fallbackData;
 
   useEffect(() => {
     setDraftStateByItemId({});
@@ -214,7 +218,7 @@ export function DiscoveryPage({
         </p>
       ) : null}
 
-      {displayState.status === 'success' || displayState.status === 'idle' ? (
+      {hasLiveData || displayState.status === 'idle' ? (
         <>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
             <StatCard label="候选条目" value={String(viewData.total)} detail="当前统一发现池中的条目数" />

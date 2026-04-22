@@ -534,6 +534,21 @@ function updateFieldValue(element: FakeElement | null, value: string, window: Fa
   element.dispatchEvent(new window.Event('change', { bubbles: true }));
 }
 
+function createDeferredPromise<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((nextResolve, nextReject) => {
+    resolve = nextResolve;
+    reject = nextReject;
+  });
+
+  return {
+    promise,
+    resolve,
+    reject,
+  };
+}
+
 async function flush() {
   await Promise.resolve();
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -900,6 +915,105 @@ describe('Discovery draft actions', () => {
     expect(collectText(container)).toContain('Project B signal');
     expect(collectText(container)).not.toContain('草稿已生成');
     expect(collectText(container)).not.toContain('draftId: 99');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('keeps live discovery items visible while a project-scoped reload is pending', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { DiscoveryPage } = await import('../../src/client/pages/Discovery');
+
+    const pendingReload = createDeferredPromise<{
+      items: Array<{
+        id: number;
+        source: string;
+        title: string;
+        summary: string;
+        status: string;
+        score: number;
+        createdAt: string;
+      }>;
+      total: number;
+      stats: {
+        sources: number;
+        averageScore: number;
+      };
+    }>();
+    const loadDiscoveryAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: 103,
+            source: 'Reddit',
+            title: 'Claude latency discussion',
+            summary: '适合做一次针对 APAC 线路的回应稿。',
+            status: 'new',
+            score: 88,
+            createdAt: '2026-04-19T03:00:00.000Z',
+          },
+        ],
+        total: 1,
+        stats: {
+          sources: 1,
+          averageScore: 88,
+        },
+      })
+      .mockImplementationOnce(() => pendingReload.promise);
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(DiscoveryPage as never, {
+          loadDiscoveryAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const projectIdInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    );
+
+    expect(projectIdInput).not.toBeNull();
+    expect(collectText(container)).toContain('Claude latency discussion');
+
+    await act(async () => {
+      updateFieldValue(projectIdInput, '12', window);
+      await flush();
+    });
+
+    expect(loadDiscoveryAction).toHaveBeenLastCalledWith(12);
+    expect(collectText(container)).toContain('Claude latency discussion');
+    expect(collectText(container)).not.toContain('当前展示的是预览数据，真实发现池加载完成后会自动替换。');
+
+    await act(async () => {
+      pendingReload.resolve({
+        items: [
+          {
+            id: 104,
+            source: 'Reddit',
+            title: 'Scoped discovery result',
+            summary: '切换项目后的新条目。',
+            status: 'new',
+            score: 91,
+            createdAt: '2026-04-19T04:00:00.000Z',
+          },
+        ],
+        total: 1,
+        stats: {
+          sources: 1,
+          averageScore: 91,
+        },
+      });
+      await flush();
+    });
 
     await act(async () => {
       root.unmount();
