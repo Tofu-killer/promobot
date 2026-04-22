@@ -885,6 +885,143 @@ describe('settings save validation and feedback', () => {
     });
   });
 
+  it('keeps live system jobs visible while a control-triggered jobs reload is pending', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { SettingsPage } = await import('../../src/client/pages/Settings');
+
+    const pendingJobsReload = createDeferredPromise<{
+      jobs: Array<{
+        id: number;
+        type: string;
+        status: string;
+        runAt: string;
+        attempts: number;
+        canRetry?: boolean;
+        canCancel?: boolean;
+      }>;
+      queue: {
+        pending: number;
+        failed: number;
+      };
+      recentJobs: Array<{
+        id: number;
+        type: string;
+        status: string;
+        runAt: string;
+        attempts: number;
+      }>;
+    }>();
+    const loadSettingsAction = vi.fn().mockResolvedValue({
+      settings: {
+        allowlist: ['10.0.0.1'],
+        schedulerIntervalMinutes: 45,
+        rssDefaults: ['OpenAI blog'],
+        monitorRssFeeds: ['https://openai.com/blog/rss.xml'],
+        monitorXQueries: ['openrouter failover'],
+        monitorRedditQueries: ['claude api latency'],
+        monitorV2exQueries: ['llm api'],
+      },
+    });
+    const loadSystemJobsAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        jobs: [
+          {
+            id: 17,
+            type: 'monitor_fetch',
+            status: 'failed',
+            runAt: '2026-04-19T12:45:00.000Z',
+            attempts: 1,
+            canRetry: true,
+            canCancel: false,
+          },
+        ],
+        queue: {
+          pending: 1,
+          failed: 1,
+        },
+        recentJobs: [],
+      })
+      .mockImplementationOnce(() => pendingJobsReload.promise);
+    const loadBrowserLaneRequestsAction = vi.fn().mockResolvedValue({
+      requests: [],
+      total: 0,
+    });
+    const loadBrowserHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+    const reloadSchedulerAction = vi.fn().mockResolvedValue({
+      scheduler: {
+        enabled: true,
+      },
+      runtime: {
+        mode: 'worker',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(SettingsPage as never, {
+          loadSettingsAction,
+          loadSystemJobsAction,
+          loadBrowserLaneRequestsAction,
+          loadBrowserHandoffsAction,
+          reloadSchedulerAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const reloadSchedulerButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('重载 Scheduler'),
+    );
+
+    expect(reloadSchedulerButton).not.toBeNull();
+    expect(collectText(container)).toContain('#17 · monitor_fetch · failed');
+
+    await act(async () => {
+      reloadSchedulerButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(reloadSchedulerAction).toHaveBeenCalledTimes(1);
+    expect(loadSystemJobsAction).toHaveBeenCalledTimes(2);
+    expect(collectText(container)).toContain('正在加载 system jobs...');
+    expect(collectText(container)).toContain('#17 · monitor_fetch · failed');
+
+    await act(async () => {
+      pendingJobsReload.resolve({
+        jobs: [
+          {
+            id: 18,
+            type: 'publish',
+            status: 'pending',
+            runAt: '2026-04-19T13:00:00.000Z',
+            attempts: 2,
+            canRetry: false,
+            canCancel: true,
+          },
+        ],
+        queue: {
+          pending: 1,
+          failed: 0,
+        },
+        recentJobs: [],
+      });
+      await flush();
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('keeps settings fields disabled until live settings finish loading and blocks premature saves', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');

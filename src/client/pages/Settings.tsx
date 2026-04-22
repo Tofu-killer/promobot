@@ -657,14 +657,18 @@ export function SettingsPage({
   const runtimeQueueDepth =
     readNumber(runtimeContract?.queueDepth) ?? readNumber(asRecord(schedulerContract?.runtime)?.queueDepth);
   const runtimeQueue = asRecord(runtimeContract?.queue);
-  const jobsQueueContract =
-    displayJobsState.status === 'success' ? asRecord(displayJobsState.data?.queue) : null;
+  const hasLiveJobsData =
+    typeof displayJobsState.data === 'object' &&
+    displayJobsState.data !== null &&
+    Array.isArray(displayJobsState.data.jobs);
+  const visibleJobs = hasLiveJobsData ? displayJobsState.data.jobs : [];
+  const jobsQueueContract = hasLiveJobsData ? asRecord(displayJobsState.data?.queue) : null;
   const liveQueue = {
     ...(runtimeQueue ?? {}),
     ...(jobsQueueContract ?? {}),
   };
   const recentJobs =
-    displayJobsState.status === 'success' && displayJobsState.data?.recentJobs.length > 0
+    hasLiveJobsData && displayJobsState.data?.recentJobs.length > 0
       ? displayJobsState.data.recentJobs
       : readRecordArray(runtimeContract?.recentJobs);
 
@@ -990,8 +994,8 @@ export function SettingsPage({
               {displayJobsState.status === 'error' ? (
                 <div style={{ color: '#b91c1c' }}>system jobs 加载失败：{displayJobsState.error}</div>
               ) : null}
-              {displayJobsState.status === 'success' && displayJobsState.data.jobs.length > 0 ? (
-                displayJobsState.data.jobs.map((job) => (
+              {hasLiveJobsData && visibleJobs.length > 0 ? (
+                visibleJobs.map((job) => (
                   <div
                     key={`job-control-${job.id}`}
                     style={{
@@ -1029,7 +1033,7 @@ export function SettingsPage({
                     </div>
                   </div>
                 ))
-              ) : displayJobsState.status === 'success' ? (
+              ) : hasLiveJobsData ? (
                 <div style={{ color: '#475569' }}>当前没有可操作的 system jobs。</div>
               ) : null}
             </div>
