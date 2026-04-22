@@ -128,7 +128,12 @@ export function DashboardPage({
   const displayState = stateOverride ?? state;
   const showLoadError =
     displayState.status === 'error' && displayState.error !== projectIdValidationError;
-  const viewData = displayState.status === 'success' && displayState.data ? displayState.data : null;
+  const hasLiveDashboardData =
+    typeof displayState.data === 'object' &&
+    displayState.data !== null &&
+    typeof (displayState.data as DashboardResponse).drafts === 'object' &&
+    (displayState.data as DashboardResponse).drafts !== null;
+  const viewData = hasLiveDashboardData ? (displayState.data as DashboardResponse) : null;
   const inboxMetrics = viewData?.inbox ?? null;
   const channelAccountMetrics = viewData?.channelAccounts ?? null;
   const browserLaneMetrics = viewData?.browserLaneRequests ?? null;
@@ -179,7 +184,7 @@ export function DashboardPage({
         </p>
       ) : null}
 
-      {displayState.status === 'success' && viewData ? (
+      {hasLiveDashboardData && viewData ? (
         <div style={{ display: 'grid', gap: '16px' }}>
           <section
             style={{

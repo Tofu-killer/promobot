@@ -42,6 +42,21 @@ function updateFieldValue(element: { value?: string } | null, value: string, win
   (element as { dispatchEvent: (event: Event) => void }).dispatchEvent(new window.Event('change', { bubbles: true }));
 }
 
+function createDeferredPromise<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((nextResolve, nextReject) => {
+    resolve = nextResolve;
+    reject = nextReject;
+  });
+
+  return {
+    promise,
+    resolve,
+    reject,
+  };
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -194,6 +209,99 @@ describe('dashboard lifecycle metrics', () => {
     });
 
     expect(onProjectIdDraftChange).toHaveBeenCalledWith(' 0042 ');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('keeps live dashboard metrics visible while a scoped reload is pending', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { DashboardPage } = await import('../../src/client/pages/Dashboard');
+
+    const pendingReload = createDeferredPromise<{
+      monitor: {
+        total: number;
+        new: number;
+        followUpDrafts: number;
+      };
+      drafts: {
+        total: number;
+        review: number;
+      };
+      totals: {
+        items: number;
+        followUps: number;
+      };
+    }>();
+    const loadDashboardAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        monitor: {
+          total: 3,
+          new: 2,
+          followUpDrafts: 1,
+        },
+        drafts: {
+          total: 5,
+          review: 2,
+        },
+        totals: {
+          items: 8,
+          followUps: 1,
+        },
+      })
+      .mockImplementationOnce(() => pendingReload.promise);
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(DashboardPage as never, {
+          loadDashboardAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const projectIdInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    );
+
+    expect(projectIdInput).not.toBeNull();
+    expect(container.textContent).toContain('草稿总量');
+
+    await act(async () => {
+      updateFieldValue(projectIdInput as never, '12', window as never);
+      await flush();
+    });
+
+    expect(loadDashboardAction).toHaveBeenLastCalledWith(12);
+    expect(container.textContent).toContain('正在加载仪表盘...');
+    expect(container.textContent).toContain('草稿总量');
+    expect(container.textContent).not.toContain('当前展示的是预览说明');
+
+    await act(async () => {
+      pendingReload.resolve({
+        monitor: {
+          total: 4,
+          new: 1,
+          followUpDrafts: 2,
+        },
+        drafts: {
+          total: 7,
+          review: 3,
+        },
+        totals: {
+          items: 10,
+          followUps: 2,
+        },
+      });
+      await flush();
+    });
 
     await act(async () => {
       root.unmount();
