@@ -511,6 +511,21 @@ function updateFieldValue(element: FakeElement | null, value: string, window: Fa
   element.dispatchEvent(new window.Event('change', { bubbles: true }));
 }
 
+function createDeferredPromise<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((nextResolve, nextReject) => {
+    resolve = nextResolve;
+    reject = nextReject;
+  });
+
+  return {
+    promise,
+    resolve,
+    reject,
+  };
+}
+
 async function flush() {
   await Promise.resolve();
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -824,6 +839,97 @@ describe('Publish Calendar lifecycle', () => {
 
     expect(updateDraftScheduleAction).toHaveBeenNthCalledWith(2, 11, {
       scheduledAt: '2026-04-21T08:00',
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('keeps live publish calendar drafts visible while a reload is pending', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { PublishCalendarPage } = await import('../../src/client/pages/PublishCalendar');
+
+    const pendingReload = createDeferredPromise<{
+      drafts: Array<{
+        id: number;
+        platform: string;
+        title: string;
+        content: string;
+        hashtags: string[];
+        status: string;
+        scheduledAt: string;
+        createdAt: string;
+        updatedAt: string;
+      }>;
+    }>();
+    const loadDraftsAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        drafts: [
+          {
+            id: 11,
+            platform: 'x',
+            title: 'Scheduled launch thread',
+            content: 'Queued for later',
+            hashtags: ['#launch'],
+            status: 'scheduled',
+            scheduledAt: '2026-04-20T09:30',
+            createdAt: '2026-04-19T08:00:00.000Z',
+            updatedAt: '2026-04-19T08:10:00.000Z',
+          },
+        ],
+      })
+      .mockImplementationOnce(() => pendingReload.promise);
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(PublishCalendarPage as never, {
+          loadDraftsAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const reloadButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('重新加载'),
+    );
+
+    expect(reloadButton).not.toBeNull();
+    expect(collectText(container)).toContain('Scheduled launch thread');
+
+    await act(async () => {
+      reloadButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(loadDraftsAction).toHaveBeenCalledTimes(2);
+    expect(collectText(container)).toContain('正在加载发布日历...');
+    expect(collectText(container)).toContain('Scheduled launch thread');
+    expect(collectText(container)).not.toContain('暂无 scheduled 或 published 草稿。');
+
+    await act(async () => {
+      pendingReload.resolve({
+        drafts: [
+          {
+            id: 21,
+            platform: 'reddit',
+            title: 'Scoped AMA',
+            content: 'Reloaded scheduled draft',
+            hashtags: ['#ama'],
+            status: 'scheduled',
+            scheduledAt: '2026-04-21T10:00',
+            createdAt: '2026-04-20T08:00:00.000Z',
+            updatedAt: '2026-04-20T08:10:00.000Z',
+          },
+        ],
+      });
+      await flush();
     });
 
     await act(async () => {

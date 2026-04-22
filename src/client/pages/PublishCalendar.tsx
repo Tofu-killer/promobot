@@ -179,10 +179,13 @@ export function PublishCalendarPage({
   const [mutationStateById, setMutationStateById] = useState<Record<number, ScheduleMutationState>>({});
   const [calendarFeedback, setCalendarFeedback] = useState<ScheduleMutationState>(createIdleMutationState());
   const displayState = stateOverride ?? state;
-  const visibleDrafts =
-    displayState.status === 'success' && displayState.data
-      ? displayState.data.drafts.map((draft) => draftsById[draft.id] ?? draft)
-      : [];
+  const hasLiveDrafts =
+    typeof displayState.data === 'object' &&
+    displayState.data !== null &&
+    Array.isArray((displayState.data as DraftsResponse).drafts);
+  const visibleDrafts = hasLiveDrafts
+    ? (displayState.data as DraftsResponse).drafts.map((draft) => draftsById[draft.id] ?? draft)
+    : [];
   const calendarDrafts = visibleDrafts.filter((draft) => isCalendarDraftStatus(draft.status));
 
   useEffect(() => {
@@ -312,7 +315,7 @@ export function PublishCalendarPage({
           </p>
         ) : null}
 
-        {displayState.status === 'success' && displayState.data ? (
+        {hasLiveDrafts ? (
           <div style={{ display: 'grid', gap: '16px' }}>
             <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
               <div
