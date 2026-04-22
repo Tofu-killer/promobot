@@ -1379,8 +1379,8 @@ export function SettingsPage({
         </SectionCard>
 
         <SectionCard title="原始接口 Contract" description="保留原始 JSON 视图，方便前后端联调和观察新增字段落位。">
-          {displayState.status === 'success' && displayState.data ? (
-            <JsonPreview value={displayState.data} />
+          {hasLiveSettingsData && loadedData ? (
+            <JsonPreview value={loadedData} />
           ) : (
             <p style={{ margin: 0, color: '#475569' }}>接口成功返回后，会在这里展示完整响应。</p>
           )}

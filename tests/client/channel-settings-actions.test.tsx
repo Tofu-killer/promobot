@@ -862,6 +862,7 @@ describe('settings save validation and feedback', () => {
     expect(loadSettingsAction).toHaveBeenCalledTimes(2);
     expect((allowlistField as { value?: string } | null)?.value).toBe('10.0.0.1');
     expect(collectText(container)).toContain('正在加载设置...');
+    expect(collectText(container)).not.toContain('接口成功返回后，会在这里展示完整响应。');
 
     await act(async () => {
       pendingReload.resolve({
@@ -1164,6 +1165,7 @@ describe('settings save validation and feedback', () => {
     expect(collectText(container)).toContain('正在加载 browser handoffs...');
     expect(collectText(container)).toContain('acct-browser');
     expect(collectText(container)).toContain('FB Group Manual');
+    expect(collectText(container)).toContain('10.0.0.1');
 
     await act(async () => {
       pendingBrowserLaneReload.resolve({
