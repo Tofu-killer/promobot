@@ -1459,6 +1459,7 @@ describe('client API page wiring', () => {
               createdAt: '2026-04-19T00:00:00.000Z',
               updatedAt: '2026-04-19T00:00:00.000Z',
               latestBrowserHandoffArtifact: {
+                accountDisplayName: 'Reddit Ops',
                 ownership: 'unmatched',
                 platform: 'reddit',
                 draftId: '31',
@@ -1495,6 +1496,7 @@ describe('client API page wiring', () => {
     expect(html).toContain('编辑 Session 元数据');
     expect(html).toContain('最近 Handoff：draft #31 · obsolete');
     expect(html).toContain('Handoff 归属：未归属');
+    expect(html).toContain('Handoff 账号：Reddit Ops');
     expect(html).toContain('Handoff 时间：2026-04-19T00:25:00.000Z');
     expect(html).toContain('Handoff 结单：2026-04-19T00:25:00.000Z');
     expect(html).toContain('Handoff 结果：obsolete');
@@ -1508,6 +1510,42 @@ describe('client API page wiring', () => {
     expect(html).toContain('自动选择最近目标');
     expect(html).toContain('>X / Twitter<');
     expect(html).toContain('>Reddit<');
+
+    const fallbackHtml = renderPage(ChannelAccountsPage, {
+      stateOverride: {
+        status: 'success',
+        data: {
+          channelAccounts: [
+            {
+              id: 3,
+              platform: 'facebookGroup',
+              accountKey: 'acct-facebook',
+              displayName: 'Facebook Group',
+              authType: 'browser',
+              status: 'healthy',
+              metadata: {},
+              createdAt: '2026-04-19T00:00:00.000Z',
+              updatedAt: '2026-04-19T00:00:00.000Z',
+              latestBrowserHandoffArtifact: {
+                accountDisplayName: '',
+                ownership: 'direct',
+                platform: 'facebookGroup',
+                draftId: '77',
+                title: 'Manual handoff',
+                accountKey: 'acct-facebook',
+                status: 'pending',
+                artifactPath:
+                  'artifacts/browser-handoffs/facebookGroup/acct-facebook/facebookGroup-draft-77.json',
+                createdAt: '2026-04-19T00:20:00.000Z',
+                updatedAt: '2026-04-19T00:25:00.000Z',
+                resolvedAt: null,
+              },
+            },
+          ],
+        },
+      },
+    });
+    expect(fallbackHtml).toContain('Handoff 账号：未提供');
 
     const connectionHtml = renderPage(ChannelAccountsPage, {
       stateOverride: {

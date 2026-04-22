@@ -26,6 +26,7 @@ export interface ChannelAccountRecord {
   };
   latestBrowserHandoffArtifact?: {
     channelAccountId?: number;
+    accountDisplayName?: string | null;
     ownership?: string;
     platform: string;
     draftId: string;
@@ -1017,6 +1018,10 @@ export function ChannelAccountsPage({
                               <div>
                                 Handoff 结单：
                                 {account.latestBrowserHandoffArtifact.resolvedAt ?? '未结单'}
+                              </div>
+                              <div>
+                                Handoff 账号：
+                                {readTextValue(account.latestBrowserHandoffArtifact.accountDisplayName) ?? '未提供'}
                               </div>
                               {account.latestBrowserHandoffArtifact.ownership ? (
                                 <div>Handoff 归属：{formatHandoffOwnership(account.latestBrowserHandoffArtifact.ownership)}</div>
