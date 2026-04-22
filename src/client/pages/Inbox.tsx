@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { apiRequest } from '../lib/api';
 import type { AsyncState } from '../hooks/useAsyncRequest';
 import { useAsyncAction, useAsyncQuery } from '../hooks/useAsyncRequest';
@@ -219,6 +219,7 @@ export function InboxPage({
   const { state: replySuggestionState, run: runReplySuggestion } = useAsyncAction((id: number) => suggestReplyAction(id));
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
   const [replySuggestionItemId, setReplySuggestionItemId] = useState<number | null>(null);
+  const [allowReplySuggestionFallback, setAllowReplySuggestionFallback] = useState(true);
   const [enqueueRunAtDraft, setEnqueueRunAtDraft] = useState('');
   const displayState = stateOverride ?? state;
   const displayFetchState = fetchStateOverride ?? fetchState;
@@ -253,9 +254,17 @@ export function InboxPage({
     : viewData.items;
   const selectedItem = isPreview ? null : displayItems.find((item) => item.id === selectedItemId) ?? displayItems[0] ?? null;
   const canGenerateReply = !isPreview && selectedItem !== null;
-  const activeReplySuggestionItemId = replySuggestionItemId ?? selectedItem?.id ?? null;
+  const activeReplySuggestionItemId =
+    replySuggestionItemId ?? (allowReplySuggestionFallback ? selectedItem?.id ?? null : null);
   const showReplySuggestionForSelectedItem =
     selectedItem !== null && selectedItem.id === activeReplySuggestionItemId;
+
+  useEffect(() => {
+    setSelectedItemId(null);
+    setReplySuggestionItemId(null);
+    setAllowReplySuggestionFallback(false);
+  }, [projectId]);
+
   const inboxStatusFeedback =
     displayInboxUpdateState.status === 'success' && displayInboxUpdateState.data
       ? `已将“${displayInboxUpdateState.data.item.title}”回写为 ${displayInboxUpdateState.data.item.status}`
@@ -293,6 +302,7 @@ export function InboxPage({
 
     setSelectedItemId(item.id);
     setReplySuggestionItemId(item.id);
+    setAllowReplySuggestionFallback(false);
 
     try {
       await runReplySuggestion(item.id);

@@ -32,6 +32,30 @@ function expectDisabledButton(html: string, label: string) {
   expect(html).toMatch(new RegExp(`<button[^>]*disabled=""[^>]*aria-disabled="true"[^>]*>${escapeRegExp(label)}</button>`));
 }
 
+function updateFieldValue(element: { value?: string } | null, value: string, window: { Event: typeof Event }) {
+  if (!element) {
+    throw new Error('expected input element');
+  }
+
+  element.value = value;
+
+  const reactPropsKey = Object.keys(element as object).find((key) => key.startsWith('__reactProps'));
+  const reactProps =
+    reactPropsKey && reactPropsKey in (element as object)
+      ? ((element as Record<string, unknown>)[reactPropsKey] as {
+          onChange?: (event: { target: { value: string } }) => void;
+        })
+      : null;
+
+  if (reactProps?.onChange) {
+    reactProps.onChange({ target: { value } });
+    return;
+  }
+
+  (element as { dispatchEvent: (event: Event) => void }).dispatchEvent(new window.Event('input', { bubbles: true }));
+  (element as { dispatchEvent: (event: Event) => void }).dispatchEvent(new window.Event('change', { bubbles: true }));
+}
+
 function createDeferredPromise<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
   let reject!: (reason?: unknown) => void;
@@ -544,6 +568,98 @@ describe('Inbox action wiring', () => {
       });
       await flush();
     });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('clears stale inbox reply suggestions after switching project scope with the same item id', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    const loadInboxAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: 7,
+            source: 'reddit',
+            status: 'needs_reply',
+            author: 'user123',
+            title: 'Project A inbox thread',
+            excerpt: 'Can you share current response times?',
+            createdAt: '2026-04-19T10:00:00.000Z',
+          },
+        ],
+        total: 1,
+        unread: 1,
+      })
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: 7,
+            source: 'x',
+            status: 'needs_reply',
+            author: 'ops-team',
+            title: 'Project B inbox thread',
+            excerpt: 'How do monthly usage caps work?',
+            createdAt: '2026-04-19T10:05:00.000Z',
+          },
+        ],
+        total: 1,
+        unread: 1,
+      });
+    const suggestReplyAction = vi.fn().mockResolvedValue({
+      suggestion: {
+        reply: 'Reply for project A only.',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(InboxPage as never, {
+          loadInboxAction,
+          suggestReplyAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const generateReplyButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('AI 生成回复'),
+    );
+    const projectIdInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    );
+
+    expect(generateReplyButton).not.toBeNull();
+    expect(projectIdInput).not.toBeNull();
+
+    await act(async () => {
+      generateReplyButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(suggestReplyAction).toHaveBeenCalledWith(7);
+    expect(collectText(container)).toContain('Reply for project A only.');
+
+    await act(async () => {
+      updateFieldValue(projectIdInput as never, '12', window as never);
+      await flush();
+      await flush();
+    });
+
+    expect(loadInboxAction).toHaveBeenLastCalledWith(12);
+    expect(collectText(container)).toContain('Project B inbox thread');
+    expect(collectText(container)).not.toContain('Reply for project A only.');
+    expect(collectText(container)).not.toContain('已生成最新回复建议');
 
     await act(async () => {
       root.unmount();
