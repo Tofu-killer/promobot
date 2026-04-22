@@ -153,6 +153,10 @@ export function GeneratePage({
 
   const displayState = stateOverride ?? state;
   const generateControlsDisabled = displayState.status === 'loading' || projectIdValidationError !== null;
+  const hasGeneratedResults =
+    typeof displayState.data === 'object' &&
+    displayState.data !== null &&
+    Array.isArray((displayState.data as GenerateDraftsResponse).results);
 
   useEffect(() => {
     if (displayState.status !== 'success' || !displayState.data) {
@@ -413,10 +417,12 @@ export function GeneratePage({
           <p style={{ margin: 0, color: '#b91c1c' }}>生成失败：{displayState.error}</p>
         ) : null}
 
-        {displayState.status === 'success' && displayState.data ? (
+        {hasGeneratedResults ? (
           <div style={{ display: 'grid', gap: '12px' }}>
-            <div style={{ fontWeight: 700, color: '#0f172a' }}>已返回 {displayState.data.results.length} 条生成结果</div>
-            {displayState.data.results.map((result, index) => (
+            <div style={{ fontWeight: 700, color: '#0f172a' }}>
+              已返回 {(displayState.data as GenerateDraftsResponse).results.length} 条生成结果
+            </div>
+            {(displayState.data as GenerateDraftsResponse).results.map((result, index) => (
               (() => {
                 const reviewState = result.draftId !== undefined ? getReviewState(result.draftId) : null;
                 const displayedDraftStatus = result.draftId !== undefined ? getDisplayedDraftStatus(result.draftId) : null;

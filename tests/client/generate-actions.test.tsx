@@ -563,6 +563,21 @@ function updateFieldValue(element: FakeElement | null, value: string, window: Fa
   element.dispatchEvent(new window.Event('change', { bubbles: true }));
 }
 
+function createDeferredPromise<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((nextResolve, nextReject) => {
+    resolve = nextResolve;
+    reject = nextReject;
+  });
+
+  return {
+    promise,
+    resolve,
+    reject,
+  };
+}
+
 async function flush() {
   await Promise.resolve();
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -674,6 +689,98 @@ describe('Generate review actions', () => {
     expect(collectText(statusNode as never)).toContain('success');
     expect(collectText(resultNode as never)).toContain('second');
     expect(collectText(resultNode as never)).not.toContain('first');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('keeps the latest generated results visible while a new generate request is pending', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { GeneratePage } = await import('../../src/client/pages/Generate');
+
+    let resolveFirst!: (value: { results: Array<Record<string, unknown>> }) => void;
+    const secondDeferred = createDeferredPromise<{ results: Array<Record<string, unknown>> }>();
+    const generateAction = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveFirst = resolve;
+          }),
+      )
+      .mockImplementationOnce(() => secondDeferred.promise);
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(GeneratePage as never, {
+          generateAction,
+        }),
+      );
+      await flush();
+    });
+
+    const saveDraftButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('保存为草稿'),
+    );
+    const generateButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('一键生成'),
+    );
+
+    expect(saveDraftButton).not.toBeNull();
+    expect(generateButton).not.toBeNull();
+
+    await act(async () => {
+      saveDraftButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    await act(async () => {
+      resolveFirst({
+        results: [
+          {
+            platform: 'x',
+            title: 'First generated draft',
+            content: 'First draft body',
+            hashtags: ['#launch'],
+            draftId: 42,
+          },
+        ],
+      });
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('First generated draft');
+    expect(collectText(container)).toContain('已返回 1 条生成结果');
+
+    await act(async () => {
+      generateButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('正在生成草稿...');
+    expect(collectText(container)).toContain('First generated draft');
+    expect(collectText(container)).toContain('已返回 1 条生成结果');
+
+    await act(async () => {
+      secondDeferred.resolve({
+        results: [
+          {
+            platform: 'reddit',
+            title: 'Second generated draft',
+            content: 'Second draft body',
+            hashtags: ['#launch'],
+            draftId: 99,
+          },
+        ],
+      });
+      await flush();
+    });
 
     await act(async () => {
       root.unmount();
