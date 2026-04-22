@@ -152,9 +152,7 @@ export function DraftsPage({
       const nextFormValues = { ...currentFormValues };
 
       for (const draft of displayState.data.drafts) {
-        if (!nextFormValues[draft.id]) {
-          nextFormValues[draft.id] = createDraftFormValues(draft);
-        }
+        nextFormValues[draft.id] = createDraftFormValues(draft);
       }
 
       return nextFormValues;

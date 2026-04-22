@@ -231,6 +231,93 @@ describe('Drafts publish actions', () => {
     });
   });
 
+  it('refreshes draft form values from a later successful reload for the same draft id', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { DraftsPage } = await import('../../src/client/pages/Drafts');
+
+    const loadDraftsAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        drafts: [
+          {
+            id: 8,
+            platform: 'x',
+            title: 'Launch thread v1',
+            content: 'Draft body v1',
+            hashtags: ['#launch'],
+            status: 'draft',
+            createdAt: '2026-04-19T00:00:00.000Z',
+            updatedAt: '2026-04-19T00:00:00.000Z',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        drafts: [
+          {
+            id: 8,
+            platform: 'x',
+            title: 'Launch thread v2',
+            content: 'Draft body v2',
+            hashtags: ['#launch'],
+            status: 'draft',
+            createdAt: '2026-04-19T00:00:00.000Z',
+            updatedAt: '2026-04-19T01:00:00.000Z',
+          },
+        ],
+      });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(DraftsPage as never, {
+          loadDraftsAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const titleInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.value === 'Launch thread v1',
+    );
+    const reloadButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('重新加载'),
+    );
+
+    expect(titleInput).not.toBeNull();
+    expect(reloadButton).not.toBeNull();
+
+    await act(async () => {
+      reloadButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    const updatedTitleInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.value === 'Launch thread v2',
+    );
+    const updatedContentField = findElement(
+      container,
+      (element) => element.tagName === 'TEXTAREA' && element.value === 'Draft body v2',
+    );
+
+    expect(loadDraftsAction).toHaveBeenCalledTimes(2);
+    expect(collectText(container)).toContain('Launch thread v2');
+    expect(collectText(container)).not.toContain('Launch thread v1');
+    expect(collectText(container)).not.toContain('Draft body v1');
+    expect(updatedTitleInput).not.toBeNull();
+    expect(updatedContentField).not.toBeNull();
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('shows blog published drafts as read-only summary instead of editable or manual-handoff controls', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
