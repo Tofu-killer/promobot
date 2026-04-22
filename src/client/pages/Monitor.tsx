@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { apiRequest } from '../lib/api';
 import type { AsyncState } from '../hooks/useAsyncRequest';
 import { useAsyncAction, useAsyncQuery } from '../hooks/useAsyncRequest';
@@ -231,6 +231,12 @@ export function MonitorPage({
     (latestFollowUpAttempt === null || latestFollowUpAttempt.kind === 'request') &&
     selectedItem !== null &&
     selectedItem.id === activeFollowUpItemId;
+
+  useEffect(() => {
+    setSelectedItemId(null);
+    setFollowUpSelectionMessage(null);
+    setLatestFollowUpAttempt(null);
+  }, [projectId]);
 
   function handleGenerateFollowUp() {
     if (isPreview) {

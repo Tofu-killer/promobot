@@ -1996,6 +1996,108 @@ describe('Monitor follow-up actions', () => {
     });
   });
 
+  it('clears stale follow-up feedback after switching project scope with the same item id', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { MonitorPage } = await import('../../src/client/pages/Monitor');
+
+    const loadMonitorAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: 7,
+            source: 'x',
+            title: 'Project A competitor tier cut',
+            detail: 'Observed a cheaper plan and a follow-up opportunity.',
+            status: 'new',
+            createdAt: '2026-04-19T00:00:00.000Z',
+          },
+        ],
+        total: 1,
+      })
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: 7,
+            source: 'x',
+            title: 'Project B competitor tier cut',
+            detail: 'A different scoped monitor signal.',
+            status: 'new',
+            createdAt: '2026-04-19T01:00:00.000Z',
+          },
+        ],
+        total: 1,
+      });
+    const generateFollowUpAction = vi.fn().mockResolvedValue({
+      draft: {
+        id: 52,
+        platform: 'x',
+        title: 'Follow-up: Project A competitor tier cut',
+        content: 'Follow-up draft for project A.',
+        status: 'draft',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(MonitorPage as never, {
+          loadMonitorAction,
+          generateFollowUpAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const monitorItem = findElement(
+      container,
+      (element) => element.getAttribute('data-monitor-item-id') === '7',
+    );
+    const generateButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('生成跟进草稿'),
+    );
+    const projectIdInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    );
+
+    expect(monitorItem).not.toBeNull();
+    expect(generateButton).not.toBeNull();
+    expect(projectIdInput).not.toBeNull();
+
+    await act(async () => {
+      monitorItem?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    await act(async () => {
+      generateButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(generateFollowUpAction).toHaveBeenCalledWith(7, 'x');
+    expect(collectText(container)).toContain('Follow-up: Project A competitor tier cut');
+
+    await act(async () => {
+      updateFieldValue(projectIdInput as never, '12', window);
+      await flush();
+      await flush();
+    });
+
+    expect(loadMonitorAction).toHaveBeenLastCalledWith(12);
+    expect(collectText(container)).toContain('Project B competitor tier cut');
+    expect(collectText(container)).not.toContain('Follow-up: Project A competitor tier cut');
+    expect(collectText(container)).not.toContain('跟进草稿已生成');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('prefers a controlled projectId draft prop for monitor-scoped actions', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
