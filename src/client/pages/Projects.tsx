@@ -608,6 +608,17 @@ export function ProjectsPage({
         );
 
         setProjectSourceConfigs(projectId, nextSourceConfigs);
+        setSourceConfigForms((current) => ({
+          ...current,
+          [String(sourceConfigId)]: {
+            sourceType: result.sourceConfig.sourceType,
+            platform: result.sourceConfig.platform,
+            label: result.sourceConfig.label,
+            configJson: JSON.stringify(result.sourceConfig.configJson),
+            enabled: result.sourceConfig.enabled,
+            pollIntervalMinutes: String(result.sourceConfig.pollIntervalMinutes),
+          },
+        }));
         setSourceConfigsState((current) => ({
           status: 'success',
           data: {

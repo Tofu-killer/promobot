@@ -1835,6 +1835,139 @@ describe('PublishCalendar and Projects pages', () => {
     });
   });
 
+  it('syncs existing source config form fields to the saved server response', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ProjectsPage } = await import('../../src/client/pages/Projects');
+
+    const loadProjectsAction = vi.fn().mockResolvedValue({
+      projects: [
+        {
+          id: 7,
+          name: 'Acme Launch',
+          siteName: 'Acme',
+          siteUrl: 'https://acme.test',
+          siteDescription: 'Launch week campaign',
+          sellingPoints: ['Cheap', 'Fast'],
+          createdAt: '2026-04-19T08:00:00.000Z',
+        },
+      ],
+    });
+    const loadSourceConfigsAction = vi.fn().mockResolvedValue({
+      sourceConfigs: [
+        {
+          id: 4,
+          projectId: 7,
+          sourceType: 'v2ex_search',
+          platform: 'v2ex',
+          label: 'V2EX mentions',
+          configJson: { query: 'cursor api' },
+          enabled: true,
+          pollIntervalMinutes: 45,
+        },
+      ],
+    });
+    const updateSourceConfigAction = vi.fn().mockResolvedValue({
+      sourceConfig: {
+        id: 4,
+        projectId: 7,
+        sourceType: 'v2ex_search',
+        platform: 'v2ex',
+        label: 'V2EX mentions normalized',
+        configJson: { query: 'cursor api', locale: 'au' },
+        enabled: false,
+        pollIntervalMinutes: 60,
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ProjectsPage as never, {
+          loadProjectsAction,
+          loadSourceConfigsAction,
+          updateSourceConfigAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const labelField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'label-4',
+    );
+    const pollField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'poll-4',
+    );
+    const enabledField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'enabled-4',
+    );
+    const saveButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-source-config-save-id') === '4' &&
+        collectText(element).includes('保存 SourceConfig'),
+    );
+
+    expect(labelField).not.toBeNull();
+    expect(pollField).not.toBeNull();
+    expect(enabledField).not.toBeNull();
+    expect(saveButton).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(labelField, 'Client label draft', window);
+      updateFieldValue(pollField, '59', window);
+      updateFieldValue(enabledField, 'true', window);
+      await flush();
+    });
+
+    await act(async () => {
+      saveButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(updateSourceConfigAction).toHaveBeenCalledWith(7, 4, {
+      projectId: 7,
+      sourceType: 'v2ex_search',
+      platform: 'v2ex',
+      label: 'Client label draft',
+      configJson: { query: 'cursor api' },
+      enabled: true,
+      pollIntervalMinutes: 59,
+    });
+
+    const updatedLabelField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'label-4',
+    );
+    const updatedPollField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'poll-4',
+    );
+    const updatedEnabledField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'enabled-4',
+    );
+    const updatedConfigJsonField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'config-json-4',
+    );
+
+    expect(updatedLabelField?.value).toBe('V2EX mentions normalized');
+    expect(updatedPollField?.value).toBe('60');
+    expect(updatedEnabledField?.value).toBe('false');
+    expect(updatedConfigJsonField?.value).toBe('{"query":"cursor api","locale":"au"}');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('shows pending source config actions and clears old success while a new source config request is in flight', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
