@@ -1004,6 +1004,102 @@ describe('Monitor follow-up actions', () => {
     });
   });
 
+  it('clears stale generated follow-up feedback after selecting a different launch-ready item', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { MonitorPage } = await import('../../src/client/pages/Monitor');
+
+    const stateOverride = {
+      status: 'success' as const,
+      data: {
+        items: [
+          {
+            id: 7,
+            source: 'x',
+            title: 'Competitor launched a lower tier',
+            detail: 'Observed a cheaper plan and a follow-up opportunity.',
+            status: 'new',
+            createdAt: '2026-04-19T00:00:00.000Z',
+          },
+          {
+            id: 9,
+            source: 'reddit',
+            title: 'Users are asking about APAC latency',
+            detail: 'A follow-up draft should mention recent infra work.',
+            status: 'new',
+            createdAt: '2026-04-19T01:00:00.000Z',
+          },
+        ],
+        total: 2,
+      },
+    };
+    const generateFollowUpAction = vi.fn().mockResolvedValue({
+      draft: {
+        id: 52,
+        platform: 'x',
+        title: 'Follow-up: Competitor launched a lower tier',
+        content: 'Follow-up draft for x.',
+        status: 'draft',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(MonitorPage as never, {
+          loadMonitorAction: async () => stateOverride.data,
+          stateOverride,
+          generateFollowUpAction,
+        }),
+      );
+      await flush();
+    });
+
+    const firstItem = findElement(
+      container,
+      (element) => element.getAttribute('data-monitor-item-id') === '7',
+    );
+    const secondItem = findElement(
+      container,
+      (element) => element.getAttribute('data-monitor-item-id') === '9',
+    );
+    const generateButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('生成跟进草稿'),
+    );
+
+    expect(firstItem).not.toBeNull();
+    expect(secondItem).not.toBeNull();
+    expect(generateButton).not.toBeNull();
+
+    await act(async () => {
+      firstItem?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    await act(async () => {
+      generateButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(generateFollowUpAction).toHaveBeenCalledWith(7, 'x');
+    expect(collectText(container)).toContain('跟进草稿已生成');
+    expect(collectText(container)).toContain('Follow-up: Competitor launched a lower tier');
+
+    await act(async () => {
+      secondItem?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(collectText(container)).not.toContain('跟进草稿已生成');
+    expect(collectText(container)).not.toContain('Follow-up: Competitor launched a lower tier');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('hides stale generated follow-up feedback after a later blocked non-launch selection', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');

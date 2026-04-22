@@ -222,6 +222,11 @@ export function MonitorPage({
   const viewData = displayState.status === 'success' && displayState.data ? displayState.data : fallbackData;
   const filteredItems = filterMonitorItems(viewData.items, activeSourceFilter);
   const selectedItem = filteredItems.find((item) => item.id === selectedItemId) ?? null;
+  const activeFollowUpItemId = latestFollowUpAttempt?.itemId ?? selectedItem?.id ?? null;
+  const showFollowUpFeedback =
+    (latestFollowUpAttempt === null || latestFollowUpAttempt.kind === 'request') &&
+    selectedItem !== null &&
+    selectedItem.id === activeFollowUpItemId;
 
   function handleGenerateFollowUp() {
     if (isPreview) {
@@ -365,9 +370,7 @@ export function MonitorPage({
         <p style={{ color: '#b91c1c' }}>监控排程失败：{displayEnqueueState.error}</p>
       ) : null}
 
-      {(latestFollowUpAttempt === null || latestFollowUpAttempt.kind === 'request') &&
-      displayFollowUpState.status === 'success' &&
-      displayFollowUpState.data ? (
+      {showFollowUpFeedback && displayFollowUpState.status === 'success' && displayFollowUpState.data ? (
         <SectionCard
           title="跟进草稿已生成"
           description="已收到 `/api/monitor/:id/generate-follow-up` 返回的最新 draft 信息。"
@@ -381,8 +384,7 @@ export function MonitorPage({
           </div>
         </SectionCard>
       ) : null}
-      {(latestFollowUpAttempt === null || latestFollowUpAttempt.kind === 'request') &&
-      displayFollowUpState.status === 'error' ? (
+      {showFollowUpFeedback && displayFollowUpState.status === 'error' ? (
         <p style={{ color: '#b91c1c' }}>跟进草稿生成失败：{displayFollowUpState.error}</p>
       ) : null}
       {followUpSelectionMessage ? (
