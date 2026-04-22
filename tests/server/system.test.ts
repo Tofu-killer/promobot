@@ -1011,6 +1011,118 @@ describe('system runtime api', () => {
     expect(actions).toEqual(['list:1', 'get:11', 'retry:11:2026-04-19T12:20:00.000Z', 'cancel:11']);
   });
 
+  it('rejects retry requests when runAt is invalid', async () => {
+    const actions: string[] = [];
+    const schedulerRuntime = {
+      getStatus() {
+        return {
+          available: true,
+          started: true,
+          schedulerIntervalMinutes: 15,
+          pollMs: 900000,
+          bootedAt: null,
+          lastTickAt: null,
+          lastTickResults: [],
+          lastError: null,
+          recoveredRunningJobs: 0,
+          handlers: [],
+          queue: {
+            pending: 0,
+            running: 0,
+            done: 0,
+            failed: 1,
+            canceled: 0,
+            duePending: 0,
+          },
+          recentJobs: [],
+        };
+      },
+      listJobs() {
+        return {
+          jobs: [],
+          queue: {
+            pending: 0,
+            running: 0,
+            done: 0,
+            failed: 1,
+            canceled: 0,
+            duePending: 0,
+          },
+          recentJobs: [],
+        };
+      },
+      getJob() {
+        return undefined;
+      },
+      reload() {
+        return this.getStatus();
+      },
+      async tickNow() {
+        return [];
+      },
+      enqueueJob() {
+        throw new Error('not implemented');
+      },
+      retryJob(jobId: number, runAt?: string) {
+        actions.push(`retry:${jobId}:${runAt ?? ''}`);
+        return {
+          id: jobId,
+          type: 'publish',
+          payload: '{"draftId":11}',
+          status: 'pending',
+          runAt: runAt ?? '2026-04-19T12:20:00.000Z',
+          attempts: 1,
+          createdAt: '2026-04-19T12:14:00.000Z',
+          updatedAt: '2026-04-19T12:20:00.000Z',
+          canRetry: false,
+          canCancel: true,
+        };
+      },
+      cancelJob() {
+        return undefined;
+      },
+      stop() {},
+    };
+
+    const inheritedBody = Object.create({ runAt: '2026-04-19T12:20:00.000Z' });
+    const nonPlainBodyResponse = await requestApp({
+      remoteAddress: '127.0.0.1',
+      method: 'POST',
+      url: '/api/system/jobs/11/retry',
+      body: inheritedBody,
+      dependencies: { schedulerRuntime },
+    });
+
+    expect(nonPlainBodyResponse.status).toBe(400);
+    expect(JSON.parse(nonPlainBodyResponse.body)).toEqual({
+      error: 'invalid job runAt',
+    });
+
+    for (const runAt of [
+      'not-a-date',
+      123,
+      '2026-02-31T09:00:00.000Z',
+      '2026-02-31',
+      '2026-02-31T09:00',
+      '2026-02-31 09:00',
+    ]) {
+      const response = await requestApp({
+        remoteAddress: '127.0.0.1',
+        method: 'POST',
+        url: '/api/system/jobs/11/retry',
+        body: { runAt },
+        dependencies: { schedulerRuntime },
+      });
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'invalid job runAt',
+      });
+    }
+
+    expect(actions).toEqual([]);
+  });
+
   it('lists browser-lane request artifacts through the system api', async () => {
     const { rootDir } = createTestDatabasePath();
     try {

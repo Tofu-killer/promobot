@@ -164,8 +164,21 @@ export function createSystemRouter(dependencies: SystemRouteDependencies = {}) {
       return;
     }
 
+    if (request.body !== undefined && !isPlainObject(request.body)) {
+      response.status(400).json({ error: 'invalid job runAt' });
+      return;
+    }
+
+    if (
+      request.body?.runAt !== undefined &&
+      (typeof request.body.runAt !== 'string' || !isValidJobRunAt(request.body.runAt))
+    ) {
+      response.status(400).json({ error: 'invalid job runAt' });
+      return;
+    }
+
     const runAt =
-      typeof request.body?.runAt === 'string' && !Number.isNaN(new Date(request.body.runAt).getTime())
+      typeof request.body?.runAt === 'string' && isValidJobRunAt(request.body.runAt)
         ? request.body.runAt
         : new Date().toISOString();
 
