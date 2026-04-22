@@ -136,6 +136,17 @@ interface MonitorPageProps {
   onProjectIdDraftChange?: (value: string) => void;
 }
 
+type FollowUpAttemptState =
+  | {
+      kind: 'request';
+      itemId: number;
+    }
+  | {
+      kind: 'blocked';
+      itemId: number | null;
+    }
+  | null;
+
 type MonitorSourceFilter = 'all' | 'x' | 'rss' | 'reddit' | 'product-hunt';
 
 const sourceFilters: Array<{ id: MonitorSourceFilter; label: string }> = [
@@ -189,6 +200,7 @@ export function MonitorPage({
   const [activeSourceFilter, setActiveSourceFilter] = useState<MonitorSourceFilter>('all');
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
   const [followUpSelectionMessage, setFollowUpSelectionMessage] = useState<string | null>(null);
+  const [latestFollowUpAttempt, setLatestFollowUpAttempt] = useState<FollowUpAttemptState>(null);
   const displayState = stateOverride ?? state;
   const isPreview = displayState.status !== 'success';
   const displayFollowUpState = followUpStateOverride ?? followUpState;
@@ -213,21 +225,37 @@ export function MonitorPage({
 
   function handleGenerateFollowUp() {
     if (isPreview) {
+      setLatestFollowUpAttempt({
+        kind: 'blocked',
+        itemId: null,
+      });
       setFollowUpSelectionMessage('预览数据不可直接生成跟进草稿，请先加载真实监控信号');
       return;
     }
 
     if (!selectedItem) {
+      setLatestFollowUpAttempt({
+        kind: 'blocked',
+        itemId: null,
+      });
       setFollowUpSelectionMessage('请先从当前列表中选择一条动态');
       return;
     }
 
     const followUpPlatform = resolveFollowUpPlatform(selectedItem.source);
     if (!followUpPlatform || !launchReadyFollowUpPlatforms.has(followUpPlatform)) {
+      setLatestFollowUpAttempt({
+        kind: 'blocked',
+        itemId: selectedItem.id,
+      });
       setFollowUpSelectionMessage('当前动态来源不在首发平台范围内');
       return;
     }
 
+    setLatestFollowUpAttempt({
+      kind: 'request',
+      itemId: selectedItem.id,
+    });
     setFollowUpSelectionMessage(null);
     void generateFollowUp({
       id: selectedItem.id,
@@ -337,7 +365,9 @@ export function MonitorPage({
         <p style={{ color: '#b91c1c' }}>监控排程失败：{displayEnqueueState.error}</p>
       ) : null}
 
-      {displayFollowUpState.status === 'success' && displayFollowUpState.data ? (
+      {(latestFollowUpAttempt === null || latestFollowUpAttempt.kind === 'request') &&
+      displayFollowUpState.status === 'success' &&
+      displayFollowUpState.data ? (
         <SectionCard
           title="跟进草稿已生成"
           description="已收到 `/api/monitor/:id/generate-follow-up` 返回的最新 draft 信息。"
@@ -351,7 +381,8 @@ export function MonitorPage({
           </div>
         </SectionCard>
       ) : null}
-      {displayFollowUpState.status === 'error' ? (
+      {(latestFollowUpAttempt === null || latestFollowUpAttempt.kind === 'request') &&
+      displayFollowUpState.status === 'error' ? (
         <p style={{ color: '#b91c1c' }}>跟进草稿生成失败：{displayFollowUpState.error}</p>
       ) : null}
       {followUpSelectionMessage ? (

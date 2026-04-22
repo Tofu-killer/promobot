@@ -1004,6 +1004,109 @@ describe('Monitor follow-up actions', () => {
     });
   });
 
+  it('hides stale generated follow-up feedback after a later blocked non-launch selection', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { MonitorPage } = await import('../../src/client/pages/Monitor');
+
+    const stateOverride = {
+      status: 'success' as const,
+      data: {
+        items: [
+          {
+            id: 7,
+            source: 'reddit',
+            title: 'Users are asking about APAC latency',
+            detail: 'A follow-up draft should mention recent infra work.',
+            status: 'new',
+            createdAt: '2026-04-19T01:00:00.000Z',
+          },
+          {
+            id: 10,
+            source: 'rss',
+            title: 'RSS pricing watch',
+            detail: 'Tracked a competitor pricing update.',
+            status: 'new',
+            createdAt: '2026-04-19T02:00:00.000Z',
+          },
+        ],
+        total: 2,
+      },
+    };
+    const generateFollowUpAction = vi.fn().mockResolvedValue({
+      draft: {
+        id: 42,
+        platform: 'reddit',
+        title: 'Follow-up: Users are asking about APAC latency',
+        content: 'Follow-up draft for reddit.\n\nSignal: Users are asking about APAC latency',
+        status: 'draft',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(MonitorPage as never, {
+          loadMonitorAction: async () => stateOverride.data,
+          stateOverride,
+          generateFollowUpAction,
+        }),
+      );
+      await flush();
+    });
+
+    const redditItem = findElement(
+      container,
+      (element) => element.getAttribute('data-monitor-item-id') === '7',
+    );
+    const rssItem = findElement(
+      container,
+      (element) => element.getAttribute('data-monitor-item-id') === '10',
+    );
+    const generateButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('生成跟进草稿'),
+    );
+
+    expect(redditItem).not.toBeNull();
+    expect(rssItem).not.toBeNull();
+    expect(generateButton).not.toBeNull();
+
+    await act(async () => {
+      redditItem?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    await act(async () => {
+      generateButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(generateFollowUpAction).toHaveBeenCalledWith(7, 'reddit');
+    expect(collectText(container)).toContain('跟进草稿已生成');
+    expect(collectText(container)).toContain('Follow-up: Users are asking about APAC latency');
+
+    await act(async () => {
+      rssItem?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    await act(async () => {
+      generateButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(generateFollowUpAction).toHaveBeenCalledTimes(1);
+    expect(collectText(container)).toContain('当前动态来源不在首发平台范围内');
+    expect(collectText(container)).not.toContain('跟进草稿已生成');
+    expect(collectText(container)).not.toContain('Follow-up: Users are asking about APAC latency');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('reloads the selected monitor project scope before generating a follow-up draft without changing follow-up args', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
