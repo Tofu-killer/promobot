@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ActionButton } from '../components/ActionButton';
 import { PageHeader } from '../components/PageHeader';
 import { SectionCard } from '../components/SectionCard';
@@ -184,6 +184,22 @@ export function PublishCalendarPage({
       ? displayState.data.drafts.map((draft) => draftsById[draft.id] ?? draft)
       : [];
   const calendarDrafts = visibleDrafts.filter((draft) => isCalendarDraftStatus(draft.status));
+
+  useEffect(() => {
+    if (displayState.status !== 'success' || !displayState.data) {
+      return;
+    }
+
+    setDraftsById(
+      Object.fromEntries(displayState.data.drafts.map((draft) => [draft.id, draft])) as Record<number, DraftRecord>,
+    );
+    setScheduledAtById(
+      Object.fromEntries(displayState.data.drafts.map((draft) => [draft.id, draft.scheduledAt ?? ''])) as Record<
+        number,
+        string
+      >,
+    );
+  }, [displayState]);
 
   function getScheduledAtValue(draft: DraftRecord) {
     return scheduledAtById[draft.id] ?? draft.scheduledAt ?? '';
