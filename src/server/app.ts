@@ -15,7 +15,6 @@ import { createPublishRouter } from './routes/publish.js';
 import { projectsRouter } from './routes/projects.js';
 import { reputationRouter } from './routes/reputation.js';
 import { createSettingsRouter } from './routes/settings.js';
-import { systemDashboardRouter } from './routes/systemDashboard.js';
 import { createSystemHealthPayload, createSystemRouter } from './routes/system.js';
 import { createSettingsStore } from './store/settings.js';
 import type { SchedulerRuntime } from './runtime/schedulerRuntime.js';
@@ -70,7 +69,6 @@ export function createApp(config: AppConfig = loadConfig(), dependencies: AppDep
   );
   app.use('/api/projects', projectsRouter);
   app.use('/api/inbox', inboxRouter);
-  app.use('/api/monitor', systemDashboardRouter);
   app.use('/api/monitor', monitorRouter);
   app.use('/api/reputation', reputationRouter);
   app.use('/api/channel-accounts', channelAccountsRouter);

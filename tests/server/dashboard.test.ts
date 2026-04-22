@@ -4,6 +4,27 @@ import { createMonitorStore } from '../../src/server/store/monitor';
 import { createSQLiteDraftStore } from '../../src/server/store/drafts';
 import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
 
+function countDashboardRouteRegistrations(layers: unknown[]): number {
+  let count = 0;
+
+  for (const layer of layers) {
+    const currentLayer = layer as {
+      route?: { path?: string; methods?: Record<string, boolean> };
+      handle?: { stack?: unknown[] };
+    };
+
+    if (currentLayer.route?.path === '/dashboard' && currentLayer.route.methods?.get) {
+      count += 1;
+    }
+
+    if (Array.isArray(currentLayer.handle?.stack)) {
+      count += countDashboardRouteRegistrations(currentLayer.handle.stack);
+    }
+  }
+
+  return count;
+}
+
 async function requestApp(method: string, url: string) {
   const app = createApp({
     allowedIps: ['127.0.0.1'],
@@ -90,6 +111,19 @@ async function requestApp(method: string, url: string) {
 }
 
 describe('dashboard api', () => {
+  it('registers /api/monitor/dashboard only once through the app', () => {
+    const app = createApp({
+      allowedIps: ['127.0.0.1'],
+      adminPassword: 'secret',
+    });
+    const stack =
+      ((app as { router?: { stack?: unknown[] }; _router?: { stack?: unknown[] } }).router?.stack ??
+        (app as { _router?: { stack?: unknown[] } })._router?.stack ??
+        []) as unknown[];
+
+    expect(countDashboardRouteRegistrations(stack)).toBe(1);
+  });
+
   it('returns dashboard stats from monitor and draft stores', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
