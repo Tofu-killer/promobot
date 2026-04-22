@@ -1148,6 +1148,100 @@ describe('Review Queue lifecycle actions', () => {
     });
   });
 
+  it('clears stale review action feedback after a manual reload in the same project scope', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ReviewQueuePage } = await import('../../src/client/pages/ReviewQueue');
+
+    const loadReviewQueueAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        drafts: [
+          {
+            id: 11,
+            platform: 'x',
+            title: 'Launch thread',
+            content: 'Draft body',
+            hashtags: ['#launch'],
+            status: 'review',
+            createdAt: '2026-04-19T00:00:00.000Z',
+            updatedAt: '2026-04-19T00:00:00.000Z',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        drafts: [
+          {
+            id: 11,
+            platform: 'x',
+            title: 'Reloaded launch thread',
+            content: 'Fresh draft body',
+            hashtags: ['#launch'],
+            status: 'review',
+            createdAt: '2026-04-19T01:00:00.000Z',
+            updatedAt: '2026-04-19T01:00:00.000Z',
+          },
+        ],
+      });
+    const updateReviewDraftAction = vi.fn().mockResolvedValue({
+      draft: {
+        id: 11,
+        platform: 'x',
+        title: 'Launch thread',
+        content: 'Draft body',
+        hashtags: ['#launch'],
+        status: 'approved',
+        createdAt: '2026-04-19T00:00:00.000Z',
+        updatedAt: '2026-04-19T00:30:00.000Z',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ReviewQueuePage as never, {
+          loadReviewQueueAction,
+          updateReviewDraftAction,
+        }),
+      );
+      await flush();
+    });
+
+    const approveButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-review-approve-id') === '11',
+    );
+    const reloadButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('重新加载'),
+    );
+
+    expect(approveButton).not.toBeNull();
+    expect(reloadButton).not.toBeNull();
+
+    await act(async () => {
+      approveButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('已通过：Launch thread');
+
+    await act(async () => {
+      reloadButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(loadReviewQueueAction).toHaveBeenCalledTimes(2);
+    expect(collectText(container)).toContain('Reloaded launch thread');
+    expect(collectText(container)).not.toContain('已通过：Launch thread');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('shows publish now and schedule failure feedback', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');

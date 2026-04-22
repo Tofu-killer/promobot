@@ -536,13 +536,18 @@ export function ReviewQueuePage({
     }
   }
 
+  function handleReloadQueue() {
+    setActionStateById({});
+    reload();
+  }
+
   return (
     <section>
       <PageHeader
         eyebrow="Review Queue"
         title="Review Queue"
         description="页面直接读取真实 `/api/drafts?status=review` 数据，支持快速通过或退回最小审核动作。"
-        actions={<ActionButton label="重新加载" onClick={reload} />}
+        actions={<ActionButton label="重新加载" onClick={handleReloadQueue} />}
       />
 
       <label style={{ display: 'grid', gap: '8px', marginBottom: '20px' }}>
