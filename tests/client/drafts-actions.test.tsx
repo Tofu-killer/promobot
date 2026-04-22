@@ -2,6 +2,30 @@ import { act, createElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { collectText, findElement, flush, installMinimalDom } from './settings-test-helpers';
 
+function updateFieldValue(element: { value?: string } | null, value: string, window: { Event: typeof Event }) {
+  if (!element) {
+    throw new Error('expected input element');
+  }
+
+  element.value = value;
+
+  const reactPropsKey = Object.keys(element as object).find((key) => key.startsWith('__reactProps'));
+  const reactProps =
+    reactPropsKey && reactPropsKey in (element as object)
+      ? ((element as Record<string, unknown>)[reactPropsKey] as {
+          onChange?: (event: { target: { value: string } }) => void;
+        })
+      : null;
+
+  if (reactProps?.onChange) {
+    reactProps.onChange({ target: { value } });
+    return;
+  }
+
+  (element as { dispatchEvent: (event: Event) => void }).dispatchEvent(new window.Event('input', { bubbles: true }));
+  (element as { dispatchEvent: (event: Event) => void }).dispatchEvent(new window.Event('change', { bubbles: true }));
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -94,6 +118,112 @@ describe('Drafts publish actions', () => {
 
     expect(saveButton).toBeNull();
     expect(titleInput).toBeNull();
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('clears stale draft form values and publish feedback after switching project scope', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { DraftsPage } = await import('../../src/client/pages/Drafts');
+
+    const loadDraftsAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        drafts: [
+          {
+            id: 8,
+            platform: 'x',
+            title: 'Project A launch thread',
+            content: 'Draft body A',
+            hashtags: ['#launch'],
+            status: 'draft',
+            createdAt: '2026-04-19T00:00:00.000Z',
+            updatedAt: '2026-04-19T00:00:00.000Z',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        drafts: [
+          {
+            id: 8,
+            platform: 'x',
+            title: 'Project A launch thread',
+            content: 'Draft body A',
+            hashtags: ['#launch'],
+            status: 'queued',
+            createdAt: '2026-04-19T01:00:00.000Z',
+            updatedAt: '2026-04-19T01:00:00.000Z',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        drafts: [
+          {
+            id: 8,
+            platform: 'x',
+            title: 'Project B launch thread',
+            content: 'Draft body B',
+            hashtags: ['#launch'],
+            status: 'draft',
+            createdAt: '2026-04-19T02:00:00.000Z',
+            updatedAt: '2026-04-19T02:00:00.000Z',
+          },
+        ],
+      });
+    const publishDraftAction = vi.fn().mockResolvedValue({
+      success: false,
+      status: 'queued',
+      publishUrl: null,
+      message: 'Queued for publishing',
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(DraftsPage as never, {
+          loadDraftsAction,
+          publishDraftAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const publishButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('触发发布'),
+    );
+    const projectIdInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    );
+
+    expect(publishButton).not.toBeNull();
+    expect(projectIdInput).not.toBeNull();
+
+    await act(async () => {
+      publishButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('已入队等待发布：Project A launch thread');
+    expect(collectText(container)).toContain('Project A launch thread');
+
+    await act(async () => {
+      updateFieldValue(projectIdInput as never, '12', window as never);
+      await flush();
+      await flush();
+    });
+
+    expect(loadDraftsAction).toHaveBeenLastCalledWith(12);
+    expect(collectText(container)).toContain('Project B launch thread');
+    expect(collectText(container)).not.toContain('已入队等待发布：Project A launch thread');
+    expect(collectText(container)).not.toContain('Project A launch thread');
 
     await act(async () => {
       root.unmount();

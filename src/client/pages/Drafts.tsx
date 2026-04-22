@@ -136,6 +136,13 @@ export function DraftsPage({
   const displayPublishStateById = draftInteractionStateOverride?.publishStateById ?? publishStateById;
 
   useEffect(() => {
+    setLocalDrafts([]);
+    setFormValuesById({});
+    setSaveStateById({});
+    setPublishStateById({});
+  }, [projectId]);
+
+  useEffect(() => {
     if (displayState.status !== 'success' || !displayState.data) {
       return;
     }
