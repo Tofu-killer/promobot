@@ -551,6 +551,21 @@ function updateFieldValue(element: FakeElement | null, value: string, window: Fa
   element.dispatchEvent(new window.Event('change', { bubbles: true }));
 }
 
+function createDeferredPromise<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((nextResolve, nextReject) => {
+    resolve = nextResolve;
+    reject = nextReject;
+  });
+
+  return {
+    promise,
+    resolve,
+    reject,
+  };
+}
+
 async function flush() {
   await Promise.resolve();
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -1038,6 +1053,94 @@ describe('Review Queue lifecycle actions', () => {
     expect(collectText(container)).toContain('Scoped launch thread');
     expect(collectText(container)).not.toContain('已通过：Launch thread');
     expect(collectText(container)).toContain('回执状态：待触发');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('keeps live review drafts visible while a reload is pending', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ReviewQueuePage } = await import('../../src/client/pages/ReviewQueue');
+
+    const pendingReload = createDeferredPromise<{
+      drafts: Array<{
+        id: number;
+        platform: string;
+        title: string;
+        content: string;
+        hashtags: string[];
+        status: string;
+        createdAt: string;
+        updatedAt: string;
+      }>;
+    }>();
+    const loadReviewQueueAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        drafts: [
+          {
+            id: 11,
+            platform: 'x',
+            title: 'Launch thread',
+            content: 'Draft body',
+            hashtags: ['#launch'],
+            status: 'review',
+            createdAt: '2026-04-19T00:00:00.000Z',
+            updatedAt: '2026-04-19T00:00:00.000Z',
+          },
+        ],
+      })
+      .mockImplementationOnce(() => pendingReload.promise);
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ReviewQueuePage as never, {
+          loadReviewQueueAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const reloadButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('重新加载'),
+    );
+
+    expect(reloadButton).not.toBeNull();
+    expect(collectText(container)).toContain('Launch thread');
+
+    await act(async () => {
+      reloadButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(loadReviewQueueAction).toHaveBeenCalledTimes(2);
+    expect(collectText(container)).toContain('正在加载审核队列...');
+    expect(collectText(container)).toContain('Launch thread');
+    expect(collectText(container)).not.toContain('暂无待审核草稿');
+
+    await act(async () => {
+      pendingReload.resolve({
+        drafts: [
+          {
+            id: 12,
+            platform: 'reddit',
+            title: 'Scoped launch thread',
+            content: 'Scoped draft body',
+            hashtags: ['#scope'],
+            status: 'review',
+            createdAt: '2026-04-19T02:00:00.000Z',
+            updatedAt: '2026-04-19T02:00:00.000Z',
+          },
+        ],
+      });
+      await flush();
+    });
 
     await act(async () => {
       root.unmount();

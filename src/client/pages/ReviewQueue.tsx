@@ -309,10 +309,15 @@ export function ReviewQueuePage({
   const [scheduledAtById, setScheduledAtById] = useState<Record<number, string>>({});
   const [actionStateById, setActionStateById] = useState<Record<number, ReviewActionState>>({});
   const displayState = stateOverride ?? state;
-  const loadedReviewDrafts =
-    displayState.status === 'success' && displayState.data ? filterReviewQueueDrafts(displayState.data.drafts) : [];
+  const hasLiveReviewDrafts =
+    typeof displayState.data === 'object' &&
+    displayState.data !== null &&
+    Array.isArray((displayState.data as DraftsResponse).drafts);
+  const loadedReviewDrafts = hasLiveReviewDrafts
+    ? filterReviewQueueDrafts((displayState.data as DraftsResponse).drafts)
+    : [];
 
-  const visibleDrafts = displayState.status === 'success' ? (localDrafts ?? loadedReviewDrafts) : [];
+  const visibleDrafts = hasLiveReviewDrafts ? (localDrafts ?? loadedReviewDrafts) : [];
 
   useEffect(() => {
     setActionStateById({});
@@ -557,7 +562,7 @@ export function ReviewQueuePage({
           <p style={{ margin: 0, color: '#b91c1c' }}>审核队列加载失败：{displayState.error}</p>
         ) : null}
 
-        {displayState.status === 'success' && displayState.data ? (
+        {hasLiveReviewDrafts ? (
           <div style={{ display: 'grid', gap: '16px' }}>
             <div style={{ fontWeight: 700 }}>已加载 {visibleDrafts.length} 条待审核草稿</div>
 
