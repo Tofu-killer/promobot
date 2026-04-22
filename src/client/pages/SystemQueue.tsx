@@ -204,6 +204,7 @@ export function SystemQueuePage({
   const displayBrowserLaneState = browserLaneStateOverride ?? browserLaneState;
   const displayBrowserHandoffState = browserHandoffStateOverride ?? browserHandoffState;
   const displayMutationState = mutationStateOverride ?? mutationState;
+  const [activeMutation, setActiveMutation] = useState<QueueMutationInput | null>(null);
   const [enqueueType, setEnqueueType] = useState('monitor_fetch');
   const [enqueuePayloadJson, setEnqueuePayloadJson] = useState('');
   const [enqueueRunAt, setEnqueueRunAt] = useState('');
@@ -240,6 +241,10 @@ export function SystemQueuePage({
         : null;
 
   function handleRetry(job: SystemQueueJob) {
+    setActiveMutation({
+      mode: 'retry',
+      jobId: job.id,
+    });
     void mutateQueue({
       mode: 'retry',
       jobId: job.id,
@@ -253,6 +258,10 @@ export function SystemQueuePage({
   }
 
   function handleCancel(job: SystemQueueJob) {
+    setActiveMutation({
+      mode: 'cancel',
+      jobId: job.id,
+    });
     void mutateQueue({
       mode: 'cancel',
       jobId: job.id,
@@ -266,6 +275,12 @@ export function SystemQueuePage({
   }
 
   function handleEnqueue() {
+    setActiveMutation({
+      mode: 'enqueue',
+      type: enqueueType,
+      payloadJson: enqueuePayloadJson,
+      runAt: enqueueRunAt.trim().length > 0 ? enqueueRunAt.trim() : undefined,
+    });
     void mutateQueue({
       mode: 'enqueue',
       type: enqueueType,
@@ -361,7 +376,11 @@ export function SystemQueuePage({
                   />
                 </label>
                 <ActionButton
-                  label={displayMutationState.status === 'loading' ? '正在创建作业...' : '创建作业'}
+                  label={
+                    displayMutationState.status === 'loading' && activeMutation?.mode === 'enqueue'
+                      ? '正在创建作业...'
+                      : '创建作业'
+                  }
                   tone="primary"
                   onClick={handleEnqueue}
                 />
@@ -397,13 +416,25 @@ export function SystemQueuePage({
                       <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                         {job.canRetry ? (
                           <ActionButton
-                            label={displayMutationState.status === 'loading' ? '正在重试...' : '重试'}
+                            label={
+                              displayMutationState.status === 'loading' &&
+                              activeMutation?.mode === 'retry' &&
+                              activeMutation.jobId === job.id
+                                ? '正在重试...'
+                                : '重试'
+                            }
                             onClick={() => handleRetry(job)}
                           />
                         ) : null}
                         {job.canCancel ? (
                           <ActionButton
-                            label={displayMutationState.status === 'loading' ? '正在取消...' : '取消'}
+                            label={
+                              displayMutationState.status === 'loading' &&
+                              activeMutation?.mode === 'cancel' &&
+                              activeMutation.jobId === job.id
+                                ? '正在取消...'
+                                : '取消'
+                            }
                             onClick={() => handleCancel(job)}
                           />
                         ) : null}

@@ -42,6 +42,36 @@ function updateFieldValue(element: { value?: string } | null, value: string, win
   (element as { dispatchEvent: (event: Event) => void }).dispatchEvent(new window.Event('change', { bubbles: true }));
 }
 
+function createDeferredPromise<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((nextResolve, nextReject) => {
+    resolve = nextResolve;
+    reject = nextReject;
+  });
+
+  return {
+    promise,
+    resolve,
+    reject,
+  };
+}
+
+function hasAncestorWithText(element: { parentNode: unknown } | null, text: string) {
+  let current = element?.parentNode as
+    | ({ parentNode: unknown } & Record<string, unknown>)
+    | null;
+
+  while (current) {
+    if (collectText(current as never).includes(text)) {
+      return true;
+    }
+    current = (current.parentNode as ({ parentNode: unknown } & Record<string, unknown>) | null) ?? null;
+  }
+
+  return false;
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -492,6 +522,115 @@ describe('System Queue actions', () => {
 
     expect(enqueueSystemQueueJobAction).not.toHaveBeenCalled();
     expect(document.activeElement).toBe(typeField);
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('keeps retry loading feedback scoped to the clicked job instead of all queue actions', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { SystemQueuePage } = await import('../../src/client/pages/SystemQueue');
+
+    const pendingRetry = createDeferredPromise<{
+      job: {
+        id: number;
+        type: string;
+        status: string;
+        runAt: string;
+        attempts: number;
+      };
+      runtime: Record<string, unknown>;
+    }>();
+    const loadSystemQueueAction = vi.fn().mockResolvedValue({
+      jobs: [
+        {
+          id: 11,
+          type: 'publish',
+          status: 'failed',
+          runAt: '2026-04-19T12:15:00.000Z',
+          attempts: 1,
+          canRetry: true,
+          canCancel: false,
+        },
+        {
+          id: 12,
+          type: 'monitor_fetch',
+          status: 'failed',
+          runAt: '2026-04-19T12:30:00.000Z',
+          attempts: 1,
+          canRetry: true,
+          canCancel: false,
+        },
+      ],
+      queue: {
+        pending: 1,
+        running: 0,
+        failed: 2,
+        duePending: 1,
+      },
+      recentJobs: [],
+    });
+    const loadBrowserLaneRequestsAction = vi.fn().mockResolvedValue({
+      requests: [],
+      total: 0,
+    });
+    const loadBrowserHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+    const retrySystemQueueJobAction = vi.fn().mockReturnValue(pendingRetry.promise);
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(SystemQueuePage as never, {
+          loadSystemQueueAction,
+          loadBrowserLaneRequestsAction,
+          loadBrowserHandoffsAction,
+          retrySystemQueueJobAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const firstRetryButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        collectText(element).includes('重试') &&
+        hasAncestorWithText(element, '#11 · publish'),
+    );
+
+    expect(firstRetryButton).not.toBeNull();
+
+    await act(async () => {
+      firstRetryButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(retrySystemQueueJobAction).toHaveBeenCalledWith(11, undefined);
+    expect(collectText(container)).toContain('正在重试...');
+    expect(collectText(container).split('正在重试...').length - 1).toBe(1);
+    expect(collectText(container)).toContain('创建作业');
+    expect(collectText(container)).not.toContain('正在创建作业...');
+
+    await act(async () => {
+      pendingRetry.resolve({
+        job: {
+          id: 11,
+          type: 'publish',
+          status: 'pending',
+          runAt: '2026-04-19T12:15:00.000Z',
+          attempts: 2,
+        },
+        runtime: { available: true },
+      });
+      await flush();
+    });
 
     await act(async () => {
       root.unmount();
