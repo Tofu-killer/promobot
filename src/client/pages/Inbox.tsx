@@ -218,6 +218,7 @@ export function InboxPage({
   );
   const { state: replySuggestionState, run: runReplySuggestion } = useAsyncAction((id: number) => suggestReplyAction(id));
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
+  const [inboxMutationItemId, setInboxMutationItemId] = useState<number | null>(null);
   const [replySuggestionItemId, setReplySuggestionItemId] = useState<number | null>(null);
   const [allowReplySuggestionFallback, setAllowReplySuggestionFallback] = useState(true);
   const [enqueueRunAtDraft, setEnqueueRunAtDraft] = useState('');
@@ -253,6 +254,7 @@ export function InboxPage({
     ? viewData.items.map((item) => (item.id === updatedInboxItem.id ? updatedInboxItem : item))
     : viewData.items;
   const selectedItem = isPreview ? null : displayItems.find((item) => item.id === selectedItemId) ?? displayItems[0] ?? null;
+  const activeInboxMutationItemId = inboxMutationItemId;
   const canGenerateReply = !isPreview && selectedItem !== null;
   const activeReplySuggestionItemId =
     replySuggestionItemId ?? (allowReplySuggestionFallback ? selectedItem?.id ?? null : null);
@@ -261,6 +263,7 @@ export function InboxPage({
 
   useEffect(() => {
     setSelectedItemId(null);
+    setInboxMutationItemId(null);
     setReplySuggestionItemId(null);
     setAllowReplySuggestionFallback(false);
   }, [projectId]);
@@ -288,6 +291,7 @@ export function InboxPage({
 
   async function handleInboxStatus(item: InboxItem, status: 'handled' | 'snoozed') {
     setSelectedItemId(item.id);
+    setInboxMutationItemId(item.id);
 
     try {
       await runInboxUpdate({ id: item.id, status });
@@ -481,7 +485,9 @@ export function InboxPage({
                         <PlaceholderActionButton label="打开原帖（人工处理）" hint="原帖跳转暂未接入，请在源站手动打开。" />
                         <ActionButton
                           label={
-                            displayInboxUpdateState.status === 'loading' && item.id === selectedItemId ? '处理中...' : '标记已处理'
+                            displayInboxUpdateState.status === 'loading' && item.id === activeInboxMutationItemId
+                              ? '处理中...'
+                              : '标记已处理'
                           }
                           disabled={isPreview}
                           onClick={() => {
@@ -490,7 +496,9 @@ export function InboxPage({
                         />
                         <ActionButton
                           label={
-                            displayInboxUpdateState.status === 'loading' && item.id === selectedItemId ? '处理中...' : '稍后处理'
+                            displayInboxUpdateState.status === 'loading' && item.id === activeInboxMutationItemId
+                              ? '处理中...'
+                              : '稍后处理'
                           }
                           disabled={isPreview}
                           onClick={() => {

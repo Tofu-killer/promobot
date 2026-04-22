@@ -615,6 +615,249 @@ describe('Inbox action wiring', () => {
     });
   });
 
+  it('keeps inbox loading feedback bound to the original item when another item is selected', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    const pendingUpdate = createDeferredPromise<{
+      item: {
+        id: number;
+        source: string;
+        status: string;
+        author: string;
+        title: string;
+        excerpt: string;
+        createdAt: string;
+      };
+    }>();
+    const updateInboxAction = vi.fn().mockReturnValue(pendingUpdate.promise);
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(InboxPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              items: [
+                {
+                  id: 7,
+                  source: 'reddit',
+                  status: 'needs_reply',
+                  author: 'user123',
+                  title: 'Need lower latency in APAC',
+                  excerpt: 'Can you share current response times?',
+                  createdAt: '2026-04-19T10:00:00.000Z',
+                },
+                {
+                  id: 8,
+                  source: 'x',
+                  status: 'needs_reply',
+                  author: 'ops-team',
+                  title: 'Question about billing caps',
+                  excerpt: 'How do monthly usage caps work?',
+                  createdAt: '2026-04-19T10:05:00.000Z',
+                },
+              ],
+              total: 2,
+              unread: 2,
+            },
+          } satisfies ApiState<unknown>,
+          updateInboxAction,
+        }),
+      );
+      await flush();
+    });
+
+    const firstArticle = findElement(
+      container,
+      (element) => element.tagName === 'ARTICLE' && collectText(element).includes('Need lower latency in APAC'),
+    );
+    const secondArticle = findElement(
+      container,
+      (element) => element.tagName === 'ARTICLE' && collectText(element).includes('Question about billing caps'),
+    );
+    const firstHandledButton = findElement(
+      firstArticle as never,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('标记已处理'),
+    );
+
+    expect(firstArticle).not.toBeNull();
+    expect(secondArticle).not.toBeNull();
+    expect(firstHandledButton).not.toBeNull();
+
+    await act(async () => {
+      firstHandledButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    const firstArticleAfterStart = findElement(
+      container,
+      (element) => element.tagName === 'ARTICLE' && collectText(element).includes('Need lower latency in APAC'),
+    );
+    const secondArticleAfterStart = findElement(
+      container,
+      (element) => element.tagName === 'ARTICLE' && collectText(element).includes('Question about billing caps'),
+    );
+
+    expect(updateInboxAction).toHaveBeenCalledWith(7, 'handled');
+    expect(collectText(firstArticleAfterStart as never)).toContain('处理中...');
+    expect(collectText(secondArticleAfterStart as never)).not.toContain('处理中...');
+
+    await act(async () => {
+      secondArticle?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    const firstArticleAfterSwitch = findElement(
+      container,
+      (element) => element.tagName === 'ARTICLE' && collectText(element).includes('Need lower latency in APAC'),
+    );
+    const secondArticleAfterSwitch = findElement(
+      container,
+      (element) => element.tagName === 'ARTICLE' && collectText(element).includes('Question about billing caps'),
+    );
+
+    expect(collectText(firstArticleAfterSwitch as never)).toContain('处理中...');
+    expect(collectText(secondArticleAfterSwitch as never)).not.toContain('处理中...');
+
+    await act(async () => {
+      pendingUpdate.resolve({
+        item: {
+          id: 7,
+          source: 'reddit',
+          status: 'handled',
+          author: 'user123',
+          title: 'Need lower latency in APAC',
+          excerpt: 'Can you share current response times?',
+          createdAt: '2026-04-19T10:00:00.000Z',
+        },
+      });
+      await flush();
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('clears stale inbox loading feedback after switching project scope with the same item id', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    const pendingUpdate = createDeferredPromise<{
+      item: {
+        id: number;
+        source: string;
+        status: string;
+        author: string;
+        title: string;
+        excerpt: string;
+        createdAt: string;
+      };
+    }>();
+    const projectBInboxState = {
+      items: [
+        {
+          id: 7,
+          source: 'x',
+          status: 'needs_reply',
+          author: 'ops-team',
+          title: 'Project B inbox thread',
+          excerpt: 'How do monthly usage caps work?',
+          createdAt: '2026-04-19T10:05:00.000Z',
+        },
+      ],
+      total: 1,
+      unread: 1,
+    };
+    const loadInboxAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: 7,
+            source: 'reddit',
+            status: 'needs_reply',
+            author: 'user123',
+            title: 'Project A inbox thread',
+            excerpt: 'Can you share current response times?',
+            createdAt: '2026-04-19T10:00:00.000Z',
+          },
+        ],
+        total: 1,
+        unread: 1,
+      })
+      .mockResolvedValue(projectBInboxState);
+    const updateInboxAction = vi.fn().mockReturnValue(pendingUpdate.promise);
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(InboxPage as never, {
+          loadInboxAction,
+          updateInboxAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const handledButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('标记已处理'),
+    );
+    const projectIdInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    );
+
+    expect(handledButton).not.toBeNull();
+    expect(projectIdInput).not.toBeNull();
+
+    await act(async () => {
+      handledButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(updateInboxAction).toHaveBeenCalledWith(7, 'handled');
+    expect(collectText(container)).toContain('处理中...');
+
+    await act(async () => {
+      updateFieldValue(projectIdInput as never, '12', window as never);
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    expect(loadInboxAction).toHaveBeenLastCalledWith(12);
+    expect(collectText(container)).toContain('Project B inbox thread');
+    expect(collectText(container)).not.toContain('处理中...');
+
+    await act(async () => {
+      pendingUpdate.resolve({
+        item: {
+          id: 7,
+          source: 'reddit',
+          status: 'handled',
+          author: 'user123',
+          title: 'Project A inbox thread',
+          excerpt: 'Can you share current response times?',
+          createdAt: '2026-04-19T10:00:00.000Z',
+        },
+      });
+      await flush();
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('clears stale inbox reply suggestions after switching project scope with the same item id', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
