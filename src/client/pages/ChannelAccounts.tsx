@@ -790,7 +790,15 @@ export function ChannelAccountsPage({
         status: formValue.status,
         metadata: mergeMetadataWithSession(parsedMetadata, account),
       },
-    }).catch(() => undefined);
+    })
+      .then((result) => {
+        const normalizedAccount = normalizeChannelAccountRecord(result.channelAccount);
+        setEditFormById((current) => ({
+          ...current,
+          [accountId]: buildEditFormValue(normalizedAccount),
+        }));
+      })
+      .catch(() => undefined);
   }
 
   function handleSaveSession(accountId: number) {

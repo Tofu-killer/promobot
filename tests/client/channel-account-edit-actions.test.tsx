@@ -1639,6 +1639,167 @@ describe('channel account edit actions', () => {
     });
   });
 
+  it('syncs channel account edit fields to the saved server response', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ChannelAccountsPage } = await import('../../src/client/pages/ChannelAccounts');
+
+    const deferred = createDeferredPromise<{
+      channelAccount: {
+        id: number;
+        projectId?: number | null;
+        platform: string;
+        accountKey: string;
+        displayName: string;
+        authType: string;
+        status: string;
+        metadata: Record<string, unknown>;
+        createdAt: string;
+        updatedAt: string;
+      };
+    }>();
+    const updateChannelAccountAction = vi.fn().mockReturnValue(deferred.promise);
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ChannelAccountsPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              channelAccounts: [
+                {
+                  id: 3,
+                  projectId: 7,
+                  platform: 'x',
+                  accountKey: 'acct-x-2',
+                  displayName: 'X Secondary',
+                  authType: 'api-key',
+                  status: 'healthy',
+                  metadata: {
+                    team: 'growth',
+                  },
+                  createdAt: '2026-04-19T00:00:00.000Z',
+                  updatedAt: '2026-04-19T00:00:00.000Z',
+                },
+              ],
+            },
+          },
+          updateChannelAccountAction,
+        }),
+      );
+      await flush();
+    });
+
+    const editButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-edit-account-id') === '3',
+    );
+
+    await act(async () => {
+      editButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    await act(async () => {
+      updateFieldValue(
+        findElement(
+          container,
+          (element) => element.tagName === 'INPUT' && element.getAttribute('data-edit-display-name-id') === '3',
+        ),
+        'Client label',
+        window,
+      );
+      updateFieldValue(
+        findElement(
+          container,
+          (element) => element.tagName === 'INPUT' && element.getAttribute('data-edit-status-id') === '3',
+        ),
+        'failed',
+        window,
+      );
+      updateFieldValue(
+        findElement(
+          container,
+          (element) => element.tagName === 'INPUT' && element.getAttribute('data-edit-metadata-id') === '3',
+        ),
+        'team=revops',
+        window,
+      );
+      await flush();
+    });
+
+    const saveButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-save-account-id') === '3',
+    );
+
+    await act(async () => {
+      saveButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(updateChannelAccountAction).toHaveBeenCalledWith(3, {
+      projectId: 7,
+      platform: 'x',
+      accountKey: 'acct-x-2',
+      displayName: 'Client label',
+      authType: 'api-key',
+      status: 'failed',
+      metadata: {
+        team: 'revops',
+      },
+    });
+
+    await act(async () => {
+      deferred.resolve({
+        channelAccount: {
+          id: 3,
+          projectId: 12,
+          platform: 'x',
+          accountKey: 'acct-x-2',
+          displayName: 'Server normalized label',
+          authType: 'api-key',
+          status: 'healthy',
+          metadata: {
+            team: 'server',
+            region: 'apac',
+          },
+          createdAt: '2026-04-19T00:00:00.000Z',
+          updatedAt: '2026-04-19T01:00:00.000Z',
+        },
+      });
+      await flush();
+    });
+
+    const updatedDisplayNameField = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('data-edit-display-name-id') === '3',
+    );
+    const updatedProjectIdField = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('data-edit-project-id') === '3',
+    );
+    const updatedStatusField = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('data-edit-status-id') === '3',
+    );
+    const updatedMetadataField = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('data-edit-metadata-id') === '3',
+    );
+
+    expect(updatedDisplayNameField?.value).toBe('Server normalized label');
+    expect(updatedProjectIdField?.value).toBe('12');
+    expect(updatedStatusField?.value).toBe('healthy');
+    expect(updatedMetadataField?.value).toBe('team=server,region=apac');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('hides stale update success when projectId validation blocks a later edit save', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
