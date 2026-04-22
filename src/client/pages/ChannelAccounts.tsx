@@ -567,11 +567,14 @@ export function ChannelAccountsPage({
   const displayTestConnectionState = testConnectionStateOverride ?? testConnectionState;
   const displaySaveSessionState = saveSessionStateOverride ?? saveSessionState;
   const displaySessionActionState = sessionActionStateOverride ?? sessionActionState;
+  const hasLiveAccounts =
+    typeof displayState.data === 'object' &&
+    displayState.data !== null &&
+    Array.isArray((displayState.data as ChannelAccountsResponse).channelAccounts);
 
-  const loadedAccounts =
-    displayState.status === 'success' && Array.isArray(displayState.data?.channelAccounts)
-      ? displayState.data.channelAccounts.map(normalizeChannelAccountRecord)
-      : [];
+  const loadedAccounts = hasLiveAccounts
+    ? ((displayState.data as ChannelAccountsResponse).channelAccounts ?? []).map(normalizeChannelAccountRecord)
+    : [];
   const createdAccount = displayCreateState.data?.channelAccount
     ? normalizeChannelAccountRecord(displayCreateState.data.channelAccount)
     : null;
@@ -1109,7 +1112,7 @@ export function ChannelAccountsPage({
             <p style={{ margin: 0, color: '#b91c1c' }}>渠道账号加载失败：{displayState.error}</p>
           ) : null}
 
-          {displayState.status === 'success' && displayState.data ? (
+          {hasLiveAccounts ? (
             <div style={{ display: 'grid', gap: '12px' }}>
               <div style={{ fontWeight: 700 }}>
                 接口返回 {visibleAccounts.length} 个账号

@@ -1097,6 +1097,136 @@ describe('channel account edit actions', () => {
     });
   });
 
+  it('keeps live channel account context visible while a reload is pending after a successful connection test', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ChannelAccountsPage } = await import('../../src/client/pages/ChannelAccounts');
+
+    const pendingReload = createDeferredPromise<{
+      channelAccounts: Array<{
+        id: number;
+        platform: string;
+        accountKey: string;
+        displayName: string;
+        authType: string;
+        status: string;
+        metadata: Record<string, unknown>;
+        createdAt: string;
+        updatedAt: string;
+      }>;
+    }>();
+    const loadChannelAccountsAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        channelAccounts: [
+          {
+            id: 7,
+            platform: 'reddit',
+            accountKey: 'acct-reddit',
+            displayName: 'Reddit Ops',
+            authType: 'oauth',
+            status: 'healthy',
+            metadata: {},
+            createdAt: '2026-04-19T00:00:00.000Z',
+            updatedAt: '2026-04-19T00:00:00.000Z',
+          },
+        ],
+      })
+      .mockImplementationOnce(() => pendingReload.promise);
+    const testChannelAccountAction = vi.fn().mockResolvedValue({
+      ok: true,
+      test: {
+        checkedAt: '2026-04-19T03:05:00.000Z',
+        status: 'ready',
+        result: {
+          label: '已就绪',
+        },
+        feedback: {
+          message: 'Reddit OAuth 登录态可用。',
+        },
+        details: {
+          ready: true,
+          mode: 'oauth',
+          authType: 'oauth',
+        },
+      },
+      channelAccount: {
+        id: 7,
+        platform: 'reddit',
+        accountKey: 'acct-reddit',
+        displayName: 'Reddit Ops',
+        authType: 'oauth',
+        status: 'healthy',
+        metadata: {},
+        publishReadiness: {
+          platform: 'reddit',
+          ready: true,
+          mode: 'oauth',
+          status: 'ready',
+          message: 'Reddit OAuth 登录态已可用。',
+        },
+        createdAt: '2026-04-19T00:00:00.000Z',
+        updatedAt: '2026-04-19T03:05:00.000Z',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ChannelAccountsPage as never, {
+          loadChannelAccountsAction,
+          testChannelAccountAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const headerTestConnectionButton = findElement(
+      container,
+      (element) => element.getAttribute('data-header-test-connection-action') === 'true',
+    );
+
+    expect(headerTestConnectionButton).not.toBeNull();
+    expect(collectText(container)).toContain('Reddit Ops');
+
+    await act(async () => {
+      headerTestConnectionButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(testChannelAccountAction).toHaveBeenCalledWith(7);
+    expect(loadChannelAccountsAction).toHaveBeenCalledTimes(2);
+    expect(collectText(container)).toContain('Reddit Ops');
+    expect(collectText(container)).toContain('reddit · oauth · healthy');
+    expect(collectText(container)).toContain('最近一次连接测试');
+    expect(collectText(container)).not.toContain('提交表单后，这里会显示新账号和下一步测试连接动作。');
+
+    await act(async () => {
+      pendingReload.resolve({
+        channelAccounts: [
+          {
+            id: 7,
+            platform: 'reddit',
+            accountKey: 'acct-reddit',
+            displayName: 'Reddit Ops',
+            authType: 'oauth',
+            status: 'healthy',
+            metadata: {},
+            createdAt: '2026-04-19T00:00:00.000Z',
+            updatedAt: '2026-04-19T03:05:00.000Z',
+          },
+        ],
+      });
+      await flush();
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('uses the selected target account default session action for the header session CTA', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
