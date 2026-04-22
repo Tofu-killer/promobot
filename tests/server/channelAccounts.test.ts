@@ -2033,7 +2033,9 @@ describe('channel accounts api', () => {
           expect.objectContaining({
             id: 1,
             latestBrowserHandoffArtifact: {
-              ownership: 'unmatched',
+              ownership: 'direct',
+              channelAccountId: 1,
+              accountDisplayName: 'PromoBot FB Group',
               platform: 'facebookGroup',
               draftId: '22',
               title: 'Stale handoff',

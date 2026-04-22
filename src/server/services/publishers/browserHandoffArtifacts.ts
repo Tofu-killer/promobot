@@ -208,10 +208,13 @@ export function listBrowserHandoffArtifacts(limit?: number): BrowserHandoffArtif
         const ownership = resolveBrowserHandoffOwnership(artifact, channelAccounts);
 
         artifacts.push({
-          ...(typeof ownership.channelAccountId === 'number'
+          ...('channelAccountId' in ownership &&
+          typeof ownership.channelAccountId === 'number'
             ? { channelAccountId: ownership.channelAccountId }
             : {}),
-          ...(ownership.accountDisplayName ? { accountDisplayName: ownership.accountDisplayName } : {}),
+          ...('accountDisplayName' in ownership && ownership.accountDisplayName
+            ? { accountDisplayName: ownership.accountDisplayName }
+            : {}),
           ownership: ownership.ownership,
           platform: artifact.platform,
           draftId: artifact.draftId,
