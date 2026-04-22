@@ -644,6 +644,200 @@ describe('system runtime api', () => {
     });
   });
 
+  it('rejects system job creation when payload is not an object or runAt is invalid', async () => {
+    const seen: Array<{ type: string; payload?: Record<string, unknown>; runAt: string }> = [];
+    const schedulerRuntime = {
+      getStatus() {
+        return {
+          available: true,
+          started: true,
+          schedulerIntervalMinutes: 15,
+          pollMs: 900000,
+          bootedAt: null,
+          lastTickAt: null,
+          lastTickResults: [],
+          lastError: null,
+          recoveredRunningJobs: 0,
+          handlers: [],
+          queue: {
+            pending: 0,
+            running: 0,
+            done: 0,
+            failed: 0,
+            canceled: 0,
+            duePending: 0,
+          },
+          recentJobs: [],
+        };
+      },
+      listJobs() {
+        return {
+          jobs: [],
+          queue: {
+            pending: 0,
+            running: 0,
+            done: 0,
+            failed: 0,
+            canceled: 0,
+            duePending: 0,
+          },
+          recentJobs: [],
+        };
+      },
+      getJob() {
+        return undefined;
+      },
+      reload() {
+        return this.getStatus();
+      },
+      async tickNow() {
+        return [];
+      },
+      enqueueJob(input: { type: string; payload?: Record<string, unknown>; runAt: string }) {
+        seen.push(input);
+        return {
+          id: 4,
+          type: input.type,
+          payload: JSON.stringify(input.payload ?? {}),
+          status: 'pending',
+          runAt: input.runAt,
+          attempts: 0,
+          createdAt: '2026-04-19T12:10:00.000Z',
+          updatedAt: '2026-04-19T12:10:00.000Z',
+        };
+      },
+      stop() {},
+    };
+
+    const invalidPayloadResponse = await requestApp({
+      remoteAddress: '127.0.0.1',
+      method: 'POST',
+      url: '/api/system/jobs',
+      body: {
+        type: 'monitor_fetch',
+        payload: 'rss',
+      },
+      dependencies: { schedulerRuntime },
+    });
+
+    expect(invalidPayloadResponse.status).toBe(400);
+    expect(JSON.parse(invalidPayloadResponse.body)).toEqual({
+      error: 'invalid job payload',
+    });
+
+    const inheritedBody = Object.create({ type: 'monitor_fetch' });
+    const nonPlainBodyResponse = await requestApp({
+      remoteAddress: '127.0.0.1',
+      method: 'POST',
+      url: '/api/system/jobs',
+      body: inheritedBody,
+      dependencies: { schedulerRuntime },
+    });
+
+    expect(nonPlainBodyResponse.status).toBe(400);
+    expect(JSON.parse(nonPlainBodyResponse.body)).toEqual({
+      error: 'invalid job payload',
+    });
+
+    const invalidRunAtResponse = await requestApp({
+      remoteAddress: '127.0.0.1',
+      method: 'POST',
+      url: '/api/system/jobs',
+      body: {
+        type: 'monitor_fetch',
+        runAt: 'not-a-date',
+      },
+      dependencies: { schedulerRuntime },
+    });
+
+    expect(invalidRunAtResponse.status).toBe(400);
+    expect(JSON.parse(invalidRunAtResponse.body)).toEqual({
+      error: 'invalid job runAt',
+    });
+
+    const nonStringRunAtResponse = await requestApp({
+      remoteAddress: '127.0.0.1',
+      method: 'POST',
+      url: '/api/system/jobs',
+      body: {
+        type: 'monitor_fetch',
+        runAt: 123,
+      },
+      dependencies: { schedulerRuntime },
+    });
+
+    expect(nonStringRunAtResponse.status).toBe(400);
+    expect(JSON.parse(nonStringRunAtResponse.body)).toEqual({
+      error: 'invalid job runAt',
+    });
+
+    const calendarInvalidRunAtResponse = await requestApp({
+      remoteAddress: '127.0.0.1',
+      method: 'POST',
+      url: '/api/system/jobs',
+      body: {
+        type: 'monitor_fetch',
+        runAt: '2026-02-31T09:00:00.000Z',
+      },
+      dependencies: { schedulerRuntime },
+    });
+
+    expect(calendarInvalidRunAtResponse.status).toBe(400);
+    expect(JSON.parse(calendarInvalidRunAtResponse.body)).toEqual({
+      error: 'invalid job runAt',
+    });
+
+    const calendarInvalidDateOnlyResponse = await requestApp({
+      remoteAddress: '127.0.0.1',
+      method: 'POST',
+      url: '/api/system/jobs',
+      body: {
+        type: 'monitor_fetch',
+        runAt: '2026-02-31',
+      },
+      dependencies: { schedulerRuntime },
+    });
+
+    expect(calendarInvalidDateOnlyResponse.status).toBe(400);
+    expect(JSON.parse(calendarInvalidDateOnlyResponse.body)).toEqual({
+      error: 'invalid job runAt',
+    });
+
+    const calendarInvalidLocalDateTimeResponse = await requestApp({
+      remoteAddress: '127.0.0.1',
+      method: 'POST',
+      url: '/api/system/jobs',
+      body: {
+        type: 'monitor_fetch',
+        runAt: '2026-02-31T09:00',
+      },
+      dependencies: { schedulerRuntime },
+    });
+
+    expect(calendarInvalidLocalDateTimeResponse.status).toBe(400);
+    expect(JSON.parse(calendarInvalidLocalDateTimeResponse.body)).toEqual({
+      error: 'invalid job runAt',
+    });
+
+    const calendarInvalidSpacedDateTimeResponse = await requestApp({
+      remoteAddress: '127.0.0.1',
+      method: 'POST',
+      url: '/api/system/jobs',
+      body: {
+        type: 'monitor_fetch',
+        runAt: '2026-02-31 09:00',
+      },
+      dependencies: { schedulerRuntime },
+    });
+
+    expect(calendarInvalidSpacedDateTimeResponse.status).toBe(400);
+    expect(JSON.parse(calendarInvalidSpacedDateTimeResponse.body)).toEqual({
+      error: 'invalid job runAt',
+    });
+
+    expect(seen).toEqual([]);
+  });
+
   it('lists, retries, and cancels jobs through the system api', async () => {
     const actions: string[] = [];
     const schedulerRuntime = {

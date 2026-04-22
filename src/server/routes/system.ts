@@ -58,14 +58,32 @@ export function createSystemRouter(dependencies: SystemRouteDependencies = {}) {
       return;
     }
 
+    if (request.body !== undefined && !isPlainObject(request.body)) {
+      response.status(400).json({ error: 'invalid job payload' });
+      return;
+    }
+
     const { type, payload, runAt } = request.body ?? {};
     if (typeof type !== 'string' || type.trim().length === 0) {
       response.status(400).json({ error: 'invalid job type' });
       return;
     }
 
+    if (payload !== undefined && !isPlainObject(payload)) {
+      response.status(400).json({ error: 'invalid job payload' });
+      return;
+    }
+
+    if (
+      runAt !== undefined &&
+      (typeof runAt !== 'string' || !isValidJobRunAt(runAt))
+    ) {
+      response.status(400).json({ error: 'invalid job runAt' });
+      return;
+    }
+
     const normalizedRunAt =
-      typeof runAt === 'string' && !Number.isNaN(new Date(runAt).getTime())
+      typeof runAt === 'string' && isValidJobRunAt(runAt)
         ? runAt
         : new Date().toISOString();
 
@@ -185,7 +203,12 @@ export function createSystemRouter(dependencies: SystemRouteDependencies = {}) {
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
+
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
 }
 
 function buildSchedulerHealthSnapshot(schedulerRuntime: SchedulerRuntime | undefined) {
@@ -251,4 +274,34 @@ function parseJobId(value: unknown): number | undefined {
 
 function readHealthNumber(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+function isValidJobRunAt(value: string) {
+  const calendarDateMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})(?:$|T|\s)/);
+  if (calendarDateMatch) {
+    const [, yearValue, monthValue, dayValue] = calendarDateMatch;
+    const year = Number(yearValue);
+    const month = Number(monthValue);
+    const day = Number(dayValue);
+    const calendarDate = new Date(Date.UTC(year, month - 1, day));
+
+    if (
+      calendarDate.getUTCFullYear() !== year ||
+      calendarDate.getUTCMonth() !== month - 1 ||
+      calendarDate.getUTCDate() !== day
+    ) {
+      return false;
+    }
+  }
+
+  const timestamp = new Date(value).getTime();
+  if (Number.isNaN(timestamp)) {
+    return false;
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)) {
+    return new Date(value).toISOString() === value;
+  }
+
+  return true;
 }
