@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { apiRequest } from '../lib/api';
 import type { AsyncState } from '../hooks/useAsyncRequest';
 import { useAsyncAction, useAsyncQuery } from '../hooks/useAsyncRequest';
@@ -195,6 +195,7 @@ export function ReputationPage({
   );
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
   const [reputationMutationItemId, setReputationMutationItemId] = useState<number | null>(null);
+  const [reputationMutationScopeKey, setReputationMutationScopeKey] = useState<string | null>(null);
   const [enqueueRunAtDraft, setEnqueueRunAtDraft] = useState('');
   const displayState = stateOverride ?? state;
   const displayFetchState = fetchStateOverride ?? fetchState;
@@ -228,8 +229,13 @@ export function ReputationPage({
     Array.isArray((displayState.data as ReputationStatsResponse).items);
   const isPreview = !hasLiveData;
   const viewData = hasLiveData ? (displayState.data as ReputationStatsResponse) : fallbackData;
+  const currentScopeKey = projectId === undefined ? '' : String(projectId);
+  const showReputationMutationForScope =
+    reputationMutationScopeKey === null || reputationMutationScopeKey === currentScopeKey;
   const updatedReputationItem =
-    displayReputationUpdateState.status === 'success' && displayReputationUpdateState.data
+    showReputationMutationForScope &&
+    displayReputationUpdateState.status === 'success' &&
+    displayReputationUpdateState.data
       ? displayReputationUpdateState.data.item
       : null;
   const displayItems = updatedReputationItem
@@ -237,7 +243,8 @@ export function ReputationPage({
     : viewData.items;
   const priorityItems = displayItems.filter((item) => item.sentiment === 'negative');
   const selectedItem = isPreview ? null : priorityItems.find((item) => item.id === selectedItemId) ?? priorityItems[0] ?? null;
-  const activeReputationMutationItemId = reputationMutationItemId ?? selectedItem?.id ?? null;
+  const activeReputationMutationItemId =
+    reputationMutationItemId ?? (showReputationMutationForScope ? selectedItem?.id ?? null : null);
   const showReputationMutationFeedback = selectedItem !== null && selectedItem.id === activeReputationMutationItemId;
   const sentimentBars = viewData.trend.map((bar) => ({
     label: bar.label,
@@ -255,6 +262,12 @@ export function ReputationPage({
         ? `口碑状态更新失败：${displayReputationUpdateState.error}`
         : null;
 
+  useEffect(() => {
+    setSelectedItemId(null);
+    setReputationMutationItemId(null);
+    setReputationMutationScopeKey('__cleared__');
+  }, [projectId]);
+
   async function handleReputationStatus(item: ReputationItem | null, status: 'handled' | 'escalate') {
     if (!item) {
       return;
@@ -262,6 +275,7 @@ export function ReputationPage({
 
     setSelectedItemId(item.id);
     setReputationMutationItemId(item.id);
+    setReputationMutationScopeKey(currentScopeKey);
 
     try {
       await runReputationUpdate({ id: item.id, status });

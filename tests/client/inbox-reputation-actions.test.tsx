@@ -654,6 +654,7 @@ describe('Inbox action wiring', () => {
       updateFieldValue(projectIdInput as never, '12', window as never);
       await flush();
       await flush();
+      await flush();
     });
 
     expect(loadInboxAction).toHaveBeenLastCalledWith(12);
@@ -1480,6 +1481,142 @@ describe('Reputation action wiring', () => {
       });
       await flush();
     });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('clears stale reputation feedback after switching project scope with the same item id', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ReputationPage } = await import('../../src/client/pages/Reputation');
+
+    const loadReputationAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        total: 1,
+        positive: 0,
+        neutral: 0,
+        negative: 1,
+        trend: [
+          { label: '正向', value: 0 },
+          { label: '中性', value: 0 },
+          { label: '负向', value: 1 },
+        ],
+        items: [
+          {
+            id: 4,
+            source: 'x',
+            sentiment: 'negative' as const,
+            status: 'new',
+            title: 'Project A complaint',
+            detail: 'Users report being logged out unexpectedly.',
+            createdAt: '2026-04-19T10:00:00.000Z',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        total: 1,
+        positive: 0,
+        neutral: 0,
+        negative: 1,
+        trend: [
+          { label: '正向', value: 0 },
+          { label: '中性', value: 0 },
+          { label: '负向', value: 1 },
+        ],
+        items: [
+          {
+            id: 4,
+            source: 'x',
+            sentiment: 'negative' as const,
+            status: 'handled',
+            title: 'Project A complaint',
+            detail: 'Users report being logged out unexpectedly.',
+            createdAt: '2026-04-19T10:00:00.000Z',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        total: 1,
+        positive: 0,
+        neutral: 0,
+        negative: 1,
+        trend: [
+          { label: '正向', value: 0 },
+          { label: '中性', value: 0 },
+          { label: '负向', value: 1 },
+        ],
+        items: [
+          {
+            id: 4,
+            source: 'reddit',
+            sentiment: 'negative' as const,
+            status: 'new',
+            title: 'Project B complaint',
+            detail: 'Prospects think the pricing page is unclear.',
+            createdAt: '2026-04-19T10:30:00.000Z',
+          },
+        ],
+      });
+    const updateReputationAction = vi.fn().mockResolvedValue({
+      item: {
+        id: 4,
+        source: 'x',
+        sentiment: 'negative',
+        status: 'handled',
+        title: 'Project A complaint',
+        detail: 'Users report being logged out unexpectedly.',
+        createdAt: '2026-04-19T10:00:00.000Z',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ReputationPage as never, {
+          loadReputationAction,
+          updateReputationAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const handledButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('标记已处理'),
+    );
+    expect(handledButton).not.toBeNull();
+
+    await act(async () => {
+      handledButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(updateReputationAction).toHaveBeenCalledWith(4, 'handled');
+    expect(collectText(container)).toContain('已将“Project A complaint”回写为 handled');
+
+    const projectIdInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    );
+
+    expect(projectIdInput).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(projectIdInput as never, '12', window as never);
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    expect(loadReputationAction).toHaveBeenLastCalledWith(12);
+    expect(collectText(container)).toContain('Project B complaint');
+    expect(collectText(container)).not.toContain('已将“Project A complaint”回写为 handled');
 
     await act(async () => {
       root.unmount();
