@@ -1072,6 +1072,148 @@ describe('System Queue actions', () => {
     });
   });
 
+  it('keeps live browser lane and handoff entries visible while their reloads are pending', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { SystemQueuePage } = await import('../../src/client/pages/SystemQueue');
+
+    const pendingBrowserLaneReload = createDeferredPromise<{
+      requests: Array<{
+        channelAccountId: number;
+        platform: string;
+        accountKey: string;
+        action: string;
+        jobStatus: string;
+        requestedAt: string;
+        artifactPath: string;
+        resolvedAt: string | null;
+      }>;
+      total: number;
+    }>();
+    const pendingBrowserHandoffReload = createDeferredPromise<{
+      handoffs: Array<{
+        channelAccountId?: number;
+        accountDisplayName?: string;
+        ownership?: string;
+        platform: string;
+        draftId: string;
+        title: string | null;
+        accountKey: string;
+        status: string;
+        artifactPath: string;
+        createdAt: string;
+        updatedAt: string;
+        resolvedAt: string | null;
+        resolution?: unknown;
+      }>;
+      total: number;
+    }>();
+    const loadSystemQueueAction = vi.fn().mockResolvedValue({
+      jobs: [],
+      queue: {
+        pending: 0,
+        running: 0,
+        failed: 0,
+        duePending: 0,
+      },
+      recentJobs: [],
+    });
+    const loadBrowserLaneRequestsAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        requests: [
+          {
+            channelAccountId: 7,
+            platform: 'x',
+            accountKey: 'acct-browser',
+            action: 'request_session',
+            jobStatus: 'pending',
+            requestedAt: '2026-04-21T09:00:00.000Z',
+            artifactPath: 'artifacts/browser-lane-requests/x/acct-browser/request-session-job-17.json',
+            resolvedAt: null,
+          },
+        ],
+        total: 1,
+      })
+      .mockImplementationOnce(() => pendingBrowserLaneReload.promise);
+    const loadBrowserHandoffsAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        handoffs: [
+          {
+            channelAccountId: 7,
+            accountDisplayName: 'FB Group Manual',
+            platform: 'facebookGroup',
+            draftId: '13',
+            title: 'Community update',
+            accountKey: 'launch-campaign',
+            ownership: 'direct',
+            status: 'resolved',
+            artifactPath: 'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-13.json',
+            createdAt: '2026-04-21T09:10:00.000Z',
+            updatedAt: '2026-04-21T09:20:00.000Z',
+            resolvedAt: '2026-04-21T09:20:00.000Z',
+            resolution: {
+              status: 'resolved',
+            },
+          },
+        ],
+        total: 1,
+      })
+      .mockImplementationOnce(() => pendingBrowserHandoffReload.promise);
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(SystemQueuePage as never, {
+          loadSystemQueueAction,
+          loadBrowserLaneRequestsAction,
+          loadBrowserHandoffsAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const refreshButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('刷新队列'),
+    );
+
+    expect(refreshButton).not.toBeNull();
+    expect(collectText(container)).toContain('acct-browser');
+    expect(collectText(container)).toContain('FB Group Manual');
+
+    await act(async () => {
+      refreshButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(loadBrowserLaneRequestsAction).toHaveBeenCalledTimes(2);
+    expect(loadBrowserHandoffsAction).toHaveBeenCalledTimes(2);
+    expect(collectText(container)).toContain('正在加载 browser lane requests...');
+    expect(collectText(container)).toContain('正在加载 browser handoffs...');
+    expect(collectText(container)).toContain('acct-browser');
+    expect(collectText(container)).toContain('FB Group Manual');
+
+    await act(async () => {
+      pendingBrowserLaneReload.resolve({
+        requests: [],
+        total: 0,
+      });
+      pendingBrowserHandoffReload.resolve({
+        handoffs: [],
+        total: 0,
+      });
+      await flush();
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('renders the create-job runAt field as blank by default', async () => {
     const { SystemQueuePage } = await import('../../src/client/pages/SystemQueue');
 

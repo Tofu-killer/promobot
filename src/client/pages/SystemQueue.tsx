@@ -236,6 +236,16 @@ export function SystemQueuePage({
     canceled: viewData.queue.canceled ?? 0,
     duePending: viewData.queue.duePending ?? 0,
   };
+  const hasLiveBrowserLaneData =
+    typeof displayBrowserLaneState.data === 'object' &&
+    displayBrowserLaneState.data !== null &&
+    Array.isArray(displayBrowserLaneState.data.requests);
+  const visibleBrowserLaneRequests = hasLiveBrowserLaneData ? displayBrowserLaneState.data.requests : [];
+  const hasLiveBrowserHandoffData =
+    typeof displayBrowserHandoffState.data === 'object' &&
+    displayBrowserHandoffState.data !== null &&
+    Array.isArray(displayBrowserHandoffState.data.handoffs);
+  const visibleBrowserHandoffs = hasLiveBrowserHandoffData ? displayBrowserHandoffState.data.handoffs : [];
 
   const mutationFeedback =
     displayMutationState.status === 'success' && displayMutationState.data
@@ -459,12 +469,12 @@ export function SystemQueuePage({
                 browser lane requests 加载失败：{displayBrowserLaneState.error}
               </p>
             ) : null}
-            {displayBrowserLaneState.status === 'success' && displayBrowserLaneState.data.requests.length === 0 ? (
+            {hasLiveBrowserLaneData && visibleBrowserLaneRequests.length === 0 ? (
               <p style={{ margin: 0, color: '#475569' }}>当前没有 browser lane requests。</p>
             ) : null}
-            {displayBrowserLaneState.status === 'success' && displayBrowserLaneState.data.requests.length > 0 ? (
+            {hasLiveBrowserLaneData && visibleBrowserLaneRequests.length > 0 ? (
               <div style={{ display: 'grid', gap: '12px' }}>
-                {displayBrowserLaneState.data.requests.map((request) => (
+                {visibleBrowserLaneRequests.map((request) => (
                   <article
                     key={`${request.channelAccountId}-${request.artifactPath}-${request.requestedAt}`}
                     style={{
@@ -500,12 +510,12 @@ export function SystemQueuePage({
                 browser handoffs 加载失败：{displayBrowserHandoffState.error}
               </p>
             ) : null}
-            {displayBrowserHandoffState.status === 'success' && displayBrowserHandoffState.data.handoffs.length === 0 ? (
+            {hasLiveBrowserHandoffData && visibleBrowserHandoffs.length === 0 ? (
               <p style={{ margin: 0, color: '#475569' }}>当前没有 browser handoffs。</p>
             ) : null}
-            {displayBrowserHandoffState.status === 'success' && displayBrowserHandoffState.data.handoffs.length > 0 ? (
+            {hasLiveBrowserHandoffData && visibleBrowserHandoffs.length > 0 ? (
               <div style={{ display: 'grid', gap: '12px' }}>
-                {displayBrowserHandoffState.data.handoffs.map((handoff) => (
+                {visibleBrowserHandoffs.map((handoff) => (
                   <article
                     key={`${handoff.artifactPath}-${handoff.updatedAt}`}
                     style={{
