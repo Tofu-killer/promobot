@@ -200,7 +200,6 @@ export function ReputationPage({
   const displayFetchState = fetchStateOverride ?? fetchState;
   const displayEnqueueState = enqueueStateOverride ?? enqueueState;
   const displayReputationUpdateState = reputationUpdateStateOverride ?? reputationUpdateState;
-  const isPreview = displayState.status !== 'success';
   const fallbackData: ReputationStatsResponse = {
     total: 1,
     positive: 0,
@@ -223,7 +222,12 @@ export function ReputationPage({
       },
     ],
   };
-  const viewData = displayState.status === 'success' && displayState.data ? displayState.data : fallbackData;
+  const hasLiveData =
+    typeof displayState.data === 'object' &&
+    displayState.data !== null &&
+    Array.isArray((displayState.data as ReputationStatsResponse).items);
+  const isPreview = !hasLiveData;
+  const viewData = hasLiveData ? (displayState.data as ReputationStatsResponse) : fallbackData;
   const updatedReputationItem =
     displayReputationUpdateState.status === 'success' && displayReputationUpdateState.data
       ? displayReputationUpdateState.data.item

@@ -1146,6 +1146,127 @@ describe('Reputation action wiring', () => {
     });
   });
 
+  it('keeps live reputation context visible while a reload is pending after a successful status update', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ReputationPage } = await import('../../src/client/pages/Reputation');
+
+    const pendingReload = createDeferredPromise<{
+      total: number;
+      positive: number;
+      neutral: number;
+      negative: number;
+      trend: Array<{ label: string; value: number }>;
+      items: Array<{
+        id: number;
+        source: string;
+        sentiment: 'negative';
+        status: string;
+        title: string;
+        detail: string;
+        createdAt: string;
+      }>;
+    }>();
+    const loadReputationAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        total: 1,
+        positive: 0,
+        neutral: 0,
+        negative: 1,
+        trend: [
+          { label: '正向', value: 0 },
+          { label: '中性', value: 0 },
+          { label: '负向', value: 1 },
+        ],
+        items: [
+          {
+            id: 4,
+            source: 'x',
+            sentiment: 'negative',
+            status: 'new',
+            title: 'Session expired complaint',
+            detail: 'Users report being logged out unexpectedly.',
+            createdAt: '2026-04-19T10:00:00.000Z',
+          },
+        ],
+      })
+      .mockImplementationOnce(() => pendingReload.promise);
+    const updateReputationAction = vi.fn().mockResolvedValue({
+      item: {
+        id: 4,
+        source: 'x',
+        sentiment: 'negative',
+        status: 'handled',
+        title: 'Session expired complaint',
+        detail: 'Users report being logged out unexpectedly.',
+        createdAt: '2026-04-19T10:00:00.000Z',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ReputationPage as never, {
+          loadReputationAction,
+          updateReputationAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const handledButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('标记已处理'),
+    );
+
+    expect(handledButton).not.toBeNull();
+    expect(collectText(container)).toContain('Session expired complaint');
+
+    await act(async () => {
+      handledButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(updateReputationAction).toHaveBeenCalledWith(4, 'handled');
+    expect(loadReputationAction).toHaveBeenCalledTimes(2);
+    expect(collectText(container)).toContain('Session expired complaint');
+    expect(collectText(container)).toContain('已将“Session expired complaint”回写为 handled');
+    expect(collectText(container)).not.toContain('预览数据不可回写口碑状态或转入 Social Inbox。');
+
+    await act(async () => {
+      pendingReload.resolve({
+        total: 1,
+        positive: 0,
+        neutral: 0,
+        negative: 1,
+        trend: [
+          { label: '正向', value: 0 },
+          { label: '中性', value: 0 },
+          { label: '负向', value: 1 },
+        ],
+        items: [
+          {
+            id: 4,
+            source: 'x',
+            sentiment: 'negative',
+            status: 'handled',
+            title: 'Session expired complaint',
+            detail: 'Users report being logged out unexpectedly.',
+            createdAt: '2026-04-19T10:00:00.000Z',
+          },
+        ],
+      });
+      await flush();
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('renders reputation preview data as read-only when live data has not loaded yet', async () => {
     const { ReputationPage } = await import('../../src/client/pages/Reputation');
 
