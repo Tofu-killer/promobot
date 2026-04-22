@@ -599,7 +599,12 @@ export function SettingsPage({
   const displayBrowserLaneState = browserLaneStateOverride ?? browserLaneState;
   const displayBrowserHandoffState = browserHandoffStateOverride ?? browserHandoffState;
   const displayUpdateState = updateStateOverride ?? updateState;
-  const loadedData = displayState.status === 'success' ? displayState.data : undefined;
+  const hasLiveSettingsData =
+    typeof displayState.data === 'object' &&
+    displayState.data !== null &&
+    typeof (displayState.data as SettingsResponse).settings === 'object' &&
+    (displayState.data as SettingsResponse).settings !== null;
+  const loadedData = hasLiveSettingsData ? (displayState.data as SettingsResponse) : undefined;
   const savedData = displayUpdateState.status === 'success' ? displayUpdateState.data : undefined;
   const effectiveSettings = mergeSettingsRecords(loadedData?.settings, savedData?.settings);
   const loadedFormValues = getLoadedFormValues(effectiveSettings);

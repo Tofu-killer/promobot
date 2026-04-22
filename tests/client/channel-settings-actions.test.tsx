@@ -24,6 +24,21 @@ function renderPage(Component: unknown, props: Record<string, unknown>) {
   );
 }
 
+function createDeferredPromise<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((nextResolve, nextReject) => {
+    resolve = nextResolve;
+    reject = nextReject;
+  });
+
+  return {
+    promise,
+    resolve,
+    reject,
+  };
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -758,6 +773,111 @@ describe('settings save validation and feedback', () => {
     expect(collectText(container)).toContain('平台就绪度');
     expect(collectText(container)).toContain('Facebook Group');
     expect(collectText(container)).toContain('准备人工接管');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('keeps live settings values visible while a reload is pending', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { SettingsPage } = await import('../../src/client/pages/Settings');
+
+    const pendingReload = createDeferredPromise<{
+      settings: {
+        allowlist: string[];
+        schedulerIntervalMinutes: number;
+        rssDefaults: string[];
+        monitorRssFeeds: string[];
+        monitorXQueries: string[];
+        monitorRedditQueries: string[];
+        monitorV2exQueries: string[];
+      };
+    }>();
+    const loadSettingsAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        settings: {
+          allowlist: ['10.0.0.1'],
+          schedulerIntervalMinutes: 45,
+          rssDefaults: ['OpenAI blog'],
+          monitorRssFeeds: ['https://openai.com/blog/rss.xml'],
+          monitorXQueries: ['openrouter failover'],
+          monitorRedditQueries: ['claude api latency'],
+          monitorV2exQueries: ['llm api'],
+        },
+      })
+      .mockImplementationOnce(() => pendingReload.promise);
+    const loadSystemJobsAction = vi.fn().mockResolvedValue({
+      jobs: [],
+      queue: {
+        pending: 0,
+        failed: 0,
+      },
+      recentJobs: [],
+    });
+    const loadBrowserLaneRequestsAction = vi.fn().mockResolvedValue({
+      requests: [],
+      total: 0,
+    });
+    const loadBrowserHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(SettingsPage as never, {
+          loadSettingsAction,
+          loadSystemJobsAction,
+          loadBrowserLaneRequestsAction,
+          loadBrowserHandoffsAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const allowlistField = findElement(
+      container,
+      (element) => element.getAttribute('data-settings-field') === 'allowlist',
+    );
+    const reloadButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('重新加载默认源'),
+    );
+
+    expect(allowlistField).not.toBeNull();
+    expect(reloadButton).not.toBeNull();
+    expect((allowlistField as { value?: string } | null)?.value).toBe('10.0.0.1');
+
+    await act(async () => {
+      reloadButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(loadSettingsAction).toHaveBeenCalledTimes(2);
+    expect((allowlistField as { value?: string } | null)?.value).toBe('10.0.0.1');
+    expect(collectText(container)).toContain('正在加载设置...');
+
+    await act(async () => {
+      pendingReload.resolve({
+        settings: {
+          allowlist: ['10.0.0.2'],
+          schedulerIntervalMinutes: 30,
+          rssDefaults: ['OpenAI blog'],
+          monitorRssFeeds: ['https://openai.com/blog/rss.xml'],
+          monitorXQueries: ['claude latency'],
+          monitorRedditQueries: ['model routing'],
+          monitorV2exQueries: ['cursor'],
+        },
+      });
+      await flush();
+      await flush();
+    });
 
     await act(async () => {
       root.unmount();
