@@ -1,6 +1,7 @@
-import { createElement } from 'react';
+import { act, createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { collectText, findElement, flush, installMinimalDom } from './settings-test-helpers';
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -342,6 +343,93 @@ describe('Inbox action wiring', () => {
 
     expect(html).toContain('已生成最新回复建议');
     expect(html).toContain('Thanks for flagging this. We can share current APAC latency benchmarks.');
+  });
+
+  it('clears stale inbox reply suggestions after selecting a different item', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    const suggestReplyAction = vi.fn().mockResolvedValue({
+      suggestion: {
+        reply: 'Reply for item A only.',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(InboxPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              items: [
+                {
+                  id: 7,
+                  source: 'reddit',
+                  status: 'needs_reply',
+                  author: 'user123',
+                  title: 'Need lower latency in APAC',
+                  excerpt: 'Can you share current response times?',
+                  createdAt: '2026-04-19T10:00:00.000Z',
+                },
+                {
+                  id: 8,
+                  source: 'x',
+                  status: 'needs_reply',
+                  author: 'ops-team',
+                  title: 'Question about billing caps',
+                  excerpt: 'How do monthly usage caps work?',
+                  createdAt: '2026-04-19T10:05:00.000Z',
+                },
+              ],
+              total: 2,
+              unread: 2,
+            },
+          } satisfies ApiState<unknown>,
+          suggestReplyAction,
+        }),
+      );
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('当前会话：reddit · user123');
+
+    const generateReplyButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('AI 生成回复'),
+    );
+
+    await act(async () => {
+      generateReplyButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(suggestReplyAction).toHaveBeenCalledWith(7);
+    expect(collectText(container)).toContain('已生成最新回复建议');
+    expect(collectText(container)).toContain('Reply for item A only.');
+
+    const secondItem = findElement(
+      container,
+      (element) => element.tagName === 'ARTICLE' && collectText(element).includes('Question about billing caps'),
+    );
+
+    expect(secondItem).not.toBeNull();
+
+    await act(async () => {
+      secondItem?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('当前会话：x · ops-team');
+    expect(collectText(container)).not.toContain('已生成最新回复建议');
+    expect(collectText(container)).not.toContain('Reply for item A only.');
+    expect(collectText(container)).toContain('点击“AI 生成回复”后，这里会展示最新的 AI 草稿。');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
   });
 
   it('renders inbox preview data as read-only when live data has not loaded yet', async () => {

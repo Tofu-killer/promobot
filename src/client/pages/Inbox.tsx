@@ -218,6 +218,7 @@ export function InboxPage({
   );
   const { state: replySuggestionState, run: runReplySuggestion } = useAsyncAction((id: number) => suggestReplyAction(id));
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
+  const [replySuggestionItemId, setReplySuggestionItemId] = useState<number | null>(null);
   const [enqueueRunAtDraft, setEnqueueRunAtDraft] = useState('');
   const displayState = stateOverride ?? state;
   const displayFetchState = fetchStateOverride ?? fetchState;
@@ -248,6 +249,9 @@ export function InboxPage({
     : viewData.items;
   const selectedItem = isPreview ? null : displayItems.find((item) => item.id === selectedItemId) ?? displayItems[0] ?? null;
   const canGenerateReply = !isPreview && selectedItem !== null;
+  const activeReplySuggestionItemId = replySuggestionItemId ?? selectedItem?.id ?? null;
+  const showReplySuggestionForSelectedItem =
+    selectedItem !== null && selectedItem.id === activeReplySuggestionItemId;
   const inboxStatusFeedback =
     displayInboxUpdateState.status === 'success' && displayInboxUpdateState.data
       ? `已将“${displayInboxUpdateState.data.item.title}”回写为 ${displayInboxUpdateState.data.item.status}`
@@ -255,13 +259,17 @@ export function InboxPage({
         ? `收件箱状态更新失败：${displayInboxUpdateState.error}`
         : null;
   const replyFeedback =
-    displayReplySuggestionState.status === 'success' && displayReplySuggestionState.data
+    showReplySuggestionForSelectedItem &&
+    displayReplySuggestionState.status === 'success' &&
+    displayReplySuggestionState.data
       ? '已生成最新回复建议'
-      : displayReplySuggestionState.status === 'error'
+      : showReplySuggestionForSelectedItem && displayReplySuggestionState.status === 'error'
         ? `生成回复失败：${displayReplySuggestionState.error}`
         : null;
   const suggestedReply =
-    displayReplySuggestionState.status === 'success' && displayReplySuggestionState.data
+    showReplySuggestionForSelectedItem &&
+    displayReplySuggestionState.status === 'success' &&
+    displayReplySuggestionState.data
       ? displayReplySuggestionState.data.suggestion.reply
       : null;
 
@@ -280,6 +288,7 @@ export function InboxPage({
     }
 
     setSelectedItemId(item.id);
+    setReplySuggestionItemId(item.id);
 
     try {
       await runReplySuggestion(item.id);
@@ -323,7 +332,11 @@ export function InboxPage({
               onClick={handleEnqueueInboxFetch}
             />
             <ActionButton
-              label={displayReplySuggestionState.status === 'loading' ? '正在生成回复...' : 'AI 生成回复'}
+              label={
+                displayReplySuggestionState.status === 'loading' && showReplySuggestionForSelectedItem
+                  ? '正在生成回复...'
+                  : 'AI 生成回复'
+              }
               tone="primary"
               disabled={!canGenerateReply}
               onClick={() => {
@@ -494,7 +507,7 @@ export function InboxPage({
                     lineHeight: 1.6,
                   }}
                 >
-                  {displayReplySuggestionState.status === 'loading'
+                  {displayReplySuggestionState.status === 'loading' && showReplySuggestionForSelectedItem
                     ? '正在生成回复建议...'
                     : suggestedReply ??
                       (isPreview
