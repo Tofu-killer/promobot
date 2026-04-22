@@ -225,7 +225,6 @@ export function InboxPage({
   const displayEnqueueState = enqueueStateOverride ?? enqueueState;
   const displayInboxUpdateState = inboxUpdateStateOverride ?? inboxUpdateState;
   const displayReplySuggestionState = replySuggestionStateOverride ?? replySuggestionState;
-  const isPreview = displayState.status !== 'success';
   const fallbackData: InboxResponse = {
     items: [
       {
@@ -241,7 +240,12 @@ export function InboxPage({
     total: 1,
     unread: 1,
   };
-  const viewData = displayState.status === 'success' && displayState.data ? displayState.data : fallbackData;
+  const hasLiveData =
+    typeof displayState.data === 'object' &&
+    displayState.data !== null &&
+    Array.isArray((displayState.data as InboxResponse).items);
+  const isPreview = !hasLiveData;
+  const viewData = hasLiveData ? (displayState.data as InboxResponse) : fallbackData;
   const updatedInboxItem =
     displayInboxUpdateState.status === 'success' && displayInboxUpdateState.data ? displayInboxUpdateState.data.item : null;
   const displayItems = updatedInboxItem
@@ -395,7 +399,7 @@ export function InboxPage({
         </p>
       ) : null}
 
-      {displayState.status === 'success' || displayState.status === 'idle' ? (
+      {hasLiveData || displayState.status === 'idle' ? (
         <>
           <SectionCard title="抓取排程" description="留空会立即加入 system jobs，也可以填写 ISO 时间做定时抓取。">
             <div style={{ display: 'grid', gap: '16px' }}>

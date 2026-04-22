@@ -447,6 +447,110 @@ describe('Inbox action wiring', () => {
     });
   });
 
+  it('keeps live inbox context visible while a reload is pending after a successful status update', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    const pendingReload = createDeferredPromise<{
+      items: Array<{
+        id: number;
+        source: string;
+        status: string;
+        author: string;
+        title: string;
+        excerpt: string;
+        createdAt: string;
+      }>;
+      total: number;
+      unread: number;
+    }>();
+    const loadInboxAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: 7,
+            source: 'reddit',
+            status: 'needs_reply',
+            author: 'user123',
+            title: 'Need lower latency in APAC',
+            excerpt: 'Can you share current response times?',
+            createdAt: '2026-04-19T10:00:00.000Z',
+          },
+        ],
+        total: 1,
+        unread: 1,
+      })
+      .mockImplementationOnce(() => pendingReload.promise);
+    const updateInboxAction = vi.fn().mockResolvedValue({
+      item: {
+        id: 7,
+        source: 'reddit',
+        status: 'handled',
+        author: 'user123',
+        title: 'Need lower latency in APAC',
+        excerpt: 'Can you share current response times?',
+        createdAt: '2026-04-19T10:00:00.000Z',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(InboxPage as never, {
+          loadInboxAction,
+          updateInboxAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const handledButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('标记已处理'),
+    );
+
+    expect(handledButton).not.toBeNull();
+    expect(collectText(container)).toContain('Need lower latency in APAC');
+
+    await act(async () => {
+      handledButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(updateInboxAction).toHaveBeenCalledWith(7, 'handled');
+    expect(loadInboxAction).toHaveBeenCalledTimes(2);
+    expect(collectText(container)).toContain('Need lower latency in APAC');
+    expect(collectText(container)).toContain('已将“Need lower latency in APAC”回写为 handled');
+    expect(collectText(container)).not.toContain('预览数据不可回写状态或生成回复。');
+
+    await act(async () => {
+      pendingReload.resolve({
+        items: [
+          {
+            id: 7,
+            source: 'reddit',
+            status: 'handled',
+            author: 'user123',
+            title: 'Need lower latency in APAC',
+            excerpt: 'Can you share current response times?',
+            createdAt: '2026-04-19T10:00:00.000Z',
+          },
+        ],
+        total: 1,
+        unread: 0,
+      });
+      await flush();
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('renders inbox preview data as read-only when live data has not loaded yet', async () => {
     const { InboxPage } = await import('../../src/client/pages/Inbox');
 
