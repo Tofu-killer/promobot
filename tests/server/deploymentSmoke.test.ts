@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import fs from 'node:fs';
+import { afterEach, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/server/app';
+import { loadServerEnvFromRoot } from '../../src/server/env';
 import { resetBrowserArtifactHealthSummaryCache } from '../../src/server/services/browser/artifactHealth';
 import {
   getDeploymentSmokeHelpText,
@@ -7,6 +9,11 @@ import {
   runDeploymentSmokeCheck,
 } from '../../src/server/cli/deploymentSmoke';
 import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
+
+afterEach(() => {
+  delete process.env.PROMOBOT_ADMIN_PASSWORD;
+  delete process.env.ADMIN_PASSWORD;
+});
 
 async function requestExistingApp(
   app: ReturnType<typeof createApp>,
@@ -241,6 +248,130 @@ describe('deployment smoke cli', () => {
       adminPassword: 'secret',
     });
     expect(getDeploymentSmokeHelpText()).toContain('--base-url <origin>');
+    expect(getDeploymentSmokeHelpText()).toContain('[--admin-password <secret>]');
     expect(getDeploymentSmokeHelpText()).toContain('/api/system/browser-handoffs?limit=1');
+  });
+
+  it('falls back to environment passwords when the cli argument is omitted', async () => {
+    const { rootDir } = createTestDatabasePath();
+    const previousHandoffOutputDir = process.env.BROWSER_HANDOFF_OUTPUT_DIR;
+    process.env.BROWSER_HANDOFF_OUTPUT_DIR = rootDir;
+    process.env.ADMIN_PASSWORD = 'secret';
+    resetBrowserArtifactHealthSummaryCache();
+
+    try {
+      const app = createApp({
+        allowedIps: ['127.0.0.1'],
+        adminPassword: 'secret',
+      });
+      const { fetchImpl } = createAppFetch(app);
+
+      const result = await runDeploymentSmokeCheck(
+        {
+          baseUrl: 'http://local.test',
+          adminPassword: '',
+        },
+        { fetchImpl },
+      );
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          ok: true,
+          baseUrl: 'http://local.test',
+        }),
+      );
+    } finally {
+      resetBrowserArtifactHealthSummaryCache();
+      if (previousHandoffOutputDir === undefined) {
+        delete process.env.BROWSER_HANDOFF_OUTPUT_DIR;
+      } else {
+        process.env.BROWSER_HANDOFF_OUTPUT_DIR = previousHandoffOutputDir;
+      }
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('accepts PROMOBOT_ADMIN_PASSWORD from the shell environment', async () => {
+    const { rootDir } = createTestDatabasePath();
+    const previousHandoffOutputDir = process.env.BROWSER_HANDOFF_OUTPUT_DIR;
+    process.env.BROWSER_HANDOFF_OUTPUT_DIR = rootDir;
+    process.env.PROMOBOT_ADMIN_PASSWORD = 'secret';
+    resetBrowserArtifactHealthSummaryCache();
+
+    try {
+      const app = createApp({
+        allowedIps: ['127.0.0.1'],
+        adminPassword: 'secret',
+      });
+      const { fetchImpl } = createAppFetch(app);
+
+      const result = await runDeploymentSmokeCheck(
+        {
+          baseUrl: 'http://local.test',
+          adminPassword: '',
+        },
+        { fetchImpl },
+      );
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          ok: true,
+          baseUrl: 'http://local.test',
+        }),
+      );
+    } finally {
+      resetBrowserArtifactHealthSummaryCache();
+      if (previousHandoffOutputDir === undefined) {
+        delete process.env.BROWSER_HANDOFF_OUTPUT_DIR;
+      } else {
+        process.env.BROWSER_HANDOFF_OUTPUT_DIR = previousHandoffOutputDir;
+      }
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('accepts PROMOBOT_ADMIN_PASSWORD loaded from the repo-root env file', async () => {
+    const { rootDir } = createTestDatabasePath();
+    const previousHandoffOutputDir = process.env.BROWSER_HANDOFF_OUTPUT_DIR;
+    process.env.BROWSER_HANDOFF_OUTPUT_DIR = rootDir;
+    resetBrowserArtifactHealthSummaryCache();
+
+    try {
+      fs.writeFileSync(
+        `${rootDir}/.env`,
+        'PROMOBOT_ADMIN_PASSWORD=secret\n',
+        'utf8',
+      );
+      loadServerEnvFromRoot({ repoRootDir: rootDir });
+
+      const app = createApp({
+        allowedIps: ['127.0.0.1'],
+        adminPassword: 'secret',
+      });
+      const { fetchImpl } = createAppFetch(app);
+
+      const result = await runDeploymentSmokeCheck(
+        {
+          baseUrl: 'http://local.test',
+          adminPassword: '',
+        },
+        { fetchImpl },
+      );
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          ok: true,
+          baseUrl: 'http://local.test',
+        }),
+      );
+    } finally {
+      resetBrowserArtifactHealthSummaryCache();
+      if (previousHandoffOutputDir === undefined) {
+        delete process.env.BROWSER_HANDOFF_OUTPUT_DIR;
+      } else {
+        process.env.BROWSER_HANDOFF_OUTPUT_DIR = previousHandoffOutputDir;
+      }
+      cleanupTestDatabasePath(rootDir);
+    }
   });
 });

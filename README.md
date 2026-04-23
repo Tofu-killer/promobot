@@ -28,7 +28,7 @@ PromoBot 现在不是“只有 spec 的空仓库”了。
 ## 数据与运行时
 
 - 默认数据库路径是当前工作目录下的 `data/promobot.sqlite`；从仓库根目录启动或使用 `pm2.config.js` 时，等同于 `<repo>/data/promobot.sqlite`。可用 `PROMOBOT_DB_PATH` 覆盖。
-- 浏览器 session 元数据默认保存在数据库目录旁边的 `browser-sessions/`。
+- 浏览器 session 元数据默认保存在和 SQLite 文件相邻的 `browser-sessions/`；如果 `PROMOBOT_DB_PATH` 不是普通文件路径（例如 `:memory:`），则会回退到 `<cwd>/data/browser-sessions/`。
 - 当 `dist/client/index.html` 存在时，Express 会直接服务构建后的前端文件，并对非 API 路由做 SPA fallback。
 - 所有 API 都挂在 IP allowlist 中间件后面。
 - allowlist 现在支持“精确 IP 字符串”“CIDR 子网”以及 `*` 全放开；Settings 页保存后会立即影响当前进程的访问控制。
@@ -63,6 +63,8 @@ pnpm install
 pnpm dev
 pnpm dev:server
 pnpm test
+pnpm runtime:backup
+pnpm deploy:local -- --skip-smoke
 pnpm browser:artifacts:archive -- --older-than-hours 72
 ```
 
@@ -70,6 +72,8 @@ pnpm browser:artifacts:archive -- --older-than-hours 72
 - `pnpm dev:server`：Express API，默认 `3001`
 - `pnpm build`：分别构建到 `dist/client` 和 `dist/server`
 - `pnpm start`：启动 `dist/server/index.js`，并在 `dist/client` 存在时直接提供构建后的前端
+- `pnpm runtime:backup`：把当前可定位的 SQLite 文件来源、真实运行时 `browser-sessions/` 根目录和仓库根 `.env` 复制到时间戳备份目录，并生成 manifest JSON；若有缺失项，会在 manifest 里标记并以非零退出码返回
+- `pnpm deploy:local -- [options]`：执行本机部署链路，封装 `pnpm install`、`pnpm build`、PM2 reload/start 和可选 smoke check
 - GitHub Actions CI：`main` 的 push / pull_request 会运行 `pnpm test` 和 `pnpm build`，用于提前拦截测试与构建回归
 - 生产访问时，浏览器可直接走同一个 Node 进程访问页面和 `/api`
 
@@ -78,8 +82,9 @@ pnpm browser:artifacts:archive -- --older-than-hours 72
 ## 生产运维补充
 
 - `pm2.config.js` 现在会把日志落到仓库下的 `logs/`，并带基本重启/退避配置。
+- `ops/deploy-promobot.sh` 现在提供一条可重复的本机部署脚本；默认会执行 install/build/PM2 切换，并默认启用 smoke check。脚本会优先读取 `--admin-password`，否则回退到 shell 里的 `PROMOBOT_ADMIN_PASSWORD` / `ADMIN_PASSWORD`，以及仓库根 `.env` 里的 `PROMOBOT_ADMIN_PASSWORD` / `ADMIN_PASSWORD`；如不想跑 smoke，可显式传 `--skip-smoke`。
 - 仓库提供 `ops/logrotate.promobot.conf` 作为 Linux `logrotate` 样例；使用前把其中的 `REPO_ROOT` 替换成实际仓库绝对路径。
-- SQLite 备份/迁移时，不只复制 `promobot.sqlite`，还要连同数据库目录旁边的 `browser-sessions/` 一起迁走。
+- 仓库提供 `pnpm runtime:backup`，会把当前有效的 SQLite 文件来源、真实运行时 `browser-sessions/` 根目录和仓库根 `.env` 快照到 `backups/<timestamp>/`。
 - 详细步骤见 `docs/DEPLOYMENT.md`。
 
 ## 设计参考

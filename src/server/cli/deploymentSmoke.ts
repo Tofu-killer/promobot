@@ -1,3 +1,5 @@
+import { loadServerEnvFromRoot } from '../env.js';
+
 interface RunDeploymentSmokeCheckInput {
   baseUrl: string;
   adminPassword: string;
@@ -17,7 +19,11 @@ export async function runDeploymentSmokeCheck(
   }
 
   const baseUrl = input.baseUrl.trim().replace(/\/+$/, '');
-  const adminPassword = input.adminPassword.trim();
+  const adminPassword =
+    input.adminPassword.trim() ||
+    process.env.PROMOBOT_ADMIN_PASSWORD?.trim() ||
+    process.env.ADMIN_PASSWORD?.trim() ||
+    '';
 
   if (!baseUrl) {
     throw new Error('baseUrl is required');
@@ -138,7 +144,10 @@ export function parseDeploymentSmokeArgs(argv: string[]) {
 
 export function getDeploymentSmokeHelpText() {
   return [
-    'Usage: tsx src/server/cli/deploymentSmoke.ts --base-url <origin> --admin-password <secret>',
+    'Usage: tsx src/server/cli/deploymentSmoke.ts --base-url <origin> [--admin-password <secret>]',
+    '',
+    'The admin password may also come from PROMOBOT_ADMIN_PASSWORD or ADMIN_PASSWORD,',
+    'including values loaded from the repo-root .env file.',
     '',
     'Checks:',
     '  1. GET /api/system/health',
@@ -156,6 +165,7 @@ function readSetCookieValue(setCookieHeader: string, cookieName: string) {
 }
 
 async function main() {
+  loadServerEnvFromRoot();
   const input = parseDeploymentSmokeArgs(process.argv.slice(2));
   if (input.showHelp) {
     process.stdout.write(`${getDeploymentSmokeHelpText()}\n`);

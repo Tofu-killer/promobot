@@ -55,7 +55,8 @@ cp .env.example .env
 - `PROMOBOT_DB_PATH`
   - 默认是 `<cwd>/data/promobot.sqlite`
   - 用仓库根目录启动或使用 `pm2.config.js` 时，默认值等同于 `<repo>/data/promobot.sqlite`
-  - 浏览器 session 元数据会落在数据库目录旁边的 `browser-sessions/`
+  - 浏览器 session 元数据默认会落在和 SQLite 文件相邻的 `browser-sessions/`
+  - 如果 `PROMOBOT_DB_PATH` 不是普通文件路径（例如 `:memory:`），session 根目录会回退到 `<cwd>/data/browser-sessions/`
   - 通过 Channel Accounts 保存 browser session 时，直接导入的 storage state JSON 会写到 `browser-sessions/managed/<platform>/`
   - 手填 `storageStatePath` 时，该路径必须落在允许的 session 根目录内，并且指向真实存在、结构合法的 Playwright storage state 文件
   - `storageStatePath` 和 `storageState` 只能二选一；直接导入 JSON 时，至少要包含 `cookies` / `origins` 数组
@@ -153,6 +154,29 @@ node dist/server/index.js
 
 `dist/server/index.js` 启动时同样会尝试读取仓库根目录 `.env`。
 
+如果你要在本机执行一条可重复的部署链路，而不是手动敲 install/build/pm2/smoke，可以直接运行：
+
+```bash
+pnpm deploy:local -- --base-url http://127.0.0.1:3001
+```
+
+脚本位置：`ops/deploy-promobot.sh`
+
+支持的常用参数：
+
+- `--skip-install`
+- `--skip-smoke`
+- `--base-url <url>`
+- `--admin-password <secret>`
+
+默认 smoke 会优先读取：
+
+1. `--admin-password`
+2. `PROMOBOT_ADMIN_PASSWORD`
+3. `ADMIN_PASSWORD`
+4. 仓库根 `.env` 里的 `PROMOBOT_ADMIN_PASSWORD`
+5. 仓库根 `.env` 里的 `ADMIN_PASSWORD`
+
 如果 `dist/client/index.html` 存在：
 
 - `/` 会返回前端入口
@@ -187,6 +211,18 @@ pm2 start pm2.config.js --update-env
 pm2 status promobot
 ```
 
+如果你更偏向“一条命令执行 install/build/pm2/smoke”，也可以直接跑：
+
+```bash
+pnpm deploy:local -- --base-url http://127.0.0.1:3001
+```
+
+如果只是更新代码但不想重装依赖，可用：
+
+```bash
+pnpm deploy:local -- --skip-install --base-url http://127.0.0.1:3001
+```
+
 ## PM2 healthcheck
 
 启动后至少做三层检查：
@@ -219,8 +255,10 @@ pm2 logs promobot --lines 100
 如果你想把这层检查脚本化，可直接运行：
 
 ```bash
-pnpm smoke:server -- --base-url http://127.0.0.1:3001 --admin-password '<secret>'
+pnpm smoke:server -- --base-url http://127.0.0.1:3001
 ```
+
+`smoke:server` 会优先读取 `--admin-password`，否则回退到 `PROMOBOT_ADMIN_PASSWORD`、`ADMIN_PASSWORD`，以及仓库根 `.env` 里的 `PROMOBOT_ADMIN_PASSWORD` / `ADMIN_PASSWORD`。
 
 当前 smoke CLI 会依次检查：
 
@@ -263,13 +301,25 @@ pm2 stop promobot
 需要一起备份/迁移的内容：
 
 - `PROMOBOT_DB_PATH` 指向的 SQLite 文件
-- 该数据库目录旁边的 `browser-sessions/`
+- 真实运行时 `browser-sessions/` 根目录
 - 当前生效的 `.env` / shell 环境变量来源
+
+如果你想在停机前先生成一个仓库内快照，可直接运行：
+
+```bash
+pnpm runtime:backup
+```
+
+默认会写到 `backups/<timestamp>/`，并生成 `manifest.json`。备份会保留当前有效 SQLite 来源的真实文件名，同时复制真实运行时 `browser-sessions/` 根目录。如果有缺失项，CLI 会保留 manifest，同时以非零退出码返回，便于自动化区分“完整备份”和“不完整快照”。也支持自定义输出目录：
+
+```bash
+pnpm runtime:backup -- --output-dir /tmp/promobot-backup-manual
+```
 
 迁移到新机器时：
 
 1. 恢复 SQLite 文件到目标路径
-2. 恢复同级 `browser-sessions/`
+2. 恢复运行时使用的 `browser-sessions/` 根目录
 3. 设置正确的 `PROMOBOT_DB_PATH`
 4. 重新导入环境变量
 5. 再执行 `pm2 start pm2.config.js --update-env`
@@ -342,7 +392,7 @@ pm2 stop promobot
 pnpm test
 pnpm build
 curl http://127.0.0.1:3001/api/system/health
-pnpm smoke:server -- --base-url http://127.0.0.1:3001 --admin-password '<secret>'
+pnpm smoke:server -- --base-url http://127.0.0.1:3001
 ```
 
 如果 `dist/client` 已存在，再验证：
