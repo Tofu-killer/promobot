@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { apiRequest } from '../lib/api';
 import type { AsyncState } from '../hooks/useAsyncRequest';
 import { useAsyncAction, useAsyncQuery } from '../hooks/useAsyncRequest';
@@ -625,6 +625,8 @@ export function SettingsPage({
   const [controlMessage, setControlMessage] = useState<string | null>(null);
   const [controlError, setControlError] = useState<string | null>(null);
   const [activeControl, setActiveControl] = useState<string | null>(null);
+  const [controlPending, setControlPending] = useState(false);
+  const controlPendingRef = useRef(false);
   const displayValidationMessage = validationMessageOverride ?? validationMessage;
   const showPersistedSaveFeedback = !displayValidationMessage;
   const visibleSavedSettings = showPersistedSaveFeedback ? savedData?.settings : undefined;
@@ -681,6 +683,7 @@ export function SettingsPage({
     hasLiveJobsData && displayJobsState.data?.recentJobs.length > 0
       ? displayJobsState.data.recentJobs
       : readRecordArray(runtimeContract?.recentJobs);
+  const isRuntimeControlPending = controlPending || activeControl !== null;
 
   function handleSaveSettings() {
     if (!canEditSettings) {
@@ -713,6 +716,12 @@ export function SettingsPage({
     action: () => Promise<RuntimeControlResponse | FetchControlResponse>,
     successBuilder: (result: RuntimeControlResponse | FetchControlResponse) => string,
   ) {
+    if (controlPendingRef.current) {
+      return;
+    }
+
+    controlPendingRef.current = true;
+    setControlPending(true);
     setControlError(null);
     setControlMessage(null);
     setActiveControl(actionLabel);
@@ -727,11 +736,19 @@ export function SettingsPage({
     } catch (error) {
       setControlError(error instanceof Error ? error.message : String(error));
     } finally {
+      controlPendingRef.current = false;
+      setControlPending(false);
       setActiveControl(null);
     }
   }
 
   function handleJobAction(jobId: number, action: 'retry' | 'cancel') {
+    if (controlPendingRef.current) {
+      return;
+    }
+
+    controlPendingRef.current = true;
+    setControlPending(true);
     setControlError(null);
     setControlMessage(null);
     setActiveControl(`${action}:${jobId}`);
@@ -748,11 +765,19 @@ export function SettingsPage({
         setControlError(error instanceof Error ? error.message : String(error));
       })
       .finally(() => {
+        controlPendingRef.current = false;
+        setControlPending(false);
         setActiveControl(null);
       });
   }
 
   function handleEnqueueJob(type: 'monitor_fetch' | 'inbox_fetch' | 'reputation_fetch') {
+    if (controlPendingRef.current) {
+      return;
+    }
+
+    controlPendingRef.current = true;
+    setControlPending(true);
     setControlError(null);
     setControlMessage(null);
     setActiveControl(`enqueue:${type}`);
@@ -773,6 +798,8 @@ export function SettingsPage({
         setControlError(error instanceof Error ? error.message : String(error));
       })
       .finally(() => {
+        controlPendingRef.current = false;
+        setControlPending(false);
         setActiveControl(null);
       });
   }
@@ -904,12 +931,14 @@ export function SettingsPage({
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
               <ActionButton
                 label={activeControl === 'reload' ? '正在重载 Scheduler...' : '重载 Scheduler'}
+                disabled={isRuntimeControlPending}
                 onClick={() => {
                   void runControlAction('reload', reloadSchedulerAction, () => 'Scheduler 已重载');
                 }}
               />
               <ActionButton
                 label={activeControl === 'tick' ? '正在执行 Tick...' : '立即 Tick'}
+                disabled={isRuntimeControlPending}
                 onClick={() => {
                   void runControlAction('tick', tickSchedulerAction, (result) => {
                     const tickResult = result as RuntimeControlResponse;
@@ -920,6 +949,7 @@ export function SettingsPage({
               />
               <ActionButton
                 label={activeControl === 'monitor_fetch' ? '正在抓取 Monitor...' : '抓取 Monitor'}
+                disabled={isRuntimeControlPending}
                 onClick={() => {
                   void runControlAction('monitor_fetch', fetchMonitorAction, (result) => {
                     const fetchResult = result as FetchControlResponse;
@@ -929,6 +959,7 @@ export function SettingsPage({
               />
               <ActionButton
                 label={activeControl === 'inbox_fetch' ? '正在抓取 Inbox...' : '抓取 Inbox'}
+                disabled={isRuntimeControlPending}
                 onClick={() => {
                   void runControlAction('inbox_fetch', fetchInboxAction, (result) => {
                     const fetchResult = result as FetchControlResponse;
@@ -938,6 +969,7 @@ export function SettingsPage({
               />
               <ActionButton
                 label={activeControl === 'reputation_fetch' ? '正在抓取 Reputation...' : '抓取 Reputation'}
+                disabled={isRuntimeControlPending}
                 onClick={() => {
                   void runControlAction('reputation_fetch', fetchReputationAction, (result) => {
                     const fetchResult = result as FetchControlResponse;
@@ -966,6 +998,7 @@ export function SettingsPage({
                 <input
                   data-settings-field="enqueueRunAt"
                   value={enqueueRunAtDraft}
+                  disabled={isRuntimeControlPending}
                   onChange={(event) => setEnqueueRunAtDraft(event.target.value)}
                   style={fieldStyle}
                 />
@@ -973,12 +1006,14 @@ export function SettingsPage({
               <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                 <ActionButton
                   label={activeControl === 'enqueue:monitor_fetch' ? '正在入队 Monitor...' : '排程 Monitor Fetch'}
+                  disabled={isRuntimeControlPending}
                   onClick={() => {
                     handleEnqueueJob('monitor_fetch');
                   }}
                 />
                 <ActionButton
                   label={activeControl === 'enqueue:inbox_fetch' ? '正在入队 Inbox...' : '排程 Inbox Fetch'}
+                  disabled={isRuntimeControlPending}
                   onClick={() => {
                     handleEnqueueJob('inbox_fetch');
                   }}
@@ -989,6 +1024,7 @@ export function SettingsPage({
                       ? '正在入队 Reputation...'
                       : '排程 Reputation Fetch'
                   }
+                  disabled={isRuntimeControlPending}
                   onClick={() => {
                     handleEnqueueJob('reputation_fetch');
                   }}
@@ -1027,6 +1063,7 @@ export function SettingsPage({
                       {job.canRetry ? (
                         <ActionButton
                           label={activeControl === `retry:${job.id}` ? '正在重试...' : '重试'}
+                          disabled={isRuntimeControlPending}
                           onClick={() => {
                             handleJobAction(job.id, 'retry');
                           }}
@@ -1035,6 +1072,7 @@ export function SettingsPage({
                       {job.canCancel ? (
                         <ActionButton
                           label={activeControl === `cancel:${job.id}` ? '正在取消...' : '取消'}
+                          disabled={isRuntimeControlPending}
                           onClick={() => {
                             handleJobAction(job.id, 'cancel');
                           }}

@@ -1186,6 +1186,105 @@ describe('settings save validation and feedback', () => {
     });
   });
 
+  it('blocks overlapping runtime control actions while a prior control is still in flight', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { SettingsPage } = await import('../../src/client/pages/Settings');
+
+    const pendingReload = createDeferredPromise<{
+      scheduler: {
+        enabled: boolean;
+      };
+      runtime: {
+        mode: string;
+      };
+    }>();
+    const loadSettingsAction = vi.fn().mockResolvedValue({
+      settings: {
+        allowlist: ['10.0.0.1'],
+        schedulerIntervalMinutes: 45,
+        rssDefaults: ['OpenAI blog'],
+        monitorRssFeeds: ['https://openai.com/blog/rss.xml'],
+        monitorXQueries: ['openrouter failover'],
+        monitorRedditQueries: ['claude api latency'],
+        monitorV2exQueries: ['llm api'],
+      },
+    });
+    const loadSystemJobsAction = vi.fn().mockResolvedValue({
+      jobs: [],
+      queue: {
+        pending: 0,
+        failed: 0,
+      },
+      recentJobs: [],
+    });
+    const loadBrowserLaneRequestsAction = vi.fn().mockResolvedValue({
+      requests: [],
+      total: 0,
+    });
+    const loadBrowserHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+    const reloadSchedulerAction = vi.fn().mockReturnValue(pendingReload.promise);
+    const tickSchedulerAction = vi.fn();
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(SettingsPage as never, {
+          loadSettingsAction,
+          loadSystemJobsAction,
+          loadBrowserLaneRequestsAction,
+          loadBrowserHandoffsAction,
+          reloadSchedulerAction,
+          tickSchedulerAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const reloadSchedulerButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('重载 Scheduler'),
+    );
+    const tickButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('立即 Tick'),
+    );
+
+    expect(reloadSchedulerButton).not.toBeNull();
+    expect(tickButton).not.toBeNull();
+
+    await act(async () => {
+      reloadSchedulerButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      tickButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(reloadSchedulerAction).toHaveBeenCalledTimes(1);
+    expect(tickSchedulerAction).not.toHaveBeenCalled();
+    expect(tickButton?.getAttribute('disabled')).toBe('');
+
+    await act(async () => {
+      pendingReload.resolve({
+        scheduler: {
+          enabled: true,
+        },
+        runtime: {
+          mode: 'worker',
+        },
+      });
+      await flush();
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('keeps settings fields disabled until live settings finish loading and blocks premature saves', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
