@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { apiRequest, getErrorMessage } from '../lib/api';
 import type { AsyncState } from '../hooks/useAsyncRequest';
 import { useAsyncQuery } from '../hooks/useAsyncRequest';
@@ -116,6 +116,7 @@ export function DraftsPage({
 }: DraftsPageProps) {
   const [projectIdDraft, setProjectIdDraft] = useState('');
   const projectId = parseProjectId(projectIdDraft);
+  const currentScopeKey = projectId === undefined ? '' : String(projectId);
   const { state, reload } = useAsyncQuery(
     () => (projectId === undefined ? loadDraftsAction() : loadDraftsAction(projectId)),
     [loadDraftsAction, projectId],
@@ -124,6 +125,8 @@ export function DraftsPage({
   const [formValuesById, setFormValuesById] = useState<Record<number, DraftFormValues>>({});
   const [saveStateById, setSaveStateById] = useState<Record<number, DraftMutationState>>({});
   const [publishStateById, setPublishStateById] = useState<Record<number, DraftMutationState>>({});
+  const latestScopeKeyRef = useRef(currentScopeKey);
+  latestScopeKeyRef.current = currentScopeKey;
   const displayState = stateOverride ?? state;
   const hasLiveDrafts =
     typeof displayState.data === 'object' &&
@@ -182,6 +185,7 @@ export function DraftsPage({
   }
 
   async function handleSaveDraft(draftId: number) {
+    const scopeKeyAtStart = latestScopeKeyRef.current;
     const sourceDraft =
       visibleDrafts.find((draft) => draft.id === draftId) ??
       displayState.data?.drafts.find((draft) => draft.id === draftId);
@@ -207,6 +211,9 @@ export function DraftsPage({
 
     try {
       const result = await updateDraftAction(draftId, formValues);
+      if (scopeKeyAtStart !== latestScopeKeyRef.current) {
+        return;
+      }
       setLocalDrafts((currentDrafts) =>
         upsertDraftRecord(currentDrafts.length > 0 ? currentDrafts : visibleDrafts, result.draft),
       );
@@ -227,6 +234,9 @@ export function DraftsPage({
         },
       }));
     } catch (error) {
+      if (scopeKeyAtStart !== latestScopeKeyRef.current) {
+        return;
+      }
       setSaveStateById((currentState) => ({
         ...currentState,
         [draftId]: {
@@ -243,6 +253,7 @@ export function DraftsPage({
   }
 
   async function handlePublishDraft(draftId: number) {
+    const scopeKeyAtStart = latestScopeKeyRef.current;
     setPublishStateById((currentState) => ({
       ...currentState,
         [draftId]: {
@@ -258,6 +269,9 @@ export function DraftsPage({
 
     try {
       const result = await publishDraftAction(draftId);
+      if (scopeKeyAtStart !== latestScopeKeyRef.current) {
+        return;
+      }
       if (result.success || result.status === 'manual_required' || result.status === 'queued') {
         setFormValuesById((currentValues) => {
           const nextValues = { ...currentValues };
@@ -301,6 +315,9 @@ export function DraftsPage({
         },
       }));
     } catch (error) {
+      if (scopeKeyAtStart !== latestScopeKeyRef.current) {
+        return;
+      }
       setPublishStateById((currentState) => ({
         ...currentState,
         [draftId]: {

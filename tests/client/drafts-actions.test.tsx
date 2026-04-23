@@ -246,6 +246,127 @@ describe('Drafts publish actions', () => {
     });
   });
 
+  it('ignores stale save feedback after switching project scope with the same draft id', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { DraftsPage } = await import('../../src/client/pages/Drafts');
+
+    const pendingSave = createDeferredPromise<{
+      draft: {
+        id: number;
+        platform: string;
+        title: string;
+        content: string;
+        hashtags: string[];
+        status: string;
+        createdAt: string;
+        updatedAt: string;
+      };
+    }>();
+    const loadDraftsAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        drafts: [
+          {
+            id: 8,
+            platform: 'x',
+            title: 'Project A launch thread',
+            content: 'Draft body A',
+            hashtags: ['#launch'],
+            status: 'draft',
+            createdAt: '2026-04-19T00:00:00.000Z',
+            updatedAt: '2026-04-19T00:00:00.000Z',
+          },
+        ],
+      })
+      .mockResolvedValue({
+        drafts: [
+          {
+            id: 8,
+            platform: 'x',
+            title: 'Project B launch thread',
+            content: 'Draft body B',
+            hashtags: ['#launch'],
+            status: 'draft',
+            createdAt: '2026-04-19T02:00:00.000Z',
+            updatedAt: '2026-04-19T02:00:00.000Z',
+          },
+        ],
+      });
+    const updateDraftAction = vi.fn().mockReturnValue(pendingSave.promise);
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(DraftsPage as never, {
+          loadDraftsAction,
+          updateDraftAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const saveButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('保存修改'),
+    );
+    const projectIdInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    );
+
+    expect(saveButton).not.toBeNull();
+    expect(projectIdInput).not.toBeNull();
+
+    await act(async () => {
+      saveButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(updateDraftAction).toHaveBeenCalledWith(
+      8,
+      expect.objectContaining({
+        title: 'Project A launch thread',
+      }),
+    );
+
+    await act(async () => {
+      updateFieldValue(projectIdInput as never, '12', window as never);
+      await flush();
+      await flush();
+    });
+
+    expect(loadDraftsAction).toHaveBeenLastCalledWith(12);
+    expect(collectText(container)).toContain('Project B launch thread');
+    expect(collectText(container)).not.toContain('Project A launch thread');
+
+    await act(async () => {
+      pendingSave.resolve({
+        draft: {
+          id: 8,
+          platform: 'x',
+          title: 'Project A launch thread saved',
+          content: 'Draft body A',
+          hashtags: ['#launch'],
+          status: 'draft',
+          createdAt: '2026-04-19T00:00:00.000Z',
+          updatedAt: '2026-04-19T00:10:00.000Z',
+        },
+      });
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('Project B launch thread');
+    expect(collectText(container)).not.toContain('Project A launch thread saved');
+    expect(collectText(container)).not.toContain('草稿已保存');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('refreshes draft form values from a later successful reload for the same draft id', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
