@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { listSessionRequestArtifacts } from '../services/browser/sessionRequestArtifacts.js';
 import {
+  importInlineSessionRequestResult,
   importSessionRequestResultArtifact,
   SessionRequestResultImportError,
 } from '../services/browser/sessionResultImporter.js';
@@ -131,15 +132,37 @@ export function createSystemRouter(dependencies: SystemRouteDependencies = {}) {
       return;
     }
 
-    const artifactPath =
-      typeof request.body?.artifactPath === 'string' ? request.body.artifactPath.trim() : '';
-    if (!artifactPath) {
-      response.status(400).json({ error: 'invalid browser lane result artifact path' });
-      return;
-    }
-
     try {
-      const result = await importSessionRequestResultArtifact(artifactPath);
+      if (typeof request.body?.artifactPath === 'string' && request.body.artifactPath.trim()) {
+        const result = await importSessionRequestResultArtifact(request.body.artifactPath.trim());
+        response.json(result);
+        return;
+      }
+
+      if (
+        typeof request.body?.requestArtifactPath !== 'string' ||
+        !request.body.requestArtifactPath.trim() ||
+        !isPlainObject(request.body?.storageState)
+      ) {
+        response.status(400).json({ error: 'invalid browser lane result payload' });
+        return;
+      }
+
+      const result = await importInlineSessionRequestResult({
+        requestArtifactPath: request.body.requestArtifactPath.trim(),
+        storageState: request.body.storageState,
+        ...(isSessionStatusValue(request.body?.sessionStatus)
+          ? { sessionStatus: request.body.sessionStatus }
+          : {}),
+        ...(request.body?.validatedAt === null ||
+        typeof request.body?.validatedAt === 'string'
+          ? { validatedAt: request.body.validatedAt as string | null | undefined }
+          : {}),
+        ...(typeof request.body?.notes === 'string' ? { notes: request.body.notes } : {}),
+        ...(typeof request.body?.completedAt === 'string'
+          ? { completedAt: request.body.completedAt }
+          : {}),
+      });
       response.json(result);
     } catch (error) {
       if (error instanceof SessionRequestResultImportError) {
@@ -252,6 +275,10 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
   const prototype = Object.getPrototypeOf(value);
   return prototype === Object.prototype || prototype === null;
+}
+
+function isSessionStatusValue(value: unknown): value is 'active' | 'expired' | 'missing' {
+  return value === 'active' || value === 'expired' || value === 'missing';
 }
 
 function buildSchedulerHealthSnapshot(schedulerRuntime: SchedulerRuntime | undefined) {

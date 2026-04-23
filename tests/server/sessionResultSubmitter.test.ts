@@ -97,8 +97,15 @@ describe('browser lane session result submitter', () => {
             'x-admin-password': 'secret',
           },
           body: JSON.stringify({
-            artifactPath:
-              'artifacts/browser-lane-requests/x/-promobot/request-session-job-19.result.json',
+            requestArtifactPath,
+            storageState: {
+              cookies: [{ name: 'sid', value: 'abc', domain: '.x.com', path: '/' }],
+              origins: [],
+            },
+            sessionStatus: 'active',
+            validatedAt: '2026-04-23T14:01:00.000Z',
+            notes: 'browser lane cli',
+            completedAt: '2026-04-23T14:00:30.000Z',
           }),
         }),
       );

@@ -1,5 +1,7 @@
 import { createChannelAccountStore, type ChannelAccountStore } from '../../store/channelAccounts.js';
 import {
+  createSessionRequestResultArtifact,
+  getSessionRequestArtifactByPath,
   getSessionRequestResultArtifactByPath,
   markSessionRequestResultArtifactConsumed,
   resolveSessionRequestArtifacts,
@@ -18,6 +20,7 @@ export class SessionRequestResultImportError extends Error {
 export interface ImportSessionRequestResultArtifactDependencies {
   channelAccountStore?: Pick<ChannelAccountStore, 'getById' | 'update'>;
   sessionStore?: Pick<ReturnType<typeof createSessionStore>, 'saveSession'>;
+  now?: () => Date;
 }
 
 export async function importSessionRequestResultArtifact(
@@ -124,4 +127,40 @@ export async function importSessionRequestResultArtifact(
       },
     },
   };
+}
+
+export async function importInlineSessionRequestResult(
+  input: {
+    requestArtifactPath: string;
+    storageState: Record<string, unknown>;
+    sessionStatus?: 'active' | 'expired' | 'missing';
+    validatedAt?: string | null;
+    notes?: string;
+    completedAt?: string;
+  },
+  dependencies: ImportSessionRequestResultArtifactDependencies = {},
+) {
+  const requestArtifact = getSessionRequestArtifactByPath(input.requestArtifactPath);
+  if (!requestArtifact) {
+    throw new SessionRequestResultImportError('browser lane request artifact not found', 404);
+  }
+
+  if (requestArtifact.resolvedAt) {
+    throw new SessionRequestResultImportError('browser lane request artifact already resolved', 409);
+  }
+
+  const resultArtifactPath = createSessionRequestResultArtifact({
+    channelAccountId: requestArtifact.channelAccountId,
+    platform: requestArtifact.platform,
+    accountKey: requestArtifact.accountKey,
+    action: requestArtifact.action,
+    requestJobId: requestArtifact.jobId,
+    completedAt: input.completedAt ?? (dependencies.now ?? (() => new Date()))().toISOString(),
+    storageState: input.storageState,
+    sessionStatus: input.sessionStatus ?? 'active',
+    ...(input.validatedAt !== undefined ? { validatedAt: input.validatedAt } : {}),
+    ...(input.notes !== undefined ? { notes: input.notes } : {}),
+  });
+
+  return importSessionRequestResultArtifact(resultArtifactPath, dependencies);
 }

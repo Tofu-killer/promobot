@@ -6,7 +6,6 @@ import { createApp } from '../../src/server/app';
 import { createSchedulerRuntime } from '../../src/server/runtime/schedulerRuntime';
 import {
   createSessionRequestArtifact,
-  createSessionRequestResultArtifact,
   getSessionRequestResultArtifact,
 } from '../../src/server/services/browser/sessionRequestArtifacts';
 import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
@@ -1361,19 +1360,6 @@ describe('system runtime api', () => {
         nextStep: '/api/channel-accounts/1/session',
       });
 
-      const resultArtifactPath = createSessionRequestResultArtifact({
-        channelAccountId: 1,
-        platform: 'x',
-        accountKey: '@promobot',
-        action: 'request_session',
-        requestJobId: requestBody.job.id,
-        completedAt: '2026-04-23T13:20:00.000Z',
-        storageState: defaultStorageState,
-        sessionStatus: 'active',
-        validatedAt: '2026-04-23T13:21:00.000Z',
-        notes: 'browser lane imported',
-      });
-
       const importResponse = await requestExistingApp(app, {
         method: 'POST',
         url: '/api/system/browser-lane-requests/import',
@@ -1382,10 +1368,17 @@ describe('system runtime api', () => {
           'x-admin-password': 'secret',
         },
         body: {
-          artifactPath: resultArtifactPath,
+          requestArtifactPath: requestBody.sessionAction.artifactPath,
+          storageState: defaultStorageState,
+          sessionStatus: 'active',
+          validatedAt: '2026-04-23T13:21:00.000Z',
+          notes: 'browser lane imported',
+          completedAt: '2026-04-23T13:20:00.000Z',
         },
       });
 
+      const resultArtifactPath =
+        'artifacts/browser-lane-requests/x/-promobot/request-session-job-1.result.json';
       expect(importResponse.status).toBe(200);
       expect(JSON.parse(importResponse.body)).toEqual({
         ok: true,

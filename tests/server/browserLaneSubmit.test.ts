@@ -335,8 +335,12 @@ describe('browser lane submit service', () => {
             'x-admin-password': 'secret',
           },
           body: {
-            artifactPath:
-              'artifacts/browser-lane-requests/x/-promobot/request-session-job-1.result.json',
+            requestArtifactPath: requestBody.sessionAction.artifactPath,
+            storageState: defaultStorageState,
+            sessionStatus: 'active',
+            validatedAt: '2026-04-23T13:21:00.000Z',
+            notes: 'browser lane imported',
+            completedAt: '2026-04-23T13:20:00.000Z',
           },
         },
       ]);

@@ -89,7 +89,12 @@ export async function submitSessionRequestResult(
       'x-admin-password': adminPassword,
     },
     body: JSON.stringify({
-      artifactPath: resultArtifactPath,
+      requestArtifactPath: requestArtifact.artifactPath,
+      storageState,
+      sessionStatus: input.sessionStatus ?? 'active',
+      ...(input.validatedAt !== undefined ? { validatedAt: input.validatedAt } : {}),
+      ...(input.notes !== undefined ? { notes: input.notes } : {}),
+      completedAt,
     }),
   });
 
