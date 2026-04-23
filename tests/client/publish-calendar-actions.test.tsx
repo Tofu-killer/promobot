@@ -772,4 +772,80 @@ describe('Publish Calendar schedule actions', () => {
       await flush();
     });
   });
+
+  it('retries failed drafts through the publish contract and updates the card', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { PublishCalendarPage } = await import('../../src/client/pages/PublishCalendar');
+
+    const retryPublishDraftAction = vi.fn().mockResolvedValue({
+      success: true,
+      status: 'published',
+      publishUrl: 'https://x.com/promobot/status/18',
+      message: 'retry accepted',
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(PublishCalendarPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              drafts: [
+                {
+                  id: 18,
+                  platform: 'x',
+                  title: 'Retry failed thread',
+                  content: 'Original publish failed',
+                  hashtags: ['#launch'],
+                  status: 'failed',
+                  lastPublishError: 'rate limited',
+                  createdAt: '2026-04-19T08:00:00.000Z',
+                  updatedAt: '2026-04-19T08:10:00.000Z',
+                },
+              ],
+            },
+          },
+          retryPublishDraftAction,
+        }),
+      );
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('发布失败 1');
+
+    const retryButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-calendar-retry-id') === '18' &&
+        collectText(element).includes('重试发布'),
+    );
+
+    expect(retryButton).not.toBeNull();
+
+    await act(async () => {
+      retryButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(retryPublishDraftAction).toHaveBeenCalledWith(18);
+    expect(collectText(container)).toContain('已发布 1');
+    expect(collectText(container)).toContain('发布失败 0');
+    expect(collectText(container)).toContain('发布链接：https://x.com/promobot/status/18');
+    expect(collectText(container)).toContain('回执消息：retry accepted');
+
+    const updatedRetryButton = findElement(
+      container,
+      (element) => element.getAttribute('data-calendar-retry-id') === '18',
+    );
+    expect(updatedRetryButton).toBeNull();
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
 });

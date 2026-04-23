@@ -610,6 +610,43 @@ describe('Publish Calendar lifecycle', () => {
     expect(html).toContain('当前页是草稿状态视图，不等同于真实 job_queue 或发布执行结果。');
   });
 
+  it('shows failed drafts with retry controls in publish calendar', async () => {
+    const { PublishCalendarPage } = await import('../../src/client/pages/PublishCalendar');
+
+    const html = renderToStaticMarkup(
+      createElement(PublishCalendarPage as never, {
+        stateOverride: {
+          status: 'success',
+          data: {
+            drafts: [
+              {
+                id: 27,
+                platform: 'x',
+                title: 'Retry launch thread',
+                content: 'First publish failed',
+                hashtags: ['#launch'],
+                status: 'failed',
+                lastPublishError: 'x publisher timed out',
+                lastPublishUrl: 'https://x.test/status/27',
+                lastPublishMessage: 'first attempt reached publisher',
+                createdAt: '2026-04-19T07:00:00.000Z',
+                updatedAt: '2026-04-19T10:20:00.000Z',
+              },
+            ],
+          },
+        },
+      }),
+    );
+
+    expect(html).toContain('发布失败 1');
+    expect(html).toContain('Retry launch thread');
+    expect(html).toContain('当前排程状态：最近一次发布失败，可直接重试。');
+    expect(html).toContain('发布链接：https://x.test/status/27');
+    expect(html).toContain('回执消息：first attempt reached publisher');
+    expect(html).toContain('最近错误：x publisher timed out');
+    expect(html).toContain('重试发布');
+  });
+
   it('clears scheduledAt and persists null with explicit clear feedback', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');

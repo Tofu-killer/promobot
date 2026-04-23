@@ -876,6 +876,42 @@ describe('client API page wiring', () => {
     expect(result.publishUrl).toBe('https://x.com/promobot/status/1');
   });
 
+  it('retries publish calendar failed drafts through POST /api/drafts/:id/publish', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        success: true,
+        status: 'published',
+        publishUrl: 'https://x.com/promobot/status/9',
+        message: 'retry accepted',
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const publishCalendarModule = (await import('../../src/client/pages/PublishCalendar')) as Record<string, unknown>;
+
+    expect(typeof publishCalendarModule.retryPublishCalendarDraftRequest).toBe('function');
+
+    const retryPublishCalendarDraftRequest =
+      publishCalendarModule.retryPublishCalendarDraftRequest as (id: number) => Promise<{
+        success: boolean;
+        status?: string;
+        publishUrl: string | null;
+        message: string;
+      }>;
+
+    const result = await retryPublishCalendarDraftRequest(9);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/drafts/9/publish',
+      expect.objectContaining({
+        method: 'POST',
+      }),
+    );
+    expect(result.success).toBe(true);
+    expect(result.status).toBe('published');
+    expect(result.publishUrl).toBe('https://x.com/promobot/status/9');
+  });
+
   it('shows drafts loading, error, and success states', async () => {
     const { DraftsPage } = await import('../../src/client/pages/Drafts');
 

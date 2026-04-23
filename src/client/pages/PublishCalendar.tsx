@@ -15,12 +15,20 @@ export interface UpdatePublishCalendarDraftScheduleResponse {
   draft: DraftRecord;
 }
 
+export interface RetryPublishCalendarDraftResponse {
+  success: boolean;
+  status?: string;
+  publishUrl: string | null;
+  message: string;
+}
+
 interface PublishCalendarPageProps {
   loadDraftsAction?: (projectId?: number) => Promise<DraftsResponse>;
   updateDraftScheduleAction?: (
     id: number,
     input: { scheduledAt: string | null },
   ) => Promise<UpdatePublishCalendarDraftScheduleResponse>;
+  retryPublishDraftAction?: (id: number) => Promise<RetryPublishCalendarDraftResponse>;
   stateOverride?: AsyncState<DraftsResponse>;
 }
 
@@ -73,12 +81,14 @@ export async function updatePublishCalendarDraftScheduleRequest(
   });
 }
 
-function isCalendarDraftStatus(status: DraftRecord['status']): status is CalendarDraftStatus {
-  return calendarStatuses.includes(status as CalendarDraftStatus);
+export async function retryPublishCalendarDraftRequest(id: number): Promise<RetryPublishCalendarDraftResponse> {
+  return apiRequest<RetryPublishCalendarDraftResponse>(`/api/drafts/${id}/publish`, {
+    method: 'POST',
+  });
 }
 
-function formatCalendarStatusLabel(status: CalendarDraftStatus) {
-  return status === 'scheduled' ? '已排程' : '已发布';
+function isCalendarDraftStatus(status: DraftRecord['status']): status is CalendarDraftStatus {
+  return calendarStatuses.includes(status as CalendarDraftStatus);
 }
 
 function formatCalendarPhaseLabel(draft: DraftRecord, scheduledAt: string) {
@@ -120,6 +130,10 @@ function getDraftPublishContract(draft: DraftRecord) {
 }
 
 function formatCalendarDraftStateDescription(draft: DraftRecord, scheduledAt: string) {
+  if (draft.status === 'failed') {
+    return '当前排程状态：最近一次发布失败，可直接重试。';
+  }
+
   if (draft.status === 'published') {
     return '当前排程状态：已完成发布。';
   }
@@ -162,6 +176,7 @@ function createScheduleErrorState(error: string): ScheduleMutationState {
 export function PublishCalendarPage({
   loadDraftsAction = loadPublishCalendarRequest,
   updateDraftScheduleAction = updatePublishCalendarDraftScheduleRequest,
+  retryPublishDraftAction = retryPublishCalendarDraftRequest,
   stateOverride,
 }: PublishCalendarPageProps) {
   const [projectIdDraft, setProjectIdDraft] = useState('');
@@ -174,6 +189,7 @@ export function PublishCalendarPage({
     ({ id, scheduledAt }: { id: number; scheduledAt: string | null }) =>
       updateDraftScheduleAction(id, { scheduledAt }),
   );
+  const { run: retryPublish } = useAsyncAction((id: number) => retryPublishDraftAction(id));
   const [draftsById, setDraftsById] = useState<Record<number, DraftRecord>>({});
   const [scheduledAtById, setScheduledAtById] = useState<Record<number, string>>({});
   const [mutationStateById, setMutationStateById] = useState<Record<number, ScheduleMutationState>>({});
@@ -220,6 +236,7 @@ export function PublishCalendarPage({
     (draft) => draft.status === 'scheduled' && getScheduledAtValue(draft).trim().length === 0,
   );
   const publishedDrafts = calendarDrafts.filter((draft) => draft.status === 'published');
+  const failedDrafts = visibleDrafts.filter((draft) => draft.status === 'failed');
 
   function getMutationState(draftId: number) {
     return mutationStateById[draftId] ?? createIdleMutationState();
@@ -268,6 +285,52 @@ export function PublishCalendarPage({
       setMutationStateById((current) => ({
         ...current,
         [draft.id]: createScheduleSuccessState(result.draft.scheduledAt ?? null),
+      }));
+    } catch (error) {
+      const nextErrorState = createScheduleErrorState(getErrorMessage(error));
+      setCalendarFeedback(nextErrorState);
+      setMutationStateById((current) => ({
+        ...current,
+        [draft.id]: nextErrorState,
+      }));
+    }
+  }
+
+  async function handleRetryPublish(draft: DraftRecord) {
+    setCalendarFeedback(createIdleMutationState());
+    setMutationStateById((current) => ({
+      ...current,
+      [draft.id]: {
+        status: 'loading',
+        message: null,
+        error: null,
+      },
+    }));
+
+    try {
+      const result = await retryPublish(draft.id);
+
+      setDraftsById((current) => ({
+        ...current,
+        [draft.id]: {
+          ...draft,
+          status: result.status === 'published' ? 'published' : draft.status,
+          ...(result.publishUrl ? { lastPublishUrl: result.publishUrl } : {}),
+          ...(result.message ? { lastPublishMessage: result.message } : {}),
+        } as DraftRecord,
+      }));
+      setCalendarFeedback({
+        status: 'success',
+        message: result.message,
+        error: null,
+      });
+      setMutationStateById((current) => ({
+        ...current,
+        [draft.id]: {
+          status: 'success',
+          message: result.message,
+          error: null,
+        },
       }));
     } catch (error) {
       const nextErrorState = createScheduleErrorState(getErrorMessage(error));
@@ -360,13 +423,25 @@ export function PublishCalendarPage({
               >
                 已发布 {publishedDrafts.length}
               </div>
+              <div
+                style={{
+                  minWidth: '140px',
+                  borderRadius: '16px',
+                  padding: '14px 16px',
+                  background: '#fee2e2',
+                  color: '#b91c1c',
+                  fontWeight: 700,
+                }}
+              >
+                发布失败 {failedDrafts.length}
+              </div>
             </div>
 
-            {calendarDrafts.length === 0 ? (
+            {calendarDrafts.length === 0 && failedDrafts.length === 0 ? (
               <p style={{ margin: 0, color: '#475569' }}>暂无 scheduled 或 published 草稿。</p>
             ) : (
               <div style={{ display: 'grid', gap: '12px' }}>
-                {calendarDrafts.map((draft) => {
+                {[...calendarDrafts, ...failedDrafts].map((draft) => {
                   const mutationState = getMutationState(draft.id);
                   const scheduledAt = getScheduledAtValue(draft);
                   const publishContract = getDraftPublishContract(draft);
@@ -390,21 +465,25 @@ export function PublishCalendarPage({
                             borderRadius: '999px',
                             padding: '4px 10px',
                             background:
-                              draft.status === 'published'
-                                ? '#dcfce7'
-                                : scheduledAt.length > 0
-                                  ? '#dbeafe'
-                                  : '#fef3c7',
+                              draft.status === 'failed'
+                                ? '#fee2e2'
+                                : draft.status === 'published'
+                                  ? '#dcfce7'
+                                  : scheduledAt.length > 0
+                                    ? '#dbeafe'
+                                    : '#fef3c7',
                             color:
-                              draft.status === 'published'
-                                ? '#047857'
-                                : scheduledAt.length > 0
-                                  ? '#1d4ed8'
-                                  : '#92400e',
+                              draft.status === 'failed'
+                                ? '#b91c1c'
+                                : draft.status === 'published'
+                                  ? '#047857'
+                                  : scheduledAt.length > 0
+                                    ? '#1d4ed8'
+                                    : '#92400e',
                             fontWeight: 700,
                           }}
                         >
-                          {formatCalendarPhaseLabel(draft, scheduledAt)}
+                          {draft.status === 'failed' ? '发布失败' : formatCalendarPhaseLabel(draft, scheduledAt)}
                         </span>
                       </div>
 
@@ -448,7 +527,7 @@ export function PublishCalendarPage({
                         }}
                       >
                         <div style={{ fontWeight: 700 }}>发布 contract</div>
-                        {draft.status === 'published' || publishContract.publishUrl || publishContract.publishMessage || publishContract.publishError ? (
+                        {draft.status === 'published' || draft.status === 'failed' || publishContract.publishUrl || publishContract.publishMessage || publishContract.publishError ? (
                           <>
                             <div>发布链接：{publishContract.publishUrl ?? '未返回'}</div>
                             <div>回执消息：{publishContract.publishMessage ?? '等待 contract 字段'}</div>
@@ -458,6 +537,32 @@ export function PublishCalendarPage({
                           <div>排程草稿尚未进入发布回执阶段。</div>
                         )}
                       </div>
+
+                      {draft.status === 'failed' ? (
+                        <div style={{ display: 'grid', gap: '8px' }}>
+                          <button
+                            type="button"
+                            data-calendar-retry-id={String(draft.id)}
+                            onClick={() => {
+                              void handleRetryPublish(draft);
+                            }}
+                            style={{
+                              width: 'fit-content',
+                              borderRadius: '12px',
+                              border: 'none',
+                              background: '#2563eb',
+                              color: '#ffffff',
+                              padding: '10px 14px',
+                              fontWeight: 700,
+                            }}
+                          >
+                            {mutationState.status === 'loading' ? '正在重试发布...' : '重试发布'}
+                          </button>
+                          {mutationState.status === 'error' ? (
+                            <div style={{ color: '#b91c1c', fontWeight: 700 }}>重试发布失败：{mutationState.error}</div>
+                          ) : null}
+                        </div>
+                      ) : null}
 
                       {draft.status === 'scheduled' ? (
                         <div style={{ display: 'grid', gap: '8px' }}>
