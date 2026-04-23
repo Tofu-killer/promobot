@@ -73,6 +73,22 @@ export interface BrowserHandoffsResponse {
   total: number;
 }
 
+export interface BrowserHandoffCompletionResponse {
+  ok: boolean;
+  imported: boolean;
+  artifactPath: string;
+  draftId: number;
+  draftStatus: string;
+  platform: string;
+  mode: string;
+  status: string;
+  success: boolean;
+  publishUrl: string | null;
+  externalId: string | null;
+  message: string;
+  publishedAt: string | null;
+}
+
 export async function loadSystemQueueRequest(limit = 50): Promise<SystemQueueResponse> {
   return apiRequest<SystemQueueResponse>(`/api/system/jobs?limit=${limit}`);
 }
@@ -83,6 +99,28 @@ export async function loadBrowserLaneRequestsRequest(limit = 20): Promise<Browse
 
 export async function loadBrowserHandoffsRequest(limit = 20): Promise<BrowserHandoffsResponse> {
   return apiRequest<BrowserHandoffsResponse>(`/api/system/browser-handoffs?limit=${limit}`);
+}
+
+export async function completeBrowserHandoffRequest(input: {
+  artifactPath: string;
+  publishStatus: 'published' | 'failed';
+  message?: string;
+}): Promise<BrowserHandoffCompletionResponse> {
+  return apiRequest<BrowserHandoffCompletionResponse>('/api/system/browser-handoffs/import', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      artifactPath: input.artifactPath,
+      publishStatus: input.publishStatus,
+      message:
+        input.message ??
+        (input.publishStatus === 'published'
+          ? 'browser handoff marked published'
+          : 'browser handoff marked failed'),
+    }),
+  });
 }
 
 export async function retrySystemQueueJobRequest(
@@ -129,6 +167,11 @@ interface SystemQueuePageProps {
     payload?: Record<string, unknown>;
     runAt?: string;
   }) => Promise<SystemQueueMutationResponse>;
+  completeBrowserHandoffAction?: (input: {
+    artifactPath: string;
+    publishStatus: 'published' | 'failed';
+    message?: string;
+  }) => Promise<BrowserHandoffCompletionResponse>;
   stateOverride?: AsyncState<SystemQueueResponse>;
   browserLaneStateOverride?: AsyncState<BrowserLaneRequestsResponse>;
   browserHandoffStateOverride?: AsyncState<BrowserHandoffsResponse>;
@@ -163,6 +206,7 @@ export function SystemQueuePage({
   retrySystemQueueJobAction = retrySystemQueueJobRequest,
   cancelSystemQueueJobAction = cancelSystemQueueJobRequest,
   enqueueSystemQueueJobAction = enqueueSystemQueueJobRequest,
+  completeBrowserHandoffAction = completeBrowserHandoffRequest,
   stateOverride,
   browserLaneStateOverride,
   browserHandoffStateOverride,
@@ -200,11 +244,19 @@ export function SystemQueuePage({
       });
     },
   );
+  const { state: handoffMutationState, run: runBrowserHandoffCompletion } = useAsyncAction(
+    (input: {
+      artifactPath: string;
+      publishStatus: 'published' | 'failed';
+      message?: string;
+    }) => completeBrowserHandoffAction(input),
+  );
   const displayState = stateOverride ?? state;
   const displayBrowserLaneState = browserLaneStateOverride ?? browserLaneState;
   const displayBrowserHandoffState = browserHandoffStateOverride ?? browserHandoffState;
   const displayMutationState = mutationStateOverride ?? mutationState;
   const [activeMutation, setActiveMutation] = useState<QueueMutationInput | null>(null);
+  const [activeBrowserHandoffArtifactPath, setActiveBrowserHandoffArtifactPath] = useState<string | null>(null);
   const [enqueueType, setEnqueueType] = useState('monitor_fetch');
   const [enqueuePayloadJson, setEnqueuePayloadJson] = useState('');
   const [enqueueRunAt, setEnqueueRunAt] = useState('');
@@ -254,7 +306,14 @@ export function SystemQueuePage({
       : displayMutationState.status === 'error'
         ? `队列动作失败：${displayMutationState.error}`
         : null;
+  const browserHandoffFeedback =
+    handoffMutationState.status === 'success' && handoffMutationState.data
+      ? `已结单 handoff draft #${handoffMutationState.data.draftId} (${handoffMutationState.data.status})`
+      : handoffMutationState.status === 'error'
+        ? `browser handoff 结单失败：${handoffMutationState.error}`
+        : null;
   const isQueueMutationPending = queueMutationPendingRef.current || displayMutationState.status === 'loading';
+  const isBrowserHandoffMutationPending = handoffMutationState.status === 'loading';
 
   function startQueueMutation(input: QueueMutationInput, onSuccess?: () => void) {
     if (queueMutationPendingRef.current) {
@@ -321,6 +380,28 @@ export function SystemQueuePage({
     enqueueTypeFieldRef.current?.focus();
   }
 
+  function handleCompleteBrowserHandoff(
+    handoff: BrowserHandoffRecord,
+    publishStatus: 'published' | 'failed',
+  ) {
+    if (isBrowserHandoffMutationPending) {
+      return;
+    }
+
+    setActiveBrowserHandoffArtifactPath(handoff.artifactPath);
+    void runBrowserHandoffCompletion({
+      artifactPath: handoff.artifactPath,
+      publishStatus,
+    })
+      .then(() => {
+        reloadBrowserHandoffs();
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        setActiveBrowserHandoffArtifactPath(null);
+      });
+  }
+
   return (
     <section>
       <PageHeader
@@ -347,6 +428,11 @@ export function SystemQueuePage({
       {mutationFeedback ? (
         <p style={{ color: displayMutationState.status === 'error' ? '#b91c1c' : '#166534', fontWeight: 700 }}>
           {mutationFeedback}
+        </p>
+      ) : null}
+      {browserHandoffFeedback ? (
+        <p style={{ color: handoffMutationState.status === 'error' ? '#b91c1c' : '#166534', fontWeight: 700 }}>
+          {browserHandoffFeedback}
         </p>
       ) : null}
 
@@ -563,6 +649,31 @@ export function SystemQueuePage({
                     {readResolutionDetail(handoff.resolution) ? (
                       <div style={{ color: '#475569' }}>
                         resolution detail: {readResolutionDetail(handoff.resolution)}
+                      </div>
+                    ) : null}
+                    {handoff.status === 'pending' ? (
+                      <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                        <ActionButton
+                          label={
+                            isBrowserHandoffMutationPending &&
+                            activeBrowserHandoffArtifactPath === handoff.artifactPath
+                              ? '正在标记已发布...'
+                              : '标记已发布'
+                          }
+                          tone="primary"
+                          disabled={isBrowserHandoffMutationPending}
+                          onClick={() => handleCompleteBrowserHandoff(handoff, 'published')}
+                        />
+                        <ActionButton
+                          label={
+                            isBrowserHandoffMutationPending &&
+                            activeBrowserHandoffArtifactPath === handoff.artifactPath
+                              ? '正在标记失败...'
+                              : '标记失败'
+                          }
+                          disabled={isBrowserHandoffMutationPending}
+                          onClick={() => handleCompleteBrowserHandoff(handoff, 'failed')}
+                        />
                       </div>
                     ) : null}
                   </article>

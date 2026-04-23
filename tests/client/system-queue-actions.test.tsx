@@ -196,6 +196,58 @@ describe('System Queue actions', () => {
     );
   });
 
+  it('posts browser handoff completion through the shared API helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        imported: true,
+        artifactPath:
+          'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-13.json',
+        draftId: 13,
+        draftStatus: 'published',
+        platform: 'facebookGroup',
+        mode: 'browser',
+        status: 'published',
+        success: true,
+        publishUrl: 'https://facebook.com/groups/group-123/posts/42',
+        externalId: 'fb-post-42',
+        message: 'browser lane completed publish',
+        publishedAt: '2026-04-23T10:10:00.000Z',
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const queueModule = (await import('../../src/client/pages/SystemQueue')) as Record<string, unknown>;
+
+    expect(typeof queueModule.completeBrowserHandoffRequest).toBe('function');
+
+    const completeBrowserHandoffRequest = queueModule.completeBrowserHandoffRequest as (input: {
+      artifactPath: string;
+      publishStatus: 'published' | 'failed';
+      message?: string;
+    }) => Promise<unknown>;
+
+    await completeBrowserHandoffRequest({
+      artifactPath:
+        'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-13.json',
+      publishStatus: 'published',
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/system/browser-handoffs/import',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          artifactPath:
+            'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-13.json',
+          publishStatus: 'published',
+          message: 'browser handoff marked published',
+        }),
+      }),
+    );
+  });
+
   it('posts queue retry, cancel, and enqueue through the shared API helpers', async () => {
     const fetchMock = vi
       .fn()
@@ -411,8 +463,24 @@ describe('System Queue actions', () => {
                 publishStatus: 'published',
               },
             },
+            {
+              channelAccountId: 9,
+              accountDisplayName: 'Weibo Manual',
+              platform: 'weibo',
+              draftId: '21',
+              title: 'Weibo launch',
+              accountKey: 'launch-weibo',
+              ownership: 'direct',
+              status: 'pending',
+              artifactPath:
+                'artifacts/browser-handoffs/weibo/launch-weibo/weibo-draft-21.json',
+              createdAt: '2026-04-22T09:10:00.000Z',
+              updatedAt: '2026-04-22T09:10:00.000Z',
+              resolvedAt: null,
+              resolution: null,
+            },
           ],
-          total: 1,
+          total: 2,
         },
       },
       mutationStateOverride: {
@@ -451,10 +519,113 @@ describe('System Queue actions', () => {
     expect(html).toContain('artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-13.json');
     expect(html).toContain('resolution: resolved');
     expect(html).toContain('resolution detail: published');
+    expect(html).toContain('标记已发布');
+    expect(html).toContain('标记失败');
     expect(html).toContain('#11 · publish');
     expect(html).toContain('#17 · monitor_fetch · done');
     expect(html).toContain('lastError: boom');
     expect(html).toContain('重试');
+  });
+
+  it('marks a pending browser handoff as published from the System Queue page and reloads handoffs', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { SystemQueuePage } = await import('../../src/client/pages/SystemQueue');
+
+    const loadSystemQueueAction = vi.fn().mockResolvedValue({
+      jobs: [],
+      queue: {
+        pending: 0,
+        running: 0,
+        failed: 0,
+        duePending: 0,
+      },
+      recentJobs: [],
+    });
+    const loadBrowserLaneRequestsAction = vi.fn().mockResolvedValue({
+      requests: [],
+      total: 0,
+    });
+    const loadBrowserHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [
+        {
+          channelAccountId: 7,
+          accountDisplayName: 'FB Group Manual',
+          platform: 'facebookGroup',
+          draftId: '13',
+          title: 'Community update',
+          accountKey: 'launch-campaign',
+          ownership: 'direct',
+          status: 'pending',
+          artifactPath:
+            'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-13.json',
+          createdAt: '2026-04-21T09:10:00.000Z',
+          updatedAt: '2026-04-21T09:10:00.000Z',
+          resolvedAt: null,
+          resolution: null,
+        },
+      ],
+      total: 1,
+    });
+    const completeBrowserHandoffAction = vi.fn().mockResolvedValue({
+      ok: true,
+      imported: true,
+      artifactPath:
+        'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-13.json',
+      draftId: 13,
+      draftStatus: 'published',
+      platform: 'facebookGroup',
+      mode: 'browser',
+      status: 'published',
+      success: true,
+      publishUrl: null,
+      externalId: null,
+      message: 'browser handoff marked published',
+      publishedAt: '2026-04-23T10:10:00.000Z',
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(SystemQueuePage as never, {
+          loadSystemQueueAction,
+          loadBrowserLaneRequestsAction,
+          loadBrowserHandoffsAction,
+          completeBrowserHandoffAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const publishButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        collectText(element).includes('标记已发布') &&
+        hasAncestorWithText(element, 'facebookGroup · draft #13 · pending'),
+    );
+
+    expect(publishButton).not.toBeNull();
+
+    await act(async () => {
+      publishButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(completeBrowserHandoffAction).toHaveBeenCalledWith({
+      artifactPath:
+        'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-13.json',
+      publishStatus: 'published',
+    });
+    expect(loadBrowserHandoffsAction).toHaveBeenCalledTimes(2);
+    expect(collectText(container)).toContain('已结单 handoff draft #13 (published)');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
   });
 
   it('focuses the create-job form from the header CTA without enqueueing immediately', async () => {
