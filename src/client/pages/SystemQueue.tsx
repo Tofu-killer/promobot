@@ -105,6 +105,7 @@ export async function completeBrowserHandoffRequest(input: {
   artifactPath: string;
   publishStatus: 'published' | 'failed';
   message?: string;
+  publishUrl?: string;
 }): Promise<BrowserHandoffCompletionResponse> {
   return apiRequest<BrowserHandoffCompletionResponse>('/api/system/browser-handoffs/import', {
     method: 'POST',
@@ -119,6 +120,9 @@ export async function completeBrowserHandoffRequest(input: {
         (input.publishStatus === 'published'
           ? 'browser handoff marked published'
           : 'browser handoff marked failed'),
+      ...(input.publishUrl !== undefined && input.publishUrl.trim().length > 0
+        ? { publishUrl: input.publishUrl.trim() }
+        : {}),
     }),
   });
 }
@@ -171,6 +175,7 @@ interface SystemQueuePageProps {
     artifactPath: string;
     publishStatus: 'published' | 'failed';
     message?: string;
+    publishUrl?: string;
   }) => Promise<BrowserHandoffCompletionResponse>;
   stateOverride?: AsyncState<SystemQueueResponse>;
   browserLaneStateOverride?: AsyncState<BrowserLaneRequestsResponse>;
@@ -249,6 +254,7 @@ export function SystemQueuePage({
       artifactPath: string;
       publishStatus: 'published' | 'failed';
       message?: string;
+      publishUrl?: string;
     }) => completeBrowserHandoffAction(input),
   );
   const displayState = stateOverride ?? state;
@@ -257,6 +263,9 @@ export function SystemQueuePage({
   const displayMutationState = mutationStateOverride ?? mutationState;
   const [activeMutation, setActiveMutation] = useState<QueueMutationInput | null>(null);
   const [activeBrowserHandoffArtifactPath, setActiveBrowserHandoffArtifactPath] = useState<string | null>(null);
+  const [browserHandoffDraftByArtifactPath, setBrowserHandoffDraftByArtifactPath] = useState<
+    Record<string, { publishUrl: string; message: string }>
+  >({});
   const [enqueueType, setEnqueueType] = useState('monitor_fetch');
   const [enqueuePayloadJson, setEnqueuePayloadJson] = useState('');
   const [enqueueRunAt, setEnqueueRunAt] = useState('');
@@ -388,12 +397,28 @@ export function SystemQueuePage({
       return;
     }
 
+    const handoffDraft = browserHandoffDraftByArtifactPath[handoff.artifactPath];
+    const message =
+      handoffDraft?.message.trim().length
+        ? handoffDraft.message.trim()
+        : undefined;
+    const publishUrl =
+      handoffDraft?.publishUrl.trim().length
+        ? handoffDraft.publishUrl.trim()
+        : undefined;
+
     setActiveBrowserHandoffArtifactPath(handoff.artifactPath);
     void runBrowserHandoffCompletion({
       artifactPath: handoff.artifactPath,
       publishStatus,
+      ...(message ? { message } : {}),
+      ...(publishUrl ? { publishUrl } : {}),
     })
       .then(() => {
+        setBrowserHandoffDraftByArtifactPath((current) => {
+          const { [handoff.artifactPath]: _ignored, ...rest } = current;
+          return rest;
+        });
         reloadBrowserHandoffs();
       })
       .catch(() => undefined)
@@ -652,28 +677,66 @@ export function SystemQueuePage({
                       </div>
                     ) : null}
                     {handoff.status === 'pending' ? (
-                      <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                        <ActionButton
-                          label={
-                            isBrowserHandoffMutationPending &&
-                            activeBrowserHandoffArtifactPath === handoff.artifactPath
-                              ? '正在标记已发布...'
-                              : '标记已发布'
-                          }
-                          tone="primary"
-                          disabled={isBrowserHandoffMutationPending}
-                          onClick={() => handleCompleteBrowserHandoff(handoff, 'published')}
-                        />
-                        <ActionButton
-                          label={
-                            isBrowserHandoffMutationPending &&
-                            activeBrowserHandoffArtifactPath === handoff.artifactPath
-                              ? '正在标记失败...'
-                              : '标记失败'
-                          }
-                          disabled={isBrowserHandoffMutationPending}
-                          onClick={() => handleCompleteBrowserHandoff(handoff, 'failed')}
-                        />
+                      <div style={{ display: 'grid', gap: '10px' }}>
+                        <label style={{ display: 'grid', gap: '6px' }}>
+                          <span style={{ fontWeight: 700, color: '#334155' }}>发布链接</span>
+                          <input
+                            data-browser-handoff-field="publishUrl"
+                            value={browserHandoffDraftByArtifactPath[handoff.artifactPath]?.publishUrl ?? ''}
+                            onChange={(event) =>
+                              setBrowserHandoffDraftByArtifactPath((current) => ({
+                                ...current,
+                                [handoff.artifactPath]: {
+                                  publishUrl: event.target.value,
+                                  message: current[handoff.artifactPath]?.message ?? '',
+                                },
+                              }))
+                            }
+                            placeholder="可选：发布后链接"
+                            style={fieldStyle}
+                          />
+                        </label>
+                        <label style={{ display: 'grid', gap: '6px' }}>
+                          <span style={{ fontWeight: 700, color: '#334155' }}>结单备注</span>
+                          <input
+                            data-browser-handoff-field="message"
+                            value={browserHandoffDraftByArtifactPath[handoff.artifactPath]?.message ?? ''}
+                            onChange={(event) =>
+                              setBrowserHandoffDraftByArtifactPath((current) => ({
+                                ...current,
+                                [handoff.artifactPath]: {
+                                  publishUrl: current[handoff.artifactPath]?.publishUrl ?? '',
+                                  message: event.target.value,
+                                },
+                              }))
+                            }
+                            placeholder="可选：覆盖默认结单消息"
+                            style={fieldStyle}
+                          />
+                        </label>
+                        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                          <ActionButton
+                            label={
+                              isBrowserHandoffMutationPending &&
+                              activeBrowserHandoffArtifactPath === handoff.artifactPath
+                                ? '正在标记已发布...'
+                                : '标记已发布'
+                            }
+                            tone="primary"
+                            disabled={isBrowserHandoffMutationPending}
+                            onClick={() => handleCompleteBrowserHandoff(handoff, 'published')}
+                          />
+                          <ActionButton
+                            label={
+                              isBrowserHandoffMutationPending &&
+                              activeBrowserHandoffArtifactPath === handoff.artifactPath
+                                ? '正在标记失败...'
+                                : '标记失败'
+                            }
+                            disabled={isBrowserHandoffMutationPending}
+                            onClick={() => handleCompleteBrowserHandoff(handoff, 'failed')}
+                          />
+                        </div>
                       </div>
                     ) : null}
                   </article>

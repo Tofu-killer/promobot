@@ -231,6 +231,8 @@ describe('System Queue actions', () => {
       artifactPath:
         'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-13.json',
       publishStatus: 'published',
+      publishUrl: 'https://facebook.com/groups/group-123/posts/42',
+      message: 'browser lane completed publish',
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
@@ -242,7 +244,8 @@ describe('System Queue actions', () => {
           artifactPath:
             'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-13.json',
           publishStatus: 'published',
-          message: 'browser handoff marked published',
+          message: 'browser lane completed publish',
+          publishUrl: 'https://facebook.com/groups/group-123/posts/42',
         }),
       }),
     );
@@ -605,8 +608,36 @@ describe('System Queue actions', () => {
         collectText(element).includes('标记已发布') &&
         hasAncestorWithText(element, 'facebookGroup · draft #13 · pending'),
     );
+    const publishUrlInput = findElement(
+      container,
+      (element) =>
+        element.getAttribute('data-browser-handoff-field') === 'publishUrl' &&
+        hasAncestorWithText(element, 'facebookGroup · draft #13 · pending'),
+    );
+    const messageInput = findElement(
+      container,
+      (element) =>
+        element.getAttribute('data-browser-handoff-field') === 'message' &&
+        hasAncestorWithText(element, 'facebookGroup · draft #13 · pending'),
+    );
 
     expect(publishButton).not.toBeNull();
+    expect(publishUrlInput).not.toBeNull();
+    expect(messageInput).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(
+        publishUrlInput as never,
+        'https://facebook.com/groups/group-123/posts/42',
+        window as never,
+      );
+      updateFieldValue(
+        messageInput as never,
+        'browser lane completed publish',
+        window as never,
+      );
+      await flush();
+    });
 
     await act(async () => {
       publishButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
@@ -618,6 +649,8 @@ describe('System Queue actions', () => {
       artifactPath:
         'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-13.json',
       publishStatus: 'published',
+      publishUrl: 'https://facebook.com/groups/group-123/posts/42',
+      message: 'browser lane completed publish',
     });
     expect(loadBrowserHandoffsAction).toHaveBeenCalledTimes(2);
     expect(collectText(container)).toContain('已结单 handoff draft #13 (published)');
