@@ -308,6 +308,7 @@ pm2 stop promobot
 - 登录成功后前端会拿到服务端签发的 `HttpOnly` session cookie
 - 如果勾选“记住这台浏览器”，则会改为持久 cookie；未勾选时，关闭当前浏览器会话后需要重新登录
 - 浏览器后续 API 请求会自动复用当前 cookie session
+- 控制台侧边栏现在提供显式“退出登录”，会主动调用 `/api/auth/logout`
 - 自动化脚本和 CLI 仍可继续使用 `x-admin-password` fallback
 - 如果密码失效或填错，后端会返回 `401 unauthorized`
 
