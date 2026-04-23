@@ -6,6 +6,7 @@
   "scripts": {
     "browser:lane:submit": "tsx src/server/cli/browserLaneSubmit.ts",
     "browser:handoff:complete": "tsx src/server/cli/browserHandoffComplete.ts",
+    "browser:artifacts:archive": "tsx src/server/cli/archiveBrowserArtifacts.ts",
     "smoke:server": "tsx src/server/cli/deploymentSmoke.ts",
     "dev": "vite",
     "dev:server": "tsx watch src/server/index.ts",

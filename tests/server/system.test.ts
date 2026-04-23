@@ -1,12 +1,14 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../../src/server/app';
 import { createSchedulerRuntime } from '../../src/server/runtime/schedulerRuntime';
+import { resetBrowserArtifactHealthSummaryCache } from '../../src/server/services/browser/artifactHealth';
 import {
   createSessionRequestArtifact,
   getSessionRequestResultArtifact,
+  resolveSessionRequestArtifacts,
 } from '../../src/server/services/browser/sessionRequestArtifacts';
 import { createSQLiteDraftStore } from '../../src/server/store/drafts';
 import { createSQLitePublishLogStore } from '../../src/server/store/publishLogs';
@@ -134,18 +136,33 @@ async function requestApp(options: {
   body?: unknown;
   dependencies?: Parameters<typeof createApp>[1];
 }) {
-  const app = createApp({
-    allowedIps: ['127.0.0.1'],
-    adminPassword: 'secret',
-  }, options.dependencies);
+  const { rootDir } = createTestDatabasePath();
+  const previousHandoffOutputDir = process.env.BROWSER_HANDOFF_OUTPUT_DIR;
+  process.env.BROWSER_HANDOFF_OUTPUT_DIR = rootDir;
+  resetBrowserArtifactHealthSummaryCache();
 
-  return await requestExistingApp(app, {
-    headers: options.headers,
-    remoteAddress: options.remoteAddress,
-    method: options.method,
-    url: options.url ?? '/api/system/health',
-    body: options.body,
-  });
+  try {
+    const app = createApp({
+      allowedIps: ['127.0.0.1'],
+      adminPassword: 'secret',
+    }, options.dependencies);
+
+    return await requestExistingApp(app, {
+      headers: options.headers,
+      remoteAddress: options.remoteAddress,
+      method: options.method,
+      url: options.url ?? '/api/system/health',
+      body: options.body,
+    });
+  } finally {
+    resetBrowserArtifactHealthSummaryCache();
+    if (previousHandoffOutputDir === undefined) {
+      delete process.env.BROWSER_HANDOFF_OUTPUT_DIR;
+    } else {
+      process.env.BROWSER_HANDOFF_OUTPUT_DIR = previousHandoffOutputDir;
+    }
+    cleanupTestDatabasePath(rootDir);
+  }
 }
 
 function readSessionCookie(response: { headers: Record<string, string> }) {
@@ -225,7 +242,289 @@ describe('security middleware', () => {
         available: false,
         started: false,
       },
+      browserArtifacts: {
+        laneRequests: {
+          total: 0,
+          pending: 0,
+          resolved: 0,
+        },
+        handoffs: {
+          total: 0,
+          pending: 0,
+          resolved: 0,
+          obsolete: 0,
+          unmatched: 0,
+        },
+      },
     });
+  });
+
+  it('summarizes browser artifact health for lane requests and handoffs', async () => {
+    const { rootDir } = createTestDatabasePath();
+    const previousHandoffOutputDir = process.env.BROWSER_HANDOFF_OUTPUT_DIR;
+    process.env.BROWSER_HANDOFF_OUTPUT_DIR = rootDir;
+    resetBrowserArtifactHealthSummaryCache();
+
+    try {
+      const app = createApp({
+        allowedIps: ['127.0.0.1'],
+        adminPassword: 'secret',
+      });
+
+      const channelAccountResponse = await requestExistingApp(app, {
+        method: 'POST',
+        url: '/api/channel-accounts',
+        remoteAddress: '127.0.0.1',
+        headers: {
+          'x-admin-password': 'secret',
+        },
+        body: {
+          platform: 'facebookGroup',
+          accountKey: 'launch-campaign',
+          displayName: 'FB Group Manual',
+          authType: 'browser',
+          status: 'healthy',
+        },
+      });
+      expect(channelAccountResponse.status).toBe(201);
+
+      createSessionRequestArtifact({
+        channelAccountId: 1,
+        platform: 'x',
+        accountKey: '@promobot',
+        action: 'request_session',
+        requestedAt: '2026-04-23T13:10:00.000Z',
+        jobId: 1,
+        jobStatus: 'pending',
+        nextStep: '/api/channel-accounts/1/session',
+      });
+      createSessionRequestArtifact({
+        channelAccountId: 1,
+        platform: 'x',
+        accountKey: '@promobot',
+        action: 'relogin',
+        requestedAt: '2026-04-23T13:20:00.000Z',
+        jobId: 2,
+        jobStatus: 'pending',
+        nextStep: '/api/channel-accounts/1/session',
+      });
+      resolveSessionRequestArtifacts({
+        channelAccountId: 1,
+        platform: 'x',
+        accountKey: '@promobot',
+        action: 'relogin',
+        jobId: 2,
+        resolvedAt: '2026-04-23T13:25:00.000Z',
+        resolution: {
+          status: 'resolved',
+          source: 'browser_lane_result',
+        },
+        resolvedJobStatus: 'resolved',
+        savedStorageStatePath: 'browser-sessions/managed/x/-promobot.json',
+      });
+
+      const directHandoffDir = path.join(
+        rootDir,
+        'artifacts',
+        'browser-handoffs',
+        'facebookGroup',
+        'launch-campaign',
+      );
+      fs.mkdirSync(directHandoffDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(directHandoffDir, 'facebookGroup-draft-12.json'),
+        JSON.stringify({
+          type: 'browser_manual_handoff',
+          channelAccountId: 1,
+          status: 'pending',
+          platform: 'facebookGroup',
+          draftId: '12',
+          title: 'Community update',
+          content: 'Need manual browser handoff',
+          target: 'group-123',
+          accountKey: 'launch-campaign',
+          session: {
+            hasSession: true,
+            id: 'facebookGroup:launch-campaign',
+            status: 'active',
+            validatedAt: '2026-04-21T08:55:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
+          },
+          createdAt: '2026-04-21T09:00:00.000Z',
+          updatedAt: '2026-04-21T09:00:00.000Z',
+          resolvedAt: null,
+          resolution: null,
+        }),
+      );
+      fs.writeFileSync(
+        path.join(directHandoffDir, 'facebookGroup-draft-13.json'),
+        JSON.stringify({
+          type: 'browser_manual_handoff',
+          channelAccountId: 1,
+          status: 'resolved',
+          platform: 'facebookGroup',
+          draftId: '13',
+          title: 'Published update',
+          content: 'Completed browser publish',
+          target: 'group-123',
+          accountKey: 'launch-campaign',
+          session: {
+            hasSession: true,
+            id: 'facebookGroup:launch-campaign',
+            status: 'active',
+            validatedAt: '2026-04-21T09:05:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
+          },
+          createdAt: '2026-04-21T09:10:00.000Z',
+          updatedAt: '2026-04-21T09:20:00.000Z',
+          resolvedAt: '2026-04-21T09:20:00.000Z',
+          resolution: {
+            status: 'resolved',
+            publishStatus: 'published',
+          },
+        }),
+      );
+
+      const unmatchedHandoffDir = path.join(
+        rootDir,
+        'artifacts',
+        'browser-handoffs',
+        'facebookGroup',
+        'missing-account',
+      );
+      fs.mkdirSync(unmatchedHandoffDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(unmatchedHandoffDir, 'facebookGroup-draft-14.json'),
+        JSON.stringify({
+          type: 'browser_manual_handoff',
+          status: 'obsolete',
+          platform: 'facebookGroup',
+          draftId: '14',
+          title: 'Obsolete handoff',
+          content: 'Superseded by relogin',
+          target: 'group-999',
+          accountKey: 'missing-account',
+          session: {
+            hasSession: true,
+            id: 'facebookGroup:missing-account',
+            status: 'expired',
+            validatedAt: '2026-04-21T09:30:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/facebook-group-missing.json',
+          },
+          createdAt: '2026-04-21T09:30:00.000Z',
+          updatedAt: '2026-04-21T09:45:00.000Z',
+          resolvedAt: '2026-04-21T09:45:00.000Z',
+          resolution: {
+            status: 'obsolete',
+            reason: 'relogin',
+          },
+        }),
+      );
+
+      const response = await requestExistingApp(app, {
+        method: 'GET',
+        url: '/api/system/health',
+        remoteAddress: '127.0.0.1',
+      });
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        ok: true,
+        service: 'promobot',
+        timestamp: expect.any(String),
+        uptimeSeconds: expect.any(Number),
+        scheduler: {
+          available: false,
+          started: false,
+        },
+        browserArtifacts: {
+          laneRequests: {
+            total: 2,
+            pending: 1,
+            resolved: 1,
+          },
+          handoffs: {
+            total: 3,
+            pending: 1,
+            resolved: 1,
+            obsolete: 1,
+            unmatched: 1,
+          },
+        },
+      });
+    } finally {
+      resetBrowserArtifactHealthSummaryCache();
+      if (previousHandoffOutputDir === undefined) {
+        delete process.env.BROWSER_HANDOFF_OUTPUT_DIR;
+      } else {
+        process.env.BROWSER_HANDOFF_OUTPUT_DIR = previousHandoffOutputDir;
+      }
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('keeps health available when browser artifact scanning throws', async () => {
+    const { rootDir } = createTestDatabasePath();
+    const previousHandoffOutputDir = process.env.BROWSER_HANDOFF_OUTPUT_DIR;
+    process.env.BROWSER_HANDOFF_OUTPUT_DIR = rootDir;
+    resetBrowserArtifactHealthSummaryCache();
+
+    try {
+      fs.mkdirSync(path.join(rootDir, 'artifacts', 'browser-lane-requests'), { recursive: true });
+
+      const readdirSpy = vi.spyOn(fs, 'readdirSync').mockImplementationOnce(() => {
+        throw new Error('scan failed');
+      });
+
+      try {
+        const app = createApp({
+          allowedIps: ['127.0.0.1'],
+          adminPassword: 'secret',
+        });
+
+        const response = await requestExistingApp(app, {
+          method: 'GET',
+          url: '/api/system/health',
+          remoteAddress: '127.0.0.1',
+        });
+
+        expect(response.status).toBe(200);
+        expect(JSON.parse(response.body)).toEqual({
+          ok: true,
+          service: 'promobot',
+          timestamp: expect.any(String),
+          uptimeSeconds: expect.any(Number),
+          scheduler: {
+            available: false,
+            started: false,
+          },
+          browserArtifacts: {
+            laneRequests: {
+              total: 0,
+              pending: 0,
+              resolved: 0,
+            },
+            handoffs: {
+              total: 0,
+              pending: 0,
+              resolved: 0,
+              obsolete: 0,
+              unmatched: 0,
+            },
+          },
+        });
+      } finally {
+        readdirSpy.mockRestore();
+      }
+    } finally {
+      resetBrowserArtifactHealthSummaryCache();
+      if (previousHandoffOutputDir === undefined) {
+        delete process.env.BROWSER_HANDOFF_OUTPUT_DIR;
+      } else {
+        process.env.BROWSER_HANDOFF_OUTPUT_DIR = previousHandoffOutputDir;
+      }
+      cleanupTestDatabasePath(rootDir);
+    }
   });
 
   it('rejects requests from disallowed IPs', async () => {
@@ -237,6 +536,9 @@ describe('security middleware', () => {
 
   it('applies allowlist changes from settings to the running middleware immediately', async () => {
     const { rootDir } = createTestDatabasePath();
+    const previousHandoffOutputDir = process.env.BROWSER_HANDOFF_OUTPUT_DIR;
+    process.env.BROWSER_HANDOFF_OUTPUT_DIR = rootDir;
+    resetBrowserArtifactHealthSummaryCache();
     const app = createApp({
       allowedIps: ['127.0.0.1'],
       adminPassword: 'secret',
@@ -280,14 +582,37 @@ describe('security middleware', () => {
           available: false,
           started: false,
         },
+        browserArtifacts: {
+          laneRequests: {
+            total: 0,
+            pending: 0,
+            resolved: 0,
+          },
+          handoffs: {
+            total: 0,
+            pending: 0,
+            resolved: 0,
+            obsolete: 0,
+            unmatched: 0,
+          },
+        },
       });
     } finally {
+      resetBrowserArtifactHealthSummaryCache();
+      if (previousHandoffOutputDir === undefined) {
+        delete process.env.BROWSER_HANDOFF_OUTPUT_DIR;
+      } else {
+        process.env.BROWSER_HANDOFF_OUTPUT_DIR = previousHandoffOutputDir;
+      }
       cleanupTestDatabasePath(rootDir);
     }
   });
 
   it('applies persisted allowlist changes across app instances that share the same SQLite settings', async () => {
     const { rootDir } = createTestDatabasePath();
+    const previousHandoffOutputDir = process.env.BROWSER_HANDOFF_OUTPUT_DIR;
+    process.env.BROWSER_HANDOFF_OUTPUT_DIR = rootDir;
+    resetBrowserArtifactHealthSummaryCache();
     const firstApp = createApp({
       allowedIps: ['127.0.0.1'],
       adminPassword: 'secret',
@@ -333,8 +658,28 @@ describe('security middleware', () => {
           available: false,
           started: false,
         },
+        browserArtifacts: {
+          laneRequests: {
+            total: 0,
+            pending: 0,
+            resolved: 0,
+          },
+          handoffs: {
+            total: 0,
+            pending: 0,
+            resolved: 0,
+            obsolete: 0,
+            unmatched: 0,
+          },
+        },
       });
     } finally {
+      resetBrowserArtifactHealthSummaryCache();
+      if (previousHandoffOutputDir === undefined) {
+        delete process.env.BROWSER_HANDOFF_OUTPUT_DIR;
+      } else {
+        process.env.BROWSER_HANDOFF_OUTPUT_DIR = previousHandoffOutputDir;
+      }
       cleanupTestDatabasePath(rootDir);
     }
   });
@@ -681,6 +1026,20 @@ describe('system runtime api', () => {
           running: 1,
           failed: 0,
           duePending: 1,
+        },
+      },
+      browserArtifacts: {
+        laneRequests: {
+          total: 0,
+          pending: 0,
+          resolved: 0,
+        },
+        handoffs: {
+          total: 0,
+          pending: 0,
+          resolved: 0,
+          obsolete: 0,
+          unmatched: 0,
         },
       },
     });
@@ -2015,34 +2374,63 @@ describe('static client hosting', () => {
 
   it('keeps api routing ahead of the client fallback', async () => {
     const clientBuild = createClientBuildFixture();
+    const { rootDir } = createTestDatabasePath();
+    const previousHandoffOutputDir = process.env.BROWSER_HANDOFF_OUTPUT_DIR;
+    process.env.BROWSER_HANDOFF_OUTPUT_DIR = rootDir;
     activeClientBuildFixtures.add(clientBuild);
-    const app = createApp(
-      {
-        allowedIps: ['127.0.0.1'],
-        adminPassword: 'secret',
-      },
-      { clientDistPath: clientBuild.clientDistPath } as Parameters<typeof createApp>[1],
-    );
+    resetBrowserArtifactHealthSummaryCache();
 
-    const healthResponse = await requestExistingApp(app, {
-      url: '/api/system/health',
-    });
-    const missingApiResponse = await requestExistingApp(app, {
-      url: '/api/does-not-exist',
-    });
+    try {
+      const app = createApp(
+        {
+          allowedIps: ['127.0.0.1'],
+          adminPassword: 'secret',
+        },
+        { clientDistPath: clientBuild.clientDistPath } as Parameters<typeof createApp>[1],
+      );
 
-    expect(healthResponse.status).toBe(200);
-    expect(JSON.parse(healthResponse.body)).toEqual({
-      ok: true,
-      service: 'promobot',
-      timestamp: expect.any(String),
-      uptimeSeconds: expect.any(Number),
-      scheduler: {
-        available: false,
-        started: false,
-      },
-    });
-    expect(missingApiResponse.status).toBe(404);
-    expect(missingApiResponse.body).not.toContain('PromoBot SPA');
+      const healthResponse = await requestExistingApp(app, {
+        url: '/api/system/health',
+      });
+      const missingApiResponse = await requestExistingApp(app, {
+        url: '/api/does-not-exist',
+      });
+
+      expect(healthResponse.status).toBe(200);
+      expect(JSON.parse(healthResponse.body)).toEqual({
+        ok: true,
+        service: 'promobot',
+        timestamp: expect.any(String),
+        uptimeSeconds: expect.any(Number),
+        scheduler: {
+          available: false,
+          started: false,
+        },
+        browserArtifacts: {
+          laneRequests: {
+            total: 0,
+            pending: 0,
+            resolved: 0,
+          },
+          handoffs: {
+            total: 0,
+            pending: 0,
+            resolved: 0,
+            obsolete: 0,
+            unmatched: 0,
+          },
+        },
+      });
+      expect(missingApiResponse.status).toBe(404);
+      expect(missingApiResponse.body).not.toContain('PromoBot SPA');
+    } finally {
+      resetBrowserArtifactHealthSummaryCache();
+      if (previousHandoffOutputDir === undefined) {
+        delete process.env.BROWSER_HANDOFF_OUTPUT_DIR;
+      } else {
+        process.env.BROWSER_HANDOFF_OUTPUT_DIR = previousHandoffOutputDir;
+      }
+      cleanupTestDatabasePath(rootDir);
+    }
   });
 });

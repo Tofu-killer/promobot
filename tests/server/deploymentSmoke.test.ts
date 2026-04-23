@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { createApp } from '../../src/server/app';
+import { resetBrowserArtifactHealthSummaryCache } from '../../src/server/services/browser/artifactHealth';
 import {
   getDeploymentSmokeHelpText,
   parseDeploymentSmokeArgs,
   runDeploymentSmokeCheck,
 } from '../../src/server/cli/deploymentSmoke';
+import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
 
 async function requestExistingApp(
   app: ReturnType<typeof createApp>,
@@ -151,45 +153,79 @@ function createAppFetch(app: ReturnType<typeof createApp>) {
 
 describe('deployment smoke cli', () => {
   it('runs the deployment smoke checks against the local app contract', async () => {
-    const app = createApp({
-      allowedIps: ['127.0.0.1'],
-      adminPassword: 'secret',
-    });
-    const { calls, fetchImpl } = createAppFetch(app);
+    const { rootDir } = createTestDatabasePath();
+    const previousHandoffOutputDir = process.env.BROWSER_HANDOFF_OUTPUT_DIR;
+    process.env.BROWSER_HANDOFF_OUTPUT_DIR = rootDir;
+    resetBrowserArtifactHealthSummaryCache();
 
-    const result = await runDeploymentSmokeCheck(
-      {
-        baseUrl: 'http://local.test',
+    try {
+      const app = createApp({
+        allowedIps: ['127.0.0.1'],
         adminPassword: 'secret',
-      },
-      { fetchImpl },
-    );
+      });
+      const { calls, fetchImpl } = createAppFetch(app);
 
-    expect(calls.map((call) => `${call.method} ${call.url}`)).toEqual([
-      'GET http://local.test/api/system/health',
-      'POST http://local.test/api/auth/login',
-      'GET http://local.test/api/settings',
-      'GET http://local.test/api/system/browser-lane-requests?limit=1',
-      'POST http://local.test/api/auth/logout',
-    ]);
-    expect(result).toEqual({
-      ok: true,
-      baseUrl: 'http://local.test',
-      checks: {
-        health: expect.objectContaining({
-          ok: true,
-          service: 'promobot',
-        }),
-        settings: expect.objectContaining({
-          settings: expect.any(Object),
-          platforms: expect.any(Array),
-        }),
-        browserLaneRequests: {
-          requests: [],
-          total: 0,
+      const result = await runDeploymentSmokeCheck(
+        {
+          baseUrl: 'http://local.test',
+          adminPassword: 'secret',
         },
-      },
-    });
+        { fetchImpl },
+      );
+
+      expect(calls.map((call) => `${call.method} ${call.url}`)).toEqual([
+        'GET http://local.test/api/system/health',
+        'POST http://local.test/api/auth/login',
+        'GET http://local.test/api/settings',
+        'GET http://local.test/api/system/browser-lane-requests?limit=1',
+        'GET http://local.test/api/system/browser-handoffs?limit=1',
+        'POST http://local.test/api/auth/logout',
+      ]);
+      expect(result).toEqual({
+        ok: true,
+        baseUrl: 'http://local.test',
+        checks: {
+          health: expect.objectContaining({
+            ok: true,
+            service: 'promobot',
+            browserArtifacts: {
+              laneRequests: {
+                total: 0,
+                pending: 0,
+                resolved: 0,
+              },
+              handoffs: {
+                total: 0,
+                pending: 0,
+                resolved: 0,
+                obsolete: 0,
+                unmatched: 0,
+              },
+            },
+          }),
+          settings: expect.objectContaining({
+            settings: expect.any(Object),
+            platforms: expect.any(Array),
+          }),
+          browserLaneRequests: {
+            requests: [],
+            total: 0,
+          },
+          browserHandoffs: {
+            handoffs: [],
+            total: 0,
+          },
+        },
+      });
+    } finally {
+      resetBrowserArtifactHealthSummaryCache();
+      if (previousHandoffOutputDir === undefined) {
+        delete process.env.BROWSER_HANDOFF_OUTPUT_DIR;
+      } else {
+        process.env.BROWSER_HANDOFF_OUTPUT_DIR = previousHandoffOutputDir;
+      }
+      cleanupTestDatabasePath(rootDir);
+    }
   });
 
   it('parses deployment smoke cli arguments', () => {
@@ -205,5 +241,6 @@ describe('deployment smoke cli', () => {
       adminPassword: 'secret',
     });
     expect(getDeploymentSmokeHelpText()).toContain('--base-url <origin>');
+    expect(getDeploymentSmokeHelpText()).toContain('/api/system/browser-handoffs?limit=1');
   });
 });

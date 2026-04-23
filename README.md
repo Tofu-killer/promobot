@@ -33,7 +33,7 @@ PromoBot 现在不是“只有 spec 的空仓库”了。
 - 所有 API 都挂在 IP allowlist 中间件后面。
 - allowlist 现在支持“精确 IP 字符串”“CIDR 子网”以及 `*` 全放开；Settings 页保存后会立即影响当前进程的访问控制。
 - 服务启动时会自动读取仓库根目录下的 `.env`（如果存在）；已存在的 shell 环境变量优先，不会被 `.env` 覆盖。
-- `/api/system/health` 现在会返回 `service`、`timestamp`、`uptimeSeconds` 和 scheduler 摘要，便于 PM2 / 运维探活。
+- `/api/system/health` 现在会返回 `service`、`timestamp`、`uptimeSeconds`、scheduler 摘要，以及 browser artifact 摘要：`browserArtifacts.laneRequests(total/pending/resolved)` 和 `browserArtifacts.handoffs(total/pending/resolved/obsolete/unmatched)`，便于 PM2 / 运维探活。
 
 ## 重要限制
 
@@ -50,6 +50,7 @@ PromoBot 现在不是“只有 spec 的空仓库”了。
 - 仓库同时提供了 `pnpm browser:lane:submit -- --request-artifact <path> --storage-state-file <path>`，用于从本地 Playwright storage state JSON 生成 `browser_lane_result` artifact；如果再附带 `--base-url` 和 `--admin-password`，会直接把 `requestArtifactPath + storageState` 提交给 importer API，因此 browser lane 不必和服务端共享同一份 result artifact 目录。
 - `facebook-group`、`weibo`、`xiaohongshu` 的 browser handoff 现在也有正式完成入口：外部 lane 或人工接管完成后，可调用 `POST /api/system/browser-handoffs/import` 回写 `published/failed` 结果，系统会同步更新草稿状态、publish log 和 handoff artifact。
 - 仓库同时提供了 `pnpm browser:handoff:complete -- --artifact-path <path> --status <published|failed>`，用于在本机直接结单 handoff；如果再附带 `--base-url` 和 `--admin-password`，则会走远程 API 导入。
+- 仓库同时提供了 `pnpm browser:artifacts:archive -- [--older-than-hours <n>] [--include-results]`，用于把足够旧的已结单 browser artifacts 归档到 `artifacts/archive/`；默认是 dry-run，只有加 `--apply` 才会真正移动文件。
 - `System Queue`、`Dashboard`、`Settings`、`Channel Accounts` 现在都能直接看到 browser lane / browser handoff 的最新状态；系统 API 也提供了 `/api/system/browser-handoffs` 只读汇总入口。
 - `Drafts` 和 `Review Queue` 在 `manual_required` 时会直接显示 handoff 回执里的 `browserHandoff` 细节，不再只剩一条泛化成功消息。
 
@@ -62,6 +63,7 @@ pnpm install
 pnpm dev
 pnpm dev:server
 pnpm test
+pnpm browser:artifacts:archive -- --older-than-hours 72
 ```
 
 - `pnpm dev`：Vite 前端，默认 `0.0.0.0:5173`，并内建 `/api` 代理到 `http://127.0.0.1:3001`；可用 `PROMOBOT_DEV_API_ORIGIN` 覆盖

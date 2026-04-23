@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { createBrowserArtifactHealthSummary } from '../services/browser/artifactHealth.js';
 import { listSessionRequestArtifacts } from '../services/browser/sessionRequestArtifacts.js';
 import {
   importInlineSessionRequestResult,
@@ -363,6 +364,7 @@ export function createSystemHealthPayload(schedulerRuntime: SchedulerRuntime | u
     timestamp: new Date().toISOString(),
     uptimeSeconds: Math.round(process.uptime()),
     scheduler: buildSchedulerHealthSnapshot(schedulerRuntime),
+    browserArtifacts: createBrowserArtifactHealthSummary(),
   };
 }
 
