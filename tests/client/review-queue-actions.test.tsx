@@ -536,6 +536,21 @@ function findElement(node: FakeNode, matcher: (element: FakeElement) => boolean)
   return null;
 }
 
+function createDeferredPromise<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((nextResolve, nextReject) => {
+    resolve = nextResolve;
+    reject = nextReject;
+  });
+
+  return {
+    promise,
+    resolve,
+    reject,
+  };
+}
+
 async function flush() {
   await Promise.resolve();
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -763,6 +778,107 @@ describe('review queue wiring', () => {
       ),
     ).toBe(false);
     expect(collectText(container)).toContain('暂无待审核草稿');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('blocks overlapping actions for the same draft while publish is in flight', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ReviewQueuePage } = await import('../../src/client/pages/ReviewQueue');
+
+    const pendingPublish = createDeferredPromise<{
+      draftId: number;
+      draftStatus: string;
+      platform: string;
+      mode: string;
+      status: string;
+      success: boolean;
+      publishUrl: string | null;
+      externalId: string | null;
+      message: string;
+      publishedAt: string | null;
+    }>();
+    const loadReviewQueueAction = vi.fn().mockResolvedValue({
+      drafts: [
+        {
+          id: 11,
+          platform: 'x',
+          title: 'Launch thread',
+          content: 'Draft body',
+          hashtags: ['#launch'],
+          status: 'review',
+          createdAt: '2026-04-19T00:00:00.000Z',
+          updatedAt: '2026-04-19T00:00:00.000Z',
+        },
+      ],
+    });
+    const publishReviewDraftAction = vi.fn().mockReturnValue(pendingPublish.promise);
+    const scheduleReviewDraftAction = vi.fn().mockResolvedValue({
+      draft: {
+        id: 11,
+        platform: 'x',
+        title: 'Launch thread',
+        content: 'Draft body',
+        hashtags: ['#launch'],
+        status: 'scheduled',
+        scheduledAt: '',
+        createdAt: '2026-04-19T00:00:00.000Z',
+        updatedAt: '2026-04-19T01:00:00.000Z',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ReviewQueuePage as never, {
+          loadReviewQueueAction,
+          publishReviewDraftAction,
+          scheduleReviewDraftAction,
+        }),
+      );
+      await flush();
+    });
+
+    const publishButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-review-publish-id') === '11',
+    );
+    const scheduleButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-review-schedule-id') === '11',
+    );
+
+    expect(publishButton).not.toBeNull();
+    expect(scheduleButton).not.toBeNull();
+
+    await act(async () => {
+      publishButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      scheduleButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(publishReviewDraftAction).toHaveBeenCalledWith(11);
+    expect(scheduleReviewDraftAction).not.toHaveBeenCalled();
+
+    await act(async () => {
+      pendingPublish.resolve({
+        draftId: 11,
+        draftStatus: 'published',
+        platform: 'x',
+        mode: 'api',
+        status: 'published',
+        success: true,
+        publishUrl: 'https://x.com/i/web/status/11',
+        externalId: '11',
+        message: 'published',
+        publishedAt: '2026-04-19T02:00:00.000Z',
+      });
+      await flush();
+    });
 
     await act(async () => {
       root.unmount();

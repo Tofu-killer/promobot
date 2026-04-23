@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { apiRequest, getErrorMessage } from '../lib/api';
 import type { AsyncState } from '../hooks/useAsyncRequest';
 import { useAsyncQuery } from '../hooks/useAsyncRequest';
@@ -308,6 +308,7 @@ export function ReviewQueuePage({
   const [localDrafts, setLocalDrafts] = useState<DraftRecord[] | null>(null);
   const [scheduledAtById, setScheduledAtById] = useState<Record<number, string>>({});
   const [actionStateById, setActionStateById] = useState<Record<number, ReviewActionState>>({});
+  const pendingDraftActionIdsRef = useRef<Set<number>>(new Set());
   const displayState = stateOverride ?? state;
   const hasLiveReviewDrafts =
     typeof displayState.data === 'object' &&
@@ -340,27 +341,40 @@ export function ReviewQueuePage({
     });
   }, [displayState]);
 
-  async function handleReviewDraft(draftId: number, nextStatus: 'approved' | 'draft') {
-    const sourceDraft =
-      visibleDrafts.find((draft) => draft.id === draftId) ?? displayState.data?.drafts.find((draft) => draft.id === draftId);
-
-    if (!sourceDraft) {
-      return;
+  function startDraftAction(draftId: number, action: ReviewActionState['action']) {
+    if (pendingDraftActionIdsRef.current.has(draftId)) {
+      return false;
     }
 
+    pendingDraftActionIdsRef.current.add(draftId);
     setActionStateById((currentState) => ({
       ...currentState,
       [draftId]: {
         status: 'loading',
         message: null,
         error: null,
-        action: 'review',
+        action,
         publishUrl: null,
         contractMessage: null,
         contractStatus: null,
         contractDetails: null,
       },
     }));
+
+    return true;
+  }
+
+  function finishDraftAction(draftId: number) {
+    pendingDraftActionIdsRef.current.delete(draftId);
+  }
+
+  async function handleReviewDraft(draftId: number, nextStatus: 'approved' | 'draft') {
+    const sourceDraft =
+      visibleDrafts.find((draft) => draft.id === draftId) ?? displayState.data?.drafts.find((draft) => draft.id === draftId);
+
+    if (!sourceDraft || !startDraftAction(draftId, 'review')) {
+      return;
+    }
 
     try {
       const result = await updateReviewDraftAction(draftId, { status: nextStatus });
@@ -395,29 +409,18 @@ export function ReviewQueuePage({
         },
       }));
     }
+    finally {
+      finishDraftAction(draftId);
+    }
   }
 
   async function handlePublishDraft(draftId: number) {
     const sourceDraft =
       visibleDrafts.find((draft) => draft.id === draftId) ?? displayState.data?.drafts.find((draft) => draft.id === draftId);
 
-    if (!sourceDraft) {
+    if (!sourceDraft || !startDraftAction(draftId, 'publish')) {
       return;
     }
-
-    setActionStateById((currentState) => ({
-      ...currentState,
-      [draftId]: {
-        status: 'loading',
-        message: null,
-        error: null,
-        action: 'publish',
-        publishUrl: null,
-        contractMessage: null,
-        contractStatus: null,
-        contractDetails: null,
-      },
-    }));
 
     try {
       const result = await publishReviewDraftAction(draftId);
@@ -466,31 +469,20 @@ export function ReviewQueuePage({
         },
       }));
     }
+    finally {
+      finishDraftAction(draftId);
+    }
   }
 
   async function handleScheduleDraft(draftId: number) {
     const sourceDraft =
       visibleDrafts.find((draft) => draft.id === draftId) ?? displayState.data?.drafts.find((draft) => draft.id === draftId);
 
-    if (!sourceDraft) {
+    if (!sourceDraft || !startDraftAction(draftId, 'schedule')) {
       return;
     }
 
     const scheduledAt = scheduledAtById[draftId] ?? sourceDraft.scheduledAt ?? '';
-
-    setActionStateById((currentState) => ({
-      ...currentState,
-      [draftId]: {
-        status: 'loading',
-        message: null,
-        error: null,
-        action: 'schedule',
-        publishUrl: null,
-        contractMessage: null,
-        contractStatus: null,
-        contractDetails: null,
-      },
-    }));
 
     try {
       const result = await scheduleReviewDraftAction(draftId, {
@@ -533,6 +525,9 @@ export function ReviewQueuePage({
           contractDetails: null,
         },
       }));
+    }
+    finally {
+      finishDraftAction(draftId);
     }
   }
 
@@ -577,6 +572,7 @@ export function ReviewQueuePage({
               <div style={{ display: 'grid', gap: '12px' }}>
                 {visibleDrafts.map((draft) => {
                   const actionState = getReviewActionState(actionStateById, draft.id);
+                  const isDraftActionPending = actionState.status === 'loading';
                   const publishContract = getReviewDraftPublishContract(draft, actionState);
                   const scheduledAtValue = scheduledAtById[draft.id] ?? draft.scheduledAt ?? '';
                   const badgeStyle = getReviewDraftBadgeStyle(draft.status);
@@ -634,6 +630,7 @@ export function ReviewQueuePage({
                         <button
                           type="button"
                           data-review-approve-id={draft.id}
+                          disabled={isDraftActionPending}
                           onClick={() => {
                             void handleReviewDraft(draft.id, 'approved');
                           }}
@@ -651,6 +648,7 @@ export function ReviewQueuePage({
                         <button
                           type="button"
                           data-review-reject-id={draft.id}
+                          disabled={isDraftActionPending}
                           onClick={() => {
                             void handleReviewDraft(draft.id, 'draft');
                           }}
@@ -668,6 +666,7 @@ export function ReviewQueuePage({
                         <button
                           type="button"
                           data-review-publish-id={draft.id}
+                          disabled={isDraftActionPending}
                           onClick={() => {
                             void handlePublishDraft(draft.id);
                           }}
@@ -688,6 +687,7 @@ export function ReviewQueuePage({
                         <input
                           type="datetime-local"
                           data-review-scheduled-at-id={draft.id}
+                          disabled={isDraftActionPending}
                           value={scheduledAtById[draft.id] ?? draft.scheduledAt ?? ''}
                           onChange={(event) =>
                             setScheduledAtById((currentScheduleById) => ({
@@ -707,6 +707,7 @@ export function ReviewQueuePage({
                         <button
                           type="button"
                           data-review-schedule-id={draft.id}
+                          disabled={isDraftActionPending}
                           onClick={() => {
                             void handleScheduleDraft(draft.id);
                           }}
