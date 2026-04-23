@@ -60,6 +60,9 @@ cp .env.example .env
   - 如果 metadata 指向的 storage state 文件已不存在，Channel Accounts / Settings / platform readiness 会把该 session 视为 `missing`
   - 请求登录 / 重新登录动作会在仓库下的 `artifacts/browser-lane-requests/<platform>/<account>/` 生成工单 JSON
   - 当新的 session 元数据保存成功后，匹配的 browser lane request 工单会被回写为 `resolved`，并附带 session 摘要
+  - 也可以先把 browser lane 结果写成同目录下的 `*.result.json`，再调用 `POST /api/system/browser-lane-requests/import` 让服务端自动导入 session
+  - 仓库内置 `pnpm browser:lane:submit -- --request-artifact <path> --storage-state-file <path>`，会生成 `browser_lane_result` artifact；若同时提供 `--base-url` 和 `--admin-password`，会立即调用 importer API
+  - 上面这条 CLI 依赖和服务端共享同一份 artifact 根目录，因为 importer API 只接收 `artifactPath`，不会上传 `storageState` 内容本身
   - browser manual handoff artifact 会落在 `artifacts/browser-handoffs/<platform>/<account>/`，并维护 `pending / resolved / obsolete` 状态
   - 控制台中的 `System Queue` / `Settings` / `Dashboard` / `Channel Accounts` 都会直接消费这些工单与 handoff 状态
 - `AI_BASE_URL` / `AI_API_KEY`

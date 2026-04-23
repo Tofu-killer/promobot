@@ -19,6 +19,8 @@ export interface ResolveSessionRequestArtifactsInput {
   channelAccountId: number;
   platform: string;
   accountKey: string;
+  action?: BrowserSessionAction;
+  jobId?: number;
   resolvedAt: string;
   resolution: string | Record<string, unknown>;
   resolvedJobStatus?: string;
@@ -75,6 +77,7 @@ export interface SessionRequestArtifactSummary {
   platform: string;
   accountKey: string;
   action: BrowserSessionAction;
+  jobId: number;
   jobStatus: string;
   requestedAt: string;
   artifactPath: string;
@@ -202,6 +205,8 @@ export function resolveSessionRequestArtifacts(input: ResolveSessionRequestArtif
       artifact.channelAccountId !== input.channelAccountId ||
       artifact.platform !== input.platform ||
       artifact.accountKey !== input.accountKey ||
+      (input.action !== undefined && artifact.action !== input.action) ||
+      (input.jobId !== undefined && artifact.jobId !== input.jobId) ||
       artifact.resolvedAt !== undefined ||
       artifact.resolution !== undefined
     ) {
@@ -301,6 +306,7 @@ export function getLatestSessionRequestArtifact(
     platform: latest.artifact.platform,
     accountKey: latest.artifact.accountKey,
     action: latest.artifact.action,
+    jobId: latest.artifact.jobId,
     jobStatus: latest.artifact.jobStatus,
     requestedAt: latest.artifact.requestedAt,
     artifactPath: latest.artifactPath,
@@ -312,9 +318,8 @@ export function getLatestSessionRequestArtifact(
 export function getSessionRequestArtifact(
   input: SessionRequestArtifactLookupInput,
 ): SessionRequestArtifactSummary | null {
-  const artifactRootDir = resolveArtifactRootDir();
   const absolutePath = path.join(
-    artifactRootDir,
+    resolveArtifactRootDir(),
     buildRequestArtifactPath({
       platform: input.platform,
       accountKey: input.accountKey,
@@ -322,11 +327,10 @@ export function getSessionRequestArtifact(
       jobId: input.jobId,
     }),
   );
-  const artifact = readSessionRequestArtifact(absolutePath);
+  const artifact = getSessionRequestArtifactByAbsolutePath(absolutePath);
 
   if (
     !artifact ||
-    artifact.type !== 'browser_lane_request' ||
     artifact.platform !== input.platform ||
     artifact.accountKey !== input.accountKey ||
     artifact.action !== input.action ||
@@ -335,17 +339,26 @@ export function getSessionRequestArtifact(
     return null;
   }
 
-  return {
-    channelAccountId: artifact.channelAccountId,
-    platform: artifact.platform,
-    accountKey: artifact.accountKey,
-    action: artifact.action,
-    jobStatus: artifact.jobStatus,
-    requestedAt: artifact.requestedAt,
-    artifactPath: path.relative(artifactRootDir, absolutePath).split(path.sep).join('/'),
-    resolvedAt: artifact.resolvedAt ?? null,
-    ...(artifact.resolution !== undefined ? { resolution: artifact.resolution } : {}),
-  };
+  return artifact;
+}
+
+export function getSessionRequestArtifactByPath(
+  artifactPath: string,
+): SessionRequestArtifactSummary | null {
+  const artifactRootDir = resolveArtifactRootDir();
+  const normalizedPath = artifactPath.trim().replace(/\\/g, '/');
+  const absolutePath = path.resolve(artifactRootDir, normalizedPath);
+  const relativePath = path.relative(artifactRootDir, absolutePath);
+
+  if (
+    relativePath.startsWith('..') ||
+    path.isAbsolute(relativePath) ||
+    !relativePath.split(path.sep).join('/').startsWith('artifacts/browser-lane-requests/')
+  ) {
+    return null;
+  }
+
+  return getSessionRequestArtifactByAbsolutePath(absolutePath);
 }
 
 export function getSessionRequestResultArtifact(
@@ -490,6 +503,7 @@ export function listSessionRequestArtifacts(limit?: number) {
           platform: artifact.platform,
           accountKey: artifact.accountKey,
           action: artifact.action,
+          jobId: artifact.jobId,
           jobStatus: artifact.jobStatus,
           requestedAt: artifact.requestedAt,
           artifactPath: path.relative(artifactRootDir, absolutePath).split(path.sep).join('/'),
@@ -519,6 +533,30 @@ function buildArtifactPath(input: SessionRequestArtifactInput) {
     action: input.action,
     jobId: input.jobId,
   });
+}
+
+function getSessionRequestArtifactByAbsolutePath(
+  absolutePath: string,
+): SessionRequestArtifactSummary | null {
+  const artifactRootDir = resolveArtifactRootDir();
+  const artifact = readSessionRequestArtifact(absolutePath);
+
+  if (!artifact || artifact.type !== 'browser_lane_request') {
+    return null;
+  }
+
+  return {
+    channelAccountId: artifact.channelAccountId,
+    platform: artifact.platform,
+    accountKey: artifact.accountKey,
+    action: artifact.action,
+    jobId: artifact.jobId,
+    jobStatus: artifact.jobStatus,
+    requestedAt: artifact.requestedAt,
+    artifactPath: path.relative(artifactRootDir, absolutePath).split(path.sep).join('/'),
+    resolvedAt: artifact.resolvedAt ?? null,
+    ...(artifact.resolution !== undefined ? { resolution: artifact.resolution } : {}),
+  };
 }
 
 function buildRequestArtifactPath(input: {

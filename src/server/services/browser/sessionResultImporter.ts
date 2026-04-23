@@ -94,6 +94,8 @@ export async function importSessionRequestResultArtifact(
     channelAccountId: channelAccount.id,
     platform: channelAccount.platform,
     accountKey: channelAccount.accountKey,
+    action: resultArtifact.action,
+    jobId: resultArtifact.requestJobId,
     resolvedAt: sessionMetadata.updatedAt,
     resolvedJobStatus: 'resolved',
     resolution,

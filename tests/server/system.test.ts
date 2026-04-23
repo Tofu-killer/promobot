@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/server/app';
 import { createSchedulerRuntime } from '../../src/server/runtime/schedulerRuntime';
 import {
+  createSessionRequestArtifact,
   createSessionRequestResultArtifact,
   getSessionRequestResultArtifact,
 } from '../../src/server/services/browser/sessionRequestArtifacts';
@@ -1349,6 +1350,16 @@ describe('system runtime api', () => {
           artifactPath: string;
         };
       };
+      const siblingRequestArtifactPath = createSessionRequestArtifact({
+        channelAccountId: 1,
+        platform: 'x',
+        accountKey: '@promobot',
+        action: 'relogin',
+        requestedAt: '2026-04-23T13:10:00.000Z',
+        jobId: requestBody.job.id + 1,
+        jobStatus: 'pending',
+        nextStep: '/api/channel-accounts/1/session',
+      });
 
       const resultArtifactPath = createSessionRequestResultArtifact({
         channelAccountId: 1,
@@ -1449,6 +1460,17 @@ describe('system runtime api', () => {
           }),
         }),
       );
+      const siblingRequestArtifact = JSON.parse(
+        fs.readFileSync(path.join(rootDir, siblingRequestArtifactPath), 'utf8'),
+      ) as Record<string, unknown>;
+      expect(siblingRequestArtifact).toEqual(
+        expect.objectContaining({
+          action: 'relogin',
+          jobStatus: 'pending',
+        }),
+      );
+      expect(siblingRequestArtifact).not.toHaveProperty('resolvedAt');
+      expect(siblingRequestArtifact).not.toHaveProperty('resolution');
     } finally {
       cleanupTestDatabasePath(rootDir);
     }
