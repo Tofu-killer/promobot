@@ -383,6 +383,60 @@ describe('content generation api', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('does not create a draft when saveAsDraft is true and projectId points to a missing project', async () => {
+    const draftCreate = vi.fn();
+    const draftStore: DraftStore = {
+      create: draftCreate,
+      getById() {
+        return undefined;
+      },
+      list() {
+        return [];
+      },
+      update() {
+        return undefined;
+      },
+    };
+    const projectStore: ProjectStore = {
+      create() {
+        throw new Error('not implemented');
+      },
+      getById() {
+        return undefined;
+      },
+      list() {
+        return [];
+      },
+      update() {
+        return undefined;
+      },
+      archive() {
+        return undefined;
+      },
+    };
+
+    installFetchStub();
+
+    const response = await requestExpressApp(
+      createContentApp(draftStore, projectStore),
+      'POST',
+      '/api/content/generate',
+      {
+        topic: 'Missing project saved draft',
+        platforms: ['x'],
+        tone: 'professional',
+        saveAsDraft: true,
+        projectId: 999,
+      },
+    );
+
+    expect(response.status).toBe(404);
+    expect(JSON.parse(response.body)).toEqual({
+      error: 'project not found',
+    });
+    expect(draftCreate).not.toHaveBeenCalled();
+  });
+
   it('rejects generation when projectId points to an archived project', async () => {
     const created = await requestApp('POST', '/api/projects', {
       name: 'Archived Project',
@@ -412,6 +466,75 @@ describe('content generation api', () => {
       error: 'project not found',
     });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('does not create a draft when saveAsDraft is true and projectId points to an archived project', async () => {
+    const draftCreate = vi.fn();
+    const draftStore: DraftStore = {
+      create: draftCreate,
+      getById() {
+        return undefined;
+      },
+      list() {
+        return [];
+      },
+      update() {
+        return undefined;
+      },
+    };
+    const projectStore: ProjectStore = {
+      create() {
+        throw new Error('not implemented');
+      },
+      getById(id) {
+        if (id !== 12) {
+          return undefined;
+        }
+
+        return {
+          id: 12,
+          name: 'Archived Project',
+          siteName: 'Archive',
+          siteUrl: 'https://archive.promobot.test',
+          siteDescription: 'Archived project context',
+          sellingPoints: ['Archived'],
+          brandVoice: '',
+          ctas: [],
+          archived: true,
+          createdAt: new Date().toISOString(),
+        };
+      },
+      list() {
+        return [];
+      },
+      update() {
+        return undefined;
+      },
+      archive() {
+        return undefined;
+      },
+    };
+
+    installFetchStub();
+
+    const response = await requestExpressApp(
+      createContentApp(draftStore, projectStore),
+      'POST',
+      '/api/content/generate',
+      {
+        topic: 'Archived project saved draft',
+        platforms: ['x'],
+        tone: 'professional',
+        saveAsDraft: true,
+        projectId: 12,
+      },
+    );
+
+    expect(response.status).toBe(404);
+    expect(JSON.parse(response.body)).toEqual({
+      error: 'project not found',
+    });
+    expect(draftCreate).not.toHaveBeenCalled();
   });
 
   it('rejects an invalid projectId instead of silently dropping it', async () => {
