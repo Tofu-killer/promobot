@@ -2,11 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { Layout } from './components/Layout';
 import {
   clearStoredAdminPassword,
-  getAdminPasswordStorageKey,
   getAuthErrorEventName,
-  getStoredAdminPassword,
-  storeAdminPassword,
-  validateAdminPassword,
+  loginAdminSession,
+  probeAdminSession,
 } from './lib/api';
 import type { AppRoute, NavItem } from './lib/types';
 import { DashboardPage } from './pages/Dashboard';
@@ -143,48 +141,32 @@ interface AppProps {
 type AuthStatus = 'booting' | 'checking' | 'authenticated' | 'anonymous';
 
 export default function App({ initialRoute = 'dashboard', initialAdminPassword = null }: AppProps) {
-  const initialCandidatePassword =
-    typeof window === 'undefined'
-      ? initialAdminPassword
-      : getStoredAdminPassword() ?? initialAdminPassword;
   const [activeRoute, setActiveRoute] = useState<AppRoute>(() =>
     typeof window === 'undefined'
       ? initialRoute
       : getRouteFromPathname(window.location.pathname, initialRoute),
   );
   const [sharedProjectIdDraft, setSharedProjectIdDraft] = useState('');
-  const [adminPassword, setAdminPassword] = useState<string | null>(initialCandidatePassword);
   const authSyncVersionRef = useRef(0);
   const [authStatus, setAuthStatus] = useState<AuthStatus>(
     typeof window === 'undefined'
-      ? initialCandidatePassword
+      ? initialAdminPassword
         ? 'authenticated'
         : 'anonymous'
-      : initialCandidatePassword
-        ? 'booting'
-        : 'anonymous',
+      : 'booting',
   );
   const [authError, setAuthError] = useState<string | null>(null);
 
-  const syncAdminPassword = (candidatePassword: string | null, nextAuthError: string | null = null) => {
+  const syncAdminSession = (nextAuthError: string | null = null) => {
     const authSyncVersion = ++authSyncVersionRef.current;
-
-    if (!candidatePassword) {
-      setAdminPassword(null);
-      setAuthError(nextAuthError);
-      setAuthStatus('anonymous');
-      return;
-    }
-
     setAuthStatus('checking');
 
-    void validateAdminPassword(candidatePassword)
+    void probeAdminSession()
       .then(() => {
         if (authSyncVersionRef.current !== authSyncVersion) {
           return;
         }
 
-        setAdminPassword(candidatePassword);
         setAuthError(null);
         setAuthStatus('authenticated');
       })
@@ -194,8 +176,8 @@ export default function App({ initialRoute = 'dashboard', initialAdminPassword =
         }
 
         clearStoredAdminPassword();
-        setAdminPassword(null);
-        setAuthError(error instanceof Error ? error.message : '管理员密码无效');
+        void error;
+        setAuthError(nextAuthError);
         setAuthStatus('anonymous');
       });
   };
@@ -205,7 +187,7 @@ export default function App({ initialRoute = 'dashboard', initialAdminPassword =
       return;
     }
 
-    syncAdminPassword(getStoredAdminPassword() ?? initialAdminPassword);
+    syncAdminSession();
   }, [initialAdminPassword]);
 
   useEffect(() => {
@@ -213,37 +195,15 @@ export default function App({ initialRoute = 'dashboard', initialAdminPassword =
       const detail =
         event instanceof CustomEvent && typeof event.detail?.message === 'string'
           ? event.detail.message
-          : '管理员密码无效';
+          : '管理员登录已过期';
       clearStoredAdminPassword();
-      syncAdminPassword(null, detail);
+      setAuthError(detail);
+      setAuthStatus('anonymous');
     };
 
     window.addEventListener(getAuthErrorEventName(), handleAuthError);
     return () => {
       window.removeEventListener(getAuthErrorEventName(), handleAuthError);
-    };
-  }, []);
-
-  useEffect(() => {
-    const handleStorage = (event: Event) => {
-      const storageKey =
-        typeof event === 'object' &&
-        event !== null &&
-        'key' in event &&
-        (event as { key?: unknown }).key !== undefined
-          ? (event as { key?: string | null }).key ?? null
-          : null;
-
-      if (storageKey !== null && storageKey !== getAdminPasswordStorageKey()) {
-        return;
-      }
-
-      syncAdminPassword(getStoredAdminPassword());
-    };
-
-    window.addEventListener('storage', handleStorage);
-    return () => {
-      window.removeEventListener('storage', handleStorage);
     };
   }, []);
 
@@ -288,7 +248,7 @@ export default function App({ initialRoute = 'dashboard', initialAdminPassword =
     );
   }
 
-  if (authStatus !== 'authenticated' || !adminPassword) {
+  if (authStatus !== 'authenticated') {
     return (
       <LoginPage
         error={authError}
@@ -303,13 +263,11 @@ export default function App({ initialRoute = 'dashboard', initialAdminPassword =
           setAuthStatus('checking');
 
           try {
-            await validateAdminPassword(trimmed);
-            storeAdminPassword(trimmed, { persist: options?.remember === true });
-            setAdminPassword(trimmed);
+            await loginAdminSession(trimmed, { remember: options?.remember === true });
             setAuthStatus('authenticated');
+            setAuthError(null);
           } catch (error) {
             clearStoredAdminPassword();
-            setAdminPassword(null);
             setAuthError(error instanceof Error ? error.message : '管理员密码无效');
             setAuthStatus('anonymous');
           }

@@ -26,12 +26,14 @@ async function parseResponseBody(response: Response): Promise<unknown> {
 }
 
 export async function apiRequest<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
-  const response = await fetch(input, withAdminPassword(init));
+  const response = await fetch(input, init);
   const body = await parseResponseBody(response);
 
   if (!response.ok) {
     const message =
-      typeof body === 'object' &&
+      response.status === 401
+        ? '管理员登录已过期'
+        : typeof body === 'object' &&
       body !== null &&
       'error' in body &&
       typeof body.error === 'string'
@@ -53,17 +55,50 @@ export async function apiRequest<T>(input: RequestInfo | URL, init?: RequestInit
   return body as T;
 }
 
-export async function validateAdminPassword(password: string): Promise<void> {
-  const headers = new Headers();
-  headers.set('x-admin-password', password);
-
+export async function probeAdminSession(): Promise<void> {
   const response = await fetch('/api/auth/probe', {
     method: 'GET',
-    headers,
   });
   const body = await parseResponseBody(response);
 
   if (response.ok) {
+    clearLegacyAdminPasswordStorage();
+    return;
+  }
+
+  const message =
+    response.status === 401
+      ? '管理员登录已过期'
+      : typeof body === 'object' &&
+          body !== null &&
+          'error' in body &&
+          typeof body.error === 'string'
+        ? body.error
+        : typeof body === 'string' && body.length > 0
+          ? body
+          : `Request failed with status ${response.status}`;
+
+  throw new ApiRequestError(response.status, message, body);
+}
+
+export async function loginAdminSession(
+  password: string,
+  options: { remember?: boolean } = {},
+): Promise<void> {
+  const response = await fetch('/api/auth/login', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      password,
+      remember: options.remember === true,
+    }),
+  });
+  const body = await parseResponseBody(response);
+
+  if (response.ok) {
+    clearLegacyAdminPasswordStorage();
     return;
   }
 
@@ -82,6 +117,10 @@ export async function validateAdminPassword(password: string): Promise<void> {
   throw new ApiRequestError(response.status, message, body);
 }
 
+export async function validateAdminPassword(password: string): Promise<void> {
+  await loginAdminSession(password);
+}
+
 export function getErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message) {
     return error.message;
@@ -91,83 +130,18 @@ export function getErrorMessage(error: unknown): string {
 }
 
 export function getStoredAdminPassword() {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-
-  const sessionStorage = getSessionStorage();
-  const sessionValue = readStorageValue(sessionStorage);
-  if (sessionValue) {
-    return sessionValue;
-  }
-
-  const localStorage = getLegacyLocalStorage();
-  const legacyValue = readStorageValue(localStorage);
-  if (!legacyValue) {
-    return null;
-  }
-
-  const storageMode = readStorageMode(localStorage);
-  if (storageMode === 'persistent') {
-    return legacyValue;
-  }
-
-  try {
-    sessionStorage?.setItem(ADMIN_PASSWORD_STORAGE_KEY, legacyValue);
-    localStorage?.removeItem(ADMIN_PASSWORD_STORAGE_KEY);
-    localStorage?.removeItem(ADMIN_PASSWORD_STORAGE_MODE_KEY);
-  } catch {
-    return legacyValue;
-  }
-
-  return legacyValue;
+  clearLegacyAdminPasswordStorage();
+  return null;
 }
 
 export function storeAdminPassword(password: string, options: { persist?: boolean } = {}) {
-  if (typeof window === 'undefined') {
-    return;
-  }
-
-  const persist = options.persist === true;
-
-  if (persist) {
-    try {
-      getLegacyLocalStorage()?.setItem(ADMIN_PASSWORD_STORAGE_KEY, password);
-      getLegacyLocalStorage()?.setItem(ADMIN_PASSWORD_STORAGE_MODE_KEY, 'persistent');
-      getSessionStorage()?.removeItem(ADMIN_PASSWORD_STORAGE_KEY);
-    } catch {
-      getSessionStorage()?.setItem(ADMIN_PASSWORD_STORAGE_KEY, password);
-    }
-    return;
-  }
-
-  try {
-    getSessionStorage()?.setItem(ADMIN_PASSWORD_STORAGE_KEY, password);
-    getLegacyLocalStorage()?.removeItem(ADMIN_PASSWORD_STORAGE_KEY);
-    getLegacyLocalStorage()?.removeItem(ADMIN_PASSWORD_STORAGE_MODE_KEY);
-  } catch {
-    getLegacyLocalStorage()?.setItem(ADMIN_PASSWORD_STORAGE_KEY, password);
-    getLegacyLocalStorage()?.removeItem(ADMIN_PASSWORD_STORAGE_MODE_KEY);
-  }
+  void password;
+  void options;
+  clearLegacyAdminPasswordStorage();
 }
 
 export function clearStoredAdminPassword() {
-  if (typeof window === 'undefined') {
-    return;
-  }
-
-  try {
-    getSessionStorage()?.removeItem(ADMIN_PASSWORD_STORAGE_KEY);
-  } catch {
-    // Ignore storage cleanup failures.
-  }
-
-  try {
-    getLegacyLocalStorage()?.removeItem(ADMIN_PASSWORD_STORAGE_KEY);
-    getLegacyLocalStorage()?.removeItem(ADMIN_PASSWORD_STORAGE_MODE_KEY);
-  } catch {
-    // Ignore storage cleanup failures.
-  }
+  clearLegacyAdminPasswordStorage();
 }
 
 export function getAuthErrorEventName() {
@@ -175,57 +149,24 @@ export function getAuthErrorEventName() {
 }
 
 export function getAdminPasswordStorageKey() {
-  return ADMIN_PASSWORD_STORAGE_KEY;
+  return 'promobot_admin_password';
 }
 
-function readStorageMode(
-  storage:
-    | {
-        getItem: (key: string) => string | null;
-      }
-    | null,
-) {
+function clearLegacyAdminPasswordStorage() {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
   try {
-    return storage?.getItem(ADMIN_PASSWORD_STORAGE_MODE_KEY) ?? null;
+    window.sessionStorage?.removeItem(ADMIN_PASSWORD_STORAGE_KEY);
   } catch {
-    return null;
-  }
-}
-
-function withAdminPassword(init: RequestInit | undefined): RequestInit | undefined {
-  const adminPassword = getStoredAdminPassword();
-  if (!adminPassword) {
-    return init;
+    // Ignore storage cleanup failures.
   }
 
-  const headers = new Headers(init?.headers);
-  headers.set('x-admin-password', adminPassword);
-
-  return {
-    ...init,
-    headers,
-  };
-}
-
-function readStorageValue(
-  storage:
-    | {
-        getItem: (key: string) => string | null;
-      }
-    | null,
-) {
   try {
-    const value = storage?.getItem(ADMIN_PASSWORD_STORAGE_KEY) ?? null;
-    return value && value.trim().length > 0 ? value : null;
+    window.localStorage?.removeItem(ADMIN_PASSWORD_STORAGE_KEY);
+    window.localStorage?.removeItem(ADMIN_PASSWORD_STORAGE_MODE_KEY);
   } catch {
-    return null;
+    // Ignore storage cleanup failures.
   }
-}
-
-function getSessionStorage() {
-  return typeof window === 'undefined' ? null : window.sessionStorage;
-}
-
-function getLegacyLocalStorage() {
-  return typeof window === 'undefined' ? null : window.localStorage;
 }

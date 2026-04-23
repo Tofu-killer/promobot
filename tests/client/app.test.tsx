@@ -364,13 +364,9 @@ describe('App shell', () => {
     });
   });
 
-  it('keeps the login page when a stored admin password fails probe validation', async () => {
+  it('keeps the login page when the current admin session probe fails', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
-    const { localStorage, sessionStorage } = installAuthStorage(window, {
-      localStorage: createStorageArea(),
-      sessionStorage: createStorageArea('wrong-secret'),
-    });
 
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ error: 'unauthorized' }), {
@@ -394,14 +390,11 @@ describe('App shell', () => {
       '/api/auth/probe',
       expect.objectContaining({
         method: 'GET',
-        headers: expect.any(Headers),
       }),
     );
     expect(collectText(container)).toContain('Admin Login');
     expect(collectText(container)).not.toContain('Dashboard');
-    expect(collectText(container)).toContain('登录失败：管理员密码无效');
-    expect(sessionStorage.removeItem).toHaveBeenCalledWith('promobot_admin_password');
-    expect(localStorage.removeItem).toHaveBeenCalledWith('promobot_admin_password');
+    expect(collectText(container)).not.toContain('登录失败：');
 
     await act(async () => {
       root.unmount();
@@ -409,16 +402,34 @@ describe('App shell', () => {
     });
   });
 
-  it('validates the submitted admin password before entering the shell', async () => {
+  it('logs in through the session api before entering the shell', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
-    const { localStorage, sessionStorage } = installAuthStorage(window, {
-      localStorage: createStorageArea(),
-      sessionStorage: createStorageArea(),
-    });
 
-    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
       if (String(input) === '/api/auth/probe') {
+        return Promise.resolve(
+          new Response(JSON.stringify({ error: 'unauthorized' }), {
+            status: 401,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          }),
+        );
+      }
+
+      if (String(input) === '/api/auth/login') {
+        expect(init).toEqual({
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            password: 'secret',
+            remember: false,
+          }),
+        });
+
         return Promise.resolve(
           new Response(null, {
             status: 204,
@@ -477,14 +488,11 @@ describe('App shell', () => {
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
-      '/api/auth/probe',
+      '/api/auth/login',
       expect.objectContaining({
-        method: 'GET',
-        headers: expect.any(Headers),
+        method: 'POST',
       }),
     );
-    expect(sessionStorage.setItem).toHaveBeenCalledWith('promobot_admin_password', 'secret');
-    expect(localStorage.setItem).not.toHaveBeenCalled();
     expect(collectText(container)).toContain('PromoBot');
 
     await act(async () => {
@@ -493,12 +501,12 @@ describe('App shell', () => {
     });
   });
 
-  it('migrates a legacy localStorage admin password into sessionStorage on first client render', async () => {
+  it('enters the shell when an existing cookie-backed session probe succeeds and clears legacy password storage', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
     const { localStorage, sessionStorage } = installAuthStorage(window, {
-      localStorage: createStorageArea('secret'),
-      sessionStorage: createStorageArea(),
+      localStorage: createStorageArea('legacy-secret'),
+      sessionStorage: createStorageArea('legacy-secret'),
     });
 
     const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
@@ -542,13 +550,11 @@ describe('App shell', () => {
       '/api/auth/probe',
       expect.objectContaining({
         method: 'GET',
-        headers: expect.any(Headers),
       }),
     );
-    expect(sessionStorage.setItem).toHaveBeenCalledWith('promobot_admin_password', 'secret');
-    expect(sessionStorage.peek()).toBe('secret');
+    expect(sessionStorage.removeItem).toHaveBeenCalledWith('promobot_admin_password');
     expect(localStorage.removeItem).toHaveBeenCalledWith('promobot_admin_password');
-    expect(localStorage.peek()).toBeNull();
+    expect(localStorage.removeItem).toHaveBeenCalledWith('promobot_admin_password_mode');
     expect(collectText(container)).toContain('PromoBot');
 
     await act(async () => {
@@ -557,16 +563,34 @@ describe('App shell', () => {
     });
   });
 
-  it('stores the admin password in localStorage only when remember this browser is enabled', async () => {
+  it('passes remember=true into the login request when remember this browser is enabled', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
-    const { localStorage, sessionStorage } = installAuthStorage(window, {
-      localStorage: createStorageArea(),
-      sessionStorage: createStorageArea(),
-    });
 
-    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
       if (String(input) === '/api/auth/probe') {
+        return Promise.resolve(
+          new Response(JSON.stringify({ error: 'unauthorized' }), {
+            status: 401,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          }),
+        );
+      }
+
+      if (String(input) === '/api/auth/login') {
+        expect(init).toEqual({
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            password: 'secret',
+            remember: true,
+          }),
+        });
+
         return Promise.resolve(new Response(null, { status: 204 }));
       }
 
@@ -627,9 +651,12 @@ describe('App shell', () => {
       await flush();
     });
 
-    expect(localStorage.setItem).toHaveBeenCalledWith('promobot_admin_password', 'secret');
-    expect(localStorage.setItem).toHaveBeenCalledWith('promobot_admin_password_mode', 'persistent');
-    expect(sessionStorage.setItem).not.toHaveBeenCalledWith('promobot_admin_password', 'secret');
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/auth/login',
+      expect.objectContaining({
+        method: 'POST',
+      }),
+    );
 
     await act(async () => {
       root.unmount();
@@ -637,31 +664,15 @@ describe('App shell', () => {
     });
   });
 
-  it('prefers sessionStorage over legacy localStorage when both values exist', async () => {
+  it('returns to the login page when a later auth error event fires', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
-    const { localStorage, sessionStorage } = installAuthStorage(window, {
-      localStorage: createStorageArea('legacy-secret'),
-      sessionStorage: createStorageArea('secret'),
-    });
 
-    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
       if (String(input) === '/api/auth/probe') {
-        const headers = new Headers(init?.headers);
-        if (headers.get('x-admin-password') === 'secret') {
-          return Promise.resolve(
-            new Response(null, {
-              status: 204,
-            }),
-          );
-        }
-
         return Promise.resolve(
-          new Response(JSON.stringify({ error: 'unauthorized' }), {
-            status: 401,
-            headers: {
-              'Content-Type': 'application/json',
-            },
+          new Response(null, {
+            status: 204,
           }),
         );
       }
@@ -698,13 +709,26 @@ describe('App shell', () => {
       '/api/auth/probe',
       expect.objectContaining({
         method: 'GET',
-        headers: expect.any(Headers),
       }),
     );
-    expect(sessionStorage.setItem).not.toHaveBeenCalled();
-    expect(localStorage.removeItem).not.toHaveBeenCalled();
     expect(collectText(container)).toContain('PromoBot');
     expect(collectText(container)).not.toContain('Admin Login');
+
+    await act(async () => {
+      const authErrorEvent = new window.Event('promobot-auth-error');
+      Object.defineProperty(authErrorEvent, 'detail', {
+        configurable: true,
+        value: { message: '管理员登录已过期' },
+      });
+      window.dispatchEvent(
+        authErrorEvent,
+      );
+      await flush();
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('Admin Login');
+    expect(collectText(container)).toContain('登录失败：管理员登录已过期');
 
     await act(async () => {
       root.unmount();

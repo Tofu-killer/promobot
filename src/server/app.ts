@@ -3,7 +3,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { loadConfig, type AppConfig } from './config.js';
-import { requireAdminPassword } from './middleware/auth.js';
+import {
+  createAdminSessionStore,
+  hasValidAdminPassword,
+  readAdminSessionToken,
+  requireAdminPassword,
+  serializeAdminSessionCookie,
+  serializeClearedAdminSessionCookie,
+} from './middleware/auth.js';
 import { ipAllowlist } from './middleware/ipAllowlist.js';
 import { channelAccountsRouter } from './routes/channelAccounts.js';
 import { createContentRouter } from './routes/content.js';
@@ -33,16 +40,65 @@ export function createApp(config: AppConfig = loadConfig(), dependencies: AppDep
       allowlist: config.allowedIps,
     },
   });
+  const adminSessionStore = createAdminSessionStore();
   app.disable('x-powered-by');
   app.use(express.json());
   app.use(ipAllowlist(() => settingsStore.get().allowlist));
   app.get('/api/system/health', (_request, response) => {
     response.json(createSystemHealthPayload(dependencies.schedulerRuntime));
   });
-  app.use('/api', requireAdminPassword(config.adminPassword));
-  app.get('/api/auth/probe', (_request, response) => {
+  app.post('/api/auth/login', (request, response) => {
+    const password = typeof request.body?.password === 'string' ? request.body.password : '';
+    const remember = request.body?.remember === true;
+
+    if (!password.trim()) {
+      response.status(400).json({ error: 'invalid auth payload' });
+      return;
+    }
+
+    if (!config.adminPassword || password !== config.adminPassword) {
+      response.status(401).json({ error: 'unauthorized' });
+      return;
+    }
+
+    const session = adminSessionStore.createSession({ remember });
+    response.setHeader(
+      'Set-Cookie',
+      serializeAdminSessionCookie(session.token, {
+        remember,
+        expiresAt: session.expiresAt,
+      }),
+    );
     response.status(204).end();
   });
+  app.get('/api/auth/probe', (_request, response) => {
+    const authMiddleware = requireAdminPassword({
+      adminPassword: config.adminPassword,
+      sessionStore: adminSessionStore,
+      allowHeaderFallback: true,
+    });
+
+    authMiddleware(_request, response, () => {
+      response.status(204).end();
+    });
+  });
+  app.post('/api/auth/logout', (request, response) => {
+    const token = readAdminSessionToken(request);
+    if (token) {
+      adminSessionStore.revokeSession(token);
+    }
+
+    response.setHeader('Set-Cookie', serializeClearedAdminSessionCookie());
+    response.status(204).end();
+  });
+  app.use(
+    '/api',
+    requireAdminPassword({
+      adminPassword: config.adminPassword,
+      sessionStore: adminSessionStore,
+      allowHeaderFallback: true,
+    }),
+  );
   app.use('/api/system', createSystemRouter({ schedulerRuntime: dependencies.schedulerRuntime }));
   app.use('/api/content', createContentRouter(draftStore));
   app.use('/api/discovery', discoveryRouter);

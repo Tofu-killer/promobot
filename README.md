@@ -37,7 +37,7 @@ PromoBot 现在不是“只有 spec 的空仓库”了。
 
 ## 重要限制
 
-- `ADMIN_PASSWORD` 现在通过 `x-admin-password` 请求头接入后端 API；前端首次进入时会要求输入管理员密码。默认保存在浏览器 `sessionStorage`（当前标签页会话级）中；如果勾选“记住这台浏览器”，则会改为长期保存。
+- `ADMIN_PASSWORD` 现在优先通过服务端 session cookie 保护后端 API；前端首次进入时会要求输入管理员密码。默认登录发会话级 `HttpOnly` cookie；如果勾选“记住这台浏览器”，则会改为持久 cookie。为了兼容自动化与 CLI，后端当前仍接受 `x-admin-password` 作为 fallback。
 - allowlist 现在会从共享 settings 状态读取；共享同一 SQLite 的多个进程在下一次请求时都能看到最新 allowlist。
 - `monitor/fetch` 已支持 RSS、V2EX、Reddit search；`inbox/fetch` 与 `reputation/fetch` 现在也会直接基于 settings/source configs 调用 X、Reddit、V2EX 搜索，不再主要依赖 monitor 落库或骨架项。
 - `monitor / inbox / reputation` 在生产环境下已禁用 demo / seed 数据回退；没有真实配置或真实信号时会返回空态。

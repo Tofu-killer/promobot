@@ -33,7 +33,7 @@ async function requestExistingApp(
     return body + (typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8'));
   };
 
-  return await new Promise<{ status: number; body: string }>((resolve, reject) => {
+  return await new Promise<{ status: number; body: string; headers: Record<string, string> }>((resolve, reject) => {
     const req = Object.assign(Object.create(app.request), {
       app,
       method: options.method ?? 'GET',
@@ -71,7 +71,11 @@ async function requestExistingApp(
       },
       end(chunk?: string | Uint8Array) {
         body = appendChunk(body, chunk);
-        resolve({ status: this.statusCode, body });
+        resolve({
+          status: this.statusCode,
+          body,
+          headers: Object.fromEntries(responseHeaders),
+        });
         return this;
       },
     });
@@ -91,7 +95,7 @@ async function requestExistingApp(
     }
 
     let settled = false;
-    const finish = (result: { status: number; body: string }) => {
+    const finish = (result: { status: number; body: string; headers: Record<string, string> }) => {
       if (!settled) {
         settled = true;
         resolve(result);
@@ -100,7 +104,11 @@ async function requestExistingApp(
 
     res.end = (chunk?: string | Uint8Array) => {
       body = appendChunk(body, chunk);
-      finish({ status: res.statusCode, body });
+      finish({
+        status: res.statusCode,
+        body,
+        headers: Object.fromEntries(responseHeaders),
+      });
       return res;
     };
 
@@ -111,7 +119,7 @@ async function requestExistingApp(
         reject(error);
         return;
       }
-      finish({ status: 404, body });
+      finish({ status: 404, body, headers: Object.fromEntries(responseHeaders) });
     });
   });
 }
@@ -136,6 +144,12 @@ async function requestApp(options: {
     url: options.url ?? '/api/system/health',
     body: options.body,
   });
+}
+
+function readSessionCookie(response: { headers: Record<string, string> }) {
+  const setCookieHeader = response.headers['set-cookie'] ?? '';
+  const match = setCookieHeader.match(/promobot_admin_session=([^;]+)/);
+  return match ? `promobot_admin_session=${match[1]}` : null;
 }
 
 function createClientBuildFixture() {
@@ -334,6 +348,24 @@ describe('security middleware', () => {
     expect(JSON.parse(response.body)).toEqual({ error: 'unauthorized' });
   });
 
+  it('treats malformed admin session cookies as unauthorized instead of crashing', async () => {
+    const app = createApp({
+      allowedIps: ['127.0.0.1'],
+      adminPassword: 'secret',
+    });
+
+    const response = await requestExistingApp(app, {
+      headers: {
+        cookie: 'promobot_admin_session=%',
+      },
+      remoteAddress: '127.0.0.1',
+      url: '/api/settings',
+    });
+
+    expect(response.status).toBe(401);
+    expect(JSON.parse(response.body)).toEqual({ error: 'unauthorized' });
+  });
+
   it('rejects the auth probe when the admin password header is missing', async () => {
     const response = await requestApp({
       headers: {},
@@ -376,6 +408,84 @@ describe('security middleware', () => {
 
     expect(response.status).toBe(204);
     expect(response.body).toBe('');
+  });
+
+  it('creates an admin session cookie on login and accepts subsequent cookie-authenticated requests', async () => {
+    const app = createApp({
+      allowedIps: ['127.0.0.1'],
+      adminPassword: 'secret',
+    });
+
+    const loginResponse = await requestExistingApp(app, {
+      method: 'POST',
+      url: '/api/auth/login',
+      headers: {
+        'content-type': 'application/json',
+      },
+      remoteAddress: '127.0.0.1',
+      body: {
+        password: 'secret',
+        remember: true,
+      },
+    });
+
+    expect(loginResponse.status).toBe(204);
+    expect(loginResponse.headers['set-cookie']).toContain('promobot_admin_session=');
+    expect(loginResponse.headers['set-cookie']).toContain('HttpOnly');
+    expect(loginResponse.headers['set-cookie']).toContain('SameSite=Lax');
+    expect(loginResponse.headers['set-cookie']).toContain('Max-Age=');
+
+    const sessionCookie = readSessionCookie(loginResponse);
+    expect(sessionCookie).not.toBeNull();
+
+    const probeResponse = await requestExistingApp(app, {
+      method: 'GET',
+      url: '/api/auth/probe',
+      headers: {
+        cookie: sessionCookie ?? '',
+      },
+      remoteAddress: '127.0.0.1',
+    });
+    expect(probeResponse.status).toBe(204);
+
+    const protectedResponse = await requestExistingApp(app, {
+      method: 'GET',
+      url: '/api/settings',
+      headers: {
+        cookie: sessionCookie ?? '',
+      },
+      remoteAddress: '127.0.0.1',
+    });
+    expect(protectedResponse.status).toBe(200);
+    expect(JSON.parse(protectedResponse.body)).toEqual({
+      settings: expect.objectContaining({
+        allowlist: ['127.0.0.1'],
+      }),
+      platforms: expect.any(Array),
+    });
+  });
+
+  it('rejects login when the password is invalid', async () => {
+    const app = createApp({
+      allowedIps: ['127.0.0.1'],
+      adminPassword: 'secret',
+    });
+
+    const response = await requestExistingApp(app, {
+      method: 'POST',
+      url: '/api/auth/login',
+      headers: {
+        'content-type': 'application/json',
+      },
+      remoteAddress: '127.0.0.1',
+      body: {
+        password: 'wrong-secret',
+        remember: false,
+      },
+    });
+
+    expect(response.status).toBe(401);
+    expect(JSON.parse(response.body)).toEqual({ error: 'unauthorized' });
   });
 });
 

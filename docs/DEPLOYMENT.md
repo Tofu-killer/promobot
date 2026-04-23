@@ -47,9 +47,9 @@ cp .env.example .env
 - `ADMIN_PASSWORD`
   - 进程启动时会读取
   - 在 `NODE_ENV=production` 下，若仍是默认值 `change-me`，服务会拒绝启动
-  - 除 `/api/system/health` 外，其它 `/api/*` 请求都需要提供匹配的管理员密码
-  - 当前前端默认会把登录时输入的密码保存在浏览器 `sessionStorage`（当前标签页会话级），并自动附加到后续 API 请求
-  - 若用户显式勾选“记住这台浏览器”，则会改为长期保存
+  - 除 `/api/system/health` 外，其它 `/api/*` 请求都需要通过管理员鉴权
+  - 当前前端登录成功后会得到 `HttpOnly` session cookie；默认是会话级 cookie，勾选“记住这台浏览器”后会改为持久 cookie
+  - 为兼容自动化与 CLI，后端当前仍接受 `x-admin-password` 作为 fallback，但浏览器主路径已不再保存明文密码
 - `PROMOBOT_DB_PATH`
   - 默认是 `<cwd>/data/promobot.sqlite`
   - 用仓库根目录启动或使用 `pm2.config.js` 时，默认值等同于 `<repo>/data/promobot.sqlite`
@@ -305,10 +305,10 @@ pm2 stop promobot
 当前实现：
 
 - 浏览器第一次打开控制台时会先显示登录页
-- 输入的管理员密码默认会保存到当前浏览器 `sessionStorage`（当前标签页会话级）
-- 如果勾选“记住这台浏览器”，则会改为长期保存
-- 未勾选时，关闭当前标签页或当前浏览器会话结束后，需要重新输入管理员密码
-- 后续前端 API 请求会自动带 `x-admin-password`
+- 登录成功后前端会拿到服务端签发的 `HttpOnly` session cookie
+- 如果勾选“记住这台浏览器”，则会改为持久 cookie；未勾选时，关闭当前浏览器会话后需要重新登录
+- 浏览器后续 API 请求会自动复用当前 cookie session
+- 自动化脚本和 CLI 仍可继续使用 `x-admin-password` fallback
 - 如果密码失效或填错，后端会返回 `401 unauthorized`
 
 ## 验证
