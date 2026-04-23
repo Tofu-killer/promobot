@@ -805,6 +805,45 @@ describe('client API page wiring', () => {
     expect(result.draft.status).toBe('review');
   });
 
+  it('maps review discard to failed through the shared API helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        draft: {
+          id: 11,
+          platform: 'x',
+          title: 'Discarded review draft',
+          content: 'Draft body',
+          hashtags: ['#launch'],
+          status: 'failed',
+          createdAt: '2026-04-19T00:00:00.000Z',
+          updatedAt: '2026-04-19T01:00:00.000Z',
+        },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const reviewQueueModule = (await import('../../src/client/pages/ReviewQueue')) as Record<string, unknown>;
+
+    expect(typeof reviewQueueModule.discardReviewDraftRequest).toBe('function');
+
+    const discardReviewDraftRequest = reviewQueueModule.discardReviewDraftRequest as (id: number) => Promise<{
+      draft: { id: number; title?: string; status: string };
+    }>;
+
+    const result = await discardReviewDraftRequest(11);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/drafts/11',
+      expect.objectContaining({
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'failed' }),
+      }),
+    );
+    expect(result.draft.title).toBe('Discarded review draft');
+    expect(result.draft.status).toBe('failed');
+  });
+
   it('publishes drafts through the shared API helper', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({

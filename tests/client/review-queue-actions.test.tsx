@@ -668,6 +668,7 @@ describe('review queue wiring', () => {
     expect(html).toContain('Launch thread');
     expect(html).toContain('通过');
     expect(html).toContain('退回');
+    expect(html).toContain('丢弃');
     expect(html).toContain('当前去向：仍在审核队列，尚未推入 Publish Calendar。');
     expect(html).toContain('Publish contract');
     expect(html).toContain('回执状态：待触发');
@@ -777,6 +778,71 @@ describe('review queue wiring', () => {
         findElement(container, (element) => element.tagName === 'BUTTON' && element.getAttribute('data-review-reject-id') === '12'),
       ),
     ).toBe(false);
+    expect(collectText(container)).toContain('暂无待审核草稿');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('discards review drafts through PATCH /api/drafts/:id by mapping discard to failed', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ReviewQueuePage } = await import('../../src/client/pages/ReviewQueue');
+
+    const loadReviewQueueAction = vi.fn().mockResolvedValue({
+      drafts: [
+        {
+          id: 21,
+          platform: 'x',
+          title: 'Discard me',
+          content: 'Draft body',
+          hashtags: ['#launch'],
+          status: 'review',
+          createdAt: '2026-04-19T00:00:00.000Z',
+          updatedAt: '2026-04-19T00:00:00.000Z',
+        },
+      ],
+    });
+    const updateReviewDraftAction = vi.fn().mockResolvedValue({
+      draft: {
+        id: 21,
+        platform: 'x',
+        title: 'Discard me',
+        content: 'Draft body',
+        hashtags: ['#launch'],
+        status: 'failed',
+        createdAt: '2026-04-19T00:00:00.000Z',
+        updatedAt: '2026-04-19T01:10:00.000Z',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ReviewQueuePage as never, {
+          loadReviewQueueAction,
+          updateReviewDraftAction,
+        }),
+      );
+      await flush();
+    });
+
+    const discardButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-review-discard-id') === '21',
+    );
+
+    expect(discardButton).not.toBeNull();
+
+    await act(async () => {
+      discardButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(updateReviewDraftAction).toHaveBeenCalledWith(21, { status: 'failed' });
+    expect(collectText(container)).toContain('已丢弃：Discard me');
     expect(collectText(container)).toContain('暂无待审核草稿');
 
     await act(async () => {

@@ -10,7 +10,7 @@ import { upsertDraftRecord } from '../lib/drafts';
 
 interface ReviewQueuePageProps {
   loadReviewQueueAction?: (projectId?: number) => Promise<DraftsResponse>;
-  updateReviewDraftAction?: (id: number, input: { status: 'approved' | 'draft' }) => Promise<UpdateDraftResponse>;
+  updateReviewDraftAction?: (id: number, input: { status: 'approved' | 'draft' | 'failed' }) => Promise<UpdateDraftResponse>;
   publishReviewDraftAction?: (id: number) => Promise<PublishDraftResponse>;
   scheduleReviewDraftAction?: (
     id: number,
@@ -60,7 +60,7 @@ export async function loadReviewQueueRequest(projectId?: number): Promise<Drafts
 
 export async function updateReviewDraftRequest(
   id: number,
-  input: { status: 'approved' | 'draft' },
+  input: { status: 'approved' | 'draft' | 'failed' },
 ): Promise<UpdateDraftResponse> {
   return apiRequest<UpdateDraftResponse>(`/api/drafts/${id}`, {
     method: 'PATCH',
@@ -69,6 +69,10 @@ export async function updateReviewDraftRequest(
     },
     body: JSON.stringify(input),
   });
+}
+
+export async function discardReviewDraftRequest(id: number): Promise<UpdateDraftResponse> {
+  return updateReviewDraftRequest(id, { status: 'failed' });
 }
 
 export async function publishReviewDraftRequest(id: number): Promise<PublishDraftResponse> {
@@ -107,7 +111,11 @@ function getReviewActionState(actionStateById: Record<number, ReviewActionState>
   return actionStateById[draftId] ?? createIdleActionState();
 }
 
-function formatReviewActionLabel(status: 'approved' | 'draft') {
+function formatReviewActionLabel(status: 'approved' | 'draft' | 'failed') {
+  if (status === 'failed') {
+    return '已丢弃';
+  }
+
   return status === 'approved' ? '已通过' : '已退回';
 }
 
@@ -368,7 +376,7 @@ export function ReviewQueuePage({
     pendingDraftActionIdsRef.current.delete(draftId);
   }
 
-  async function handleReviewDraft(draftId: number, nextStatus: 'approved' | 'draft') {
+  async function handleReviewDraft(draftId: number, nextStatus: 'approved' | 'draft' | 'failed') {
     const sourceDraft =
       visibleDrafts.find((draft) => draft.id === draftId) ?? displayState.data?.drafts.find((draft) => draft.id === draftId);
 
@@ -662,6 +670,24 @@ export function ReviewQueuePage({
                           }}
                         >
                           退回
+                        </button>
+                        <button
+                          type="button"
+                          data-review-discard-id={draft.id}
+                          disabled={isDraftActionPending}
+                          onClick={() => {
+                            void handleReviewDraft(draft.id, 'failed');
+                          }}
+                          style={{
+                            borderRadius: '12px',
+                            border: '1px solid #fecaca',
+                            background: '#fff1f2',
+                            color: '#b91c1c',
+                            padding: '10px 14px',
+                            fontWeight: 700,
+                          }}
+                        >
+                          丢弃
                         </button>
                         <button
                           type="button"

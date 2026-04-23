@@ -810,28 +810,13 @@ export function DraftsPage({
                   {isBatchSelectableDraft(draft) ? (
                     <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
                       <button
-                      type="button"
-                      data-drafts-select-id={String(draft.id)}
-                      data-draft-select-item={String(draft.id)}
-                      aria-pressed={selectedDraftIds.includes(draft.id) ? 'true' : 'false'}
-                      onClick={() => handleToggleDraftSelection(draft.id)}
-                      onChange={(event) => {
-                        const nextChecked =
-                          typeof (event.target as { checked?: unknown }).checked === 'boolean'
-                            ? ((event.target as { checked: boolean }).checked)
-                            : !selectedDraftIds.includes(draft.id);
-                        setBatchFeedback(null);
-                        setSelectedDraftIds((currentDraftIds) =>
-                          nextChecked
-                            ? currentDraftIds.includes(draft.id)
-                              ? currentDraftIds
-                              : [...currentDraftIds, draft.id]
-                            : currentDraftIds.filter((id) => id !== draft.id),
-                        );
-                      }}
-                      style={{
-                        width: 'fit-content',
-                        borderRadius: '999px',
+                        type="button"
+                        data-drafts-select-id={String(draft.id)}
+                        aria-pressed={selectedDraftIds.includes(draft.id) ? 'true' : 'false'}
+                        onClick={() => handleToggleDraftSelection(draft.id)}
+                        style={{
+                          width: 'fit-content',
+                          borderRadius: '999px',
                           border: '1px solid #cbd5e1',
                           background: selectedDraftIds.includes(draft.id) ? '#dbeafe' : '#ffffff',
                           color: selectedDraftIds.includes(draft.id) ? '#1d4ed8' : '#334155',
@@ -841,7 +826,15 @@ export function DraftsPage({
                       >
                         {selectedDraftIds.includes(draft.id) ? '已加入批量' : '加入批量'}
                       </button>
-                      <input type="checkbox" checked={selectedDraftIds.includes(draft.id)} aria-pressed={selectedDraftIds.includes(draft.id) ? 'true' : 'false'} readOnly />
+                      <input
+                        type="checkbox"
+                        checked={selectedDraftIds.includes(draft.id)}
+                        data-draft-select-item={String(draft.id)}
+                        aria-pressed={selectedDraftIds.includes(draft.id) ? 'true' : 'false'}
+                        onChange={() => {
+                          handleToggleDraftSelection(draft.id);
+                        }}
+                      />
                     </div>
                   ) : null}
                   <DraftEditorCard
