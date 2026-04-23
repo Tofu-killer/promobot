@@ -70,6 +70,7 @@ pnpm browser:artifacts:archive -- --older-than-hours 72
 - `pnpm dev:server`：Express API，默认 `3001`
 - `pnpm build`：分别构建到 `dist/client` 和 `dist/server`
 - `pnpm start`：启动 `dist/server/index.js`，并在 `dist/client` 存在时直接提供构建后的前端
+- GitHub Actions CI：`main` 的 push / pull_request 会运行 `pnpm test` 和 `pnpm build`，用于提前拦截测试与构建回归
 - 生产访问时，浏览器可直接走同一个 Node 进程访问页面和 `/api`
 
 更完整的本地开发、构建、LAN 访问、环境变量和限制说明见 `docs/DEPLOYMENT.md`。
