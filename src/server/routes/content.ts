@@ -135,10 +135,16 @@ export function createContentRouter(
       return;
     }
 
+    const scopedProject =
+      parsedProjectId !== undefined ? projectStore.getById(parsedProjectId) : undefined;
+
+    if (parsedProjectId !== undefined && (!scopedProject || scopedProject.archived)) {
+      response.status(404).json({ error: 'project not found' });
+      return;
+    }
+
     const requestSiteContext = parseSiteContext(request.body?.siteContext);
-    const projectSiteContext = getProjectSiteContext(
-      parsedProjectId !== undefined ? projectStore.getById(parsedProjectId) : undefined,
-    );
+    const projectSiteContext = getProjectSiteContext(scopedProject);
     const input: GenerateDraftInput = {
       topic,
       tone: request.body?.tone,

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../../src/server/app';
 import { createContentRouter } from '../../src/server/routes/content';
 import type { DraftRecord, DraftStore } from '../../src/server/routes/drafts';
+import type { ProjectStore } from '../../src/server/store/projects';
 import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
 
 const originalEnv = {
@@ -131,10 +132,10 @@ function installFetchStub() {
   );
 }
 
-function createContentApp(draftStore: DraftStore) {
+function createContentApp(draftStore: DraftStore, projectStore?: ProjectStore) {
   const app = express();
   app.use(express.json());
-  app.use('/api/content', createContentRouter(draftStore));
+  app.use('/api/content', createContentRouter(draftStore, projectStore));
   return app;
 }
 
@@ -252,9 +253,41 @@ describe('content generation api', () => {
         return undefined;
       },
     };
+    const projectStore: ProjectStore = {
+      create() {
+        throw new Error('not implemented');
+      },
+      getById(id) {
+        if (id !== 42) {
+          return undefined;
+        }
+
+        return {
+          id: 42,
+          name: 'Scoped Project',
+          siteName: 'PromoBot',
+          siteUrl: 'https://promobot.test',
+          siteDescription: 'Scoped project',
+          sellingPoints: ['Project scoped'],
+          brandVoice: '',
+          ctas: [],
+          archived: false,
+          createdAt: new Date().toISOString(),
+        };
+      },
+      list() {
+        return [];
+      },
+      update() {
+        return undefined;
+      },
+      archive() {
+        return undefined;
+      },
+    };
 
     const response = await requestExpressApp(
-      createContentApp(draftStore),
+      createContentApp(draftStore, projectStore),
       'POST',
       '/api/content/generate',
       {
@@ -330,6 +363,55 @@ describe('content generation api', () => {
         },
       ],
     });
+  });
+
+  it('rejects generation when projectId points to a missing project', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await requestApp('POST', '/api/content/generate', {
+      topic: 'Missing project draft',
+      platforms: ['x'],
+      tone: 'professional',
+      projectId: 999,
+    });
+
+    expect(response.status).toBe(404);
+    expect(JSON.parse(response.body)).toEqual({
+      error: 'project not found',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects generation when projectId points to an archived project', async () => {
+    const created = await requestApp('POST', '/api/projects', {
+      name: 'Archived Project',
+      siteName: 'PromoBot Archive',
+      siteUrl: 'https://archive.promobot.test',
+      siteDescription: 'Archived project context',
+      sellingPoints: ['Historical context'],
+    });
+
+    expect(created.status).toBe(201);
+
+    const archived = await requestApp('POST', '/api/projects/1/archive');
+    expect(archived.status).toBe(200);
+
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await requestApp('POST', '/api/content/generate', {
+      topic: 'Archived project draft',
+      platforms: ['x'],
+      tone: 'professional',
+      projectId: 1,
+    });
+
+    expect(response.status).toBe(404);
+    expect(JSON.parse(response.body)).toEqual({
+      error: 'project not found',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('rejects an invalid projectId instead of silently dropping it', async () => {
