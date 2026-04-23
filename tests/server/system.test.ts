@@ -8,6 +8,8 @@ import {
   createSessionRequestArtifact,
   getSessionRequestResultArtifact,
 } from '../../src/server/services/browser/sessionRequestArtifacts';
+import { createSQLiteDraftStore } from '../../src/server/store/drafts';
+import { createSQLitePublishLogStore } from '../../src/server/store/publishLogs';
 import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
 
 const defaultStorageState = {
@@ -1840,6 +1842,130 @@ describe('system runtime api', () => {
         ],
         total: 2,
       });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('imports browser-handoff completion through the system api and marks the draft published', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const draftStore = createSQLiteDraftStore();
+      const publishLogStore = createSQLitePublishLogStore();
+      const draft = draftStore.create({
+        platform: 'facebook-group',
+        title: 'Community update',
+        content: 'Need manual browser handoff',
+        target: 'group-123',
+        metadata: {
+          accountKey: 'launch-campaign',
+        },
+      });
+
+      const artifactDir = path.join(
+        rootDir,
+        'artifacts',
+        'browser-handoffs',
+        'facebookGroup',
+        'launch-campaign',
+      );
+      fs.mkdirSync(artifactDir, { recursive: true });
+      const artifactPath =
+        'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-1.json';
+      fs.writeFileSync(
+        path.join(rootDir, artifactPath),
+        JSON.stringify({
+          type: 'browser_manual_handoff',
+          status: 'pending',
+          platform: 'facebookGroup',
+          draftId: String(draft.id),
+          title: 'Community update',
+          content: 'Need manual browser handoff',
+          target: 'group-123',
+          accountKey: 'launch-campaign',
+          session: {
+            hasSession: true,
+            id: 'facebookGroup:launch-campaign',
+            status: 'active',
+            validatedAt: '2026-04-23T10:00:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
+          },
+          createdAt: '2026-04-23T10:05:00.000Z',
+          updatedAt: '2026-04-23T10:05:00.000Z',
+          resolvedAt: null,
+          resolution: null,
+        }),
+      );
+
+      const app = createApp({
+        allowedIps: ['127.0.0.1'],
+        adminPassword: 'secret',
+      });
+
+      const response = await requestExistingApp(app, {
+        method: 'POST',
+        url: '/api/system/browser-handoffs/import',
+        remoteAddress: '127.0.0.1',
+        headers: {
+          'x-admin-password': 'secret',
+          'content-type': 'application/json',
+        },
+        body: {
+          artifactPath,
+          publishStatus: 'published',
+          message: 'browser lane completed publish',
+          publishUrl: 'https://facebook.com/groups/group-123/posts/42',
+          externalId: 'fb-post-42',
+          publishedAt: '2026-04-23T10:10:00.000Z',
+        },
+      });
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        ok: true,
+        imported: true,
+        artifactPath,
+        draftId: draft.id,
+        draftStatus: 'published',
+        platform: 'facebookGroup',
+        mode: 'browser',
+        status: 'published',
+        success: true,
+        publishUrl: 'https://facebook.com/groups/group-123/posts/42',
+        externalId: 'fb-post-42',
+        message: 'browser lane completed publish',
+        publishedAt: '2026-04-23T10:10:00.000Z',
+      });
+
+      expect(draftStore.getById(draft.id)).toEqual(
+        expect.objectContaining({
+          id: draft.id,
+          status: 'published',
+          publishedAt: '2026-04-23T10:10:00.000Z',
+        }),
+      );
+      expect(publishLogStore.listByDraftId(draft.id)).toEqual([
+        expect.objectContaining({
+          draftId: draft.id,
+          status: 'published',
+          publishUrl: 'https://facebook.com/groups/group-123/posts/42',
+          message: 'browser lane completed publish',
+        }),
+      ]);
+      expect(JSON.parse(fs.readFileSync(path.join(rootDir, artifactPath), 'utf8'))).toEqual(
+        expect.objectContaining({
+          status: 'resolved',
+          resolution: {
+            status: 'resolved',
+            publishStatus: 'published',
+            draftStatus: 'published',
+            publishUrl: 'https://facebook.com/groups/group-123/posts/42',
+            externalId: 'fb-post-42',
+            message: 'browser lane completed publish',
+            publishedAt: '2026-04-23T10:10:00.000Z',
+          },
+        }),
+      );
     } finally {
       cleanupTestDatabasePath(rootDir);
     }

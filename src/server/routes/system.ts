@@ -5,6 +5,10 @@ import {
   importSessionRequestResultArtifact,
   SessionRequestResultImportError,
 } from '../services/browser/sessionResultImporter.js';
+import {
+  BrowserHandoffImportError,
+  importBrowserHandoffResult,
+} from '../services/publishers/browserHandoffResultImporter.js';
 import { listBrowserHandoffArtifacts } from '../services/publishers/browserHandoffArtifacts.js';
 import type { SchedulerRuntime } from '../runtime/schedulerRuntime.js';
 
@@ -184,6 +188,48 @@ export function createSystemRouter(dependencies: SystemRouteDependencies = {}) {
     });
   });
 
+  systemRouter.post('/browser-handoffs/import', async (request, response, next) => {
+    if (request.body !== undefined && !isPlainObject(request.body)) {
+      response.status(400).json({ error: 'invalid browser handoff payload' });
+      return;
+    }
+
+    const artifactPath =
+      typeof request.body?.artifactPath === 'string' ? request.body.artifactPath.trim() : '';
+    const message =
+      typeof request.body?.message === 'string' ? request.body.message.trim() : '';
+
+    if (!artifactPath || !message || !isBrowserHandoffPublishStatus(request.body?.publishStatus)) {
+      response.status(400).json({ error: 'invalid browser handoff payload' });
+      return;
+    }
+
+    try {
+      const result = await importBrowserHandoffResult({
+        artifactPath,
+        publishStatus: request.body.publishStatus,
+        message,
+        ...(request.body?.publishUrl === null || typeof request.body?.publishUrl === 'string'
+          ? { publishUrl: request.body.publishUrl as string | null | undefined }
+          : {}),
+        ...(request.body?.externalId === null || typeof request.body?.externalId === 'string'
+          ? { externalId: request.body.externalId as string | null | undefined }
+          : {}),
+        ...(request.body?.publishedAt === null || typeof request.body?.publishedAt === 'string'
+          ? { publishedAt: request.body.publishedAt as string | null | undefined }
+          : {}),
+      });
+      response.json(result);
+    } catch (error) {
+      if (error instanceof BrowserHandoffImportError) {
+        response.status(error.statusCode).json({ error: error.message });
+        return;
+      }
+
+      next(error);
+    }
+  });
+
   systemRouter.get('/jobs/:jobId', (request, response) => {
     if (!schedulerRuntime) {
       response.status(503).json({ error: 'scheduler runtime unavailable' });
@@ -279,6 +325,10 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 function isSessionStatusValue(value: unknown): value is 'active' | 'expired' | 'missing' {
   return value === 'active' || value === 'expired' || value === 'missing';
+}
+
+function isBrowserHandoffPublishStatus(value: unknown): value is 'published' | 'failed' {
+  return value === 'published' || value === 'failed';
 }
 
 function buildSchedulerHealthSnapshot(schedulerRuntime: SchedulerRuntime | undefined) {

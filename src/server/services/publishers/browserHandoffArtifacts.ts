@@ -270,6 +270,51 @@ export function getLatestBrowserHandoffArtifact(input: {
   return latest ?? null;
 }
 
+export function getBrowserHandoffArtifactByPath(
+  artifactPath: string,
+): BrowserHandoffArtifactSummary | null {
+  const artifactRootDir = resolveArtifactRootDir();
+  const normalizedPath = artifactPath.trim().replace(/\\/g, '/');
+  const absolutePath = path.resolve(artifactRootDir, normalizedPath);
+  const relativePath = path.relative(artifactRootDir, absolutePath);
+
+  if (
+    relativePath.startsWith('..') ||
+    path.isAbsolute(relativePath) ||
+    !relativePath.split(path.sep).join('/').startsWith('artifacts/browser-handoffs/')
+  ) {
+    return null;
+  }
+
+  const artifact = readBrowserHandoffArtifact(absolutePath);
+  if (!artifact) {
+    return null;
+  }
+
+  const ownership = resolveBrowserHandoffOwnership(artifact, channelAccountStore.list());
+
+  return {
+    ...('channelAccountId' in ownership &&
+    typeof ownership.channelAccountId === 'number'
+      ? { channelAccountId: ownership.channelAccountId }
+      : {}),
+    ...('accountDisplayName' in ownership && ownership.accountDisplayName
+      ? { accountDisplayName: ownership.accountDisplayName }
+      : {}),
+    ownership: ownership.ownership,
+    platform: artifact.platform,
+    draftId: artifact.draftId,
+    title: artifact.title,
+    accountKey: artifact.accountKey,
+    status: artifact.status,
+    artifactPath: relativePath.split(path.sep).join('/'),
+    createdAt: artifact.createdAt,
+    updatedAt: artifact.updatedAt,
+    resolvedAt: artifact.resolvedAt,
+    resolution: artifact.resolution,
+  };
+}
+
 function resolveBrowserHandoffOwnership(
   artifact: BrowserHandoffArtifactRecord,
   channelAccounts: Array<{
