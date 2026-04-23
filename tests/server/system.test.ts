@@ -4,8 +4,16 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/server/app';
 import { createSchedulerRuntime } from '../../src/server/runtime/schedulerRuntime';
-import { createChannelAccountSessionRequestJobHandler } from '../../src/server/services/browser/sessionRequestHandler';
+import {
+  createSessionRequestResultArtifact,
+  getSessionRequestResultArtifact,
+} from '../../src/server/services/browser/sessionRequestArtifacts';
 import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
+
+const defaultStorageState = {
+  cookies: [],
+  origins: [],
+};
 
 async function requestExistingApp(
   app: ReturnType<typeof createApp>,
@@ -1297,6 +1305,155 @@ describe('system runtime api', () => {
     }
   });
 
+  it('imports browser-lane result artifacts through the system api', async () => {
+    const { rootDir } = createTestDatabasePath();
+
+    try {
+      const app = createApp({
+        allowedIps: ['127.0.0.1'],
+        adminPassword: 'secret',
+      });
+
+      const created = await requestExistingApp(app, {
+        method: 'POST',
+        url: '/api/channel-accounts',
+        remoteAddress: '127.0.0.1',
+        headers: {
+          'x-admin-password': 'secret',
+        },
+        body: {
+          platform: 'x',
+          accountKey: '@promobot',
+          displayName: 'PromoBot X',
+          authType: 'browser',
+          status: 'healthy',
+        },
+      });
+      expect(created.status).toBe(201);
+
+      const requestResponse = await requestExistingApp(app, {
+        method: 'POST',
+        url: '/api/channel-accounts/1/session/request',
+        remoteAddress: '127.0.0.1',
+        headers: {
+          'x-admin-password': 'secret',
+        },
+      });
+      expect(requestResponse.status).toBe(200);
+
+      const requestBody = JSON.parse(requestResponse.body) as {
+        job: {
+          id: number;
+        };
+        sessionAction: {
+          artifactPath: string;
+        };
+      };
+
+      const resultArtifactPath = createSessionRequestResultArtifact({
+        channelAccountId: 1,
+        platform: 'x',
+        accountKey: '@promobot',
+        action: 'request_session',
+        requestJobId: requestBody.job.id,
+        completedAt: '2026-04-23T13:20:00.000Z',
+        storageState: defaultStorageState,
+        sessionStatus: 'active',
+        validatedAt: '2026-04-23T13:21:00.000Z',
+        notes: 'browser lane imported',
+      });
+
+      const importResponse = await requestExistingApp(app, {
+        method: 'POST',
+        url: '/api/system/browser-lane-requests/import',
+        remoteAddress: '127.0.0.1',
+        headers: {
+          'x-admin-password': 'secret',
+        },
+        body: {
+          artifactPath: resultArtifactPath,
+        },
+      });
+
+      expect(importResponse.status).toBe(200);
+      expect(JSON.parse(importResponse.body)).toEqual({
+        ok: true,
+        imported: true,
+        artifactPath: resultArtifactPath,
+        session: {
+          hasSession: true,
+          id: 'x:-promobot',
+          status: 'active',
+          validatedAt: '2026-04-23T13:21:00.000Z',
+          storageStatePath: 'browser-sessions/managed/x/-promobot.json',
+          notes: 'browser lane imported',
+        },
+        channelAccount: expect.objectContaining({
+          id: 1,
+          metadata: expect.objectContaining({
+            session: {
+              hasSession: true,
+              id: 'x:-promobot',
+              status: 'active',
+              validatedAt: '2026-04-23T13:21:00.000Z',
+              storageStatePath: 'browser-sessions/managed/x/-promobot.json',
+              notes: 'browser lane imported',
+            },
+          }),
+        }),
+      });
+
+      const managedStorageStatePath = 'browser-sessions/managed/x/-promobot.json';
+      expect(
+        JSON.parse(fs.readFileSync(path.join(rootDir, managedStorageStatePath), 'utf8')),
+      ).toEqual(defaultStorageState);
+
+      expect(
+        JSON.parse(
+          fs.readFileSync(path.join(rootDir, requestBody.sessionAction.artifactPath), 'utf8'),
+        ),
+      ).toEqual(
+        expect.objectContaining({
+          jobStatus: 'resolved',
+          resolvedAt: expect.any(String),
+          resolution: expect.objectContaining({
+            status: 'resolved',
+            source: 'browser_lane_result',
+            completedAt: '2026-04-23T13:20:00.000Z',
+            session: expect.objectContaining({
+              hasSession: true,
+              status: 'active',
+              notes: 'browser lane imported',
+              validatedAt: '2026-04-23T13:21:00.000Z',
+              storageStatePath: managedStorageStatePath,
+            }),
+          }),
+          savedStorageStatePath: managedStorageStatePath,
+        }),
+      );
+      expect(
+        getSessionRequestResultArtifact({
+          platform: 'x',
+          accountKey: '@promobot',
+          action: 'request_session',
+          requestJobId: requestBody.job.id,
+        }),
+      ).toEqual(
+        expect.objectContaining({
+          artifactPath: resultArtifactPath,
+          consumedAt: expect.any(String),
+          savedStorageStatePath: managedStorageStatePath,
+          resolution: expect.objectContaining({
+            status: 'resolved',
+            source: 'browser_lane_result',
+          }),
+        }),
+      );
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('lists browser-handoff artifacts through the system api', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
@@ -1435,116 +1592,6 @@ describe('system runtime api', () => {
     }
   });
 
-  it('wires channel_account_session_request into runtime handlers and completes the manual browser-lane handoff job', async () => {
-    const { rootDir } = createTestDatabasePath();
-    const schedulerRuntime = createSchedulerRuntime({
-      handlers: {
-        channel_account_session_request: createChannelAccountSessionRequestJobHandler(),
-      },
-    });
-
-    try {
-      schedulerRuntime.reload();
-
-      const app = createApp(
-        {
-          allowedIps: ['127.0.0.1'],
-          adminPassword: 'secret',
-        },
-        { schedulerRuntime },
-      );
-
-      const createChannelAccountResponse = await requestExistingApp(app, {
-        method: 'POST',
-        url: '/api/channel-accounts',
-        body: {
-          platform: 'x',
-          accountKey: '@promobot',
-          displayName: 'PromoBot X',
-          authType: 'browser',
-          status: 'healthy',
-        },
-      });
-      expect(createChannelAccountResponse.status).toBe(201);
-
-      const requestSessionResponse = await requestExistingApp(app, {
-        method: 'POST',
-        url: '/api/channel-accounts/1/session/request',
-        body: {
-          action: 'request_session',
-        },
-      });
-      expect(requestSessionResponse.status).toBe(200);
-
-      const requestSessionBody = JSON.parse(requestSessionResponse.body) as {
-        job: {
-          id: number;
-        };
-      };
-
-      const runtimeResponse = await requestExistingApp(app, {
-        url: '/api/system/runtime',
-      });
-      expect(runtimeResponse.status).toBe(200);
-      expect(JSON.parse(runtimeResponse.body)).toEqual({
-        runtime: expect.objectContaining({
-          available: true,
-          handlers: ['channel_account_session_request'],
-          queue: expect.objectContaining({
-            pending: 1,
-            failed: 0,
-          }),
-        }),
-      });
-
-      const tickResponse = await requestExistingApp(app, {
-        method: 'POST',
-        url: '/api/system/runtime/tick',
-      });
-      expect(tickResponse.status).toBe(200);
-      expect(JSON.parse(tickResponse.body)).toEqual({
-        results: [
-          {
-            jobId: requestSessionBody.job.id,
-            type: 'channel_account_session_request',
-            outcome: 'completed',
-          },
-        ],
-        runtime: expect.objectContaining({
-          available: true,
-          handlers: ['channel_account_session_request'],
-          lastTickResults: [
-            {
-              jobId: requestSessionBody.job.id,
-              type: 'channel_account_session_request',
-              outcome: 'completed',
-            },
-          ],
-          queue: expect.objectContaining({
-            pending: 0,
-            done: 1,
-            failed: 0,
-          }),
-        }),
-      });
-
-      const jobResponse = await requestExistingApp(app, {
-        url: `/api/system/jobs/${requestSessionBody.job.id}`,
-      });
-      expect(jobResponse.status).toBe(200);
-      expect(JSON.parse(jobResponse.body)).toEqual({
-        job: expect.objectContaining({
-          id: requestSessionBody.job.id,
-          type: 'channel_account_session_request',
-          status: 'done',
-          attempts: 1,
-        }),
-      });
-    } finally {
-      schedulerRuntime.stop();
-      cleanupTestDatabasePath(rootDir);
-    }
-  });
 });
 
 describe('static client hosting', () => {

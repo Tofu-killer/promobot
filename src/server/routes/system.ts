@@ -1,5 +1,9 @@
 import { Router } from 'express';
 import { listSessionRequestArtifacts } from '../services/browser/sessionRequestArtifacts.js';
+import {
+  importSessionRequestResultArtifact,
+  SessionRequestResultImportError,
+} from '../services/browser/sessionResultImporter.js';
 import { listBrowserHandoffArtifacts } from '../services/publishers/browserHandoffArtifacts.js';
 import type { SchedulerRuntime } from '../runtime/schedulerRuntime.js';
 
@@ -119,6 +123,32 @@ export function createSystemRouter(dependencies: SystemRouteDependencies = {}) {
       requests,
       total: listSessionRequestArtifacts().length,
     });
+  });
+
+  systemRouter.post('/browser-lane-requests/import', async (request, response, next) => {
+    if (request.body !== undefined && !isPlainObject(request.body)) {
+      response.status(400).json({ error: 'invalid browser lane result payload' });
+      return;
+    }
+
+    const artifactPath =
+      typeof request.body?.artifactPath === 'string' ? request.body.artifactPath.trim() : '';
+    if (!artifactPath) {
+      response.status(400).json({ error: 'invalid browser lane result artifact path' });
+      return;
+    }
+
+    try {
+      const result = await importSessionRequestResultArtifact(artifactPath);
+      response.json(result);
+    } catch (error) {
+      if (error instanceof SessionRequestResultImportError) {
+        response.status(error.statusCode).json({ error: error.message });
+        return;
+      }
+
+      next(error);
+    }
   });
 
   systemRouter.get('/browser-handoffs', (request, response) => {

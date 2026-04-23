@@ -40,6 +40,36 @@ interface SessionRequestArtifactRecord {
   savedStorageStatePath?: string;
 }
 
+export interface SessionRequestResultArtifactInput {
+  channelAccountId: number;
+  platform: string;
+  accountKey: string;
+  action: BrowserSessionAction;
+  requestJobId: number;
+  completedAt: string;
+  storageState: Record<string, unknown>;
+  sessionStatus?: 'active' | 'expired' | 'missing';
+  validatedAt?: string | null;
+  notes?: string;
+}
+
+interface SessionRequestResultArtifactRecord {
+  type: string;
+  channelAccountId: number;
+  platform: string;
+  accountKey: string;
+  action: BrowserSessionAction;
+  requestJobId: number;
+  completedAt: string;
+  storageState: Record<string, unknown>;
+  sessionStatus?: 'active' | 'expired' | 'missing';
+  validatedAt?: string | null;
+  notes?: string;
+  consumedAt?: string;
+  savedStorageStatePath?: string;
+  resolution?: string | Record<string, unknown>;
+}
+
 export interface SessionRequestArtifactSummary {
   channelAccountId: number;
   platform: string;
@@ -49,6 +79,37 @@ export interface SessionRequestArtifactSummary {
   requestedAt: string;
   artifactPath: string;
   resolvedAt: string | null;
+  resolution?: string | Record<string, unknown>;
+}
+
+export interface SessionRequestArtifactLookupInput {
+  platform: string;
+  accountKey: string;
+  action: BrowserSessionAction;
+  jobId: number;
+}
+
+export interface SessionRequestResultArtifactLookupInput {
+  platform: string;
+  accountKey: string;
+  action: BrowserSessionAction;
+  requestJobId: number;
+}
+
+export interface SessionRequestResultArtifactSummary {
+  channelAccountId: number;
+  platform: string;
+  accountKey: string;
+  action: BrowserSessionAction;
+  requestJobId: number;
+  completedAt: string;
+  storageState: Record<string, unknown>;
+  sessionStatus?: 'active' | 'expired' | 'missing';
+  validatedAt?: string | null;
+  notes?: string;
+  artifactPath: string;
+  consumedAt: string | null;
+  savedStorageStatePath?: string;
   resolution?: string | Record<string, unknown>;
 }
 
@@ -70,6 +131,41 @@ export function createSessionRequestArtifact(input: SessionRequestArtifactInput)
         jobId: input.jobId,
         jobStatus: input.jobStatus,
         nextStep: input.nextStep,
+      },
+      null,
+      2,
+    ),
+    'utf8',
+  );
+
+  return artifactPath;
+}
+
+export function createSessionRequestResultArtifact(input: SessionRequestResultArtifactInput) {
+  const artifactPath = buildResultArtifactPath({
+    platform: input.platform,
+    accountKey: input.accountKey,
+    action: input.action,
+    requestJobId: input.requestJobId,
+  });
+  const absolutePath = path.join(resolveArtifactRootDir(), artifactPath);
+
+  fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+  fs.writeFileSync(
+    absolutePath,
+    JSON.stringify(
+      {
+        type: 'browser_lane_result',
+        channelAccountId: input.channelAccountId,
+        platform: input.platform,
+        accountKey: input.accountKey,
+        action: input.action,
+        requestJobId: input.requestJobId,
+        completedAt: input.completedAt,
+        storageState: input.storageState,
+        sessionStatus: input.sessionStatus ?? 'active',
+        ...(input.validatedAt !== undefined ? { validatedAt: input.validatedAt } : {}),
+        ...(input.notes !== undefined ? { notes: input.notes } : {}),
       },
       null,
       2,
@@ -213,6 +309,149 @@ export function getLatestSessionRequestArtifact(
   };
 }
 
+export function getSessionRequestArtifact(
+  input: SessionRequestArtifactLookupInput,
+): SessionRequestArtifactSummary | null {
+  const artifactRootDir = resolveArtifactRootDir();
+  const absolutePath = path.join(
+    artifactRootDir,
+    buildRequestArtifactPath({
+      platform: input.platform,
+      accountKey: input.accountKey,
+      action: input.action,
+      jobId: input.jobId,
+    }),
+  );
+  const artifact = readSessionRequestArtifact(absolutePath);
+
+  if (
+    !artifact ||
+    artifact.type !== 'browser_lane_request' ||
+    artifact.platform !== input.platform ||
+    artifact.accountKey !== input.accountKey ||
+    artifact.action !== input.action ||
+    artifact.jobId !== input.jobId
+  ) {
+    return null;
+  }
+
+  return {
+    channelAccountId: artifact.channelAccountId,
+    platform: artifact.platform,
+    accountKey: artifact.accountKey,
+    action: artifact.action,
+    jobStatus: artifact.jobStatus,
+    requestedAt: artifact.requestedAt,
+    artifactPath: path.relative(artifactRootDir, absolutePath).split(path.sep).join('/'),
+    resolvedAt: artifact.resolvedAt ?? null,
+    ...(artifact.resolution !== undefined ? { resolution: artifact.resolution } : {}),
+  };
+}
+
+export function getSessionRequestResultArtifact(
+  input: SessionRequestResultArtifactLookupInput,
+): SessionRequestResultArtifactSummary | null {
+  const absolutePath = path.join(
+    resolveArtifactRootDir(),
+    buildResultArtifactPath({
+      platform: input.platform,
+      accountKey: input.accountKey,
+      action: input.action,
+      requestJobId: input.requestJobId,
+    }),
+  );
+  return getSessionRequestResultArtifactByAbsolutePath(absolutePath);
+}
+
+export function getSessionRequestResultArtifactByPath(
+  artifactPath: string,
+): SessionRequestResultArtifactSummary | null {
+  const artifactRootDir = resolveArtifactRootDir();
+  const normalizedPath = artifactPath.trim().replace(/\\/g, '/');
+  const absolutePath = path.resolve(artifactRootDir, normalizedPath);
+  const relativePath = path.relative(artifactRootDir, absolutePath);
+
+  if (
+    relativePath.startsWith('..') ||
+    path.isAbsolute(relativePath) ||
+    !relativePath.split(path.sep).join('/').startsWith('artifacts/browser-lane-requests/')
+  ) {
+    return null;
+  }
+
+  return getSessionRequestResultArtifactByAbsolutePath(absolutePath);
+}
+
+function getSessionRequestResultArtifactByAbsolutePath(
+  absolutePath: string,
+): SessionRequestResultArtifactSummary | null {
+  const artifactRootDir = resolveArtifactRootDir();
+  const artifact = readSessionRequestResultArtifact(absolutePath);
+
+  if (
+    !artifact ||
+    artifact.type !== 'browser_lane_result'
+  ) {
+    return null;
+  }
+
+  return {
+    channelAccountId: artifact.channelAccountId,
+    platform: artifact.platform,
+    accountKey: artifact.accountKey,
+    action: artifact.action,
+    requestJobId: artifact.requestJobId,
+    completedAt: artifact.completedAt,
+    storageState: artifact.storageState,
+    ...(artifact.sessionStatus !== undefined ? { sessionStatus: artifact.sessionStatus } : {}),
+    ...(artifact.validatedAt !== undefined ? { validatedAt: artifact.validatedAt } : {}),
+    ...(artifact.notes !== undefined ? { notes: artifact.notes } : {}),
+    artifactPath: path.relative(artifactRootDir, absolutePath).split(path.sep).join('/'),
+    consumedAt: artifact.consumedAt ?? null,
+    ...(artifact.savedStorageStatePath !== undefined
+      ? { savedStorageStatePath: artifact.savedStorageStatePath }
+      : {}),
+    ...(artifact.resolution !== undefined ? { resolution: artifact.resolution } : {}),
+  };
+}
+
+export function markSessionRequestResultArtifactConsumed(input: {
+  platform: string;
+  accountKey: string;
+  action: BrowserSessionAction;
+  requestJobId: number;
+  consumedAt: string;
+  savedStorageStatePath: string;
+  resolution: string | Record<string, unknown>;
+}) {
+  const artifactRootDir = resolveArtifactRootDir();
+  const absolutePath = path.join(
+    artifactRootDir,
+    buildResultArtifactPath({
+      platform: input.platform,
+      accountKey: input.accountKey,
+      action: input.action,
+      requestJobId: input.requestJobId,
+    }),
+  );
+  const artifact = readSessionRequestResultArtifact(absolutePath);
+
+  if (!artifact || artifact.type !== 'browser_lane_result') {
+    return null;
+  }
+
+  const nextArtifact: SessionRequestResultArtifactRecord = {
+    ...artifact,
+    consumedAt: input.consumedAt,
+    savedStorageStatePath: input.savedStorageStatePath,
+    resolution: input.resolution,
+  };
+
+  fs.writeFileSync(absolutePath, JSON.stringify(nextArtifact, null, 2), 'utf8');
+
+  return path.relative(artifactRootDir, absolutePath).split(path.sep).join('/');
+}
+
 export function listSessionRequestArtifacts(limit?: number) {
   const artifactRootDir = resolveArtifactRootDir();
   const requestsRoot = path.join(artifactRootDir, 'artifacts', 'browser-lane-requests');
@@ -274,9 +513,35 @@ export function listSessionRequestArtifacts(limit?: number) {
 }
 
 function buildArtifactPath(input: SessionRequestArtifactInput) {
+  return buildRequestArtifactPath({
+    platform: input.platform,
+    accountKey: input.accountKey,
+    action: input.action,
+    jobId: input.jobId,
+  });
+}
+
+function buildRequestArtifactPath(input: {
+  platform: string;
+  accountKey: string;
+  action: BrowserSessionAction;
+  jobId: number;
+}) {
   return path.join(
     buildArtifactDir(input.platform, input.accountKey),
     `${input.action === 'request_session' ? 'request-session' : 'relogin'}-job-${input.jobId}.json`,
+  );
+}
+
+function buildResultArtifactPath(input: {
+  platform: string;
+  accountKey: string;
+  action: BrowserSessionAction;
+  requestJobId: number;
+}) {
+  return path.join(
+    buildArtifactDir(input.platform, input.accountKey),
+    `${input.action === 'request_session' ? 'request-session' : 'relogin'}-job-${input.requestJobId}.result.json`,
   );
 }
 
@@ -297,6 +562,16 @@ function sanitizeSegment(value: string) {
 function readSessionRequestArtifact(absolutePath: string): SessionRequestArtifactRecord | null {
   try {
     return JSON.parse(fs.readFileSync(absolutePath, 'utf8')) as SessionRequestArtifactRecord;
+  } catch {
+    return null;
+  }
+}
+
+function readSessionRequestResultArtifact(
+  absolutePath: string,
+): SessionRequestResultArtifactRecord | null {
+  try {
+    return JSON.parse(fs.readFileSync(absolutePath, 'utf8')) as SessionRequestResultArtifactRecord;
   } catch {
     return null;
   }

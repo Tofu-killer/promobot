@@ -46,6 +46,7 @@ PromoBot 现在不是“只有 spec 的空仓库”了。
 - 直接导入 `storageState` JSON 时，顶层至少要包含合法的 `cookies` / `origins` 数组；同时传 `storageStatePath` 和 `storageState` 会被拒绝。
 - 如果 session metadata 仍在，但底层 storage state 文件已经消失，系统现在会自动把它降级成 `missing / needs_session`，不会继续误报可用。
 - 请求登录 / 重新登录现在会额外生成 `artifacts/browser-lane-requests/` 下的接管工单文件，便于外部 browser lane 消费；保存 session 成功后，对应工单也会回写为 `resolved`，并附上 session 摘要。但真正的自动登录流程仍未接入。
+- 外部 browser lane 现在也可以把结果写成 `browser_lane_result` artifact，然后调用 `POST /api/system/browser-lane-requests/import` 让服务端自动导入 `storageState`、更新渠道账号 session 元数据，并结掉对应 request artifact。这样第一刀无需内置 Playwright，也不用再手工回填 session 表单。
 - `System Queue`、`Dashboard`、`Settings`、`Channel Accounts` 现在都能直接看到 browser lane / browser handoff 的最新状态；系统 API 也提供了 `/api/system/browser-handoffs` 只读汇总入口。
 - `Drafts` 和 `Review Queue` 在 `manual_required` 时会直接显示 handoff 回执里的 `browserHandoff` 细节，不再只剩一条泛化成功消息。
 

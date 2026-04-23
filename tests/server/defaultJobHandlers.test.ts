@@ -6,6 +6,8 @@ import { createJobRecord } from '../../src/server/lib/jobs';
 import { createDefaultJobHandlers } from '../../src/server/runtime/defaultJobHandlers';
 import {
   createSessionRequestArtifact,
+  createSessionRequestResultArtifact,
+  getSessionRequestResultArtifact,
   resolveSessionRequestArtifacts,
 } from '../../src/server/services/browser/sessionRequestArtifacts';
 import { createSessionStore } from '../../src/server/services/browser/sessionStore';
@@ -16,6 +18,7 @@ const defaultStorageState = {
   cookies: [],
   origins: [],
 };
+const channelAccountSessionRequestPollJobType = 'channel_account_session_request_poll';
 
 function writeStorageStateFile(rootDir: string, storageStatePath: string) {
   const filePath = path.join(rootDir, storageStatePath);
