@@ -154,6 +154,7 @@ describe('projects api', () => {
           id: 1,
           brandVoice: '',
           ctas: [],
+          archived: false,
         }),
       });
 
@@ -181,6 +182,7 @@ describe('projects api', () => {
             id: 1,
             brandVoice: 'Warm, operator-friendly, action-oriented',
             ctas: ['Talk to sales', 'See live examples'],
+            archived: false,
           }),
         ],
       });
@@ -368,6 +370,7 @@ describe('projects api', () => {
         project: expect.objectContaining({
           id: 1,
           name: 'Archive Me',
+          archived: true,
           archivedAt: expect.any(String),
         }),
       });

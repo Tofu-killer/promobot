@@ -278,6 +278,60 @@ describe('content generation api', () => {
     ]);
   });
 
+  it('hydrates site context from the saved project when projectId is provided', async () => {
+    const projectCreateResponse = await requestApp('POST', '/api/projects', {
+      name: 'Context Project',
+      siteName: 'PromoBot',
+      siteUrl: 'https://promobot.test',
+      siteDescription: 'Multi-model API gateway for operators',
+      sellingPoints: ['Fast routing', 'Lower cost'],
+      brandVoice: 'Direct, calm, proof-first',
+      ctas: ['Start free', 'Book a demo'],
+    });
+
+    expect(projectCreateResponse.status).toBe(201);
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+        const payload = JSON.parse(String(init?.body)) as {
+          messages: Array<{ role: string; content: string }>;
+        };
+        const userPrompt = payload.messages.find((message) => message.role === 'user')?.content ?? '';
+
+        expect(userPrompt).toContain('Site Description: Multi-model API gateway for operators');
+        expect(userPrompt).toContain('Selling Points: Fast routing, Lower cost');
+        expect(userPrompt).toContain('Brand Voice: Direct, calm, proof-first');
+        expect(userPrompt).toContain('CTAs: Start free, Book a demo');
+
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{ message: { content: 'x-draft-content' } }],
+          }),
+        };
+      }),
+    );
+
+    const response = await requestApp('POST', '/api/content/generate', {
+      topic: 'Project aware draft',
+      platforms: ['x'],
+      tone: 'professional',
+      projectId: 1,
+    });
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({
+      results: [
+        {
+          platform: 'x',
+          content: 'x-draft-content',
+          hashtags: [],
+        },
+      ],
+    });
+  });
+
   it('rejects an invalid projectId instead of silently dropping it', async () => {
     installFetchStub();
 

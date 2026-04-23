@@ -5,6 +5,8 @@ export interface SiteContext {
   siteUrl?: string;
   siteDescription?: string;
   sellingPoints?: string[];
+  brandVoice?: string;
+  ctas?: string[];
 }
 
 export interface GenerateDraftInput {

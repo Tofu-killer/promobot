@@ -75,9 +75,19 @@ describe('database schema', () => {
         .prepare("PRAGMA table_info(projects)")
         .all() as Array<{ name: string }>;
 
-      expect(columns.map((column) => column.name)).toEqual(
-        expect.arrayContaining(['brand_voice', 'ctas', 'archived', 'archived_at']),
-      );
+      expect(columns.map((column) => column.name)).toEqual([
+        'id',
+        'name',
+        'site_name',
+        'site_url',
+        'site_description',
+        'selling_points',
+        'created_at',
+        'archived',
+        'archived_at',
+        'brand_voice',
+        'ctas',
+      ]);
 
       db.prepare(
         `

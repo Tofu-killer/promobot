@@ -38,6 +38,7 @@ export interface UpdateProjectInput {
 
 export interface ProjectStore {
   create(input: CreateProjectInput): ProjectRecord;
+  getById(id: number): ProjectRecord | undefined;
   list(): ProjectRecord[];
   update(id: number, input: UpdateProjectInput): ProjectRecord | undefined;
   archive(id: number): ProjectRecord | undefined;
@@ -47,6 +48,9 @@ export function createProjectStore(): ProjectStore {
   return {
     create(input) {
       return withDatabase((database) => insertProject(database, input));
+    },
+    getById(id) {
+      return withDatabase((database) => getProjectById(database, id));
     },
     list() {
       return withDatabase((database) => listProjects(database));
@@ -140,6 +144,28 @@ function listProjects(database: DatabaseConnection): ProjectRecord[] {
     )
     .all()
     .map((row) => normalizeProjectRow(row as Record<string, unknown>));
+}
+
+function getProjectById(database: DatabaseConnection, id: number): ProjectRecord | undefined {
+  ensureArchivedColumn(database);
+  ensureArchivedAtColumn(database);
+  ensureBrandVoiceColumn(database);
+  ensureCtasColumn(database);
+
+  const row = database
+    .prepare(
+      `
+        SELECT id, name, site_name AS siteName, site_url AS siteUrl,
+               site_description AS siteDescription, selling_points AS sellingPoints,
+               brand_voice AS brandVoice, ctas AS ctas,
+               archived AS archived, archived_at AS archivedAt, created_at AS createdAt
+        FROM projects
+        WHERE id = ?
+      `,
+    )
+    .get([id]);
+
+  return row ? normalizeProjectRow(row as Record<string, unknown>) : undefined;
 }
 
 function updateProject(

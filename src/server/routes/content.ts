@@ -2,10 +2,11 @@ import { Router } from 'express';
 import { generateBlogDraft } from '../services/generators/blog.js';
 import { generateFacebookGroupDraft } from '../services/generators/facebookGroup.js';
 import { generateRedditDraft } from '../services/generators/reddit.js';
-import type { GenerateDraftInput, GeneratedDraft } from '../services/generators/types.js';
+import type { GenerateDraftInput, GeneratedDraft, SiteContext } from '../services/generators/types.js';
 import { generateWeiboDraft } from '../services/generators/weibo.js';
 import { generateXDraft } from '../services/generators/x.js';
 import { generateXiaohongshuDraft } from '../services/generators/xiaohongshu.js';
+import { createProjectStore, type ProjectRecord, type ProjectStore } from '../store/projects.js';
 import type { DraftStore } from './drafts.js';
 import { createDraftStore } from './drafts.js';
 
@@ -37,7 +38,72 @@ function parseOptionalProjectId(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined;
 }
 
-export function createContentRouter(draftStore: DraftStore) {
+function parseSiteContext(value: unknown): SiteContext | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const raw = value as Record<string, unknown>;
+
+  return {
+    ...(typeof raw.siteName === 'string' ? { siteName: raw.siteName } : {}),
+    ...(typeof raw.siteUrl === 'string' ? { siteUrl: raw.siteUrl } : {}),
+    ...(typeof raw.siteDescription === 'string'
+      ? { siteDescription: raw.siteDescription }
+      : {}),
+    ...(Array.isArray(raw.sellingPoints)
+      ? {
+          sellingPoints: raw.sellingPoints.filter(
+            (value): value is string => typeof value === 'string',
+          ),
+        }
+      : {}),
+    ...(typeof raw.brandVoice === 'string' ? { brandVoice: raw.brandVoice } : {}),
+    ...(Array.isArray(raw.ctas)
+      ? {
+          ctas: raw.ctas.filter((value): value is string => typeof value === 'string'),
+        }
+      : {}),
+  };
+}
+
+function getProjectSiteContext(project: ProjectRecord | undefined): SiteContext | undefined {
+  if (!project) {
+    return undefined;
+  }
+
+  return {
+    siteName: project.siteName,
+    siteUrl: project.siteUrl,
+    siteDescription: project.siteDescription,
+    sellingPoints: project.sellingPoints,
+    brandVoice: project.brandVoice,
+    ctas: project.ctas,
+  };
+}
+
+function mergeSiteContext(
+  projectSiteContext?: SiteContext,
+  requestSiteContext?: SiteContext,
+): SiteContext | undefined {
+  if (!projectSiteContext && !requestSiteContext) {
+    return undefined;
+  }
+
+  return {
+    ...(projectSiteContext ?? {}),
+    ...(requestSiteContext ?? {}),
+    ...(requestSiteContext?.sellingPoints !== undefined
+      ? { sellingPoints: requestSiteContext.sellingPoints }
+      : {}),
+    ...(requestSiteContext?.ctas !== undefined ? { ctas: requestSiteContext.ctas } : {}),
+  };
+}
+
+export function createContentRouter(
+  draftStore: DraftStore,
+  projectStore: ProjectStore = createProjectStore(),
+) {
   const contentRouter = Router();
 
   contentRouter.post('/generate', async (request, response) => {
@@ -62,12 +128,6 @@ export function createContentRouter(draftStore: DraftStore) {
       return;
     }
 
-    const input: GenerateDraftInput = {
-      topic,
-      tone: request.body?.tone,
-      siteContext: request.body?.siteContext,
-    };
-    const shouldSaveAsDraft = request.body?.saveAsDraft === true;
     const parsedProjectId = parseOptionalProjectId(request.body?.projectId);
 
     if (request.body?.projectId !== undefined && parsedProjectId === undefined) {
@@ -75,6 +135,16 @@ export function createContentRouter(draftStore: DraftStore) {
       return;
     }
 
+    const requestSiteContext = parseSiteContext(request.body?.siteContext);
+    const projectSiteContext = getProjectSiteContext(
+      parsedProjectId !== undefined ? projectStore.getById(parsedProjectId) : undefined,
+    );
+    const input: GenerateDraftInput = {
+      topic,
+      tone: request.body?.tone,
+      siteContext: mergeSiteContext(projectSiteContext, requestSiteContext),
+    };
+    const shouldSaveAsDraft = request.body?.saveAsDraft === true;
     const projectId = shouldSaveAsDraft ? parsedProjectId : undefined;
 
     const results = await Promise.all(
