@@ -558,11 +558,11 @@ describe('System Queue actions', () => {
         {
           id: 12,
           type: 'monitor_fetch',
-          status: 'failed',
+          status: 'pending',
           runAt: '2026-04-19T12:30:00.000Z',
           attempts: 1,
-          canRetry: true,
-          canCancel: false,
+          canRetry: false,
+          canCancel: true,
         },
       ],
       queue: {
@@ -582,6 +582,7 @@ describe('System Queue actions', () => {
       total: 0,
     });
     const retrySystemQueueJobAction = vi.fn().mockReturnValue(pendingRetry.promise);
+    const enqueueSystemQueueJobAction = vi.fn();
 
     const root = createRoot(container as never);
     await act(async () => {
@@ -591,6 +592,7 @@ describe('System Queue actions', () => {
           loadBrowserLaneRequestsAction,
           loadBrowserHandoffsAction,
           retrySystemQueueJobAction,
+          enqueueSystemQueueJobAction,
         }),
       );
       await flush();
@@ -617,6 +619,144 @@ describe('System Queue actions', () => {
     expect(collectText(container).split('正在重试...').length - 1).toBe(1);
     expect(collectText(container)).toContain('创建作业');
     expect(collectText(container)).not.toContain('正在创建作业...');
+
+    await act(async () => {
+      pendingRetry.resolve({
+        job: {
+          id: 11,
+          type: 'publish',
+          status: 'pending',
+          runAt: '2026-04-19T12:15:00.000Z',
+          attempts: 2,
+        },
+        runtime: { available: true },
+      });
+      await flush();
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('disables other queue actions while a retry mutation is in flight', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { SystemQueuePage } = await import('../../src/client/pages/SystemQueue');
+
+    const pendingRetry = createDeferredPromise<{
+      job: {
+        id: number;
+        type: string;
+        status: string;
+        runAt: string;
+        attempts: number;
+      };
+      runtime: Record<string, unknown>;
+    }>();
+    const loadSystemQueueAction = vi.fn().mockResolvedValue({
+      jobs: [
+        {
+          id: 11,
+          type: 'publish',
+          status: 'failed',
+          runAt: '2026-04-19T12:15:00.000Z',
+          attempts: 1,
+          canRetry: true,
+          canCancel: false,
+        },
+        {
+          id: 12,
+          type: 'monitor_fetch',
+          status: 'pending',
+          runAt: '2026-04-19T12:30:00.000Z',
+          attempts: 1,
+          canRetry: false,
+          canCancel: true,
+        },
+      ],
+      queue: {
+        pending: 1,
+        running: 0,
+        failed: 2,
+        duePending: 1,
+      },
+      recentJobs: [],
+    });
+    const loadBrowserLaneRequestsAction = vi.fn().mockResolvedValue({
+      requests: [],
+      total: 0,
+    });
+    const loadBrowserHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+    const retrySystemQueueJobAction = vi.fn().mockReturnValue(pendingRetry.promise);
+    const enqueueSystemQueueJobAction = vi.fn();
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(SystemQueuePage as never, {
+          loadSystemQueueAction,
+          loadBrowserLaneRequestsAction,
+          loadBrowserHandoffsAction,
+          retrySystemQueueJobAction,
+          enqueueSystemQueueJobAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const firstRetryButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        collectText(element).includes('重试') &&
+        hasAncestorWithText(element, '#11 · publish'),
+    );
+    const cancelButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        collectText(element).includes('取消') &&
+        hasAncestorWithText(element, '#12 · monitor_fetch'),
+    );
+    const createButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('创建作业'),
+    );
+
+    expect(firstRetryButton).not.toBeNull();
+    expect(cancelButton).not.toBeNull();
+    expect(createButton).not.toBeNull();
+
+    await act(async () => {
+      firstRetryButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      createButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    const cancelButtonAfterStart = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        collectText(element).includes('取消') &&
+        hasAncestorWithText(element, '#12 · monitor_fetch'),
+    );
+    const createButtonAfterStart = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        (collectText(element).includes('创建作业') || collectText(element).includes('正在创建作业...')),
+    );
+
+    expect(retrySystemQueueJobAction).toHaveBeenCalledWith(11, undefined);
+    expect(enqueueSystemQueueJobAction).not.toHaveBeenCalled();
+    expect(cancelButtonAfterStart?.getAttribute('disabled')).toBe('');
+    expect(createButtonAfterStart?.getAttribute('disabled')).toBe('');
 
     await act(async () => {
       pendingRetry.resolve({

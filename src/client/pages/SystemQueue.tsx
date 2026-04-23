@@ -209,6 +209,7 @@ export function SystemQueuePage({
   const [enqueuePayloadJson, setEnqueuePayloadJson] = useState('');
   const [enqueueRunAt, setEnqueueRunAt] = useState('');
   const enqueueTypeFieldRef = useRef<HTMLInputElement | null>(null);
+  const queueMutationPendingRef = useRef(false);
 
   const fallbackData: SystemQueueResponse = {
     jobs: [],
@@ -253,60 +254,67 @@ export function SystemQueuePage({
       : displayMutationState.status === 'error'
         ? `队列动作失败：${displayMutationState.error}`
         : null;
+  const isQueueMutationPending = queueMutationPendingRef.current || displayMutationState.status === 'loading';
+
+  function startQueueMutation(input: QueueMutationInput, onSuccess?: () => void) {
+    if (queueMutationPendingRef.current) {
+      return;
+    }
+
+    queueMutationPendingRef.current = true;
+    setActiveMutation(input);
+    void mutateQueue(input)
+      .then(() => {
+        onSuccess?.();
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        queueMutationPendingRef.current = false;
+      });
+  }
 
   function handleRetry(job: SystemQueueJob) {
-    setActiveMutation({
-      mode: 'retry',
-      jobId: job.id,
-    });
-    void mutateQueue({
-      mode: 'retry',
-      jobId: job.id,
-    })
-      .then(() => {
+    startQueueMutation(
+      {
+        mode: 'retry',
+        jobId: job.id,
+      },
+      () => {
         reload();
         reloadBrowserLane();
         reloadBrowserHandoffs();
-      })
-      .catch(() => undefined);
+      },
+    );
   }
 
   function handleCancel(job: SystemQueueJob) {
-    setActiveMutation({
-      mode: 'cancel',
-      jobId: job.id,
-    });
-    void mutateQueue({
-      mode: 'cancel',
-      jobId: job.id,
-    })
-      .then(() => {
+    startQueueMutation(
+      {
+        mode: 'cancel',
+        jobId: job.id,
+      },
+      () => {
         reload();
         reloadBrowserLane();
         reloadBrowserHandoffs();
-      })
-      .catch(() => undefined);
+      },
+    );
   }
 
   function handleEnqueue() {
-    setActiveMutation({
-      mode: 'enqueue',
-      type: enqueueType,
-      payloadJson: enqueuePayloadJson,
-      runAt: enqueueRunAt.trim().length > 0 ? enqueueRunAt.trim() : undefined,
-    });
-    void mutateQueue({
-      mode: 'enqueue',
-      type: enqueueType,
-      payloadJson: enqueuePayloadJson,
-      runAt: enqueueRunAt.trim().length > 0 ? enqueueRunAt.trim() : undefined,
-    })
-      .then(() => {
+    startQueueMutation(
+      {
+        mode: 'enqueue',
+        type: enqueueType,
+        payloadJson: enqueuePayloadJson,
+        runAt: enqueueRunAt.trim().length > 0 ? enqueueRunAt.trim() : undefined,
+      },
+      () => {
         reload();
         reloadBrowserLane();
         reloadBrowserHandoffs();
-      })
-      .catch(() => undefined);
+      },
+    );
   }
 
   function handleFocusEnqueueForm() {
@@ -391,11 +399,12 @@ export function SystemQueuePage({
                 </label>
                 <ActionButton
                   label={
-                    displayMutationState.status === 'loading' && activeMutation?.mode === 'enqueue'
+                    isQueueMutationPending && activeMutation?.mode === 'enqueue'
                       ? '正在创建作业...'
                       : '创建作业'
                   }
                   tone="primary"
+                  disabled={isQueueMutationPending}
                   onClick={handleEnqueue}
                 />
               </div>
@@ -431,24 +440,26 @@ export function SystemQueuePage({
                         {job.canRetry ? (
                           <ActionButton
                             label={
-                              displayMutationState.status === 'loading' &&
+                              isQueueMutationPending &&
                               activeMutation?.mode === 'retry' &&
                               activeMutation.jobId === job.id
                                 ? '正在重试...'
                                 : '重试'
                             }
+                            disabled={isQueueMutationPending}
                             onClick={() => handleRetry(job)}
                           />
                         ) : null}
                         {job.canCancel ? (
                           <ActionButton
                             label={
-                              displayMutationState.status === 'loading' &&
+                              isQueueMutationPending &&
                               activeMutation?.mode === 'cancel' &&
                               activeMutation.jobId === job.id
                                 ? '正在取消...'
                                 : '取消'
                             }
+                            disabled={isQueueMutationPending}
                             onClick={() => handleCancel(job)}
                           />
                         ) : null}
