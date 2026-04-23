@@ -545,6 +545,8 @@ describe('client API page wiring', () => {
             siteUrl: 'https://acme.test',
             siteDescription: 'Launch week campaign',
             sellingPoints: ['Cheap', 'Fast'],
+            brandVoice: 'Direct, calm, proof-first',
+            ctas: ['Start free', 'Book a demo'],
           },
         },
       },
@@ -553,6 +555,8 @@ describe('client API page wiring', () => {
     expect(html).toContain('最近创建结果');
     expect(html).toContain('Acme Launch');
     expect(html).toContain('https://acme.test');
+    expect(html).toContain('Direct, calm, proof-first');
+    expect(html).toContain('Start free, Book a demo');
   });
 
   it('posts project archiving through the shared API helper', async () => {
@@ -634,6 +638,45 @@ describe('client API page wiring', () => {
     expect(html).toContain('Active Project');
     expect(html).not.toContain('Archived Project');
     expect(html).toContain('已加载 1 个项目');
+  });
+
+  it('renders editable brand voice and ctas fields for project forms', async () => {
+    const { ProjectsPage } = await import('../../src/client/pages/Projects');
+
+    const html = renderToStaticMarkup(
+      createElement(ProjectsPage, {
+        projectsStateOverride: {
+          status: 'success',
+          data: {
+            projects: [
+              {
+                id: 1,
+                name: 'Voice Demo',
+                siteName: 'Voice Site',
+                siteUrl: 'https://voice.test',
+                siteDescription: 'Brand landing page',
+                sellingPoints: ['Fast setup'],
+                brandVoice: 'Warm, punchy, confidence-building',
+                ctas: ['Get started', 'Watch demo'],
+              },
+            ],
+          },
+          error: null,
+        },
+        sourceConfigsStateOverride: {
+          status: 'success',
+          data: {
+            sourceConfigsByProject: {},
+          },
+          error: null,
+        },
+      }),
+    );
+
+    expect(html).toContain('Brand Voice');
+    expect(html).toContain('CTAs');
+    expect(html).toContain('Warm, punchy, confidence-building');
+    expect(html).toContain('Get started, Watch demo');
   });
 
   it('posts content generation through the shared API helper', async () => {

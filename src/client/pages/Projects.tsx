@@ -12,6 +12,8 @@ export interface ProjectRecord {
   siteUrl: string;
   siteDescription: string;
   sellingPoints: string[];
+  brandVoice?: string;
+  ctas?: string[];
   archivedAt?: string;
   createdAt?: string;
 }
@@ -47,6 +49,8 @@ export interface CreateProjectPayload {
   siteUrl: string;
   siteDescription: string;
   sellingPoints: string[];
+  brandVoice?: string;
+  ctas?: string[];
 }
 
 export interface CreateProjectResponse {
@@ -57,6 +61,8 @@ export interface UpdateProjectPayload {
   name?: string;
   siteDescription?: string;
   sellingPoints?: string[];
+  brandVoice?: string;
+  ctas?: string[];
 }
 
 export interface UpdateProjectResponse {
@@ -166,6 +172,8 @@ interface ProjectFormValue {
   name: string;
   siteDescription: string;
   sellingPoints: string;
+  brandVoice: string;
+  ctas: string;
 }
 
 interface SourceConfigFormValue {
@@ -205,6 +213,17 @@ const fieldStyle = {
   font: 'inherit',
   background: '#ffffff',
 } as const;
+
+function parseCommaSeparatedList(value: string) {
+  return value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
+
+function formatStringList(value?: string[]) {
+  return (value ?? []).join(', ');
+}
 
 function mergeSourceConfigLists(currentList: SourceConfigRecord[], nextList: SourceConfigRecord[]) {
   const sourceConfigMap = new Map<number, SourceConfigRecord>();
@@ -271,6 +290,8 @@ export function ProjectsPage({
   const [siteUrl, setSiteUrl] = useState('https://acme.test');
   const [siteDescription, setSiteDescription] = useState('Launch week campaign');
   const [sellingPoints, setSellingPoints] = useState('Cheap, Fast');
+  const [brandVoice, setBrandVoice] = useState('Direct, calm, proof-first');
+  const [ctas, setCtas] = useState('Start free, Book a demo');
   const { state, run } = useAsyncAction(createProjectAction);
   const { state: projectsState, reload } = useAsyncQuery(loadProjectsAction, [loadProjectsAction]);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
@@ -391,13 +412,14 @@ export function ProjectsPage({
       siteName,
       siteUrl,
       siteDescription,
-      sellingPoints: sellingPoints
-        .split(',')
-        .map((entry) => entry.trim())
-        .filter((entry) => entry.length > 0),
-    }).then(() => {
-      reload();
-    }).catch(() => undefined);
+      sellingPoints: parseCommaSeparatedList(sellingPoints),
+      brandVoice,
+      ctas: parseCommaSeparatedList(ctas),
+    })
+      .then(() => {
+        reload();
+      })
+      .catch(() => undefined);
   }
 
   function getProjectForm(
@@ -407,7 +429,9 @@ export function ProjectsPage({
     return sourceForms[project.id] ?? {
       name: project.name,
       siteDescription: project.siteDescription,
-      sellingPoints: project.sellingPoints.join(', '),
+      sellingPoints: formatStringList(project.sellingPoints),
+      brandVoice: project.brandVoice ?? '',
+      ctas: formatStringList(project.ctas),
     };
   }
 
@@ -423,6 +447,8 @@ export function ProjectsPage({
             siteUrl: '',
             siteDescription: '',
             sellingPoints: [],
+            brandVoice: '',
+            ctas: [],
           },
           currentForms,
         ),
@@ -440,6 +466,8 @@ export function ProjectsPage({
         siteUrl: '',
         siteDescription: '',
         sellingPoints: [],
+        brandVoice: '',
+        ctas: [],
       },
     );
 
@@ -448,28 +476,31 @@ export function ProjectsPage({
     void updateProjectAction(projectId, {
       name: form.name,
       siteDescription: form.siteDescription,
-      sellingPoints: form.sellingPoints
-        .split(',')
-        .map((entry) => entry.trim())
-        .filter((entry) => entry.length > 0),
-    }).then((result) => {
-      setProjectForms((currentForms) => ({
-        ...currentForms,
-        [projectId]: {
-          name: result.project.name,
-          siteDescription: result.project.siteDescription,
-          sellingPoints: result.project.sellingPoints.join(', '),
-        },
-      }));
-      setSaveMessage('项目已保存');
-      reload();
+      sellingPoints: parseCommaSeparatedList(form.sellingPoints),
+      brandVoice: form.brandVoice,
+      ctas: parseCommaSeparatedList(form.ctas),
+    })
+      .then((result) => {
+        setProjectForms((currentForms) => ({
+          ...currentForms,
+          [projectId]: {
+            name: result.project.name,
+            siteDescription: result.project.siteDescription,
+            sellingPoints: formatStringList(result.project.sellingPoints),
+            brandVoice: result.project.brandVoice ?? '',
+            ctas: formatStringList(result.project.ctas),
+          },
+        }));
+        setSaveMessage('项目已保存');
+        reload();
 
-      return loadSourceConfigsAction(projectId)
-        .then((reloaded) => {
-          setProjectSourceConfigs(projectId, reloaded?.sourceConfigs ?? []);
-        })
-        .catch(() => undefined);
-    }).catch(() => undefined)
+        return loadSourceConfigsAction(projectId)
+          .then((reloaded) => {
+            setProjectSourceConfigs(projectId, reloaded?.sourceConfigs ?? []);
+          })
+          .catch(() => undefined);
+      })
+      .catch(() => undefined)
       .finally(() => {
         setPendingProjectSaveId((current) => (current === projectId ? null : current));
       });
@@ -723,6 +754,21 @@ export function ProjectsPage({
               />
             </label>
 
+            <label style={{ display: 'grid', gap: '8px' }}>
+              <span style={{ fontWeight: 700 }}>Brand Voice</span>
+              <textarea
+                rows={3}
+                value={brandVoice}
+                onChange={(event) => setBrandVoice(event.target.value)}
+                style={{ ...fieldStyle, resize: 'vertical' }}
+              />
+            </label>
+
+            <label style={{ display: 'grid', gap: '8px' }}>
+              <span style={{ fontWeight: 700 }}>CTAs</span>
+              <input value={ctas} onChange={(event) => setCtas(event.target.value)} style={fieldStyle} />
+            </label>
+
             <button
               type="button"
               onClick={handleCreateProject}
@@ -772,6 +818,14 @@ export function ProjectsPage({
               <div>
                 <strong>卖点：</strong>
                 {displayState.data.project.sellingPoints.join(', ')}
+              </div>
+              <div>
+                <strong>Brand Voice：</strong>
+                {displayState.data.project.brandVoice ?? ''}
+              </div>
+              <div>
+                <strong>CTAs：</strong>
+                {formatStringList(displayState.data.project.ctas)}
               </div>
             </div>
           ) : null}
@@ -842,6 +896,29 @@ export function ProjectsPage({
                       name={`project-selling-points-${project.id}`}
                       value={form.sellingPoints}
                       onChange={(event) => updateProjectForm(project.id, { sellingPoints: event.target.value })}
+                      style={fieldStyle}
+                    />
+                  </label>
+
+                  <label style={{ display: 'grid', gap: '8px' }}>
+                    <span style={{ fontWeight: 700 }}>Brand Voice</span>
+                    <textarea
+                      data-project-field={`brand-voice-${project.id}`}
+                      name={`project-brand-voice-${project.id}`}
+                      rows={3}
+                      value={form.brandVoice}
+                      onChange={(event) => updateProjectForm(project.id, { brandVoice: event.target.value })}
+                      style={{ ...fieldStyle, resize: 'vertical' }}
+                    />
+                  </label>
+
+                  <label style={{ display: 'grid', gap: '8px' }}>
+                    <span style={{ fontWeight: 700 }}>CTAs</span>
+                    <input
+                      data-project-field={`ctas-${project.id}`}
+                      name={`project-ctas-${project.id}`}
+                      value={form.ctas}
+                      onChange={(event) => updateProjectForm(project.id, { ctas: event.target.value })}
                       style={fieldStyle}
                     />
                   </label>

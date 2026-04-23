@@ -101,6 +101,8 @@ describe('projects api', () => {
         siteUrl: 'https://example.com',
         siteDescription: 'Multi-model API gateway',
         sellingPoints: ['Lower cost'],
+        brandVoice: 'Direct, calm, proof-first',
+        ctas: ['Start free', 'Book a demo'],
       });
 
       expect(created.status).toBe(201);
@@ -109,6 +111,8 @@ describe('projects api', () => {
           id: 1,
           name: 'AU Launch',
           siteName: 'MyModelHub',
+          brandVoice: 'Direct, calm, proof-first',
+          ctas: ['Start free', 'Book a demo'],
         }),
       });
 
@@ -123,6 +127,60 @@ describe('projects api', () => {
             siteName: 'MyModelHub',
             siteUrl: 'https://example.com',
             sellingPoints: ['Lower cost'],
+            brandVoice: 'Direct, calm, proof-first',
+            ctas: ['Start free', 'Book a demo'],
+          }),
+        ],
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('defaults and updates brand voice plus ctas for legacy project payloads', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const created = await requestApp('POST', '/api/projects', {
+        name: 'Legacy Workspace',
+        siteName: 'PromoBot',
+        siteUrl: 'https://legacy.example.com',
+        siteDescription: 'Legacy create payload',
+        sellingPoints: ['Existing flow'],
+      });
+
+      expect(created.status).toBe(201);
+      expect(JSON.parse(created.body)).toEqual({
+        project: expect.objectContaining({
+          id: 1,
+          brandVoice: '',
+          ctas: [],
+        }),
+      });
+
+      const updated = await requestApp('PATCH', '/api/projects/1', {
+        brandVoice: 'Warm, operator-friendly, action-oriented',
+        ctas: ['Talk to sales', 'See live examples'],
+      });
+
+      expect(updated.status).toBe(200);
+      expect(JSON.parse(updated.body)).toEqual({
+        project: expect.objectContaining({
+          id: 1,
+          name: 'Legacy Workspace',
+          brandVoice: 'Warm, operator-friendly, action-oriented',
+          ctas: ['Talk to sales', 'See live examples'],
+        }),
+      });
+
+      const listed = await requestApp('GET', '/api/projects');
+
+      expect(listed.status).toBe(200);
+      expect(JSON.parse(listed.body)).toEqual({
+        projects: [
+          expect.objectContaining({
+            id: 1,
+            brandVoice: 'Warm, operator-friendly, action-oriented',
+            ctas: ['Talk to sales', 'See live examples'],
           }),
         ],
       });

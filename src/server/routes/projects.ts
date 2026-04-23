@@ -35,6 +35,8 @@ projectsRouter.post('/', (request, response) => {
     siteUrl,
     siteDescription,
     sellingPoints,
+    brandVoice,
+    ctas,
   } = request.body ?? {};
 
   if (
@@ -42,7 +44,9 @@ projectsRouter.post('/', (request, response) => {
     typeof siteName !== 'string' ||
     typeof siteUrl !== 'string' ||
     typeof siteDescription !== 'string' ||
-    !Array.isArray(sellingPoints)
+    !Array.isArray(sellingPoints) ||
+    (brandVoice !== undefined && typeof brandVoice !== 'string') ||
+    (ctas !== undefined && !Array.isArray(ctas))
   ) {
     response.status(400).json({ error: 'invalid project payload' });
     return;
@@ -54,6 +58,8 @@ projectsRouter.post('/', (request, response) => {
     siteUrl,
     siteDescription,
     sellingPoints: sellingPoints.filter((value: unknown): value is string => typeof value === 'string'),
+    brandVoice: typeof brandVoice === 'string' ? brandVoice : '',
+    ctas: Array.isArray(ctas) ? ctas.filter((value: unknown): value is string => typeof value === 'string') : [],
   });
 
   response.status(201).json({
@@ -101,6 +107,10 @@ projectsRouter.patch('/:id', (request, response) => {
     siteDescription: typeof input.siteDescription === 'string' ? input.siteDescription : undefined,
     sellingPoints: Array.isArray(input.sellingPoints)
       ? input.sellingPoints.filter((value: unknown): value is string => typeof value === 'string')
+      : undefined,
+    brandVoice: typeof input.brandVoice === 'string' ? input.brandVoice : undefined,
+    ctas: Array.isArray(input.ctas)
+      ? input.ctas.filter((value: unknown): value is string => typeof value === 'string')
       : undefined,
     archived: typeof input.archived === 'boolean' ? input.archived : undefined,
   });

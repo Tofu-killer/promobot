@@ -1300,6 +1300,8 @@ describe('PublishCalendar and Projects pages', () => {
       siteUrl: 'https://acme.test',
       siteDescription: 'Launch week campaign',
       sellingPoints: ['Cheap', 'Fast'],
+      brandVoice: 'Direct, calm, proof-first',
+      ctas: ['Start free', 'Book a demo'],
     });
     expect(collectText(container)).toContain('最近创建结果');
     expect(collectText(container)).toContain('Existing Project');
@@ -1403,6 +1405,8 @@ describe('PublishCalendar and Projects pages', () => {
       name: 'Acme Launch Updated',
       siteDescription: 'Updated brief',
       sellingPoints: ['Faster', 'Cheaper'],
+      brandVoice: '',
+      ctas: [],
     });
     expect(collectText(container)).toContain('项目已保存');
     expect(collectText(container)).toContain('项目：Acme Launch Updated');
@@ -1527,6 +1531,8 @@ describe('PublishCalendar and Projects pages', () => {
       siteUrl: 'https://acme.test',
       siteDescription: 'Launch week campaign',
       sellingPoints: ['Cheap', 'Fast'],
+      brandVoice: 'Direct, calm, proof-first',
+      ctas: ['Start free', 'Book a demo'],
     });
     expect(pendingCreateButton?.disabled).toBe(true);
     expect(collectText(container)).not.toContain('项目已保存');
@@ -1825,6 +1831,8 @@ describe('PublishCalendar and Projects pages', () => {
       name: 'Acme Launch',
       siteDescription: 'Launch week campaign',
       sellingPoints: ['Cheap', 'Fast'],
+      brandVoice: '',
+      ctas: [],
     });
     expect(collectText(container)).not.toContain('Reddit mentions');
     expect(collectText(container)).toContain('暂无 SourceConfig');
