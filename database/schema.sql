@@ -100,6 +100,15 @@ CREATE TABLE IF NOT EXISTS settings (
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS admin_sessions (
+  token_hash TEXT PRIMARY KEY,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS admin_sessions_expires_at_idx
+ON admin_sessions (expires_at);
+
 CREATE TABLE IF NOT EXISTS job_queue (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   type TEXT NOT NULL,

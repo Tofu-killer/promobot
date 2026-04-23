@@ -465,6 +465,134 @@ describe('security middleware', () => {
     });
   });
 
+  it('persists admin sessions across app instances and revokes them globally on logout', async () => {
+    const { rootDir } = createTestDatabasePath();
+
+    try {
+      const firstApp = createApp({
+        allowedIps: ['127.0.0.1'],
+        adminPassword: 'secret',
+      });
+
+      const loginResponse = await requestExistingApp(firstApp, {
+        method: 'POST',
+        url: '/api/auth/login',
+        headers: {
+          'content-type': 'application/json',
+        },
+        remoteAddress: '127.0.0.1',
+        body: {
+          password: 'secret',
+          remember: true,
+        },
+      });
+
+      expect(loginResponse.status).toBe(204);
+      const sessionCookie = readSessionCookie(loginResponse);
+      expect(sessionCookie).not.toBeNull();
+
+      const secondApp = createApp({
+        allowedIps: ['127.0.0.1'],
+        adminPassword: 'secret',
+      });
+
+      const probeOnSecondApp = await requestExistingApp(secondApp, {
+        method: 'GET',
+        url: '/api/auth/probe',
+        headers: {
+          cookie: sessionCookie ?? '',
+        },
+        remoteAddress: '127.0.0.1',
+      });
+      expect(probeOnSecondApp.status).toBe(204);
+
+      const settingsOnSecondApp = await requestExistingApp(secondApp, {
+        method: 'GET',
+        url: '/api/settings',
+        headers: {
+          cookie: sessionCookie ?? '',
+        },
+        remoteAddress: '127.0.0.1',
+      });
+      expect(settingsOnSecondApp.status).toBe(200);
+
+      const logoutOnSecondApp = await requestExistingApp(secondApp, {
+        method: 'POST',
+        url: '/api/auth/logout',
+        headers: {
+          cookie: sessionCookie ?? '',
+        },
+        remoteAddress: '127.0.0.1',
+      });
+      expect(logoutOnSecondApp.status).toBe(204);
+
+      const thirdApp = createApp({
+        allowedIps: ['127.0.0.1'],
+        adminPassword: 'secret',
+      });
+
+      const probeOnThirdApp = await requestExistingApp(thirdApp, {
+        method: 'GET',
+        url: '/api/auth/probe',
+        headers: {
+          cookie: sessionCookie ?? '',
+        },
+        remoteAddress: '127.0.0.1',
+      });
+      expect(probeOnThirdApp.status).toBe(401);
+      expect(JSON.parse(probeOnThirdApp.body)).toEqual({ error: 'unauthorized' });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('invalidates persisted admin sessions when ADMIN_PASSWORD changes', async () => {
+    const { rootDir } = createTestDatabasePath();
+
+    try {
+      const firstApp = createApp({
+        allowedIps: ['127.0.0.1'],
+        adminPassword: 'secret',
+      });
+
+      const loginResponse = await requestExistingApp(firstApp, {
+        method: 'POST',
+        url: '/api/auth/login',
+        headers: {
+          'content-type': 'application/json',
+        },
+        remoteAddress: '127.0.0.1',
+        body: {
+          password: 'secret',
+          remember: true,
+        },
+      });
+
+      expect(loginResponse.status).toBe(204);
+      const sessionCookie = readSessionCookie(loginResponse);
+      expect(sessionCookie).not.toBeNull();
+
+      const secondApp = createApp({
+        allowedIps: ['127.0.0.1'],
+        adminPassword: 'new-secret',
+      });
+
+      const probeResponse = await requestExistingApp(secondApp, {
+        method: 'GET',
+        url: '/api/auth/probe',
+        headers: {
+          cookie: sessionCookie ?? '',
+        },
+        remoteAddress: '127.0.0.1',
+      });
+
+      expect(probeResponse.status).toBe(401);
+      expect(JSON.parse(probeResponse.body)).toEqual({ error: 'unauthorized' });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('rejects login when the password is invalid', async () => {
     const app = createApp({
       allowedIps: ['127.0.0.1'],

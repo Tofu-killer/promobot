@@ -22,16 +22,34 @@ describe('database schema', () => {
     try {
       const rows = db
         .prepare(
-          "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('projects', 'drafts', 'publish_logs', 'channel_accounts', 'settings') ORDER BY name",
+          "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('admin_sessions', 'projects', 'drafts', 'publish_logs', 'channel_accounts', 'settings') ORDER BY name",
         )
         .all() as Array<{ name: string }>;
 
       expect(rows.map((row) => row.name)).toEqual([
+        'admin_sessions',
         'channel_accounts',
         'drafts',
         'projects',
         'publish_logs',
         'settings',
+      ]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('creates the admin_sessions table with the expected columns', () => {
+    const db = initDb(':memory:');
+    try {
+      const columns = db
+        .prepare("PRAGMA table_info(admin_sessions)")
+        .all() as Array<{ name: string }>;
+
+      expect(columns.map((column) => column.name)).toEqual([
+        'token_hash',
+        'expires_at',
+        'created_at',
       ]);
     } finally {
       db.close();

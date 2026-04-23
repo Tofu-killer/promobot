@@ -40,7 +40,9 @@ export function createApp(config: AppConfig = loadConfig(), dependencies: AppDep
       allowlist: config.allowedIps,
     },
   });
-  const adminSessionStore = createAdminSessionStore();
+  const adminSessionStore = createAdminSessionStore({
+    passwordFingerprint: config.adminPassword,
+  });
   app.disable('x-powered-by');
   app.use(express.json());
   app.use(ipAllowlist(() => settingsStore.get().allowlist));

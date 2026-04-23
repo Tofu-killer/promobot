@@ -49,6 +49,8 @@ cp .env.example .env
   - 在 `NODE_ENV=production` 下，若仍是默认值 `change-me`，服务会拒绝启动
   - 除 `/api/system/health` 外，其它 `/api/*` 请求都需要通过管理员鉴权
   - 当前前端登录成功后会得到 `HttpOnly` session cookie；默认是会话级 cookie，勾选“记住这台浏览器”后会改为持久 cookie
+  - 管理员 session 现已持久化到 SQLite，可跨 app 实例与进程重启继续生效；`/api/auth/logout` 会全局撤销当前 session
+  - 如果你轮换 `ADMIN_PASSWORD`，旧的管理员 session 会自动失效，不需要再手动清理 cookie
   - 为兼容自动化与 CLI，后端当前仍接受 `x-admin-password` 作为 fallback，但浏览器主路径已不再保存明文密码
 - `PROMOBOT_DB_PATH`
   - 默认是 `<cwd>/data/promobot.sqlite`
