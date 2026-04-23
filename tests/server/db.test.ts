@@ -52,4 +52,77 @@ describe('database schema', () => {
       db.close();
     }
   });
+
+  it('adds archived and brand fields to projects', () => {
+    const db = initDb(':memory:');
+    try {
+      const columns = db
+        .prepare("PRAGMA table_info(projects)")
+        .all() as Array<{ name: string }>;
+
+      expect(columns.map((column) => column.name)).toEqual(
+        expect.arrayContaining(['brand_voice', 'ctas', 'archived', 'archived_at']),
+      );
+    } finally {
+      db.close();
+    }
+  });
+
+  it('creates projects with the runtime project fields and defaults', () => {
+    const db = initDb(':memory:');
+    try {
+      const columns = db
+        .prepare("PRAGMA table_info(projects)")
+        .all() as Array<{ name: string }>;
+
+      expect(columns.map((column) => column.name)).toEqual(
+        expect.arrayContaining(['brand_voice', 'ctas', 'archived', 'archived_at']),
+      );
+
+      db.prepare(
+        `
+          INSERT INTO projects (
+            name,
+            site_name,
+            site_url,
+            site_description,
+            selling_points
+          )
+          VALUES (?, ?, ?, ?, ?)
+        `,
+      ).run([
+        'Fresh Schema Project',
+        'PromoBot',
+        'https://example.com',
+        'Schema coverage',
+        '["Fast setup"]',
+      ]);
+
+      const row = db
+        .prepare(
+          `
+            SELECT brand_voice AS brandVoice, ctas, archived, archived_at AS archivedAt
+            FROM projects
+            WHERE id = 1
+          `,
+        )
+        .get() as
+        | {
+            brandVoice: string;
+            ctas: string;
+            archived: number;
+            archivedAt: string | null;
+          }
+        | undefined;
+
+      expect(row).toEqual({
+        brandVoice: '',
+        ctas: '[]',
+        archived: 0,
+        archivedAt: null,
+      });
+    } finally {
+      db.close();
+    }
+  });
 });

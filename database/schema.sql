@@ -5,6 +5,10 @@ CREATE TABLE IF NOT EXISTS projects (
   site_url TEXT NOT NULL,
   site_description TEXT NOT NULL,
   selling_points TEXT NOT NULL,
+  brand_voice TEXT NOT NULL DEFAULT '',
+  ctas TEXT NOT NULL DEFAULT '[]',
+  archived INTEGER NOT NULL DEFAULT 0,
+  archived_at TEXT,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
