@@ -932,6 +932,52 @@ describe('client API page wiring', () => {
     expect(html).not.toContain('<option value="failed">');
   });
 
+  it('renders draft status filters and batch action controls for loaded drafts', async () => {
+    const { DraftsPage } = await import('../../src/client/pages/Drafts');
+
+    const html = renderPage(DraftsPage, {
+      stateOverride: {
+        status: 'success',
+        data: {
+          drafts: [
+            {
+              id: 1,
+              platform: 'x',
+              title: 'Launch thread',
+              content: 'Draft body',
+              hashtags: ['#launch'],
+              status: 'draft',
+              createdAt: '2026-04-19T00:00:00.000Z',
+              updatedAt: '2026-04-19T00:00:00.000Z',
+            },
+            {
+              id: 2,
+              platform: 'reddit',
+              title: 'Review thread',
+              content: 'Review body',
+              hashtags: ['#review'],
+              status: 'review',
+              createdAt: '2026-04-19T00:10:00.000Z',
+              updatedAt: '2026-04-19T00:10:00.000Z',
+            },
+          ],
+        },
+      },
+    });
+
+    expect(html).toContain('按状态筛选');
+    expect(html).toContain('data-drafts-status-filter="all"');
+    expect(html).toContain('data-drafts-status-filter="draft"');
+    expect(html).toContain('data-drafts-status-filter="review"');
+    expect(html).toContain('已加载 2 条草稿');
+    expect(html).toContain('当前筛选下 2 条 / 总计 2 条草稿');
+    expect(html).toContain('data-drafts-batch-review="true"');
+    expect(html).toContain('data-drafts-batch-status="approved"');
+    expect(html).toContain('data-drafts-batch-status="scheduled"');
+    expect(html).toContain('data-drafts-batch-publish="true"');
+    expect(html).toContain('已选 0 条草稿');
+  });
+
   it('shows manual handoff feedback for draft publish contracts', async () => {
     const { DraftsPage } = await import('../../src/client/pages/Drafts');
 
@@ -2741,7 +2787,7 @@ describe('client API page wiring', () => {
       },
     });
 
-    expect(html).toContain('已加载 1 条收件箱记录');
+    expect(html).toContain('当前筛选下 1 条 / 总计 1 条收件箱记录');
     expect(html).toContain('needs_reply');
     expect(html).toContain('Need lower latency in APAC');
     expect(html).toContain('项目 ID（可选）');
@@ -2847,6 +2893,57 @@ describe('client API page wiring', () => {
     expect(html).toContain('已抓取 1 条监控动态');
     expect(html).toContain('new');
     expect(html).toContain('Competitor added a cheaper tier');
+    expect(html).toContain('项目 ID（可选）');
+  });
+
+  it('shows discovery loading, error, and actionable success states', async () => {
+    const { DiscoveryPage } = await import('../../src/client/pages/Discovery');
+
+    expect(renderApiPage(DiscoveryPage, { status: 'loading' })).toContain('正在加载发现池');
+    expect(renderApiPage(DiscoveryPage, { status: 'idle' })).toContain('当前展示的是预览数据');
+    expect(
+      renderApiPage(DiscoveryPage, {
+        status: 'error',
+        error: 'Request failed with status 500',
+      }),
+    ).toContain('发现池加载失败');
+
+    const html = renderApiPage(DiscoveryPage, {
+      status: 'success',
+      data: {
+        items: [
+          {
+            id: 'monitor-1',
+            source: 'X / Twitter',
+            title: 'Competitor onboarding teardown',
+            summary: '值得保留为后续拆解选题。',
+            status: 'new',
+            score: 91,
+            createdAt: '2026-04-19T00:00:00.000Z',
+          },
+          {
+            id: 'inbox-1',
+            source: 'Reddit',
+            title: 'Prospect asking for APAC latency proof',
+            summary: '需要回复，但不支持 Discovery save/ignore。',
+            status: 'needs_review',
+            score: 73,
+            createdAt: '2026-04-19T00:05:00.000Z',
+          },
+        ],
+        total: 2,
+        stats: {
+          sources: 2,
+          averageScore: 82,
+        },
+      },
+    });
+
+    expect(html).toContain('当前筛选下 2 条 / 总计 2 条发现条目');
+    expect(html).toContain('Competitor onboarding teardown');
+    expect(html).toContain('data-discovery-save-id="monitor-1"');
+    expect(html).toContain('data-discovery-ignore-id="monitor-1"');
+    expect(html).not.toContain('data-discovery-save-id="inbox-1"');
     expect(html).toContain('项目 ID（可选）');
   });
 

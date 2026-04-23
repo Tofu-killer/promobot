@@ -1,5 +1,15 @@
 import React, { act, createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
+function jsonResponse(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  });
+}
 
 class FakeEvent {
   type: string;
@@ -560,6 +570,252 @@ afterEach(() => {
 });
 
 describe('Discovery draft actions', () => {
+  it('posts discovery immediate fetch through the shared API helper', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          items: [],
+          inserted: 2,
+          total: 2,
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          items: [],
+          inserted: 1,
+          total: 1,
+          unread: 1,
+        }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const discoveryModule = (await import('../../src/client/pages/Discovery')) as Record<string, unknown>;
+
+    expect(typeof discoveryModule.fetchDiscoverySignalsRequest).toBe('function');
+
+    const fetchDiscoverySignalsRequest = discoveryModule.fetchDiscoverySignalsRequest as (
+      projectId?: number,
+    ) => Promise<{ monitorInserted: number; inboxInserted: number; totalInserted: number }>;
+
+    const result = await fetchDiscoverySignalsRequest();
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      '/api/monitor/fetch',
+      expect.objectContaining({
+        method: 'POST',
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/inbox/fetch',
+      expect.objectContaining({
+        method: 'POST',
+      }),
+    );
+    expect(result).toEqual({
+      monitorInserted: 2,
+      inboxInserted: 1,
+      totalInserted: 3,
+    });
+  });
+
+  it('passes projectId into discovery immediate fetch helper', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ items: [], inserted: 0, total: 0 }))
+      .mockResolvedValueOnce(jsonResponse({ items: [], inserted: 0, total: 0, unread: 0 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const discoveryModule = (await import('../../src/client/pages/Discovery')) as Record<string, unknown>;
+    const fetchDiscoverySignalsRequest = discoveryModule.fetchDiscoverySignalsRequest as (
+      projectId?: number,
+    ) => Promise<{ monitorInserted: number; inboxInserted: number; totalInserted: number }>;
+
+    await fetchDiscoverySignalsRequest(12);
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      '/api/monitor/fetch',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: 12 }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/inbox/fetch',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: 12 }),
+      }),
+    );
+  });
+
+  it('patches discovery item actions through the shared API helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        item: {
+          id: 'monitor-7',
+          source: 'x',
+          type: 'monitor',
+          title: 'Competitor onboarding teardown',
+          detail: '值得保留为后续拆解选题。',
+          status: 'saved',
+          createdAt: '2026-04-19T09:00:00.000Z',
+        },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const discoveryModule = (await import('../../src/client/pages/Discovery')) as Record<string, unknown>;
+
+    expect(typeof discoveryModule.updateDiscoveryItemActionRequest).toBe('function');
+
+    const updateDiscoveryItemActionRequest = discoveryModule.updateDiscoveryItemActionRequest as (
+      id: string,
+      action: 'save' | 'ignore',
+      projectId?: number,
+    ) => Promise<{ item: { id: string; status: string } }>;
+
+    const result = await updateDiscoveryItemActionRequest('monitor-7', 'save', 12);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/discovery/monitor-7',
+      expect.objectContaining({
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'save', projectId: 12 }),
+      }),
+    );
+    expect(result.item.status).toBe('saved');
+  });
+
+  it('saves and ignores monitor discovery items through the page action wiring', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { DiscoveryPage } = await import('../../src/client/pages/Discovery');
+
+    const stateOverride = {
+      status: 'success' as const,
+      data: {
+        items: [
+          {
+            id: 'monitor-1',
+            source: 'X / Twitter',
+            title: 'Competitor onboarding teardown',
+            summary: '值得保留为后续拆解选题。',
+            status: 'new',
+            score: 91,
+            createdAt: '2026-04-19T09:00:00.000Z',
+          },
+          {
+            id: 'monitor-2',
+            source: 'Reddit',
+            title: 'Weak launch angle',
+            summary: '这个方向本轮先忽略。',
+            status: 'new',
+            score: 65,
+            createdAt: '2026-04-19T09:05:00.000Z',
+          },
+          {
+            id: 'inbox-3',
+            source: 'Reddit',
+            title: 'Inbox lead',
+            summary: '需要回复，但不支持 Discovery save/ignore。',
+            status: 'needs_review',
+            score: 72,
+            createdAt: '2026-04-19T09:10:00.000Z',
+          },
+        ],
+        total: 3,
+        stats: {
+          sources: 2,
+          averageScore: 76,
+        },
+      },
+    };
+    const updateDiscoveryItemAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        item: {
+          id: 'monitor-1',
+          source: 'X / Twitter',
+          type: 'monitor',
+          title: 'Competitor onboarding teardown',
+          detail: '值得保留为后续拆解选题。',
+          status: 'saved',
+          createdAt: '2026-04-19T09:00:00.000Z',
+        },
+      })
+      .mockResolvedValueOnce({
+        item: {
+          id: 'monitor-2',
+          source: 'Reddit',
+          type: 'monitor',
+          title: 'Weak launch angle',
+          detail: '这个方向本轮先忽略。',
+          status: 'ignored',
+          createdAt: '2026-04-19T09:05:00.000Z',
+        },
+      });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(DiscoveryPage as never, {
+          stateOverride,
+          updateDiscoveryItemAction,
+        }),
+      );
+      await flush();
+    });
+
+    const saveButton = findElement(
+      container,
+      (element) => element.getAttribute('data-discovery-save-id') === 'monitor-1',
+    );
+    const ignoreButton = findElement(
+      container,
+      (element) => element.getAttribute('data-discovery-ignore-id') === 'monitor-2',
+    );
+    const inboxSaveButton = findElement(
+      container,
+      (element) => element.getAttribute('data-discovery-save-id') === 'inbox-3',
+    );
+
+    expect(saveButton).not.toBeNull();
+    expect(ignoreButton).not.toBeNull();
+    expect(inboxSaveButton).toBeNull();
+
+    await act(async () => {
+      saveButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(updateDiscoveryItemAction).toHaveBeenNthCalledWith(1, 'monitor-1', 'save');
+    expect(collectText(container)).toContain('已保存到发现池。');
+    expect(collectText(container)).toContain('X / Twitter · saved · 2026-04-19T09:00:00.000Z');
+
+    await act(async () => {
+      ignoreButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(updateDiscoveryItemAction).toHaveBeenNthCalledWith(2, 'monitor-2', 'ignore');
+    expect(collectText(container)).toContain('已保存到发现池。');
+    expect(collectText(container)).toContain('已忽略该条发现。');
+    expect(collectText(container)).toContain('Reddit · ignored · 2026-04-19T09:05:00.000Z');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('disables draft generation for preview discovery data', async () => {
     const { container } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
@@ -1019,5 +1275,537 @@ describe('Discovery draft actions', () => {
       root.unmount();
       await flush();
     });
+  });
+
+  it('filters discovery items by source and platform and keeps metrics aligned with the current filter', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { DiscoveryPage } = await import('../../src/client/pages/Discovery');
+
+    const stateOverride = {
+      status: 'success' as const,
+      data: {
+        items: [
+          {
+            id: 201,
+            source: 'Reddit',
+            title: 'Reddit launch signal',
+            summary: '适合转成 reddit 首发草稿。',
+            status: 'new',
+            score: 92,
+            createdAt: '2026-04-19T05:00:00.000Z',
+          },
+          {
+            id: 202,
+            source: 'X / Twitter',
+            title: 'X trend signal',
+            summary: '适合转成 X 短帖。',
+            status: 'triaged',
+            score: 84,
+            createdAt: '2026-04-19T05:10:00.000Z',
+          },
+          {
+            id: 203,
+            source: 'Product Hunt',
+            title: 'Manual research note',
+            summary: '当前来源不在首发平台范围内。',
+            status: 'saved',
+            score: 71,
+            createdAt: '2026-04-19T05:20:00.000Z',
+          },
+        ],
+        total: 3,
+        stats: {
+          sources: 3,
+          averageScore: 82,
+        },
+      },
+    };
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(DiscoveryPage as never, {
+          stateOverride,
+        }),
+      );
+      await flush();
+    });
+
+    const redditSourceFilter = findElement(
+      container,
+      (element) => element.getAttribute('data-discovery-filter-source') === 'reddit',
+    );
+    const manualPlatformFilter = findElement(
+      container,
+      (element) => element.getAttribute('data-discovery-filter-platform') === 'manual',
+    );
+
+    expect(redditSourceFilter).not.toBeNull();
+    expect(manualPlatformFilter).not.toBeNull();
+
+    await act(async () => {
+      redditSourceFilter?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(redditSourceFilter?.getAttribute('aria-pressed')).toBe('true');
+    expect(collectText(container)).toContain('Reddit launch signal');
+    expect(collectText(container)).not.toContain('X trend signal');
+    expect(collectText(container)).not.toContain('Manual research note');
+    expect(collectText(container)).toContain('当前筛选下 1 条 / 总计 3 条发现条目');
+    expect(collectText(container)).toContain('候选条目1当前统一发现池中的条目数');
+    expect(collectText(container)).toContain('数据源1聚合后的来源渠道数');
+
+    await act(async () => {
+      manualPlatformFilter?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(manualPlatformFilter?.getAttribute('aria-pressed')).toBe('true');
+    expect(collectText(container)).toContain('当前筛选下 0 条 / 总计 3 条发现条目');
+    expect(collectText(container)).toContain('当前筛选下暂无发现条目');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('keeps draft generation working after narrowing to a matching discovery source filter', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { DiscoveryPage } = await import('../../src/client/pages/Discovery');
+
+    const stateOverride = {
+      status: 'success' as const,
+      data: {
+        items: [
+          {
+            id: 204,
+            source: 'Reddit',
+            title: 'Scoped Reddit signal',
+            summary: '适合做 reddit 跟进稿。',
+            status: 'new',
+            score: 87,
+            createdAt: '2026-04-19T06:00:00.000Z',
+          },
+          {
+            id: 205,
+            source: 'X / Twitter',
+            title: 'Scoped X signal',
+            summary: '适合做 X 跟进稿。',
+            status: 'new',
+            score: 81,
+            createdAt: '2026-04-19T06:05:00.000Z',
+          },
+        ],
+        total: 2,
+        stats: {
+          sources: 2,
+          averageScore: 84,
+        },
+      },
+    };
+    const generateAction = vi.fn().mockResolvedValue({
+      results: [
+        {
+          platform: 'reddit',
+          title: 'Scoped reddit draft',
+          content: 'Draft body',
+          draftId: 300,
+        },
+      ],
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(DiscoveryPage as never, {
+          stateOverride,
+          generateAction,
+        }),
+      );
+      await flush();
+    });
+
+    const redditSourceFilter = findElement(
+      container,
+      (element) => element.getAttribute('data-discovery-filter-source') === 'reddit',
+    );
+    const button = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('生成草稿'),
+    );
+
+    expect(redditSourceFilter).not.toBeNull();
+    expect(button).not.toBeNull();
+
+    await act(async () => {
+      redditSourceFilter?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    await act(async () => {
+      button?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(generateAction).toHaveBeenCalledWith({
+      topic: 'Scoped Reddit signal\n\n适合做 reddit 跟进稿。',
+      tone: 'professional',
+      platforms: ['reddit'],
+      saveAsDraft: true,
+    });
+    expect(collectText(container)).toContain('草稿已生成');
+    expect(collectText(container)).toContain('draftId: 300');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('batch-generates drafts for the selected discovery items', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { DiscoveryPage } = await import('../../src/client/pages/Discovery');
+
+    const stateOverride = {
+      status: 'success' as const,
+      data: {
+        items: [
+          {
+            id: 301,
+            source: 'Reddit',
+            title: 'Batch reddit signal',
+            summary: '适合做 reddit 批量跟进稿。',
+            status: 'new',
+            score: 90,
+            createdAt: '2026-04-19T07:00:00.000Z',
+          },
+          {
+            id: 302,
+            source: 'X / Twitter',
+            title: 'Batch x signal',
+            summary: '适合做 X 批量跟进稿。',
+            status: 'new',
+            score: 83,
+            createdAt: '2026-04-19T07:05:00.000Z',
+          },
+        ],
+        total: 2,
+        stats: {
+          sources: 2,
+          averageScore: 87,
+        },
+      },
+    };
+    const generateAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        results: [
+          {
+            platform: 'reddit',
+            title: 'Batch reddit draft',
+            content: 'Draft body',
+            draftId: 401,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        results: [
+          {
+            platform: 'x',
+            title: 'Batch x draft',
+            content: 'Draft body',
+            draftId: 402,
+          },
+        ],
+      });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(DiscoveryPage as never, {
+          stateOverride,
+          generateAction,
+        }),
+      );
+      await flush();
+    });
+
+    const firstSelectButton = findElement(
+      container,
+      (element) => element.getAttribute('data-discovery-select-item') === '301',
+    );
+    const secondSelectButton = findElement(
+      container,
+      (element) => element.getAttribute('data-discovery-select-item') === '302',
+    );
+    const batchGenerateButton = findElement(
+      container,
+      (element) => element.getAttribute('data-discovery-batch-generate') === 'true',
+    );
+
+    expect(firstSelectButton).not.toBeNull();
+    expect(secondSelectButton).not.toBeNull();
+    expect(batchGenerateButton).not.toBeNull();
+
+    await act(async () => {
+      firstSelectButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      secondSelectButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(firstSelectButton?.getAttribute('aria-pressed')).toBe('true');
+    expect(secondSelectButton?.getAttribute('aria-pressed')).toBe('true');
+    expect(collectText(container)).toContain('已选 2 条可批量生成的发现条目');
+
+    await act(async () => {
+      batchGenerateButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(generateAction).toHaveBeenNthCalledWith(1, {
+      topic: 'Batch reddit signal\n\n适合做 reddit 批量跟进稿。',
+      tone: 'professional',
+      platforms: ['reddit'],
+      saveAsDraft: true,
+    });
+    expect(generateAction).toHaveBeenNthCalledWith(2, {
+      topic: 'Batch x signal\n\n适合做 X 批量跟进稿。',
+      tone: 'professional',
+      platforms: ['x'],
+      saveAsDraft: true,
+    });
+    expect(collectText(container)).toContain('已批量生成 2 条发现草稿');
+    expect(collectText(container)).toContain('draftId: 401');
+    expect(collectText(container)).toContain('draftId: 402');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('keeps live discovery items visible while an immediate fetch triggers a reload', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { DiscoveryPage } = await import('../../src/client/pages/Discovery');
+
+    const pendingReload = createDeferredPromise<{
+      items: Array<{
+        id: number;
+        source: string;
+        title: string;
+        summary: string;
+        status: string;
+        score: number;
+        createdAt: string;
+      }>;
+      total: number;
+      stats: {
+        sources: number;
+        averageScore: number;
+      };
+    }>();
+    const loadDiscoveryAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: 401,
+            source: 'Reddit',
+            title: 'Discovery item before fetch',
+            summary: '抓取前的现有条目。',
+            status: 'new',
+            score: 90,
+            createdAt: '2026-04-19T08:00:00.000Z',
+          },
+        ],
+        total: 1,
+        stats: {
+          sources: 1,
+          averageScore: 90,
+        },
+      })
+      .mockImplementationOnce(() => pendingReload.promise);
+    const fetchDiscoveryAction = vi.fn().mockResolvedValue({
+      monitorInserted: 2,
+      inboxInserted: 1,
+      totalInserted: 3,
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(DiscoveryPage as never, {
+          loadDiscoveryAction,
+          fetchDiscoveryAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const fetchButton = findElement(
+      container,
+      (element) => element.getAttribute('data-discovery-fetch-action') === 'true',
+    );
+
+    expect(fetchButton).not.toBeNull();
+    expect(collectText(container)).toContain('Discovery item before fetch');
+
+    await act(async () => {
+      fetchButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(fetchDiscoveryAction).toHaveBeenCalledWith();
+    expect(loadDiscoveryAction).toHaveBeenCalledTimes(2);
+    expect(collectText(container)).toContain('已同步发现信号：monitor 2 条，inbox 1 条');
+    expect(collectText(container)).toContain('Discovery item before fetch');
+
+    await act(async () => {
+      pendingReload.resolve({
+        items: [
+          {
+            id: 402,
+            source: 'X / Twitter',
+            title: 'Discovery item after fetch',
+            summary: '抓取后的新条目。',
+            status: 'new',
+            score: 88,
+            createdAt: '2026-04-19T08:05:00.000Z',
+          },
+        ],
+        total: 1,
+        stats: {
+          sources: 1,
+          averageScore: 88,
+        },
+      });
+      await flush();
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('saves a monitor discovery item and reflects the updated status without regressing the current list', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { DiscoveryPage } = await import('../../src/client/pages/Discovery');
+
+    const stateOverride = {
+      status: 'success' as const,
+      data: {
+        items: [
+          {
+            id: 'monitor-7',
+            source: 'X / Twitter',
+            title: 'Competitor onboarding teardown',
+            summary: '值得保留为后续拆解选题。',
+            status: 'new',
+            score: 86,
+            createdAt: '2026-04-19T09:00:00.000Z',
+          },
+        ],
+        total: 1,
+        stats: {
+          sources: 1,
+          averageScore: 86,
+        },
+      },
+    };
+    const updateDiscoveryAction = vi.fn().mockResolvedValue({
+      item: {
+        id: 'monitor-7',
+        source: 'X / Twitter',
+        type: 'monitor',
+        title: 'Competitor onboarding teardown',
+        detail: '值得保留为后续拆解选题。',
+        status: 'saved',
+        createdAt: '2026-04-19T09:00:00.000Z',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(DiscoveryPage as never, {
+          stateOverride,
+          updateDiscoveryAction,
+        }),
+      );
+      await flush();
+    });
+
+    const saveButton = findElement(
+      container,
+      (element) => element.getAttribute('data-discovery-item-action') === 'save-monitor-7',
+    );
+
+    expect(saveButton).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(
+        findElement(
+          container,
+          (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+        ),
+        '12',
+        window,
+      );
+      await flush();
+      saveButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(updateDiscoveryAction).toHaveBeenCalledWith('monitor-7', 'save', 12);
+    expect(collectText(container)).toContain('条目已保存');
+    expect(collectText(container)).toContain('X / Twitter · saved · 2026-04-19T09:00:00.000Z');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('keeps discovery save/ignore disabled for inbox-derived items', async () => {
+    const { DiscoveryPage } = await import('../../src/client/pages/Discovery');
+
+    const html = renderToStaticMarkup(
+      createElement(DiscoveryPage as never, {
+        stateOverride: {
+          status: 'success',
+          data: {
+            items: [
+              {
+                id: 'inbox-9',
+                source: 'Reddit',
+                title: 'Inbox-derived discovery item',
+                summary: '来源于 inbox 的聚合项。',
+                status: 'needs_review',
+                score: 78,
+                createdAt: '2026-04-19T09:10:00.000Z',
+              },
+            ],
+            total: 1,
+            stats: {
+              sources: 1,
+              averageScore: 78,
+            },
+          },
+        },
+      }),
+    );
+
+    expect(html).toContain('来源于 inbox 的聚合项暂不支持保存 / 忽略动作');
+    expect(html).toMatch(/data-discovery-item-action=\"save-inbox-9\"[^>]*disabled=\"\"/);
+    expect(html).toMatch(/data-discovery-item-action=\"ignore-inbox-9\"[^>]*disabled=\"\"/);
   });
 });

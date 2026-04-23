@@ -23,6 +23,7 @@ export interface MonitorStore {
   create(input: CreateMonitorItemInput): MonitorItemRecord;
   getById(id: number): MonitorItemRecord | undefined;
   list(projectId?: number): MonitorItemRecord[];
+  updateStatus(id: number, status: string): MonitorItemRecord | undefined;
 }
 
 export function createMonitorStore(): MonitorStore {
@@ -43,6 +44,12 @@ export function createMonitorStore(): MonitorStore {
       return withDatabase((database) => {
         ensureProjectIdColumn(database);
         return listMonitorItems(database, projectId);
+      });
+    },
+    updateStatus(id, status) {
+      return withDatabase((database) => {
+        ensureProjectIdColumn(database);
+        return updateMonitorItemStatus(database, id, status);
       });
     },
   };
@@ -159,6 +166,28 @@ function getMonitorItemByNaturalKey(
     });
 
   return row ? normalizeMonitorItem(row as Record<string, unknown>) : undefined;
+}
+
+function updateMonitorItemStatus(
+  database: DatabaseConnection,
+  id: number,
+  status: string,
+): MonitorItemRecord | undefined {
+  const result = database
+    .prepare(
+      `
+        UPDATE monitor_items
+        SET status = ?
+        WHERE id = ?
+      `,
+    )
+    .run([status, id]);
+
+  if (result.changes === 0) {
+    return undefined;
+  }
+
+  return getMonitorItemById(database, id);
 }
 
 function normalizeMonitorItem(row: Record<string, unknown>): MonitorItemRecord {

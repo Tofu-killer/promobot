@@ -4,7 +4,7 @@ import { createInboxStore } from '../../src/server/store/inbox';
 import { createMonitorStore } from '../../src/server/store/monitor';
 import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
 
-async function requestApp(method: string, url: string) {
+async function requestApp(method: string, url: string, body?: unknown) {
   const app = createApp({
     allowedIps: ['127.0.0.1'],
     adminPassword: 'secret',
@@ -62,6 +62,10 @@ async function requestApp(method: string, url: string) {
 
     req.res = res;
     res.socket = req.socket;
+
+    if (body !== undefined) {
+      req.body = body;
+    }
 
     let settled = false;
     const finish = (result: { status: number; body: string }) => {
@@ -191,6 +195,199 @@ describe('discovery api', () => {
           }),
         ],
         total: 2,
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('saves a monitor discovery item and returns the updated discovery record', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const monitorStore = createMonitorStore();
+      monitorStore.create({
+        projectId: 1,
+        source: 'x',
+        status: 'new',
+        title: 'Competitor onboarding teardown',
+        detail: '值得保留为后续拆解选题。',
+      });
+
+      const response = await requestApp('PATCH', '/api/discovery/monitor-1', {
+        action: 'save',
+        projectId: 1,
+      });
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        item: expect.objectContaining({
+          id: 'monitor-1',
+          type: 'monitor',
+          status: 'saved',
+          title: 'Competitor onboarding teardown',
+        }),
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('ignores a monitor discovery item and returns the updated discovery record', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const monitorStore = createMonitorStore();
+      monitorStore.create({
+        projectId: 1,
+        source: 'x',
+        status: 'new',
+        title: 'Competitor onboarding teardown',
+        detail: '这个方向本轮先忽略。',
+      });
+
+      const response = await requestApp('PATCH', '/api/discovery/monitor-1', {
+        action: 'ignore',
+        projectId: 1,
+      });
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        item: expect.objectContaining({
+          id: 'monitor-1',
+          type: 'monitor',
+          status: 'ignored',
+        }),
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('does not update a monitor discovery item when the project scope does not match', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const monitorStore = createMonitorStore();
+      monitorStore.create({
+        projectId: 1,
+        source: 'x',
+        status: 'new',
+        title: 'Project 1 competitor teardown',
+        detail: 'Project 2 must not mutate this signal.',
+      });
+
+      const response = await requestApp('PATCH', '/api/discovery/monitor-1', {
+        action: 'save',
+        projectId: 2,
+      });
+
+      expect(response.status).toBe(404);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'discovery item not found',
+      });
+      expect(monitorStore.getById(1)?.status).toBe('new');
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('rejects invalid project scope on discovery item actions', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const monitorStore = createMonitorStore();
+      monitorStore.create({
+        projectId: 1,
+        source: 'x',
+        status: 'new',
+        title: 'Project scoped competitor teardown',
+        detail: 'Invalid scope must not bypass validation.',
+      });
+
+      const response = await requestApp('PATCH', '/api/discovery/monitor-1', {
+        action: 'save',
+        projectId: 0,
+      });
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'invalid project id',
+      });
+      expect(monitorStore.getById(1)?.status).toBe('new');
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('rejects unsupported discovery item actions', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const monitorStore = createMonitorStore();
+      monitorStore.create({
+        projectId: 1,
+        source: 'x',
+        status: 'new',
+        title: 'Competitor onboarding teardown',
+        detail: 'invalid action check',
+      });
+
+      const response = await requestApp('PATCH', '/api/discovery/monitor-1', {
+        action: 'archive',
+        projectId: 1,
+      });
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'invalid discovery action',
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('rejects unsupported discovery item kinds for status updates', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const inboxStore = createInboxStore();
+      inboxStore.create({
+        source: 'reddit',
+        status: 'needs_review',
+        author: 'prospect-1',
+        title: 'Users asking for SOC 2 proof',
+        excerpt: 'Several buyers want a compliance checklist.',
+      });
+
+      const response = await requestApp('PATCH', '/api/discovery/inbox-1', {
+        action: 'save',
+        projectId: 1,
+      });
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'unsupported discovery item action',
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('does not allow discovery item actions to cross project scope', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const monitorStore = createMonitorStore();
+      monitorStore.create({
+        projectId: 1,
+        source: 'x',
+        status: 'new',
+        title: 'Project 1 monitor item',
+        detail: 'Only project 1 should mutate this.',
+      });
+
+      const response = await requestApp('PATCH', '/api/discovery/monitor-1', {
+        action: 'save',
+        projectId: 2,
+      });
+
+      expect(response.status).toBe(404);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'discovery item not found',
       });
     } finally {
       cleanupTestDatabasePath(rootDir);

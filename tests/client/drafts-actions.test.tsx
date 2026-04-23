@@ -47,6 +47,297 @@ afterEach(() => {
 });
 
 describe('Drafts publish actions', () => {
+  it('filters drafts by status and keeps the visible count aligned with the filter', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { DraftsPage } = await import('../../src/client/pages/Drafts');
+
+    const loadDraftsAction = vi.fn().mockResolvedValue({
+      drafts: [
+        {
+          id: 8,
+          platform: 'x',
+          title: 'Draft A',
+          content: 'Draft body A',
+          hashtags: ['#launch'],
+          status: 'draft',
+          createdAt: '2026-04-19T00:00:00.000Z',
+          updatedAt: '2026-04-19T00:00:00.000Z',
+        },
+        {
+          id: 9,
+          platform: 'reddit',
+          title: 'Review B',
+          content: 'Draft body B',
+          hashtags: ['#review'],
+          status: 'review',
+          createdAt: '2026-04-19T00:10:00.000Z',
+          updatedAt: '2026-04-19T00:10:00.000Z',
+        },
+      ],
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(DraftsPage as never, {
+          loadDraftsAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const reviewFilter = findElement(
+      container,
+      (element) => element.getAttribute('data-drafts-status-filter') === 'review',
+    );
+
+    expect(reviewFilter).not.toBeNull();
+
+    await act(async () => {
+      reviewFilter?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(reviewFilter?.getAttribute('aria-pressed')).toBe('true');
+    expect(collectText(container)).toContain('当前筛选下 1 条 / 总计 2 条草稿');
+    expect(collectText(container)).toContain('Review B');
+    expect(collectText(container)).not.toContain('Draft A');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('batch publishes the selected drafts through the existing single-draft publish action', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { DraftsPage } = await import('../../src/client/pages/Drafts');
+
+    const loadDraftsAction = vi.fn().mockResolvedValue({
+      drafts: [
+        {
+          id: 8,
+          platform: 'x',
+          title: 'Draft A',
+          content: 'Draft body A',
+          hashtags: ['#launch'],
+          status: 'draft',
+          createdAt: '2026-04-19T00:00:00.000Z',
+          updatedAt: '2026-04-19T00:00:00.000Z',
+        },
+        {
+          id: 9,
+          platform: 'reddit',
+          title: 'Draft B',
+          content: 'Draft body B',
+          hashtags: ['#review'],
+          status: 'draft',
+          createdAt: '2026-04-19T00:10:00.000Z',
+          updatedAt: '2026-04-19T00:10:00.000Z',
+        },
+      ],
+    });
+    const publishDraftAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        success: true,
+        status: 'published',
+        publishUrl: 'https://x.com/promobot/status/8',
+        message: 'Draft A published',
+      })
+      .mockResolvedValueOnce({
+        success: false,
+        status: 'queued',
+        publishUrl: null,
+        message: 'Queued for publishing',
+      });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(DraftsPage as never, {
+          loadDraftsAction,
+          publishDraftAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const selectFirst = findElement(
+      container,
+      (element) => element.getAttribute('data-drafts-select-id') === '8',
+    );
+    const selectSecond = findElement(
+      container,
+      (element) => element.getAttribute('data-drafts-select-id') === '9',
+    );
+    const batchPublishButton = findElement(
+      container,
+      (element) => element.getAttribute('data-drafts-batch-publish') === 'true',
+    );
+
+    expect(selectFirst).not.toBeNull();
+    expect(selectSecond).not.toBeNull();
+    expect(batchPublishButton).not.toBeNull();
+
+    await act(async () => {
+      selectFirst?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      selectSecond?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(selectFirst?.getAttribute('aria-pressed')).toBe('true');
+    expect(selectSecond?.getAttribute('aria-pressed')).toBe('true');
+    expect(collectText(container)).toContain('已选 2 条草稿');
+
+    await act(async () => {
+      batchPublishButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(publishDraftAction).toHaveBeenNthCalledWith(1, 8);
+    expect(publishDraftAction).toHaveBeenNthCalledWith(2, 9);
+    expect(collectText(container)).toContain('已批量处理 2 条草稿');
+    expect(collectText(container)).toContain('Draft A published');
+    expect(collectText(container)).toContain('Queued for publishing');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('batch moves the selected drafts into review through the existing single-draft update action', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { DraftsPage } = await import('../../src/client/pages/Drafts');
+
+    const loadDraftsAction = vi.fn().mockResolvedValue({
+      drafts: [
+        {
+          id: 18,
+          platform: 'x',
+          title: 'Draft A',
+          content: 'Draft body A',
+          hashtags: ['#launch'],
+          status: 'draft',
+          createdAt: '2026-04-19T00:00:00.000Z',
+          updatedAt: '2026-04-19T00:00:00.000Z',
+        },
+        {
+          id: 19,
+          platform: 'reddit',
+          title: 'Draft B',
+          content: 'Draft body B',
+          hashtags: ['#review'],
+          status: 'draft',
+          createdAt: '2026-04-19T00:10:00.000Z',
+          updatedAt: '2026-04-19T00:10:00.000Z',
+        },
+      ],
+    });
+    const updateDraftAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        draft: {
+          id: 18,
+          platform: 'x',
+          title: 'Draft A',
+          content: 'Draft body A',
+          hashtags: ['#launch'],
+          status: 'review',
+          createdAt: '2026-04-19T00:00:00.000Z',
+          updatedAt: '2026-04-19T00:20:00.000Z',
+        },
+      })
+      .mockResolvedValueOnce({
+        draft: {
+          id: 19,
+          platform: 'reddit',
+          title: 'Draft B',
+          content: 'Draft body B',
+          hashtags: ['#review'],
+          status: 'review',
+          createdAt: '2026-04-19T00:10:00.000Z',
+          updatedAt: '2026-04-19T00:21:00.000Z',
+        },
+      });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(DraftsPage as never, {
+          loadDraftsAction,
+          updateDraftAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const selectFirst = findElement(
+      container,
+      (element) => element.getAttribute('data-drafts-select-id') === '18',
+    );
+    const selectSecond = findElement(
+      container,
+      (element) => element.getAttribute('data-drafts-select-id') === '19',
+    );
+    const batchReviewButton = findElement(
+      container,
+      (element) => element.getAttribute('data-drafts-batch-review') === 'true',
+    );
+
+    expect(selectFirst).not.toBeNull();
+    expect(selectSecond).not.toBeNull();
+    expect(batchReviewButton).not.toBeNull();
+
+    await act(async () => {
+      selectFirst?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      selectSecond?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    await act(async () => {
+      batchReviewButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(updateDraftAction).toHaveBeenNthCalledWith(
+      1,
+      18,
+      expect.objectContaining({
+        title: 'Draft A',
+        content: 'Draft body A',
+        status: 'review',
+      }),
+    );
+    expect(updateDraftAction).toHaveBeenNthCalledWith(
+      2,
+      19,
+      expect.objectContaining({
+        title: 'Draft B',
+        content: 'Draft body B',
+        status: 'review',
+      }),
+    );
+    expect(collectText(container)).toContain('已批量处理 2 条草稿');
+    expect(collectText(container)).toContain('已送审：Draft A');
+    expect(collectText(container)).toContain('已送审：Draft B');
+    expect(collectText(container)).toContain('review');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('reloads drafts after a queued publish result so the visible status matches the server state', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
@@ -744,6 +1035,324 @@ describe('Drafts publish actions', () => {
 
     expect(collectText(container)).toContain('Handoff 状态：blocked');
     expect(collectText(container)).toContain('Handoff 动作：request_session');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('filters drafts by status and batch-updates selected drafts through the existing patch action', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { DraftsPage } = await import('../../src/client/pages/Drafts');
+
+    const drafts = [
+      {
+        id: 51,
+        platform: 'x',
+        title: 'Draft backlog',
+        content: 'Draft backlog body',
+        hashtags: ['#launch'],
+        status: 'draft' as const,
+        createdAt: '2026-04-19T00:00:00.000Z',
+        updatedAt: '2026-04-19T00:00:00.000Z',
+      },
+      {
+        id: 52,
+        platform: 'reddit',
+        title: 'Review candidate',
+        content: 'Review body',
+        hashtags: ['#review'],
+        status: 'review' as const,
+        createdAt: '2026-04-19T00:05:00.000Z',
+        updatedAt: '2026-04-19T00:05:00.000Z',
+      },
+      {
+        id: 53,
+        platform: 'x',
+        title: 'Already queued',
+        content: 'Queued body',
+        hashtags: ['#queued'],
+        status: 'queued' as const,
+        createdAt: '2026-04-19T00:10:00.000Z',
+        updatedAt: '2026-04-19T00:10:00.000Z',
+      },
+    ];
+    const loadDraftsAction = vi.fn().mockResolvedValue({ drafts });
+    const updateDraftAction = vi.fn().mockImplementation((id: number, input: { title: string; content: string; status: string }) =>
+      Promise.resolve({
+        draft: {
+          ...(drafts.find((draft) => draft.id === id) ?? drafts[0]),
+          title: input.title,
+          content: input.content,
+          status: input.status,
+          updatedAt: '2026-04-19T01:00:00.000Z',
+        },
+      }),
+    );
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(DraftsPage as never, {
+          loadDraftsAction,
+          updateDraftAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const reviewFilter = findElement(
+      container,
+      (element) => element.getAttribute('data-drafts-status-filter') === 'review',
+    );
+    const allFilter = findElement(
+      container,
+      (element) => element.getAttribute('data-drafts-status-filter') === 'all',
+    );
+
+    expect(reviewFilter).not.toBeNull();
+    expect(allFilter).not.toBeNull();
+    expect(collectText(container)).toContain('Draft backlog');
+    expect(collectText(container)).toContain('Review candidate');
+    expect(collectText(container)).toContain('Already queued');
+
+    await act(async () => {
+      reviewFilter?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('Review candidate');
+    expect(collectText(container)).not.toContain('Draft backlog');
+    expect(collectText(container)).not.toContain('Already queued');
+    expect(collectText(container)).toContain('已筛选 1 / 3 条草稿');
+
+    await act(async () => {
+      allFilter?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    const firstSelect = findElement(
+      container,
+      (element) => element.getAttribute('data-draft-select-item') === '51',
+    );
+    const secondSelect = findElement(
+      container,
+      (element) => element.getAttribute('data-draft-select-item') === '52',
+    );
+    const queuedSelect = findElement(
+      container,
+      (element) => element.getAttribute('data-draft-select-item') === '53',
+    );
+    const batchApprovedButton = findElement(
+      container,
+      (element) => element.getAttribute('data-drafts-batch-status') === 'approved',
+    );
+    const batchScheduledButton = findElement(
+      container,
+      (element) => element.getAttribute('data-drafts-batch-status') === 'scheduled',
+    );
+
+    expect(firstSelect).not.toBeNull();
+    expect(secondSelect).not.toBeNull();
+    expect(queuedSelect).toBeNull();
+    expect(batchApprovedButton).not.toBeNull();
+    expect(batchScheduledButton).not.toBeNull();
+
+    await act(async () => {
+      firstSelect?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      secondSelect?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('已选择 2 条草稿');
+
+    await act(async () => {
+      batchApprovedButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(updateDraftAction).toHaveBeenNthCalledWith(
+      1,
+      51,
+      expect.objectContaining({
+        title: 'Draft backlog',
+        content: 'Draft backlog body',
+        status: 'approved',
+      }),
+    );
+    expect(updateDraftAction).toHaveBeenNthCalledWith(
+      2,
+      52,
+      expect.objectContaining({
+        title: 'Review candidate',
+        content: 'Review body',
+        status: 'approved',
+      }),
+    );
+    expect(collectText(container)).toContain('已批量处理 2 条草稿，目标状态 approved');
+    expect(collectText(container)).toContain('approved');
+    expect(collectText(container)).toContain('已选择 0 条草稿');
+
+    const firstSelectAfterApprove = findElement(
+      container,
+      (element) => element.getAttribute('data-draft-select-item') === '51',
+    );
+    const secondSelectAfterApprove = findElement(
+      container,
+      (element) => element.getAttribute('data-draft-select-item') === '52',
+    );
+
+    await act(async () => {
+      firstSelectAfterApprove?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      secondSelectAfterApprove?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    await act(async () => {
+      batchScheduledButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(updateDraftAction).toHaveBeenNthCalledWith(
+      3,
+      51,
+      expect.objectContaining({
+        status: 'scheduled',
+      }),
+    );
+    expect(updateDraftAction).toHaveBeenNthCalledWith(
+      4,
+      52,
+      expect.objectContaining({
+        status: 'scheduled',
+      }),
+    );
+    expect(collectText(container)).toContain('已批量处理 2 条草稿，目标状态 scheduled');
+    expect(collectText(container)).toContain('当前状态已脱离 Draft 编辑流转，Drafts 页面仅展示服务器返回结果。');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('batch-publishes the selected drafts through the existing publish action and reloads once', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { DraftsPage } = await import('../../src/client/pages/Drafts');
+
+    const initialDrafts = [
+      {
+        id: 61,
+        platform: 'x',
+        title: 'Approved launch thread',
+        content: 'Draft body A',
+        hashtags: ['#launch'],
+        status: 'approved' as const,
+        createdAt: '2026-04-19T00:00:00.000Z',
+        updatedAt: '2026-04-19T00:00:00.000Z',
+      },
+      {
+        id: 62,
+        platform: 'reddit',
+        title: 'Approved reddit post',
+        content: 'Draft body B',
+        hashtags: ['#reddit'],
+        status: 'approved' as const,
+        createdAt: '2026-04-19T00:05:00.000Z',
+        updatedAt: '2026-04-19T00:05:00.000Z',
+      },
+    ];
+    const loadDraftsAction = vi
+      .fn()
+      .mockResolvedValueOnce({ drafts: initialDrafts })
+      .mockResolvedValue({
+        drafts: [
+          {
+            ...initialDrafts[0],
+            status: 'published',
+            publishedAt: '2026-04-19T01:00:00.000Z',
+            updatedAt: '2026-04-19T01:00:00.000Z',
+          },
+          {
+            ...initialDrafts[1],
+            status: 'queued',
+            updatedAt: '2026-04-19T01:05:00.000Z',
+          },
+        ],
+      });
+    const publishDraftAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        success: true,
+        status: 'published',
+        publishUrl: 'https://x.example.test/post/61',
+        message: 'Published immediately',
+      })
+      .mockResolvedValueOnce({
+        success: false,
+        status: 'queued',
+        publishUrl: null,
+        message: 'Queued for publishing',
+      });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(DraftsPage as never, {
+          loadDraftsAction,
+          publishDraftAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const firstSelect = findElement(
+      container,
+      (element) => element.getAttribute('data-draft-select-item') === '61',
+    );
+    const secondSelect = findElement(
+      container,
+      (element) => element.getAttribute('data-draft-select-item') === '62',
+    );
+    const batchPublishButton = findElement(
+      container,
+      (element) => element.getAttribute('data-drafts-batch-publish') === 'true',
+    );
+
+    expect(firstSelect).not.toBeNull();
+    expect(secondSelect).not.toBeNull();
+    expect(batchPublishButton).not.toBeNull();
+
+    await act(async () => {
+      firstSelect?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      secondSelect?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('已选择 2 条草稿');
+
+    await act(async () => {
+      batchPublishButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    expect(publishDraftAction).toHaveBeenNthCalledWith(1, 61);
+    expect(publishDraftAction).toHaveBeenNthCalledWith(2, 62);
+    expect(loadDraftsAction).toHaveBeenCalledTimes(2);
+    expect(collectText(container)).toContain('已批量处理 2 条草稿发布');
+    expect(collectText(container)).toContain('Published immediately');
+    expect(collectText(container)).toContain('已入队等待发布：Approved reddit post');
+    expect(collectText(container)).toContain('published');
+    expect(collectText(container)).toContain('queued');
 
     await act(async () => {
       root.unmount();

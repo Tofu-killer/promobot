@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../../src/server/app';
 import { createInboxStore } from '../../src/server/store/inbox';
+import { createMonitorStore } from '../../src/server/store/monitor';
 import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
 
 const originalEnv = {
@@ -523,6 +524,140 @@ describe('inbox api', () => {
     }
   });
 
+  it('promotes xiaohongshu and weibo monitor signals into inbox fetch results', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const monitorStore = createMonitorStore();
+
+      monitorStore.create({
+        projectId: 1,
+        source: 'xiaohongshu',
+        title: '小红书评论跟进',
+        detail: 'xhs note · note_author\n需要人工确认评论语气。',
+      });
+      monitorStore.create({
+        projectId: 2,
+        source: 'weibo',
+        title: '微博提及跟进',
+        detail: 'weibo mention · brand_ops\n需要尽快回复该提及。',
+      });
+
+      const response = await requestApp('POST', '/api/inbox/fetch');
+
+      expect(response.status).toBe(201);
+      expect(JSON.parse(response.body)).toEqual({
+        items: [
+          expect.objectContaining({
+            id: 1,
+            projectId: 1,
+            source: 'xiaohongshu',
+            author: 'note_author',
+            status: 'needs_review',
+            title: '小红书评论跟进',
+          }),
+          expect.objectContaining({
+            id: 2,
+            projectId: 2,
+            source: 'weibo',
+            author: 'brand_ops',
+            status: 'needs_review',
+            title: '微博提及跟进',
+          }),
+        ],
+        inserted: 2,
+        total: 2,
+        unread: 2,
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('does not promote ignored browser-platform monitor signals into inbox fetch results', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const monitorStore = createMonitorStore();
+
+      monitorStore.create({
+        projectId: 1,
+        source: 'xiaohongshu',
+        status: 'ignored',
+        title: '小红书评论跟进',
+        detail: 'xhs note · note_author\n这个信号已被忽略。',
+      });
+      monitorStore.create({
+        projectId: 2,
+        source: 'weibo',
+        status: 'saved',
+        title: '微博提及跟进',
+        detail: 'weibo mention · brand_ops\n这个信号仍应进入 inbox。',
+      });
+
+      const response = await requestApp('POST', '/api/inbox/fetch');
+
+      expect(response.status).toBe(201);
+      expect(JSON.parse(response.body)).toEqual({
+        items: [
+          expect.objectContaining({
+            id: 1,
+            projectId: 2,
+            source: 'weibo',
+            author: 'brand_ops',
+            status: 'needs_review',
+            title: '微博提及跟进',
+          }),
+        ],
+        inserted: 1,
+        total: 1,
+        unread: 1,
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('does not promote ignored browser-platform monitor signals into inbox fetch results', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const monitorStore = createMonitorStore();
+
+      monitorStore.create({
+        projectId: 1,
+        source: 'xiaohongshu',
+        title: '已忽略的小红书评论',
+        detail: 'xhs note · ignored_author\n这条 monitor item 已被忽略。',
+        status: 'ignored',
+      });
+      monitorStore.create({
+        projectId: 2,
+        source: 'weibo',
+        title: '正常微博提及',
+        detail: 'weibo mention · brand_ops\n这条提及仍需要进入 Inbox。',
+      });
+
+      const response = await requestApp('POST', '/api/inbox/fetch');
+
+      expect(response.status).toBe(201);
+      expect(JSON.parse(response.body)).toEqual({
+        items: [
+          expect.objectContaining({
+            id: 1,
+            projectId: 2,
+            source: 'weibo',
+            author: 'brand_ops',
+            status: 'needs_review',
+            title: '正常微博提及',
+          }),
+        ],
+        inserted: 1,
+        total: 1,
+        unread: 1,
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('does not fall back to placeholder inbox items when configured searches return no live matches', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
@@ -901,6 +1036,65 @@ describe('inbox api', () => {
           id: 1,
           status: 'handled',
         }),
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('records a manual reply delivery and marks the inbox item handled', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const inboxStore = createInboxStore();
+      inboxStore.create({
+        source: 'reddit',
+        status: 'needs_reply',
+        author: 'user123',
+        title: 'Need lower latency in APAC',
+        excerpt: 'Can you share current response times?',
+      });
+
+      const response = await requestApp('POST', '/api/inbox/1/send-reply', {
+        reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+      });
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        item: expect.objectContaining({
+          id: 1,
+          status: 'handled',
+        }),
+        delivery: {
+          status: 'recorded',
+          mode: 'manual',
+          message: 'Reply recorded for manual delivery.',
+          reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+        },
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('rejects empty inbox send-reply payloads', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const inboxStore = createInboxStore();
+      inboxStore.create({
+        source: 'reddit',
+        status: 'needs_reply',
+        author: 'user123',
+        title: 'Need lower latency in APAC',
+        excerpt: 'Can you share current response times?',
+      });
+
+      const response = await requestApp('POST', '/api/inbox/1/send-reply', {
+        reply: '   ',
+      });
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'invalid inbox reply',
       });
     } finally {
       cleanupTestDatabasePath(rootDir);

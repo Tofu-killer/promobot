@@ -341,6 +341,51 @@ describe('Inbox action wiring', () => {
     expect(result.suggestion.reply).toContain('APAC latency');
   });
 
+  it('posts inbox send-reply through the shared API helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        item: {
+          id: 7,
+          source: 'reddit',
+          status: 'handled',
+          author: 'user123',
+          title: 'Need lower latency in APAC',
+          excerpt: 'Can you share current response times?',
+          createdAt: '2026-04-19T10:00:00.000Z',
+        },
+        delivery: {
+          status: 'recorded',
+          mode: 'manual',
+          message: 'Reply recorded for manual delivery.',
+          reply: 'Manual follow-up reply.',
+        },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const inboxModule = (await import('../../src/client/pages/Inbox')) as Record<string, unknown>;
+
+    expect(typeof inboxModule.sendInboxReplyRequest).toBe('function');
+
+    const sendInboxReplyRequest = inboxModule.sendInboxReplyRequest as (
+      id: number,
+      reply: string,
+    ) => Promise<{ item: { id: number; status: string }; delivery: { message: string } }>;
+
+    const result = await sendInboxReplyRequest(7, 'Manual follow-up reply.');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/inbox/7/send-reply',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reply: 'Manual follow-up reply.' }),
+      }),
+    );
+    expect(result.item.status).toBe('handled');
+    expect(result.delivery.message).toBe('Reply recorded for manual delivery.');
+  });
+
   it('renders inbox action success and error feedback', async () => {
     const { InboxPage } = await import('../../src/client/pages/Inbox');
 
@@ -987,7 +1032,7 @@ describe('Inbox action wiring', () => {
     expect(html).toContain('收件箱为空，暂无可生成回复的会话。');
   });
 
-  it('renders the original-post CTA as a disabled manual handoff placeholder', async () => {
+  it('renders a real original-post link when the inbox item excerpt already includes a source URL', async () => {
     const { InboxPage } = await import('../../src/client/pages/Inbox');
 
     const html = renderPage(InboxPage, {
@@ -1001,7 +1046,8 @@ describe('Inbox action wiring', () => {
               status: 'needs_reply',
               author: 'user123',
               title: 'Need lower latency in APAC',
-              excerpt: 'Can you share current response times?',
+              excerpt:
+                'Can you share current response times?\n\nhttps://www.reddit.com/r/Promobot/comments/abc123/thread/',
               createdAt: '2026-04-19T10:00:00.000Z',
             },
           ],
@@ -1011,11 +1057,204 @@ describe('Inbox action wiring', () => {
       } satisfies ApiState<unknown>,
     });
 
-    expectDisabledButton(html, '打开原帖（人工处理）');
-    expect(html).toContain('原帖跳转暂未接入，请在源站手动打开。');
+    expect(html).toContain('href="https://www.reddit.com/r/Promobot/comments/abc123/thread/"');
+    expect(html).toContain('打开原帖');
+    expect(html).not.toContain('原帖跳转暂未接入，请在源站手动打开。');
   });
 
-  it('renders the apply-suggestion CTA as a disabled manual copy placeholder', async () => {
+  it('filters inbox items by platform and status and keeps list metrics aligned with the current filter', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(InboxPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              items: [
+                {
+                  id: 7,
+                  source: 'reddit',
+                  status: 'needs_reply',
+                  author: 'user123',
+                  title: 'Need lower latency in APAC',
+                  excerpt: 'Can you share current response times?',
+                  createdAt: '2026-04-19T10:00:00.000Z',
+                },
+                {
+                  id: 8,
+                  source: 'x',
+                  status: 'handled',
+                  author: 'ops-team',
+                  title: 'Billing caps answered',
+                  excerpt: 'Already answered in-thread.',
+                  createdAt: '2026-04-19T10:05:00.000Z',
+                },
+                {
+                  id: 9,
+                  source: 'reddit',
+                  status: 'handled',
+                  author: 'builder',
+                  title: 'Reddit follow-up already sent',
+                  excerpt: 'Manual reply delivered.',
+                  createdAt: '2026-04-19T10:10:00.000Z',
+                },
+              ],
+              total: 3,
+              unread: 2,
+            },
+          } satisfies ApiState<unknown>,
+        }),
+      );
+      await flush();
+    });
+
+    const redditPlatformFilter = findElement(
+      container,
+      (element) => element.getAttribute('data-inbox-filter-platform') === 'reddit',
+    );
+    const handledStatusFilter = findElement(
+      container,
+      (element) => element.getAttribute('data-inbox-filter-status') === 'handled',
+    );
+
+    expect(redditPlatformFilter).not.toBeNull();
+    expect(handledStatusFilter).not.toBeNull();
+
+    await act(async () => {
+      redditPlatformFilter?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(redditPlatformFilter?.getAttribute('aria-pressed')).toBe('true');
+    expect(collectText(container)).toContain('Need lower latency in APAC');
+    expect(collectText(container)).toContain('Reddit follow-up already sent');
+    expect(collectText(container)).not.toContain('Billing caps answered');
+
+    await act(async () => {
+      handledStatusFilter?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(handledStatusFilter?.getAttribute('aria-pressed')).toBe('true');
+    expect(collectText(container)).toContain('Reddit follow-up already sent');
+    expect(collectText(container)).not.toContain('Need lower latency in APAC');
+    expect(collectText(container)).not.toContain('Billing caps answered');
+    expect(collectText(container)).toContain('当前筛选下 1 条 / 总计 3 条收件箱记录');
+    expect(collectText(container)).toContain('待处理会话1跨渠道统一排队视图');
+    expect(collectText(container)).toContain('未读命中0等待人工回复或分流的记录');
+    expect(collectText(container)).toContain('需人工接管0高价值或需要人工确认的会话');
+
+    const needsReviewStatusFilter = findElement(
+      container,
+      (element) => element.getAttribute('data-inbox-filter-status') === 'needs_review',
+    );
+
+    expect(needsReviewStatusFilter).not.toBeNull();
+
+    await act(async () => {
+      needsReviewStatusFilter?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('当前筛选下 0 条 / 总计 3 条收件箱记录');
+    expect(collectText(container)).toContain('当前筛选下暂无命中内容');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('preserves the selected inbox item and reply draft when narrowing to matching filters', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(InboxPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              items: [
+                {
+                  id: 7,
+                  source: 'reddit',
+                  status: 'needs_reply',
+                  author: 'user123',
+                  title: 'Need lower latency in APAC',
+                  excerpt: 'Can you share current response times?',
+                  createdAt: '2026-04-19T10:00:00.000Z',
+                },
+                {
+                  id: 8,
+                  source: 'x',
+                  status: 'needs_reply',
+                  author: 'ops-team',
+                  title: 'Question about billing caps',
+                  excerpt: 'How do monthly usage caps work?',
+                  createdAt: '2026-04-19T10:05:00.000Z',
+                },
+              ],
+              total: 2,
+              unread: 2,
+            },
+          } satisfies ApiState<unknown>,
+        }),
+      );
+      await flush();
+    });
+
+    const firstItem = findElement(
+      container,
+      (element) => element.tagName === 'ARTICLE' && collectText(element).includes('Need lower latency in APAC'),
+    );
+    const replyDraftField = findElement(container, (element) => element.tagName === 'TEXTAREA');
+
+    expect(firstItem).not.toBeNull();
+    expect(replyDraftField).not.toBeNull();
+
+    await act(async () => {
+      firstItem?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      updateFieldValue(replyDraftField, 'Follow up with APAC numbers.', window);
+      await flush();
+    });
+
+    const redditPlatformFilter = findElement(
+      container,
+      (element) => element.getAttribute('data-inbox-filter-platform') === 'reddit',
+    );
+    const needsReplyStatusFilter = findElement(
+      container,
+      (element) => element.getAttribute('data-inbox-filter-status') === 'needs_reply',
+    );
+
+    expect(redditPlatformFilter).not.toBeNull();
+    expect(needsReplyStatusFilter).not.toBeNull();
+
+    await act(async () => {
+      redditPlatformFilter?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      needsReplyStatusFilter?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('当前会话：reddit · user123');
+    expect(findElement(container, (element) => element.tagName === 'TEXTAREA')?.getAttribute('data-reply-draft')).toBe(
+      'Follow up with APAC numbers.',
+    );
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('renders an editable reply draft box and enabled apply-suggestion CTA when a suggestion is available', async () => {
     const { InboxPage } = await import('../../src/client/pages/Inbox');
 
     const html = renderPage(InboxPage, {
@@ -1047,44 +1286,90 @@ describe('Inbox action wiring', () => {
       } satisfies ApiState<unknown>,
     });
 
-    expectDisabledButton(html, '应用建议（人工复制）');
-    expect(html).toContain('当前仅提供 AI 草稿预览；应用建议和发送回复仍需人工处理。');
+    expect(html).toContain('回复草稿');
+    expect(html).toContain('textarea');
+    expect(html).toMatch(/<button(?![^>]*disabled="")[^>]*>应用建议（人工复制）<\/button>/);
   });
 
-  it('renders the send-reply CTA as a disabled not-wired placeholder', async () => {
+  it('submits the current reply draft and shows handled feedback after manual reply delivery is recorded', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
     const { InboxPage } = await import('../../src/client/pages/Inbox');
 
-    const html = renderPage(InboxPage, {
-      stateOverride: {
-        status: 'success',
-        data: {
-          items: [
-            {
-              id: 7,
-              source: 'reddit',
-              status: 'needs_reply',
-              author: 'user123',
-              title: 'Need lower latency in APAC',
-              excerpt: 'Can you share current response times?',
-              createdAt: '2026-04-19T10:00:00.000Z',
-            },
-          ],
-          total: 1,
-          unread: 1,
-        },
-      } satisfies ApiState<unknown>,
-      replySuggestionStateOverride: {
-        status: 'success',
-        data: {
-          suggestion: {
-            reply: 'Thanks for flagging this. We can share current APAC latency benchmarks.',
-          },
-        },
-      } satisfies ApiState<unknown>,
+    const sendReplyAction = vi.fn().mockResolvedValue({
+      item: {
+        id: 7,
+        source: 'reddit',
+        status: 'handled',
+        author: 'user123',
+        title: 'Need lower latency in APAC',
+        excerpt: 'Can you share current response times?',
+        createdAt: '2026-04-19T10:00:00.000Z',
+      },
+      delivery: {
+        status: 'recorded',
+        mode: 'manual',
+        message: 'Reply recorded for manual delivery.',
+        reply: 'Manual follow-up reply.',
+      },
     });
 
-    expectDisabledButton(html, '发送回复（暂未接线）');
-    expect(html).toContain('当前仅提供 AI 草稿预览；应用建议和发送回复仍需人工处理。');
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(InboxPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              items: [
+                {
+                  id: 7,
+                  source: 'reddit',
+                  status: 'needs_reply',
+                  author: 'user123',
+                  title: 'Need lower latency in APAC',
+                  excerpt: 'Can you share current response times?',
+                  createdAt: '2026-04-19T10:00:00.000Z',
+                },
+              ],
+              total: 1,
+              unread: 1,
+            },
+          } satisfies ApiState<unknown>,
+          sendReplyAction,
+        }),
+      );
+      await flush();
+    });
+
+    const replyDraftField = findElement(container, (element) => element.tagName === 'TEXTAREA');
+    expect(replyDraftField).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(replyDraftField, 'Manual follow-up reply.', window);
+      await flush();
+    });
+
+    const sendReplyButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('发送回复'),
+    );
+    expect(sendReplyButton).not.toBeNull();
+
+    await act(async () => {
+      sendReplyButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(sendReplyAction).toHaveBeenCalledWith(7, 'Manual follow-up reply.');
+    expect(collectText(container)).toContain('Reply recorded for manual delivery.');
+    expect(collectText(container)).toContain('已将“Need lower latency in APAC”回写为 handled');
+    expect(collectText(container)).toContain('handled');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
   });
 
   it('renders inbox fetch feedback when available', async () => {

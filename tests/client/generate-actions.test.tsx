@@ -584,6 +584,7 @@ async function flush() {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -785,6 +786,69 @@ describe('Generate review actions', () => {
     await act(async () => {
       root.unmount();
       await flush();
+    });
+  });
+
+  it('shows phased generation progress while a generate request is pending', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { GeneratePage } = await import('../../src/client/pages/Generate');
+
+    const pendingGeneration = createDeferredPromise<{ results: Array<Record<string, unknown>> }>();
+    const generateAction = vi.fn().mockImplementation(() => pendingGeneration.promise);
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(GeneratePage as never, {
+          generateAction,
+        }),
+      );
+      await flush();
+    });
+
+    vi.useFakeTimers();
+
+    const generateButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('一键生成'),
+    );
+
+    expect(generateButton).not.toBeNull();
+
+    await act(async () => {
+      generateButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(collectText(container)).toContain('生成进行中');
+    expect(collectText(container)).toContain('已接收生成请求');
+    expect(collectText(container)).toContain('1/3');
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1200);
+    });
+
+    expect(collectText(container)).toContain('正在拆解平台策略');
+    expect(collectText(container)).toContain('2/3');
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1200);
+    });
+
+    expect(collectText(container)).toContain('正在生成平台草稿');
+    expect(collectText(container)).toContain('3/3');
+
+    await act(async () => {
+      pendingGeneration.resolve({ results: [] });
+      await Promise.resolve();
+    });
+
+    expect(collectText(container)).not.toContain('生成进行中');
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
     });
   });
 
@@ -1142,6 +1206,80 @@ describe('Generate review actions', () => {
     expect(result.draft.status).toBe('review');
   });
 
+  it('publishes generated drafts through the shared API helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        success: true,
+        status: 'published',
+        publishUrl: 'https://x.com/promobot/status/42',
+        message: 'publish ok',
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const generateModule = (await import('../../src/client/pages/Generate')) as Record<string, unknown>;
+
+    expect(typeof generateModule.publishGeneratedDraftRequest).toBe('function');
+
+    const publishGeneratedDraftRequest = generateModule.publishGeneratedDraftRequest as (
+      id: number,
+    ) => Promise<{ success: boolean; status?: string; publishUrl: string | null; message: string }>;
+
+    const result = await publishGeneratedDraftRequest(42);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/drafts/42/publish',
+      expect.objectContaining({
+        method: 'POST',
+      }),
+    );
+    expect(result.success).toBe(true);
+    expect(result.status).toBe('published');
+    expect(result.publishUrl).toBe('https://x.com/promobot/status/42');
+  });
+
+  it('patches generated draft schedules through the shared schedule API helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        draft: {
+          id: 42,
+          platform: 'x',
+          title: 'Launch thread',
+          content: 'Draft body',
+          hashtags: ['#launch'],
+          status: 'scheduled',
+          scheduledAt: '2026-04-20T09:30',
+          createdAt: '2026-04-19T00:00:00.000Z',
+          updatedAt: '2026-04-19T00:10:00.000Z',
+        },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const generateModule = (await import('../../src/client/pages/Generate')) as Record<string, unknown>;
+
+    expect(typeof generateModule.scheduleGeneratedDraftRequest).toBe('function');
+
+    const scheduleGeneratedDraftRequest = generateModule.scheduleGeneratedDraftRequest as (
+      id: number,
+      input: { scheduledAt: string | null },
+    ) => Promise<{ draft: { id: number; status: string; scheduledAt?: string } }>;
+
+    const result = await scheduleGeneratedDraftRequest(42, { scheduledAt: '2026-04-20T09:30' });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/drafts/42',
+      expect.objectContaining({
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scheduledAt: '2026-04-20T09:30' }),
+      }),
+    );
+    expect(result.draft.id).toBe(42);
+    expect(result.draft.status).toBe('scheduled');
+    expect(result.draft.scheduledAt).toBe('2026-04-20T09:30');
+  });
+
   it('shows review success feedback after clicking send to review', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
@@ -1365,6 +1503,147 @@ describe('Generate review actions', () => {
 
     expect(sendDraftToReviewAction).toHaveBeenCalledWith(77);
     expect(collectText(container)).toContain('送审失败：draft not found');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('shows publish success feedback after clicking immediate publish', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { GeneratePage } = await import('../../src/client/pages/Generate');
+
+    const publishGeneratedDraftAction = vi.fn().mockResolvedValue({
+      success: true,
+      status: 'published',
+      publishUrl: 'https://x.com/promobot/status/42',
+      message: 'publish ok',
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(GeneratePage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              results: [
+                {
+                  platform: 'x',
+                  title: 'Launch thread',
+                  content: 'Draft body',
+                  hashtags: ['#launch'],
+                  draftId: 42,
+                },
+              ],
+            },
+          },
+          publishGeneratedDraftAction,
+        }),
+      );
+      await flush();
+    });
+
+    const publishButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-publish-draft-id') === '42' &&
+        collectText(element).includes('立即发布'),
+    );
+
+    expect(publishButton).not.toBeNull();
+
+    await act(async () => {
+      publishButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(publishGeneratedDraftAction).toHaveBeenCalledWith(42);
+    expect(collectText(container)).toContain('publish ok');
+    expect(collectText(container)).toContain('status: published');
+    expect(collectText(container)).toContain('https://x.com/promobot/status/42');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('shows schedule success feedback after pushing a generated draft into publish calendar', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { GeneratePage } = await import('../../src/client/pages/Generate');
+
+    const scheduleGeneratedDraftAction = vi.fn().mockResolvedValue({
+      draft: {
+        id: 42,
+        platform: 'x',
+        title: 'Launch thread',
+        content: 'Draft body',
+        hashtags: ['#launch'],
+        status: 'scheduled',
+        scheduledAt: '2026-04-20T09:30:00.000Z',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(GeneratePage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              results: [
+                {
+                  platform: 'x',
+                  title: 'Launch thread',
+                  content: 'Draft body',
+                  hashtags: ['#launch'],
+                  draftId: 42,
+                },
+              ],
+            },
+          },
+          scheduleGeneratedDraftAction,
+        }),
+      );
+      await flush();
+    });
+
+    const scheduledAtField = findElement(
+      container,
+      (element) => element.getAttribute('data-generate-scheduled-at-id') === '42',
+    );
+    const scheduleButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-schedule-draft-id') === '42' &&
+        collectText(element).includes('推入排程'),
+    );
+
+    expect(scheduledAtField).not.toBeNull();
+    expect(scheduleButton).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(scheduledAtField, '2026-04-20T09:30:00.000Z', window);
+      await flush();
+    });
+
+    await act(async () => {
+      scheduleButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(scheduleGeneratedDraftAction).toHaveBeenCalledWith(42, {
+      scheduledAt: '2026-04-20T09:30:00.000Z',
+    });
+    expect(collectText(container)).toContain('排程已保存');
+    expect(collectText(container)).toContain('status: scheduled');
+    expect(collectText(container)).toContain('计划发布时间：2026-04-20T09:30:00.000Z');
 
     await act(async () => {
       root.unmount();

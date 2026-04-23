@@ -1,7 +1,10 @@
 import type { InboxItemRecord } from '../store/inbox.js';
 import { createInboxStore } from '../store/inbox.js';
+import { createMonitorStore } from '../store/monitor.js';
 import { createSettingsStore } from '../store/settings.js';
 import { createSourceConfigStore, type SourceConfigRecord } from '../store/sourceConfigs.js';
+import { collectWeiboInboxSignals } from './inbox/fetchers/weibo.js';
+import { collectXiaohongshuInboxSignals } from './inbox/fetchers/xiaohongshu.js';
 import { searchReddit } from './monitor/redditSearch.js';
 import { searchV2ex } from './monitor/v2exSearch.js';
 import { searchX } from './monitor/xSearch.js';
@@ -30,25 +33,30 @@ interface ScopedQuery {
 
 export function createInboxFetchService() {
   const inboxStore = createInboxStore();
+  const monitorStore = createMonitorStore();
   const settingsStore = createSettingsStore();
   const sourceConfigStore = createSourceConfigStore();
 
   return {
     async fetchNow(projectId?: number): Promise<InboxFetchResult> {
+      const monitorItems = monitorStore.list(projectId);
       const settings = projectId === undefined ? settingsStore.get() : emptyInboxSettings();
       const sourceConfigs = filterSourceConfigsByProject(
         sourceConfigStore.listEnabled(),
         projectId,
       );
       const queries = resolveInboxQueries(settings, sourceConfigs);
+      const monitorSignals = collectBrowserPlatformInboxSignals(monitorItems);
       const hasConfiguredQueries =
         queries.xQueries.length > 0 ||
         queries.redditQueries.length > 0 ||
         queries.v2exQueries.length > 0;
+      const hasMonitorSignals = monitorSignals.length > 0;
 
-      if (hasConfiguredQueries) {
+      if (hasConfiguredQueries || hasMonitorSignals) {
         const totalBeforeInsert = countInboxItems(inboxStore, projectId);
-        const signals = await collectLiveInboxSignals(queries);
+        const liveSignals = hasConfiguredQueries ? await collectLiveInboxSignals(queries) : [];
+        const signals = [...liveSignals, ...monitorSignals];
         const items = signals.map((signal) => inboxStore.create(signal));
 
         return {
@@ -76,6 +84,22 @@ export function createInboxFetchService() {
 
 function countInboxItems(inboxStore: ReturnType<typeof createInboxStore>, projectId?: number) {
   return inboxStore.list(projectId).length;
+}
+
+function collectBrowserPlatformInboxSignals(
+  monitorItems: ReturnType<typeof createMonitorStore>['list'] extends (...args: never[]) => infer TResult
+    ? TResult
+    : never,
+) {
+  const context = {
+    monitorItems,
+    settings: emptyInboxSettings(),
+  };
+
+  return [
+    ...collectXiaohongshuInboxSignals(context),
+    ...collectWeiboInboxSignals(context),
+  ];
 }
 
 function filterSourceConfigsByProject(sourceConfigs: SourceConfigRecord[], projectId?: number) {

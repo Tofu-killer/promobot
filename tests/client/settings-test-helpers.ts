@@ -206,6 +206,10 @@ class FakeElement extends FakeNode {
     return this.attributes.get(name) ?? null;
   }
 
+  getAttributeNames() {
+    return Array.from(this.attributes.keys());
+  }
+
   removeAttribute(name: string) {
     this.attributes.delete(name);
     if (name === 'disabled') {

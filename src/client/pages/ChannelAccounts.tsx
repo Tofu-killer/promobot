@@ -536,6 +536,7 @@ export function ChannelAccountsPage({
   const [accountFormErrorById, setAccountFormErrorById] = useState<Record<number, string>>({});
   const [sessionFormErrorById, setSessionFormErrorById] = useState<Record<number, string>>({});
   const [latestSessionMutation, setLatestSessionMutation] = useState<LatestSessionMutation>(null);
+  const [latestAccountMutationId, setLatestAccountMutationId] = useState<number | null>(null);
   const [latestBlockedAccountSaveId, setLatestBlockedAccountSaveId] = useState<number | null>(null);
   const [latestBlockedSessionSaveId, setLatestBlockedSessionSaveId] = useState<number | null>(null);
   const [createFormError, setCreateFormError] = useState<string | null>(null);
@@ -591,6 +592,15 @@ export function ChannelAccountsPage({
     latestSessionMutation === null || latestSessionMutation.kind === 'save_session';
   const showSessionActionFeedback =
     latestSessionMutation === null || latestSessionMutation.kind === 'session_action';
+  const showAccountUpdateSuccess =
+    displayUpdateState.status === 'success' &&
+    updatedAccount !== null &&
+    editingAccountId === updatedAccount.id &&
+    updatedAccount.id !== latestBlockedAccountSaveId;
+  const showAccountUpdateError =
+    displayUpdateState.status === 'error' &&
+    editingAccountId !== null &&
+    latestAccountMutationId === editingAccountId;
   const showSessionSavedOverlay =
     sessionSavedAccount !== null &&
     !(
@@ -776,6 +786,7 @@ export function ChannelAccountsPage({
     }
 
     setLatestBlockedAccountSaveId(null);
+    setLatestAccountMutationId(accountId);
     const parsedMetadata = parseMetadataInput(formValue.metadata);
     const parsedProjectId = parseOptionalProjectIdInput(formValue.projectId, 'edit');
 
@@ -1353,7 +1364,9 @@ export function ChannelAccountsPage({
                                 justifySelf: 'flex-start',
                               }}
                             >
-                              {displayUpdateState.status === 'loading' ? '正在保存账号...' : '保存账号'}
+                              {displayUpdateState.status === 'loading' && latestAccountMutationId === account.id
+                                ? '正在保存账号...'
+                                : '保存账号'}
                             </button>
                             <button
                               type="button"
@@ -1395,10 +1408,10 @@ export function ChannelAccountsPage({
             <p style={{ margin: 0, color: '#475569' }}>页面挂载后会自动请求真实渠道账号接口。</p>
           ) : null}
 
-          {displayUpdateState.status === 'success' && updatedAccount?.id !== latestBlockedAccountSaveId ? (
+          {showAccountUpdateSuccess ? (
             <p style={{ marginTop: '12px', color: '#166534' }}>账号已更新</p>
           ) : null}
-          {displayUpdateState.status === 'error' ? (
+          {showAccountUpdateError ? (
             <p style={{ marginTop: '12px', color: '#b91c1c' }}>更新失败：{displayUpdateState.error}</p>
           ) : null}
           {editingAccountFormError ? (

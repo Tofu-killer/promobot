@@ -53,6 +53,55 @@ discoveryRouter.get('/', (request, response) => {
   });
 });
 
+discoveryRouter.patch('/:id', (request, response) => {
+  const parsedId = parseDiscoveryItemId(request.params.id);
+  const action = parseDiscoveryAction(request.body?.action);
+  const projectId = parseOptionalProjectId(request.body?.projectId);
+
+  if (!parsedId || !action) {
+    response.status(400).json({ error: 'invalid discovery action' });
+    return;
+  }
+
+  if (request.body?.projectId !== undefined && projectId === undefined) {
+    response.status(400).json({ error: 'invalid project id' });
+    return;
+  }
+
+  if (parsedId.kind !== 'monitor') {
+    response.status(400).json({ error: 'unsupported discovery item action' });
+    return;
+  }
+
+  const currentItem = monitorStore.getById(parsedId.id);
+  if (!currentItem || (projectId !== undefined && currentItem.projectId !== projectId)) {
+    response.status(404).json({ error: 'discovery item not found' });
+    return;
+  }
+
+  const updatedItem = monitorStore.updateStatus(
+    parsedId.id,
+    action === 'save' ? 'saved' : 'ignored',
+  );
+
+  if (!updatedItem) {
+    response.status(404).json({ error: 'discovery item not found' });
+    return;
+  }
+
+  response.json({
+    item: {
+      id: `monitor-${updatedItem.id}`,
+      source: updatedItem.source,
+      type: 'monitor',
+      title: updatedItem.title,
+      detail: updatedItem.detail,
+      status: updatedItem.status,
+      createdAt: updatedItem.createdAt,
+    } satisfies DiscoveryItemRecord,
+  });
+});
+
 function parseProjectIdQuery(value: unknown) {
   if (typeof value !== 'string') {
     return undefined;
@@ -71,4 +120,24 @@ function filterProjectAwareRecords<T extends { projectId?: number | null }>(
   }
 
   return records.filter((record) => record.projectId === projectId);
+}
+
+function parseDiscoveryItemId(value: string) {
+  const match = value.match(/^(inbox|monitor)-(\d+)$/);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    kind: match[1] as 'inbox' | 'monitor',
+    id: Number(match[2]),
+  };
+}
+
+function parseDiscoveryAction(value: unknown) {
+  return value === 'save' || value === 'ignore' ? value : null;
+}
+
+function parseOptionalProjectId(value: unknown) {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined;
 }

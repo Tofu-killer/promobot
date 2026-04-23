@@ -3,6 +3,7 @@ import { apiRequest } from '../lib/api';
 import type { AsyncState } from '../hooks/useAsyncRequest';
 import { useAsyncAction, useAsyncQuery } from '../hooks/useAsyncRequest';
 import { ActionButton } from '../components/ActionButton';
+import { InboxDetail } from '../components/InboxDetail';
 import { PageHeader } from '../components/PageHeader';
 import { SectionCard } from '../components/SectionCard';
 import { StatCard } from '../components/StatCard';
@@ -123,17 +124,39 @@ export async function suggestInboxReplyRequest(id: number): Promise<InboxReplySu
   });
 }
 
+export interface SendInboxReplyResponse {
+  item: InboxItem;
+  delivery: {
+    status: string;
+    mode: string;
+    message: string;
+    reply: string;
+  };
+}
+
+export async function sendInboxReplyRequest(id: number, reply: string): Promise<SendInboxReplyResponse> {
+  return apiRequest<SendInboxReplyResponse>(`/api/inbox/${id}/send-reply`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ reply }),
+  });
+}
+
 interface InboxPageProps {
   loadInboxAction?: (projectId?: number) => Promise<InboxResponse>;
   fetchInboxAction?: (projectId?: number) => Promise<FetchInboxResponse>;
   enqueueFetchJobAction?: (runAt?: string, projectId?: number) => Promise<EnqueueInboxFetchJobResponse>;
   updateInboxAction?: (id: number, status: string) => Promise<UpdateInboxItemResponse>;
   suggestReplyAction?: (id: number) => Promise<InboxReplySuggestionResponse>;
+  sendReplyAction?: (id: number, reply: string) => Promise<SendInboxReplyResponse>;
   stateOverride?: AsyncState<InboxResponse>;
   fetchStateOverride?: AsyncState<FetchInboxResponse>;
   enqueueStateOverride?: AsyncState<EnqueueInboxFetchJobResponse>;
   inboxUpdateStateOverride?: AsyncState<UpdateInboxItemResponse>;
   replySuggestionStateOverride?: AsyncState<InboxReplySuggestionResponse>;
+  sendReplyStateOverride?: AsyncState<SendInboxReplyResponse>;
 }
 
 interface PlaceholderActionButtonProps {
@@ -188,17 +211,98 @@ function PlaceholderActionButton({ label, hint, tone = 'secondary' }: Placeholde
   );
 }
 
+function extractOriginalPostUrl(excerpt: string) {
+  const matches = excerpt.match(/https?:\/\/\S+/g);
+  if (!matches || matches.length === 0) {
+    return null;
+  }
+
+  const candidate = matches[matches.length - 1]?.trim();
+  return candidate && candidate.length > 0 ? candidate : null;
+}
+
+function normalizeInboxPlatformFilter(source: string) {
+  const normalized = source.trim().toLowerCase();
+
+  if (normalized === 'x / twitter' || normalized === 'twitter') {
+    return 'x';
+  }
+
+  return normalized;
+}
+
+function formatInboxPlatformFilterLabel(filter: string) {
+  if (filter === 'all') {
+    return '全部平台';
+  }
+
+  if (filter === 'x') {
+    return 'X';
+  }
+
+  if (filter === 'reddit') {
+    return 'Reddit';
+  }
+
+  if (filter === 'xiaohongshu') {
+    return '小红书';
+  }
+
+  if (filter === 'weibo') {
+    return '微博';
+  }
+
+  return filter;
+}
+
+function formatInboxStatusFilterLabel(filter: string) {
+  if (filter === 'all') {
+    return '全部状态';
+  }
+
+  if (filter === 'needs_reply') {
+    return '需回复';
+  }
+
+  if (filter === 'needs_review') {
+    return '待复核';
+  }
+
+  if (filter === 'handled') {
+    return '已处理';
+  }
+
+  if (filter === 'snoozed') {
+    return '稍后处理';
+  }
+
+  return filter;
+}
+
+function filterInboxItems(items: InboxItem[], activePlatformFilter: string, activeStatusFilter: string) {
+  return items.filter((item) => {
+    const matchesPlatform =
+      activePlatformFilter === 'all' ||
+      normalizeInboxPlatformFilter(item.source) === activePlatformFilter;
+    const matchesStatus = activeStatusFilter === 'all' || item.status === activeStatusFilter;
+
+    return matchesPlatform && matchesStatus;
+  });
+}
+
 export function InboxPage({
   loadInboxAction = loadInboxRequest,
   fetchInboxAction = fetchInboxRequest,
   enqueueFetchJobAction = enqueueInboxFetchJobRequest,
   updateInboxAction = updateInboxItemRequest,
   suggestReplyAction = suggestInboxReplyRequest,
+  sendReplyAction = sendInboxReplyRequest,
   stateOverride,
   fetchStateOverride,
   enqueueStateOverride,
   inboxUpdateStateOverride,
   replySuggestionStateOverride,
+  sendReplyStateOverride,
 }: InboxPageProps) {
   const [projectIdDraft, setProjectIdDraft] = useState('');
   const projectId = parseProjectId(projectIdDraft);
@@ -217,9 +321,16 @@ export function InboxPage({
     updateInboxAction(id, status),
   );
   const { state: replySuggestionState, run: runReplySuggestion } = useAsyncAction((id: number) => suggestReplyAction(id));
+  const { state: sendReplyState, run: runSendReply } = useAsyncAction(
+    ({ id, reply }: { id: number; reply: string }) => sendReplyAction(id, reply),
+  );
+  const [activePlatformFilter, setActivePlatformFilter] = useState('all');
+  const [activeStatusFilter, setActiveStatusFilter] = useState('all');
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
   const [inboxMutationItemId, setInboxMutationItemId] = useState<number | null>(null);
   const [replySuggestionItemId, setReplySuggestionItemId] = useState<number | null>(null);
+  const [replyDeliveryItemId, setReplyDeliveryItemId] = useState<number | null>(null);
+  const [replyDraftByItemId, setReplyDraftByItemId] = useState<Record<number, string>>({});
   const [allowReplySuggestionFallback, setAllowReplySuggestionFallback] = useState(true);
   const [enqueueRunAtDraft, setEnqueueRunAtDraft] = useState('');
   const displayState = stateOverride ?? state;
@@ -227,6 +338,7 @@ export function InboxPage({
   const displayEnqueueState = enqueueStateOverride ?? enqueueState;
   const displayInboxUpdateState = inboxUpdateStateOverride ?? inboxUpdateState;
   const displayReplySuggestionState = replySuggestionStateOverride ?? replySuggestionState;
+  const displaySendReplyState = sendReplyStateOverride ?? sendReplyState;
   const fallbackData: InboxResponse = {
     items: [
       {
@@ -250,27 +362,54 @@ export function InboxPage({
   const viewData = hasLiveData ? (displayState.data as InboxResponse) : fallbackData;
   const updatedInboxItem =
     displayInboxUpdateState.status === 'success' && displayInboxUpdateState.data ? displayInboxUpdateState.data.item : null;
-  const displayItems = updatedInboxItem
-    ? viewData.items.map((item) => (item.id === updatedInboxItem.id ? updatedInboxItem : item))
-    : viewData.items;
-  const selectedItem = isPreview ? null : displayItems.find((item) => item.id === selectedItemId) ?? displayItems[0] ?? null;
+  const deliveredReplyItem =
+    displaySendReplyState.status === 'success' && displaySendReplyState.data ? displaySendReplyState.data.item : null;
+  let displayItems = viewData.items;
+  if (updatedInboxItem) {
+    displayItems = displayItems.map((item) => (item.id === updatedInboxItem.id ? updatedInboxItem : item));
+  }
+  if (deliveredReplyItem) {
+    displayItems = displayItems.map((item) => (item.id === deliveredReplyItem.id ? deliveredReplyItem : item));
+  }
+  const filteredItems = filterInboxItems(displayItems, activePlatformFilter, activeStatusFilter);
+  const selectedItem = isPreview ? null : filteredItems.find((item) => item.id === selectedItemId) ?? filteredItems[0] ?? null;
   const activeInboxMutationItemId = inboxMutationItemId;
   const canGenerateReply = !isPreview && selectedItem !== null;
   const activeReplySuggestionItemId =
     replySuggestionItemId ?? (allowReplySuggestionFallback ? selectedItem?.id ?? null : null);
   const showReplySuggestionForSelectedItem =
     selectedItem !== null && selectedItem.id === activeReplySuggestionItemId;
+  const replyDraft = selectedItem ? replyDraftByItemId[selectedItem.id] ?? '' : '';
+  const canSendReply = !isPreview && selectedItem !== null && replyDraft.trim().length > 0;
 
   useEffect(() => {
+    setActivePlatformFilter('all');
+    setActiveStatusFilter('all');
     setSelectedItemId(null);
     setInboxMutationItemId(null);
     setReplySuggestionItemId(null);
+    setReplyDeliveryItemId(null);
+    setReplyDraftByItemId({});
     setAllowReplySuggestionFallback(false);
   }, [projectId]);
+
+  const platformFilters = [
+    { id: 'all', label: formatInboxPlatformFilterLabel('all') },
+    ...Array.from(new Set(displayItems.map((item) => normalizeInboxPlatformFilter(item.source)))).map((filter) => ({
+      id: filter,
+      label: formatInboxPlatformFilterLabel(filter),
+    })),
+  ];
+  const statusFilters = ['all', 'needs_reply', 'needs_review', 'handled', 'snoozed'].map((filter) => ({
+    id: filter,
+    label: formatInboxStatusFilterLabel(filter),
+  }));
 
   const inboxStatusFeedback =
     displayInboxUpdateState.status === 'success' && displayInboxUpdateState.data
       ? `已将“${displayInboxUpdateState.data.item.title}”回写为 ${displayInboxUpdateState.data.item.status}`
+      : displaySendReplyState.status === 'success' && displaySendReplyState.data
+        ? `已将“${displaySendReplyState.data.item.title}”回写为 ${displaySendReplyState.data.item.status}`
       : displayInboxUpdateState.status === 'error'
         ? `收件箱状态更新失败：${displayInboxUpdateState.error}`
         : null;
@@ -281,6 +420,17 @@ export function InboxPage({
       ? '已生成最新回复建议'
       : showReplySuggestionForSelectedItem && displayReplySuggestionState.status === 'error'
         ? `生成回复失败：${displayReplySuggestionState.error}`
+        : null;
+  const sendReplyFeedback =
+    displaySendReplyState.status === 'success' &&
+    displaySendReplyState.data &&
+    selectedItem !== null &&
+    replyDeliveryItemId === selectedItem.id
+      ? displaySendReplyState.data.delivery.message
+      : displaySendReplyState.status === 'error' &&
+          selectedItem !== null &&
+          replyDeliveryItemId === selectedItem.id
+        ? `发送回复失败：${displaySendReplyState.error}`
         : null;
   const suggestedReply =
     showReplySuggestionForSelectedItem &&
@@ -332,6 +482,65 @@ export function InboxPage({
       .catch(() => undefined);
   }
 
+  function handleReplyDraftChange(value: string) {
+    if (!selectedItem) {
+      return;
+    }
+
+    setReplyDraftByItemId((current) => ({
+      ...current,
+      [selectedItem.id]: value,
+    }));
+  }
+
+  function handleApplySuggestion() {
+    if (!selectedItem || !suggestedReply) {
+      return;
+    }
+
+    setReplyDraftByItemId((current) => ({
+      ...current,
+      [selectedItem.id]: suggestedReply,
+    }));
+  }
+
+  function handleSendReply() {
+    if (!selectedItem) {
+      return;
+    }
+
+    const nextReply = replyDraft.trim();
+    if (nextReply.length === 0) {
+      return;
+    }
+
+    setReplyDeliveryItemId(selectedItem.id);
+    void runSendReply({
+      id: selectedItem.id,
+      reply: nextReply,
+    }).catch(() => undefined);
+  }
+
+  function handleSelectPlatformFilter(filter: string) {
+    const nextFilteredItems = filterInboxItems(displayItems, filter, activeStatusFilter);
+    setActivePlatformFilter(filter);
+    setSelectedItemId((currentSelectedItemId) =>
+      currentSelectedItemId !== null && nextFilteredItems.some((item) => item.id === currentSelectedItemId)
+        ? currentSelectedItemId
+        : null,
+    );
+  }
+
+  function handleSelectStatusFilter(filter: string) {
+    const nextFilteredItems = filterInboxItems(displayItems, activePlatformFilter, filter);
+    setActiveStatusFilter(filter);
+    setSelectedItemId((currentSelectedItemId) =>
+      currentSelectedItemId !== null && nextFilteredItems.some((item) => item.id === currentSelectedItemId)
+        ? currentSelectedItemId
+        : null,
+    );
+  }
+
   return (
     <section>
       <PageHeader
@@ -348,18 +557,6 @@ export function InboxPage({
             <ActionButton
               label={displayEnqueueState.status === 'loading' ? '正在提交抓取队列...' : '加入队列 / 定时抓取'}
               onClick={handleEnqueueInboxFetch}
-            />
-            <ActionButton
-              label={
-                displayReplySuggestionState.status === 'loading' && showReplySuggestionForSelectedItem
-                  ? '正在生成回复...'
-                  : 'AI 生成回复'
-              }
-              tone="primary"
-              disabled={!canGenerateReply}
-              onClick={() => {
-                void handleGenerateReply(selectedItem);
-              }}
             />
           </>
         }
@@ -412,6 +609,18 @@ export function InboxPage({
           {replyFeedback}
         </p>
       ) : null}
+      {sendReplyFeedback ? (
+        <p
+          style={{
+            ...feedbackStyle,
+            margin: '0 0 16px',
+            background: displaySendReplyState.status === 'error' ? '#fef2f2' : '#ecfdf5',
+            color: displaySendReplyState.status === 'error' ? '#b91c1c' : '#166534',
+          }}
+        >
+          {sendReplyFeedback}
+        </p>
+      ) : null}
 
       {hasLiveData || displayState.status === 'idle' ? (
         <>
@@ -440,118 +649,182 @@ export function InboxPage({
           </SectionCard>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
-            <StatCard label="待处理会话" value={String(viewData.total)} detail="跨渠道统一排队视图" />
-            <StatCard label="未读命中" value={String(viewData.unread)} detail="等待人工回复或分流的记录" />
+            <StatCard label="待处理会话" value={String(filteredItems.length)} detail="跨渠道统一排队视图" />
+            <StatCard
+              label="未读命中"
+              value={String(filteredItems.filter((item) => item.status !== 'handled').length)}
+              detail="等待人工回复或分流的记录"
+            />
             <StatCard
               label="需人工接管"
-              value={String(displayItems.filter((item) => item.status === 'needs_reply').length)}
+              value={String(filteredItems.filter((item) => item.status === 'needs_reply').length)}
               detail="高价值或需要人工确认的会话"
             />
           </div>
 
           <div style={{ marginTop: '20px', display: 'grid', gap: '20px', gridTemplateColumns: 'minmax(320px, 1.2fr) minmax(280px, 0.8fr)' }}>
-            <SectionCard title="待回复队列" description={`已加载 ${viewData.total} 条收件箱记录`}>
+            <SectionCard title="筛选" description="先按平台和处理状态缩小当前会话范围，再进入回复工作台。">
+              <div style={{ display: 'grid', gap: '14px' }}>
+                <div style={{ display: 'grid', gap: '10px' }}>
+                  <div style={{ fontWeight: 700, color: '#0f172a' }}>平台筛选</div>
+                  <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                    {platformFilters.map((filter) => (
+                      <button
+                        key={filter.id}
+                        type="button"
+                        data-inbox-filter-platform={filter.id}
+                        aria-pressed={activePlatformFilter === filter.id ? 'true' : 'false'}
+                        onClick={() => handleSelectPlatformFilter(filter.id)}
+                        style={{
+                          borderRadius: '999px',
+                          border: '1px solid #cbd5e1',
+                          background: activePlatformFilter === filter.id ? '#dbeafe' : '#ffffff',
+                          color: activePlatformFilter === filter.id ? '#1d4ed8' : '#334155',
+                          padding: '8px 12px',
+                          fontWeight: 700,
+                        }}
+                      >
+                        {filter.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gap: '10px' }}>
+                  <div style={{ fontWeight: 700, color: '#0f172a' }}>状态筛选</div>
+                  <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                    {statusFilters.map((filter) => (
+                      <button
+                        key={filter.id}
+                        type="button"
+                        data-inbox-filter-status={filter.id}
+                        aria-pressed={activeStatusFilter === filter.id ? 'true' : 'false'}
+                        onClick={() => handleSelectStatusFilter(filter.id)}
+                        style={{
+                          borderRadius: '999px',
+                          border: '1px solid #cbd5e1',
+                          background: activeStatusFilter === filter.id ? '#dbeafe' : '#ffffff',
+                          color: activeStatusFilter === filter.id ? '#1d4ed8' : '#334155',
+                          padding: '8px 12px',
+                          fontWeight: 700,
+                        }}
+                      >
+                        {filter.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </SectionCard>
+
+            <SectionCard title="待回复队列" description={`当前筛选下 ${filteredItems.length} 条 / 总计 ${displayItems.length} 条收件箱记录`}>
               <div style={{ display: 'grid', gap: '12px' }}>
-                {displayItems.length === 0 ? (
-                  <p style={{ margin: 0, color: '#475569' }}>暂无命中内容</p>
+                {filteredItems.length === 0 ? (
+                  <p style={{ margin: 0, color: '#475569' }}>{displayItems.length === 0 ? '暂无命中内容' : '当前筛选下暂无命中内容'}</p>
                 ) : (
-                  displayItems.map((item) => (
-                    <article
-                      key={item.id}
-                      onClick={() => {
-                        if (!isPreview) {
-                          setSelectedItemId(item.id);
-                        }
-                      }}
-                      style={{
-                        borderRadius: '16px',
-                        border: item.id === selectedItem?.id ? '1px solid #93c5fd' : '1px solid #dbe4f0',
-                        background: item.id === selectedItem?.id ? '#eff6ff' : '#f8fafc',
-                        padding: '18px',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
-                        <div>
-                          <div style={{ fontWeight: 700 }}>{item.title}</div>
-                          <p style={{ margin: '10px 0 0', color: '#475569', lineHeight: 1.5 }}>{item.excerpt}</p>
-                        </div>
-                        <StatusBadge tone="review" label={item.status} />
-                      </div>
-                      <div style={{ marginTop: '10px', color: '#64748b', fontSize: '13px' }}>
-                        {item.source} · {item.author ?? 'unknown'} · {item.createdAt}
-                      </div>
-                      <div style={{ marginTop: '16px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                        <PlaceholderActionButton label="打开原帖（人工处理）" hint="原帖跳转暂未接入，请在源站手动打开。" />
-                        <ActionButton
-                          label={
-                            displayInboxUpdateState.status === 'loading' && item.id === activeInboxMutationItemId
-                              ? '处理中...'
-                              : '标记已处理'
-                          }
-                          disabled={isPreview}
+                  filteredItems.map((item) => (
+                    (() => {
+                      const originalPostUrl = extractOriginalPostUrl(item.excerpt);
+
+                      return (
+                        <article
+                          key={item.id}
                           onClick={() => {
-                            void handleInboxStatus(item, 'handled');
+                            if (!isPreview) {
+                              setSelectedItemId(item.id);
+                            }
                           }}
-                        />
-                        <ActionButton
-                          label={
-                            displayInboxUpdateState.status === 'loading' && item.id === activeInboxMutationItemId
-                              ? '处理中...'
-                              : '稍后处理'
-                          }
-                          disabled={isPreview}
-                          onClick={() => {
-                            void handleInboxStatus(item, 'snoozed');
+                          style={{
+                            borderRadius: '16px',
+                            border: item.id === selectedItem?.id ? '1px solid #93c5fd' : '1px solid #dbe4f0',
+                            background: item.id === selectedItem?.id ? '#eff6ff' : '#f8fafc',
+                            padding: '18px',
+                            cursor: 'pointer',
                           }}
-                        />
-                      </div>
-                      <p style={{ ...placeholderActionNoteStyle, marginTop: '10px' }}>原帖跳转暂未接入，请在源站手动打开。</p>
-                    </article>
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+                            <div>
+                              <div style={{ fontWeight: 700 }}>{item.title}</div>
+                              <p style={{ margin: '10px 0 0', color: '#475569', lineHeight: 1.5 }}>{item.excerpt}</p>
+                            </div>
+                            <StatusBadge tone="review" label={item.status} />
+                          </div>
+                          <div style={{ marginTop: '10px', color: '#64748b', fontSize: '13px' }}>
+                            {item.source} · {item.author ?? 'unknown'} · {item.createdAt}
+                          </div>
+                          <div style={{ marginTop: '16px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                            {originalPostUrl ? (
+                              <a
+                                href={originalPostUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                onClick={(event) => event.stopPropagation()}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  borderRadius: '12px',
+                                  border: '1px solid #cbd5e1',
+                                  background: '#ffffff',
+                                  color: '#122033',
+                                  padding: '12px 16px',
+                                  fontWeight: 700,
+                                  textDecoration: 'none',
+                                }}
+                              >
+                                打开原帖
+                              </a>
+                            ) : (
+                              <PlaceholderActionButton label="打开原帖（人工处理）" hint="原帖跳转暂未接入，请在源站手动打开。" />
+                            )}
+                            <ActionButton
+                              label={
+                                displayInboxUpdateState.status === 'loading' && item.id === activeInboxMutationItemId
+                                  ? '处理中...'
+                                  : '标记已处理'
+                              }
+                              disabled={isPreview}
+                              onClick={() => {
+                                void handleInboxStatus(item, 'handled');
+                              }}
+                            />
+                            <ActionButton
+                              label={
+                                displayInboxUpdateState.status === 'loading' && item.id === activeInboxMutationItemId
+                                  ? '处理中...'
+                                  : '稍后处理'
+                              }
+                              disabled={isPreview}
+                              onClick={() => {
+                                void handleInboxStatus(item, 'snoozed');
+                              }}
+                            />
+                          </div>
+                          <p style={{ ...placeholderActionNoteStyle, marginTop: '10px' }}>
+                            {originalPostUrl ? '检测到原帖链接，可直接打开源站继续处理。' : '原帖跳转暂未接入，请在源站手动打开。'}
+                          </p>
+                        </article>
+                      );
+                    })()
                   ))
                 )}
               </div>
             </SectionCard>
 
-            <SectionCard title="回复工作台" description="AI 会生成首版草稿，人工可以在发送前再补充事实和语气。">
-              <div style={{ display: 'grid', gap: '12px' }}>
-                <div style={{ color: '#475569', lineHeight: 1.5 }}>
-                  {selectedItem ? `当前会话：${selectedItem.source} · ${selectedItem.author ?? 'unknown'}` : '暂无可生成回复的会话'}
-                </div>
-                <div style={{ fontWeight: 700, color: '#0f172a' }}>建议回复</div>
-                <div
-                  style={{
-                    borderRadius: '16px',
-                    border: '1px solid #dbe4f0',
-                    background: '#f8fafc',
-                    padding: '16px',
-                    color: '#334155',
-                    lineHeight: 1.6,
-                  }}
-                >
-                  {displayReplySuggestionState.status === 'loading' && showReplySuggestionForSelectedItem
-                    ? '正在生成回复建议...'
-                    : suggestedReply ??
-                      (isPreview
-                        ? '预览数据不可生成回复。'
-                        : selectedItem
-                          ? '点击“AI 生成回复”后，这里会展示最新的 AI 草稿。'
-                          : '收件箱为空，暂无可生成回复的会话。')}
-                </div>
-                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                  <PlaceholderActionButton
-                    label="应用建议（人工复制）"
-                    tone="primary"
-                    hint="当前仅提供 AI 草稿预览；应用建议和发送回复仍需人工处理。"
-                  />
-                  <PlaceholderActionButton
-                    label="发送回复（暂未接线）"
-                    hint="当前仅提供 AI 草稿预览；应用建议和发送回复仍需人工处理。"
-                  />
-                </div>
-                <p style={placeholderActionNoteStyle}>当前仅提供 AI 草稿预览；应用建议和发送回复仍需人工处理。</p>
-              </div>
-            </SectionCard>
+            <InboxDetail
+              isPreview={isPreview}
+              selectedItem={selectedItem}
+              suggestedReply={suggestedReply}
+              replyDraft={replyDraft}
+              isGeneratingReply={displayReplySuggestionState.status === 'loading' && showReplySuggestionForSelectedItem}
+              isSendingReply={displaySendReplyState.status === 'loading' && replyDeliveryItemId === selectedItem?.id}
+              canGenerateReply={canGenerateReply}
+              canSendReply={canSendReply}
+              onGenerateReply={() => {
+                void handleGenerateReply(selectedItem);
+              }}
+              onSendReply={handleSendReply}
+              onReplyDraftChange={handleReplyDraftChange}
+              onApplySuggestion={handleApplySuggestion}
+            />
           </div>
         </>
       ) : null}

@@ -98,6 +98,39 @@ inboxRouter.post('/:id/suggest-reply', async (request, response) => {
   response.json({ suggestion: { reply: suggestion.reply } });
 });
 
+inboxRouter.post('/:id/send-reply', (request, response) => {
+  const id = Number(request.params.id);
+  const reply = parseReply(request.body?.reply);
+
+  if (!Number.isInteger(id) || reply === null) {
+    response.status(400).json({ error: 'invalid inbox reply' });
+    return;
+  }
+
+  const items = inboxStore.list();
+  const item = items.find((entry) => entry.id === id);
+  if (!item) {
+    response.status(404).json({ error: 'inbox item not found' });
+    return;
+  }
+
+  const updatedItem = inboxStore.updateStatus(id, 'handled');
+  if (!updatedItem) {
+    response.status(404).json({ error: 'inbox item not found' });
+    return;
+  }
+
+  response.json({
+    item: updatedItem,
+    delivery: {
+      status: 'recorded',
+      mode: 'manual',
+      message: 'Reply recorded for manual delivery.',
+      reply,
+    },
+  });
+});
+
 function parseProjectIdQuery(value: unknown) {
   if (typeof value !== 'string') {
     return undefined;
@@ -109,4 +142,8 @@ function parseProjectIdQuery(value: unknown) {
 
 function parseOptionalProjectId(value: unknown) {
   return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
+function parseReply(value: unknown) {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }

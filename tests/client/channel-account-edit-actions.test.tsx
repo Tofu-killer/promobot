@@ -1639,6 +1639,146 @@ describe('channel account edit actions', () => {
     });
   });
 
+  it('keeps account save loading and success feedback scoped to the edited account', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ChannelAccountsPage } = await import('../../src/client/pages/ChannelAccounts');
+
+    const deferred = createDeferredPromise<{
+      channelAccount: {
+        id: number;
+        projectId?: number | null;
+        platform: string;
+        accountKey: string;
+        displayName: string;
+        authType: string;
+        status: string;
+        metadata: Record<string, unknown>;
+        createdAt: string;
+        updatedAt: string;
+      };
+    }>();
+    const updateChannelAccountAction = vi.fn().mockReturnValue(deferred.promise);
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ChannelAccountsPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              channelAccounts: [
+                {
+                  id: 3,
+                  projectId: 7,
+                  platform: 'x',
+                  accountKey: 'acct-x-2',
+                  displayName: 'X Secondary',
+                  authType: 'api-key',
+                  status: 'healthy',
+                  metadata: {
+                    team: 'growth',
+                  },
+                  createdAt: '2026-04-19T00:00:00.000Z',
+                  updatedAt: '2026-04-19T00:00:00.000Z',
+                },
+                {
+                  id: 4,
+                  projectId: 8,
+                  platform: 'reddit',
+                  accountKey: 'acct-reddit',
+                  displayName: 'Reddit Ops',
+                  authType: 'oauth',
+                  status: 'healthy',
+                  metadata: {},
+                  createdAt: '2026-04-19T00:00:00.000Z',
+                  updatedAt: '2026-04-19T00:00:00.000Z',
+                },
+              ],
+            },
+          },
+          updateChannelAccountAction,
+        }),
+      );
+      await flush();
+    });
+
+    const firstEditButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-edit-account-id') === '3',
+    );
+
+    expect(firstEditButton).not.toBeNull();
+
+    await act(async () => {
+      firstEditButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    const firstSaveButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-save-account-id') === '3',
+    );
+
+    expect(firstSaveButton).not.toBeNull();
+
+    await act(async () => {
+      firstSaveButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(updateChannelAccountAction).toHaveBeenCalledTimes(1);
+    expect(collectText(firstSaveButton as never)).toContain('正在保存账号...');
+
+    const secondEditButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-edit-account-id') === '4',
+    );
+
+    expect(secondEditButton).not.toBeNull();
+
+    await act(async () => {
+      secondEditButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    const secondSaveButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-save-account-id') === '4',
+    );
+
+    expect(secondSaveButton).not.toBeNull();
+    expect(collectText(secondSaveButton as never)).toContain('保存账号');
+    expect(collectText(secondSaveButton as never)).not.toContain('正在保存账号...');
+
+    await act(async () => {
+      deferred.resolve({
+        channelAccount: {
+          id: 3,
+          projectId: 7,
+          platform: 'x',
+          accountKey: 'acct-x-2',
+          displayName: 'X Growth',
+          authType: 'api-key',
+          status: 'healthy',
+          metadata: {
+            team: 'growth',
+          },
+          createdAt: '2026-04-19T00:00:00.000Z',
+          updatedAt: '2026-04-19T01:00:00.000Z',
+        },
+      });
+      await flush();
+    });
+
+    expect(collectText(container)).not.toContain('账号已更新');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('syncs channel account edit fields to the saved server response', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
