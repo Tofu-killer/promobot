@@ -464,6 +464,9 @@ describe('System Queue actions', () => {
               resolution: {
                 status: 'resolved',
                 publishStatus: 'published',
+                publishUrl: 'https://facebook.com/groups/group-123/posts/42',
+                message: 'browser lane completed publish',
+                publishedAt: '2026-04-23T10:10:00.000Z',
               },
             },
             {
@@ -522,6 +525,9 @@ describe('System Queue actions', () => {
     expect(html).toContain('artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-13.json');
     expect(html).toContain('resolution: resolved');
     expect(html).toContain('resolution detail: published');
+    expect(html).toContain('publishUrl: https://facebook.com/groups/group-123/posts/42');
+    expect(html).toContain('message: browser lane completed publish');
+    expect(html).toContain('publishedAt: 2026-04-23T10:10:00.000Z');
     expect(html).toContain('标记已发布');
     expect(html).toContain('标记失败');
     expect(html).toContain('#11 · publish');

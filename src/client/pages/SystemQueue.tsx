@@ -676,6 +676,21 @@ export function SystemQueuePage({
                         resolution detail: {readResolutionDetail(handoff.resolution)}
                       </div>
                     ) : null}
+                    {readResolutionPublishUrl(handoff.resolution) ? (
+                      <div style={{ color: '#475569' }}>
+                        publishUrl: {readResolutionPublishUrl(handoff.resolution)}
+                      </div>
+                    ) : null}
+                    {readResolutionMessage(handoff.resolution) ? (
+                      <div style={{ color: '#475569' }}>
+                        message: {readResolutionMessage(handoff.resolution)}
+                      </div>
+                    ) : null}
+                    {readResolutionPublishedAt(handoff.resolution) ? (
+                      <div style={{ color: '#475569' }}>
+                        publishedAt: {readResolutionPublishedAt(handoff.resolution)}
+                      </div>
+                    ) : null}
                     {handoff.status === 'pending' ? (
                       <div style={{ display: 'grid', gap: '10px' }}>
                         <label style={{ display: 'grid', gap: '6px' }}>
@@ -796,6 +811,24 @@ function readResolutionDetail(value: unknown) {
       : typeof record?.draftStatus === 'string'
         ? record.draftStatus
         : null;
+}
+
+function readResolutionPublishUrl(value: unknown) {
+  return typeof (value as { publishUrl?: unknown } | null)?.publishUrl === 'string'
+    ? ((value as { publishUrl: string }).publishUrl)
+    : null;
+}
+
+function readResolutionMessage(value: unknown) {
+  return typeof (value as { message?: unknown } | null)?.message === 'string'
+    ? ((value as { message: string }).message)
+    : null;
+}
+
+function readResolutionPublishedAt(value: unknown) {
+  return typeof (value as { publishedAt?: unknown } | null)?.publishedAt === 'string'
+    ? ((value as { publishedAt: string }).publishedAt)
+    : null;
 }
 
 function parseEnqueuePayload(value: string | undefined) {
