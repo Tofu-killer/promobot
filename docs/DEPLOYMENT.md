@@ -67,6 +67,7 @@ cp .env.example .env
   - 仓库内置 `pnpm browser:lane:submit -- --request-artifact <path> --storage-state-file <path>`；默认只生成本地 `browser_lane_result` artifact，若同时提供 `--base-url` 和 `--admin-password`，会把 inline `storageState` 直接提交给 importer API，因此不再要求和服务端共享 result artifact 目录
   - browser manual handoff artifact 会落在 `artifacts/browser-handoffs/<platform>/<account>/`，并维护 `pending / resolved / obsolete` 状态
   - 外部 browser lane 或人工接管完成发布后，可调用 `POST /api/system/browser-handoffs/import` 回写 `published/failed` 结果，系统会同步更新 draft、publish log 和 handoff artifact
+  - 仓库内置 `pnpm browser:handoff:complete -- --artifact-path <path> --status <published|failed>`；默认直接在本机导入 handoff 完成结果，若同时提供 `--base-url` 和 `--admin-password`，则会走远程 API
   - 控制台中的 `System Queue` / `Settings` / `Dashboard` / `Channel Accounts` 都会直接消费这些工单与 handoff 状态
 - `AI_BASE_URL` / `AI_API_KEY`
   - 对服务启动本身可选
