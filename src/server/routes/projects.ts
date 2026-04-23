@@ -102,8 +102,25 @@ projectsRouter.patch('/:id', (request, response) => {
     sellingPoints: Array.isArray(input.sellingPoints)
       ? input.sellingPoints.filter((value: unknown): value is string => typeof value === 'string')
       : undefined,
+    archived: typeof input.archived === 'boolean' ? input.archived : undefined,
   });
 
+  if (!project) {
+    response.status(404).json({ error: 'project not found' });
+    return;
+  }
+
+  response.json({ project });
+});
+
+projectsRouter.post('/:id/archive', (request, response) => {
+  const projectId = parseRouteId(request.params.id);
+  if (!projectId) {
+    response.status(400).json({ error: 'invalid project id' });
+    return;
+  }
+
+  const project = projectStore.archive(projectId);
   if (!project) {
     response.status(404).json({ error: 'project not found' });
     return;

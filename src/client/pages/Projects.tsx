@@ -12,6 +12,7 @@ export interface ProjectRecord {
   siteUrl: string;
   siteDescription: string;
   sellingPoints: string[];
+  archivedAt?: string;
   createdAt?: string;
 }
 
@@ -59,6 +60,10 @@ export interface UpdateProjectPayload {
 }
 
 export interface UpdateProjectResponse {
+  project: ProjectRecord;
+}
+
+export interface ArchiveProjectResponse {
   project: ProjectRecord;
 }
 
@@ -117,6 +122,12 @@ export async function updateProjectRequest(
   });
 }
 
+export async function archiveProjectRequest(id: number): Promise<ArchiveProjectResponse> {
+  return apiRequest<ArchiveProjectResponse>(`/api/projects/${id}/archive`, {
+    method: 'POST',
+  });
+}
+
 export async function loadSourceConfigsRequest(projectId: number): Promise<SourceConfigsResponse> {
   return apiRequest<SourceConfigsResponse>(`/api/projects/${projectId}/source-configs`);
 }
@@ -170,6 +181,7 @@ interface ProjectsPageProps {
   loadProjectsAction?: () => Promise<ProjectsResponse>;
   createProjectAction?: (input: CreateProjectPayload) => Promise<CreateProjectResponse>;
   updateProjectAction?: (id: number, input: UpdateProjectPayload) => Promise<UpdateProjectResponse>;
+  archiveProjectAction?: (id: number) => Promise<ArchiveProjectResponse>;
   loadSourceConfigsAction?: (projectId: number) => Promise<SourceConfigsResponse>;
   createSourceConfigAction?: (
     projectId: number,
@@ -231,7 +243,10 @@ async function loadSourceConfigsByProjectRequest(
   loadSourceConfigsAction: (projectId: number) => Promise<SourceConfigsResponse>,
 ): Promise<SourceConfigsByProjectResponse> {
   const entries = await Promise.all(
-    projects.map(async (project) => [project.id, (await loadSourceConfigsAction(project.id)).sourceConfigs] as const),
+    projects.map(async (project) => {
+      const result = await loadSourceConfigsAction(project.id);
+      return [project.id, result?.sourceConfigs ?? []] as const;
+    }),
   );
 
   return {
@@ -243,6 +258,7 @@ export function ProjectsPage({
   loadProjectsAction = loadProjectsRequest,
   createProjectAction = createProjectRequest,
   updateProjectAction = updateProjectRequest,
+  archiveProjectAction = archiveProjectRequest,
   loadSourceConfigsAction = loadSourceConfigsRequest,
   createSourceConfigAction = createSourceConfigRequest,
   updateSourceConfigAction = updateSourceConfigRequest,
@@ -259,6 +275,7 @@ export function ProjectsPage({
   const { state: projectsState, reload } = useAsyncQuery(loadProjectsAction, [loadProjectsAction]);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [pendingProjectSaveId, setPendingProjectSaveId] = useState<number | null>(null);
+  const [pendingProjectArchiveId, setPendingProjectArchiveId] = useState<number | null>(null);
   const [pendingSourceConfigCreateProjectId, setPendingSourceConfigCreateProjectId] = useState<number | null>(null);
   const [pendingSourceConfigSaveId, setPendingSourceConfigSaveId] = useState<number | null>(null);
   const [projectForms, setProjectForms] = useState<Record<number, ProjectFormValue>>({});
@@ -284,14 +301,14 @@ export function ProjectsPage({
   );
 
   const loadedProjects = useMemo(
-    () => displayProjectsState.data?.projects ?? [],
+    () => (displayProjectsState.data?.projects ?? []).filter((project) => !project.archivedAt),
     [displayProjectsState],
   );
 
   const projects = useMemo(() => {
     const createdProject = displayState.status === 'success' && displayState.data ? displayState.data.project : null;
 
-    if (createdProject && !loadedProjects.some((project) => project.id === createdProject.id)) {
+    if (createdProject && !createdProject.archivedAt && !loadedProjects.some((project) => project.id === createdProject.id)) {
       return [...loadedProjects, createdProject];
     }
 
@@ -449,12 +466,36 @@ export function ProjectsPage({
 
       return loadSourceConfigsAction(projectId)
         .then((reloaded) => {
-          setProjectSourceConfigs(projectId, reloaded.sourceConfigs);
+          setProjectSourceConfigs(projectId, reloaded?.sourceConfigs ?? []);
         })
         .catch(() => undefined);
     }).catch(() => undefined)
       .finally(() => {
         setPendingProjectSaveId((current) => (current === projectId ? null : current));
+      });
+  }
+
+  function handleArchiveProject(projectId: number) {
+    setSaveMessage(null);
+    setPendingProjectArchiveId(projectId);
+    void archiveProjectAction(projectId)
+      .then((result) => {
+        setProjectForms((currentForms) => {
+          const nextForms = { ...currentForms };
+          delete nextForms[projectId];
+          return nextForms;
+        });
+        setSourceConfigsByProject((currentConfigs) => {
+          const nextConfigs = { ...currentConfigs };
+          delete nextConfigs[projectId];
+          return nextConfigs;
+        });
+        setSaveMessage(`项目已归档：${result.project.name}`);
+        reload();
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        setPendingProjectArchiveId((current) => (current === projectId ? null : current));
       });
   }
 
@@ -821,6 +862,25 @@ export function ProjectsPage({
                     }}
                   >
                     {pendingProjectSaveId === project.id ? '正在保存项目...' : '保存项目'}
+                  </button>
+                  <button
+                    type="button"
+                    data-project-archive-id={String(project.id)}
+                    onClick={() => {
+                      void handleArchiveProject(project.id);
+                    }}
+                    disabled={pendingProjectArchiveId === project.id}
+                    style={{
+                      borderRadius: '12px',
+                      border: '1px solid #fecaca',
+                      background: '#fff1f2',
+                      color: '#b91c1c',
+                      padding: '12px 16px',
+                      fontWeight: 700,
+                      justifySelf: 'flex-start',
+                    }}
+                  >
+                    {pendingProjectArchiveId === project.id ? '正在归档项目...' : '归档项目'}
                   </button>
 
                   <SectionCard title="Source Configs" description="项目级监控源配置，驱动 monitor / inbox / reputation 抓取。">

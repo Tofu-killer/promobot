@@ -131,6 +131,42 @@ describe('projects api', () => {
     }
   });
 
+  it('archives a project and hides it from the default projects list', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const created = await requestApp('POST', '/api/projects', {
+        name: 'AU Launch',
+        siteName: 'MyModelHub',
+        siteUrl: 'https://example.com',
+        siteDescription: 'Multi-model API gateway',
+        sellingPoints: ['Lower cost'],
+      });
+
+      expect(created.status).toBe(201);
+
+      const archived = await requestApp('PATCH', '/api/projects/1', {
+        archived: true,
+      });
+
+      expect(archived.status).toBe(200);
+      expect(JSON.parse(archived.body)).toEqual({
+        project: expect.objectContaining({
+          id: 1,
+          archived: true,
+        }),
+      });
+
+      const listed = await requestApp('GET', '/api/projects');
+
+      expect(listed.status).toBe(200);
+      expect(JSON.parse(listed.body)).toEqual({
+        projects: [],
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('creates, lists, and updates project source configs in SQLite', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
@@ -249,6 +285,41 @@ describe('projects api', () => {
 
       expect(created.status).toBe(404);
       expect(JSON.parse(created.body)).toEqual({ error: 'project not found' });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('archives projects and excludes them from the default list', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const created = await requestApp('POST', '/api/projects', {
+        name: 'Archive Me',
+        siteName: 'Archive Demo',
+        siteUrl: 'https://archive.test',
+        siteDescription: 'Archive coverage',
+        sellingPoints: ['Quiet sunset'],
+      });
+
+      expect(created.status).toBe(201);
+
+      const archived = await requestApp('POST', '/api/projects/1/archive');
+
+      expect(archived.status).toBe(200);
+      expect(JSON.parse(archived.body)).toEqual({
+        project: expect.objectContaining({
+          id: 1,
+          name: 'Archive Me',
+          archivedAt: expect.any(String),
+        }),
+      });
+
+      const listed = await requestApp('GET', '/api/projects');
+
+      expect(listed.status).toBe(200);
+      expect(JSON.parse(listed.body)).toEqual({
+        projects: [],
+      });
     } finally {
       cleanupTestDatabasePath(rootDir);
     }

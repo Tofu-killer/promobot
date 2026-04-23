@@ -8,6 +8,8 @@ export interface ProjectRecord {
   siteUrl: string;
   siteDescription: string;
   sellingPoints: string[];
+  archived: boolean;
+  archivedAt?: string;
   createdAt: string;
 }
 
@@ -25,12 +27,14 @@ export interface UpdateProjectInput {
   siteUrl?: string;
   siteDescription?: string;
   sellingPoints?: string[];
+  archived?: boolean;
 }
 
 export interface ProjectStore {
   create(input: CreateProjectInput): ProjectRecord;
   list(): ProjectRecord[];
   update(id: number, input: UpdateProjectInput): ProjectRecord | undefined;
+  archive(id: number): ProjectRecord | undefined;
 }
 
 export function createProjectStore(): ProjectStore {
@@ -44,15 +48,20 @@ export function createProjectStore(): ProjectStore {
     update(id, input) {
       return withDatabase((database) => updateProject(database, id, input));
     },
+    archive(id) {
+      return withDatabase((database) => archiveProject(database, id));
+    },
   };
 }
 
 function insertProject(database: DatabaseConnection, input: CreateProjectInput): ProjectRecord {
+  ensureArchivedColumn(database);
+  ensureArchivedAtColumn(database);
   const result = database
     .prepare(
       `
-        INSERT INTO projects (name, site_name, site_url, site_description, selling_points)
-        VALUES (@name, @site_name, @site_url, @site_description, @selling_points)
+        INSERT INTO projects (name, site_name, site_url, site_description, selling_points, archived)
+        VALUES (@name, @site_name, @site_url, @site_description, @selling_points, 0)
       `,
     )
     .run({
@@ -68,7 +77,7 @@ function insertProject(database: DatabaseConnection, input: CreateProjectInput):
       `
         SELECT id, name, site_name AS siteName, site_url AS siteUrl,
                site_description AS siteDescription, selling_points AS sellingPoints,
-               created_at AS createdAt
+               archived AS archived, archived_at AS archivedAt, created_at AS createdAt
         FROM projects
         WHERE id = ?
       `,
@@ -83,13 +92,17 @@ function insertProject(database: DatabaseConnection, input: CreateProjectInput):
 }
 
 function listProjects(database: DatabaseConnection): ProjectRecord[] {
+  ensureArchivedColumn(database);
+  ensureArchivedAtColumn(database);
   return database
     .prepare(
       `
         SELECT id, name, site_name AS siteName, site_url AS siteUrl,
                site_description AS siteDescription, selling_points AS sellingPoints,
-               created_at AS createdAt
+               archived AS archived, archived_at AS archivedAt, created_at AS createdAt
         FROM projects
+        WHERE archived = 0
+          AND archived_at IS NULL
         ORDER BY id ASC
       `,
     )
@@ -102,12 +115,14 @@ function updateProject(
   id: number,
   input: UpdateProjectInput,
 ): ProjectRecord | undefined {
+  ensureArchivedColumn(database);
+  ensureArchivedAtColumn(database);
   const current = database
     .prepare(
       `
         SELECT id, name, site_name AS siteName, site_url AS siteUrl,
                site_description AS siteDescription, selling_points AS sellingPoints,
-               created_at AS createdAt
+               archived AS archived, archived_at AS archivedAt, created_at AS createdAt
         FROM projects
         WHERE id = ?
       `,
@@ -126,7 +141,8 @@ function updateProject(
             site_name = @site_name,
             site_url = @site_url,
             site_description = @site_description,
-            selling_points = @selling_points
+            selling_points = @selling_points,
+            archived = @archived
         WHERE id = @id
       `,
     )
@@ -137,7 +153,8 @@ function updateProject(
       site_url: input.siteUrl ?? current.siteUrl,
       site_description: input.siteDescription ?? current.siteDescription,
       selling_points: JSON.stringify(input.sellingPoints ?? current.sellingPoints),
-    });
+    archived: input.archived ?? current.archived ? 1 : 0,
+  });
 
   return normalizeProjectRow({
     ...current,
@@ -146,7 +163,43 @@ function updateProject(
     siteUrl: input.siteUrl ?? current.siteUrl,
     siteDescription: input.siteDescription ?? current.siteDescription,
     sellingPoints: JSON.stringify(input.sellingPoints ?? current.sellingPoints),
+    archived: input.archived ?? current.archived ? 1 : 0,
+    archivedAt: current.archivedAt,
   });
+}
+
+function archiveProject(database: DatabaseConnection, id: number): ProjectRecord | undefined {
+  ensureArchivedColumn(database);
+  ensureArchivedAtColumn(database);
+
+  const result = database
+    .prepare(
+      `
+        UPDATE projects
+        SET archived = 1,
+            archived_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `,
+    )
+    .run([id]);
+
+  if (result.changes === 0) {
+    return undefined;
+  }
+
+  const row = database
+    .prepare(
+      `
+        SELECT id, name, site_name AS siteName, site_url AS siteUrl,
+               site_description AS siteDescription, selling_points AS sellingPoints,
+               archived AS archived, archived_at AS archivedAt, created_at AS createdAt
+        FROM projects
+        WHERE id = ?
+      `,
+    )
+    .get([id]);
+
+  return row ? normalizeProjectRow(row as Record<string, unknown>) : undefined;
 }
 
 function normalizeProjectRow(row: Record<string, unknown>): ProjectRecord {
@@ -157,8 +210,28 @@ function normalizeProjectRow(row: Record<string, unknown>): ProjectRecord {
     siteUrl: String(row.siteUrl),
     siteDescription: String(row.siteDescription),
     sellingPoints: parseSellingPoints(row.sellingPoints),
+    archived: Number(row.archived) === 1,
+    archivedAt: typeof row.archivedAt === 'string' && row.archivedAt.length > 0 ? row.archivedAt : undefined,
     createdAt: String(row.createdAt),
   };
+}
+
+function ensureArchivedColumn(database: DatabaseConnection) {
+  const columns = database.prepare('PRAGMA table_info(projects)').all() as Array<{ name?: unknown }>;
+  if (columns.some((column) => column.name === 'archived')) {
+    return;
+  }
+
+  database.exec('ALTER TABLE projects ADD COLUMN archived INTEGER NOT NULL DEFAULT 0');
+}
+
+function ensureArchivedAtColumn(database: DatabaseConnection) {
+  const columns = database.prepare('PRAGMA table_info(projects)').all() as Array<{ name?: unknown }>;
+  if (columns.some((column) => column.name === 'archived_at')) {
+    return;
+  }
+
+  database.exec('ALTER TABLE projects ADD COLUMN archived_at TEXT');
 }
 
 function parseSellingPoints(value: unknown): string[] {

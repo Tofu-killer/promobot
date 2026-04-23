@@ -555,6 +555,87 @@ describe('client API page wiring', () => {
     expect(html).toContain('https://acme.test');
   });
 
+  it('posts project archiving through the shared API helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        project: {
+          id: 7,
+          name: 'Archive Me',
+          siteName: 'Archive Demo',
+          siteUrl: 'https://archive.test',
+          siteDescription: 'Archive coverage',
+          sellingPoints: ['Quiet sunset'],
+          archivedAt: '2026-04-23T10:00:00.000Z',
+        },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const projectsModule = (await import('../../src/client/pages/Projects')) as Record<string, unknown>;
+
+    expect(typeof projectsModule.archiveProjectRequest).toBe('function');
+
+    const archiveProjectRequest = projectsModule.archiveProjectRequest as (
+      id: number,
+    ) => Promise<{ project: { id: number; archivedAt?: string } }>;
+
+    const result = await archiveProjectRequest(7);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/projects/7/archive',
+      expect.objectContaining({
+        method: 'POST',
+      }),
+    );
+    expect(result.project.id).toBe(7);
+    expect(result.project.archivedAt).toBe('2026-04-23T10:00:00.000Z');
+  });
+
+  it('does not show archived projects in the default project list', async () => {
+    const { ProjectsPage } = await import('../../src/client/pages/Projects');
+
+    const html = renderToStaticMarkup(
+      createElement(ProjectsPage, {
+        projectsStateOverride: {
+          status: 'success',
+          data: {
+            projects: [
+              {
+                id: 1,
+                name: 'Active Project',
+                siteName: 'Active Site',
+                siteUrl: 'https://active.test',
+                siteDescription: 'Still live',
+                sellingPoints: ['Fast'],
+              },
+              {
+                id: 2,
+                name: 'Archived Project',
+                siteName: 'Archive Site',
+                siteUrl: 'https://archived.test',
+                siteDescription: 'No longer active',
+                sellingPoints: ['Quiet'],
+                archivedAt: '2026-04-23T10:00:00.000Z',
+              },
+            ],
+          },
+          error: null,
+        },
+        sourceConfigsStateOverride: {
+          status: 'success',
+          data: {
+            sourceConfigsByProject: {},
+          },
+          error: null,
+        },
+      }),
+    );
+
+    expect(html).toContain('Active Project');
+    expect(html).not.toContain('Archived Project');
+    expect(html).toContain('已加载 1 个项目');
+  });
+
   it('posts content generation through the shared API helper', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({
