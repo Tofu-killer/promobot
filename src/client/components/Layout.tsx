@@ -5,10 +5,11 @@ interface LayoutProps {
   activeRoute: AppRoute;
   navItems: NavItem[];
   onNavigate: (route: AppRoute) => void;
+  onLogout?: () => void;
   children: ReactNode;
 }
 
-export function Layout({ activeRoute, navItems, onNavigate, children }: LayoutProps) {
+export function Layout({ activeRoute, navItems, onNavigate, onLogout, children }: LayoutProps) {
   return (
     <div
       style={{
@@ -19,14 +20,16 @@ export function Layout({ activeRoute, navItems, onNavigate, children }: LayoutPr
         color: '#122033',
         fontFamily: 'Segoe UI, sans-serif'
       }}
-    >
-      <aside
-        aria-label="Primary navigation"
-        style={{
-          padding: '24px 20px',
-          background: '#0f172a',
-          color: '#e2e8f0',
-          borderRight: '1px solid #1e293b'
+      >
+        <aside
+          aria-label="Primary navigation"
+          style={{
+            padding: '24px 20px',
+            background: '#0f172a',
+            color: '#e2e8f0',
+          borderRight: '1px solid #1e293b',
+          display: 'flex',
+          flexDirection: 'column'
         }}
       >
         <div style={{ marginBottom: '24px' }}>
@@ -39,7 +42,7 @@ export function Layout({ activeRoute, navItems, onNavigate, children }: LayoutPr
           </p>
         </div>
 
-        <nav style={{ display: 'grid', gap: '8px' }}>
+        <nav style={{ display: 'grid', gap: '8px', flex: '1 1 auto' }}>
           {navItems.map((item) => {
             const isActive = item.id === activeRoute;
 
@@ -65,6 +68,24 @@ export function Layout({ activeRoute, navItems, onNavigate, children }: LayoutPr
             );
           })}
         </nav>
+
+        <button
+          type="button"
+          onClick={() => onLogout?.()}
+          style={{
+            marginTop: '16px',
+            borderRadius: '12px',
+            border: '1px solid #334155',
+            background: '#111827',
+            color: '#f8fafc',
+            padding: '12px 14px',
+            cursor: 'pointer',
+            textAlign: 'left',
+            fontWeight: 700,
+          }}
+        >
+          退出登录
+        </button>
       </aside>
 
       <main style={{ padding: '32px' }}>{children}</main>

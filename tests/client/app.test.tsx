@@ -735,4 +735,77 @@ describe('App shell', () => {
       await flush();
     });
   });
+
+  it('logs out through the session api and returns to the login page', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === '/api/auth/probe') {
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+
+      if (String(input) === '/api/auth/logout') {
+        expect(init).toEqual({
+          method: 'POST',
+        });
+
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+
+      return Promise.resolve(
+        jsonResponse({
+          monitor: {
+            total: 0,
+            new: 0,
+            followUpDrafts: 0,
+          },
+          drafts: {
+            total: 0,
+            review: 0,
+          },
+          totals: {
+            items: 0,
+            followUps: 0,
+          },
+        }),
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(createElement(App as never, { initialAdminPassword: null }));
+      await flush();
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('PromoBot');
+
+    const logoutButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('退出登录'),
+    );
+
+    expect(logoutButton).not.toBeNull();
+
+    await act(async () => {
+      logoutButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/auth/logout',
+      expect.objectContaining({
+        method: 'POST',
+      }),
+    );
+    expect(collectText(container)).toContain('Admin Login');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
 });

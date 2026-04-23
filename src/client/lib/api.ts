@@ -117,6 +117,30 @@ export async function loginAdminSession(
   throw new ApiRequestError(response.status, message, body);
 }
 
+export async function logoutAdminSession(): Promise<void> {
+  const response = await fetch('/api/auth/logout', {
+    method: 'POST',
+  });
+  const body = await parseResponseBody(response);
+
+  if (response.ok) {
+    clearLegacyAdminPasswordStorage();
+    return;
+  }
+
+  const message =
+    typeof body === 'object' &&
+    body !== null &&
+    'error' in body &&
+    typeof body.error === 'string'
+      ? body.error
+      : typeof body === 'string' && body.length > 0
+        ? body
+        : `Request failed with status ${response.status}`;
+
+  throw new ApiRequestError(response.status, message, body);
+}
+
 export async function validateAdminPassword(password: string): Promise<void> {
   await loginAdminSession(password);
 }

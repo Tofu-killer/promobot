@@ -4,6 +4,7 @@ import {
   clearStoredAdminPassword,
   getAuthErrorEventName,
   loginAdminSession,
+  logoutAdminSession,
   probeAdminSession,
 } from './lib/api';
 import type { AppRoute, NavItem } from './lib/types';
@@ -277,7 +278,24 @@ export default function App({ initialRoute = 'dashboard', initialAdminPassword =
   }
 
   return (
-    <Layout activeRoute={activeRoute} navItems={navItems} onNavigate={handleNavigate}>
+    <Layout
+      activeRoute={activeRoute}
+      navItems={navItems}
+      onNavigate={handleNavigate}
+      onLogout={() => {
+        setAuthStatus('checking');
+
+        void logoutAdminSession()
+          .catch(() => {
+            // Ignore logout transport failures and fall back to a local sign-out.
+          })
+          .finally(() => {
+            clearStoredAdminPassword();
+            setAuthError(null);
+            setAuthStatus('anonymous');
+          });
+      }}
+    >
       {renderRoute(activeRoute, sharedProjectIdDraft, setSharedProjectIdDraft)}
     </Layout>
   );
