@@ -6,6 +6,7 @@
   "scripts": {
     "browser:lane:submit": "tsx src/server/cli/browserLaneSubmit.ts",
     "browser:handoff:complete": "tsx src/server/cli/browserHandoffComplete.ts",
+    "smoke:server": "tsx src/server/cli/deploymentSmoke.ts",
     "dev": "vite",
     "dev:server": "tsx watch src/server/index.ts",
     "build": "rm -rf dist && tsc -p tsconfig.json && vite build",
