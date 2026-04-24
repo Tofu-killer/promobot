@@ -223,6 +223,19 @@ pnpm deploy:local -- --base-url http://127.0.0.1:3001
 pnpm deploy:local -- --skip-install --base-url http://127.0.0.1:3001
 ```
 
+如果需要从一个已有 runtime backup 回滚，可运行：
+
+```bash
+pnpm rollback:local -- --backup-dir /tmp/promobot-backup-manual --skip-smoke
+```
+
+回滚脚本会先停掉现有 PM2 进程，再调用 `runtime:restore`，然后按恢复后的环境执行 `pm2 restart` / `pm2 start`，最后按需追加 smoke check。
+如果你不想恢复 `.env`，可加：
+
+```bash
+pnpm rollback:local -- --backup-dir /tmp/promobot-backup-manual --skip-env --skip-smoke
+```
+
 ## PM2 healthcheck
 
 启动后至少做三层检查：
@@ -314,6 +327,18 @@ pnpm runtime:backup
 
 ```bash
 pnpm runtime:backup -- --output-dir /tmp/promobot-backup-manual
+```
+
+需要恢复时：
+
+```bash
+pnpm runtime:restore -- --input-dir /tmp/promobot-backup-manual
+```
+
+restore 会按 backup manifest 把文件恢复到原始 `sourcePath`，并在覆盖前为已有目标创建 `.pre-restore-<timestamp>` 备份。若不想恢复 `.env`，可加：
+
+```bash
+pnpm runtime:restore -- --input-dir /tmp/promobot-backup-manual --skip-env
 ```
 
 迁移到新机器时：
