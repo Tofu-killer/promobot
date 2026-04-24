@@ -64,6 +64,7 @@ export interface ReleaseVerifySummary {
 
 const REQUIRED_RELEASE_PATHS = [
   'package.json',
+  'database/schema.sql',
   'pnpm-lock.yaml',
   'dist/server/index.js',
   'dist/server/cli/deploymentSmoke.js',

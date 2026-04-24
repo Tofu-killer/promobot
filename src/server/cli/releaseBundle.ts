@@ -50,6 +50,7 @@ const REQUIRED_FILES = [
   'package.json',
   'pnpm-lock.yaml',
   'pm2.config.js',
+  path.join('database', 'schema.sql'),
   path.join('docs', 'DEPLOYMENT.md'),
   '.env.example',
 ] as const;

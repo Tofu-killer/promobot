@@ -105,6 +105,7 @@ describe('release bundle cli', () => {
     writeFile(repoRoot, 'package.json', '{ "name": "promobot" }\n');
     writeFile(repoRoot, 'docs/DEPLOYMENT.md', '# Deploy\n');
     writeFile(repoRoot, '.env.example', 'ADMIN_PASSWORD=change-me\n');
+    writeFile(repoRoot, 'database/schema.sql', 'create table drafts (id integer primary key);\n');
     writeFile(repoRoot, 'dist/server/index.js', 'console.log("server");\n');
     writeFile(repoRoot, 'ops/deploy-release.sh', '#!/usr/bin/env bash\n');
     writeFile(repoRoot, 'ops/deploy-promobot.sh', '#!/usr/bin/env bash\n');
@@ -124,6 +125,7 @@ describe('release bundle cli', () => {
       ok: false,
       checksums: {
         '.env.example': sha256Hex('ADMIN_PASSWORD=change-me\n'),
+        'database/schema.sql': sha256Hex('create table drafts (id integer primary key);\n'),
         'dist/server/index.js': sha256Hex('console.log("server");\n'),
         'docs/DEPLOYMENT.md': sha256Hex('# Deploy\n'),
         'ops/deploy-promobot.sh': sha256Hex('#!/usr/bin/env bash\n'),
@@ -136,6 +138,7 @@ describe('release bundle cli', () => {
       manifestPath: path.join(outputDir, 'manifest.json'),
       files: [
         '.env.example',
+        'database/schema.sql',
         'dist/server/index.js',
         'docs/DEPLOYMENT.md',
         'manifest.json',
@@ -170,6 +173,7 @@ describe('release bundle cli', () => {
     writeFile(repoRoot, 'pnpm-lock.yaml', 'lockfile\n');
     writeFile(repoRoot, 'pm2.config.js', 'export default {};\n');
     writeFile(repoRoot, '.env.example', 'ADMIN_PASSWORD=change-me\n');
+    writeFile(repoRoot, 'database/schema.sql', 'create table drafts (id integer primary key);\n');
     writeFile(repoRoot, 'docs/DEPLOYMENT.md', '# Deploy\n');
     writeFile(repoRoot, 'dist/server/index.js', 'console.log("server");\n');
     writeFile(repoRoot, 'dist/server/chunks/app.js', 'export const app = true;\n');
@@ -197,6 +201,7 @@ describe('release bundle cli', () => {
       manifestPath: path.join(outputDir, 'manifest.json'),
       files: [
         '.env.example',
+        'database/schema.sql',
         'dist/client/assets/app.js',
         'dist/client/index.html',
         'dist/server/chunks/app.js',
@@ -214,6 +219,7 @@ describe('release bundle cli', () => {
       missing: [],
       checksums: {
         '.env.example': sha256Hex('ADMIN_PASSWORD=change-me\n'),
+        'database/schema.sql': sha256Hex('create table drafts (id integer primary key);\n'),
         'dist/client/assets/app.js': sha256Hex('console.log("client");\n'),
         'dist/server/index.js': sha256Hex('console.log("server");\n'),
         'ops/rollback-promobot.sh': sha256Hex('#!/usr/bin/env bash\n'),

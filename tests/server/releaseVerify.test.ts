@@ -92,6 +92,11 @@ describe('release verify cli', () => {
         },
         {
           kind: 'manifest-item',
+          name: 'database/schema.sql',
+          target: path.join(inputDir, 'database/schema.sql'),
+        },
+        {
+          kind: 'manifest-item',
           name: 'dist/client/index.html',
           target: path.join(inputDir, 'dist/client/index.html'),
         },
@@ -120,6 +125,7 @@ describe('release verify cli', () => {
       ok: true,
       files: [
         'package.json',
+        'database/schema.sql',
         'pnpm-lock.yaml',
         'dist/server/index.js',
         'dist/server/cli/deploymentSmoke.js',
@@ -261,6 +267,12 @@ describe('release verify cli', () => {
         },
         {
           kind: 'manifest-item',
+          name: 'database/schema.sql',
+          ok: true,
+          target: path.join(inputDir, 'database/schema.sql'),
+        },
+        {
+          kind: 'manifest-item',
           name: 'ops/deploy-release.sh',
           ok: true,
           target: path.join(inputDir, 'ops/deploy-release.sh'),
@@ -292,6 +304,7 @@ describe('release verify cli', () => {
       ok: true,
       files: [
         'package.json',
+        'database/schema.sql',
         'pnpm-lock.yaml',
         'dist/server/index.js',
         'dist/server/cli/deploymentSmoke.js',
@@ -347,6 +360,7 @@ describe('release verify cli', () => {
       ok: true,
       files: [
         'package.json',
+        'database/schema.sql',
         'pnpm-lock.yaml',
         'dist/server/index.js',
         'dist/server/cli/deploymentSmoke.js',
@@ -388,6 +402,7 @@ describe('release verify cli', () => {
       ok: true,
       files: [
         { path: 'package.json' },
+        { path: 'database/schema.sql' },
         { relativePath: 'pnpm-lock.yaml' },
         { path: 'dist/server/index.js' },
         { relativePath: 'dist/server/cli/deploymentSmoke.js' },
@@ -493,6 +508,7 @@ function writeRequiredBundleCore(
   } = {},
 ) {
   writeFile(rootDir, 'package.json', content.packageJsonContent ?? '{}\n');
+  writeFile(rootDir, 'database/schema.sql', 'create table drafts (id integer primary key);\n');
   writeFile(rootDir, 'pnpm-lock.yaml', 'lockfileVersion: 9\n');
   writeFile(rootDir, 'dist/server/index.js', content.serverContent ?? 'console.log("server");\n');
   writeFile(
