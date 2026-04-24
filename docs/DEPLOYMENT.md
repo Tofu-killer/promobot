@@ -227,6 +227,20 @@ release bundle 当前至少会包含：
 
 输出目录下会同时生成 `manifest.json`，便于交付前核对缺失项。
 
+交付前可以再做一次 release 目录校验：
+
+```bash
+pnpm release:verify -- --input-dir /tmp/promobot-release
+```
+
+如果你更偏向 shell wrapper：
+
+```bash
+pnpm verify:release -- --input-dir /tmp/promobot-release
+```
+
+`verify:release` 默认只做目录结构和 manifest 校验，不会启动服务；只有显式开启 smoke 时，才会追加 `smoke:server`。
+
 如果 `dist/client/index.html` 存在：
 
 - `/` 会返回前端入口
