@@ -197,6 +197,63 @@ jobs:
           echo "checksum_path=$CHECKSUM_PATH" >> "$GITHUB_OUTPUT"
           echo "metadata_path=$METADATA_PATH" >> "$GITHUB_OUTPUT"
 
+      - name: Generate GitHub Release body
+        id: release_body
+        env:
+          ARCHIVE_PATH: ${{ steps.archive.outputs.archive_path }}
+          CHECKSUM_PATH: ${{ steps.archive.outputs.checksum_path }}
+          METADATA_PATH: ${{ steps.archive.outputs.metadata_path }}
+          RELEASE_BODY_PATH: ${{ runner.temp }}/release-body.md
+        run: |
+          export ARCHIVE_PATH CHECKSUM_PATH METADATA_PATH RELEASE_BODY_PATH
+          node <<'EOF'
+          const fs = require('node:fs');
+          const path = require('node:path');
+
+          const metadata = JSON.parse(fs.readFileSync(process.env.METADATA_PATH, 'utf8'));
+          const archiveFile = path.basename(process.env.ARCHIVE_PATH);
+          const checksumFile = path.basename(process.env.CHECKSUM_PATH);
+          const metadataFile = path.basename(process.env.METADATA_PATH);
+          const expectedMetadataFile = `${archiveFile}.metadata.json`;
+
+          if (metadata.archive_file !== archiveFile) {
+            throw new Error(`Unexpected metadata archive_file: ${metadata.archive_file} !== ${archiveFile}`);
+          }
+
+          if (metadata.checksum_file !== checksumFile) {
+            throw new Error(`Unexpected metadata checksum_file: ${metadata.checksum_file} !== ${checksumFile}`);
+          }
+
+          if (metadataFile !== expectedMetadataFile) {
+            throw new Error(`Unexpected metadata file name: ${metadataFile} !== ${expectedMetadataFile}`);
+          }
+
+          const bundleDirName = metadata.bundle_dir_name;
+          if (!bundleDirName) {
+            throw new Error('Expected bundle_dir_name in release metadata');
+          }
+
+          const body = [
+            `Release bundle assets for ${process.env.GITHUB_REF_NAME}.`,
+            '',
+            'Download:',
+            `- \`${archiveFile}\``,
+            `- \`${checksumFile}\``,
+            `- \`${metadataFile}\``,
+            '',
+            'Recommended verification flow:',
+            `1. Run \`sha256sum -c ${checksumFile}\` before trusting \`${archiveFile}\`.`,
+            `2. Read \`${metadataFile}\` to confirm the tag, commit SHA, and asset-to-bundle mapping.`,
+            `3. Extract \`${archiveFile}\` with \`tar -xzf ${archiveFile}\`.`,
+            `4. Verify the extracted \`${bundleDirName}\` directory with \`pnpm release:verify -- --input-dir ./${bundleDirName}\` or \`pnpm verify:release -- --input-dir ./${bundleDirName}\`.`,
+            '',
+            `The extracted directory name should match \`bundle_dir_name: ${bundleDirName}\` in \`${metadataFile}\`.`,
+          ].join('\n');
+
+          fs.writeFileSync(process.env.RELEASE_BODY_PATH, `${body}\n`);
+          EOF
+          echo "body_path=$RELEASE_BODY_PATH" >> "$GITHUB_OUTPUT"
+
       - name: Publish archived release bundle assets to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -204,5 +261,6 @@ jobs:
             ${{ steps.archive.outputs.archive_path }}
             ${{ steps.archive.outputs.checksum_path }}
             ${{ steps.archive.outputs.metadata_path }}
+          body_path: ${{ steps.release_body.outputs.body_path }}
           fail_on_unmatched_files: true
           overwrite_files: true

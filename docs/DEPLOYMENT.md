@@ -274,6 +274,7 @@ pnpm release:deploy
 - 支持手动触发 `workflow_dispatch`
 - 支持在 `v*` tag push 时自动触发
 - `Actions artifact` 指 workflow run 页面里的下载产物；`GitHub Release asset` 指挂在 GitHub Release 页面下的正式附件，两者不是同一个东西
+- 正式 `v*` tag push 生成的 GitHub Release 页面会自带 download / verify 说明；这段内容由 `Release Bundle` workflow 写进 `Release body`，会列出 `promobot-release-bundle.tar.gz`、`.sha256`、`.metadata.json` 和推荐的校验顺序。要注意，`Release body` 只是给人读的页面说明；真正供下载和校验消费的仍是页面下方这些 GitHub Release asset，以及解压后 bundle 里的 `manifest.json`
 - 手动 `workflow_dispatch` 仍主要产出 Actions artifact，里面同时带 bundle 目录、压缩包、`.sha256` 和 `.metadata.json`，适合作为交付件发往目标机
 - 只有 `v*` tag push 这条正式发版入口，才会在保留 Actions artifact 的同时，把 `promobot-release-bundle.tar.gz`、`.sha256` 和 `.metadata.json` 附着到 GitHub Release；新的 release asset sidecar 只服务这条 tar.gz 下载链路，如果只是临时取包 / 验包，直接下载 Actions artifact 即可
 - `promobot-release-bundle.tar.gz.metadata.json` 的定位是给下载方 / 自动化方消费的机器可读说明，用来描述 `Release Bundle` workflow 产出的 bundle、archive 和校验入口；它不替代 `promobot-release-bundle.tar.gz.sha256` 这个 tar.gz sidecar，也不替代解压后对 `manifest.json` 以及 `pnpm release:verify` / `pnpm verify:release` 的 bundle 校验
