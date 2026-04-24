@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,6 +9,7 @@ export interface ReleaseBundleArgs {
 }
 
 export interface ReleaseBundleSummary {
+  checksums: Record<string, string>;
   createdAt: string;
   files: string[];
   manifestPath: string;
@@ -138,13 +140,15 @@ export function runReleaseBundle(
     sourceDir: path.join(repoRoot, 'ops'),
   });
 
+  const bundledFiles = sortRelativePaths([...copiedFiles]);
   const summary: ReleaseBundleSummary = {
     ok: missing.length === 0,
+    checksums: createFileChecksums(outputDir, bundledFiles),
     createdAt,
     repoRoot,
     outputDir,
     manifestPath,
-    files: sortRelativePaths([...copiedFiles, 'manifest.json']),
+    files: sortRelativePaths([...bundledFiles, 'manifest.json']),
     missing,
   };
 
@@ -323,6 +327,18 @@ function isRegularFile(targetPath: string) {
 
 function sortRelativePaths(paths: string[]) {
   return [...new Set(paths)].sort((left, right) => left.localeCompare(right));
+}
+
+function createFileChecksums(outputDir: string, relativePaths: string[]) {
+  return Object.fromEntries(
+    relativePaths.map((relativePath) => [
+      relativePath,
+      crypto
+        .createHash('sha256')
+        .update(fs.readFileSync(path.join(outputDir, relativePath)))
+        .digest('hex'),
+    ]),
+  );
 }
 
 function toPosixPath(relativePath: string) {

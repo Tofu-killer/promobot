@@ -81,8 +81,8 @@ pnpm browser:artifacts:archive -- --older-than-hours 72
 - `pnpm build`：分别构建到 `dist/client` 和 `dist/server`
 - `pnpm start`：启动 `dist/server/index.js`，并在 `dist/client` 存在时直接提供构建后的前端
 - `pnpm preflight:prod -- [options]`：做静态上线前检查，输出 JSON summary，不启动服务
-- `pnpm release:bundle -- --output-dir <path>`：把构建产物、PM2 配置、必要 ops 脚本和部署文档复制到目录型 release bundle，并生成 manifest JSON
-- `pnpm release:verify -- --input-dir <path>`：校验目录型 release bundle 的 manifest 和关键文件是否完整
+- `pnpm release:bundle -- --output-dir <path>`：把构建产物、PM2 配置、必要 ops 脚本和部署文档复制到目录型 release bundle，并生成带文件 checksum 信息的 manifest JSON
+- `pnpm release:verify -- --input-dir <path>`：校验目录型 release bundle 的 manifest、关键文件是否完整，并在 manifest 带 checksum 时重算现有文件内容做完整性校验
 - `pnpm runtime:backup`：把当前可定位的 SQLite 文件来源、真实运行时 `browser-sessions/` 根目录和仓库根 `.env` 复制到时间戳备份目录，并生成 manifest JSON；若有缺失项，会在 manifest 里标记并以非零退出码返回
 - `pnpm runtime:restore -- --input-dir <backupDir>`：按 backup manifest 恢复运行时数据，并在覆盖前为已有目标创建 `.pre-restore-<timestamp>` 备份
 - `pnpm release:local -- [options]`：先按需执行 `pnpm build`，再调用 `release:bundle` 生成目录型可交付发布物
@@ -100,6 +100,7 @@ pnpm browser:artifacts:archive -- --older-than-hours 72
 
 - `pnpm deploy:local` / `ops/deploy-promobot.sh` 面向“目标机上已有源码 checkout”的部署：脚本会在源码仓库里执行 install / build / PM2 切换。
 - `pnpm release:deploy` / `ops/deploy-release.sh` 面向“目标机只拿到目录型 release bundle”的部署：bundle 会随产物带上 deploy 脚本，解压后直接在 bundle 根目录执行即可。
+- 新生成的 bundle manifest 会记录文件 checksum；`pnpm release:verify` / `pnpm verify:release` 会在文件存在时重算并比对，不匹配会返回失败。旧 manifest 没有 checksum 时，仍按原来的目录结构校验处理。
 - 推荐顺序是先在构建机生成并校验 bundle，再把 bundle 目录传到目标机部署。
 
 ```bash

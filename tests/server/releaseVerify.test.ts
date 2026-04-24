@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -98,7 +99,70 @@ describe('release verify cli', () => {
     );
   });
 
-  it('passes when manifest and required bundle files exist', async () => {
+  it('fails when a recorded checksum does not match an existing bundle file', async () => {
+    const releaseVerify = await loadReleaseVerifyModule();
+    expect(releaseVerify).toBeTruthy();
+    if (!releaseVerify) {
+      return;
+    }
+
+    const inputDir = createTempDir();
+    const serverContent = 'console.log("server");\n';
+    writeFile(inputDir, 'dist/server/index.js', serverContent);
+    writeFile(inputDir, 'dist/client/index.html', '<!doctype html>\n');
+    writeFile(inputDir, 'pm2.config.js', 'export default {};\n');
+    writeFile(inputDir, 'ops/deploy-promobot.sh', '#!/usr/bin/env bash\n');
+
+    writeManifest(inputDir, {
+      ok: true,
+      files: [
+        'dist/server/index.js',
+        'dist/client/index.html',
+        'pm2.config.js',
+        'ops/deploy-promobot.sh',
+      ],
+      missing: [],
+      checksums: {
+        'dist/server/index.js': createSha256Checksum('console.log("tampered");\n'),
+      },
+    });
+
+    const summary = releaseVerify.runReleaseVerify({ inputDir });
+
+    expect(summary.ok).toBe(false);
+    expect(summary.checks).toEqual(
+      expect.arrayContaining([
+        {
+          kind: 'manifest-item',
+          name: 'dist/server/index.js',
+          ok: false,
+          target: path.join(inputDir, 'dist/server/index.js'),
+        },
+      ]),
+    );
+    expect(summary.missing).toEqual(
+      expect.arrayContaining([
+        {
+          kind: 'manifest-item',
+          name: 'dist/server/index.js',
+          target: path.join(inputDir, 'dist/server/index.js'),
+        },
+      ]),
+    );
+    expect(summary.warnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'checksum-mismatch',
+          target: path.join(inputDir, 'dist/server/index.js'),
+        }),
+      ]),
+    );
+    expect(createSha256Checksum(serverContent)).not.toBe(
+      createSha256Checksum('console.log("tampered");\n'),
+    );
+  });
+
+  it('passes when manifest and required bundle files exist without checksum metadata', async () => {
     const releaseVerify = await loadReleaseVerifyModule();
     expect(releaseVerify).toBeTruthy();
     if (!releaseVerify) {
@@ -168,6 +232,48 @@ describe('release verify cli', () => {
     });
     expect(JSON.parse(stdout.read())).toEqual(summary);
   });
+
+  it('passes when recorded checksums match existing bundle files', async () => {
+    const releaseVerify = await loadReleaseVerifyModule();
+    expect(releaseVerify).toBeTruthy();
+    if (!releaseVerify) {
+      return;
+    }
+
+    const inputDir = createTempDir();
+    const serverContent = 'console.log("server");\n';
+    const clientContent = '<!doctype html>\n';
+    const pm2Content = 'export default {};\n';
+    const deployScript = '#!/usr/bin/env bash\n';
+
+    writeFile(inputDir, 'dist/server/index.js', serverContent);
+    writeFile(inputDir, 'dist/client/index.html', clientContent);
+    writeFile(inputDir, 'pm2.config.js', pm2Content);
+    writeFile(inputDir, 'ops/deploy-promobot.sh', deployScript);
+
+    writeManifest(inputDir, {
+      ok: true,
+      files: [
+        'dist/server/index.js',
+        'dist/client/index.html',
+        'pm2.config.js',
+        'ops/deploy-promobot.sh',
+      ],
+      missing: [],
+      checksums: {
+        'dist/server/index.js': createSha256Checksum(serverContent),
+        'dist/client/index.html': createSha256Checksum(clientContent),
+        'pm2.config.js': createSha256Checksum(pm2Content),
+        'ops/deploy-promobot.sh': createSha256Checksum(deployScript),
+      },
+    });
+
+    const summary = releaseVerify.runReleaseVerify({ inputDir });
+
+    expect(summary.ok).toBe(true);
+    expect(summary.missing).toEqual([]);
+    expect(summary.warnings).toEqual([]);
+  });
 });
 
 async function loadReleaseVerifyModule() {
@@ -190,6 +296,7 @@ function writeManifest(
     ok: boolean;
     files: string[];
     missing: string[];
+    checksums?: Record<string, string>;
   },
 ) {
   writeFile(
@@ -229,4 +336,8 @@ function writeFile(rootDir: string, relativePath: string, content: string) {
   const targetPath = path.join(rootDir, relativePath);
   fs.mkdirSync(path.dirname(targetPath), { recursive: true });
   fs.writeFileSync(targetPath, content, 'utf8');
+}
+
+function createSha256Checksum(content: string) {
+  return `sha256:${crypto.createHash('sha256').update(content).digest('hex')}`;
 }

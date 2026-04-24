@@ -237,13 +237,15 @@ release bundle 当前至少会包含：
 - `docs/DEPLOYMENT.md`
 - `.env.example`
 
-输出目录下会同时生成 `manifest.json`，便于交付前核对缺失项。
+输出目录下会同时生成 `manifest.json`，其中会记录 bundle 文件列表和可用的 checksum，便于交付前核对缺失项和完整性。
 
 交付前可以再做一次 release 目录校验：
 
 ```bash
 pnpm release:verify -- --input-dir /tmp/promobot-release
 ```
+
+如果 manifest 带 checksum，`release:verify` 会对现存文件重新计算并比对；只要有缺失项或 checksum 不匹配，summary 就会返回失败并带相应 warning。旧 bundle 的 manifest 如果还没有 checksum 字段，则继续按目录结构和 manifest 记录做兼容校验。
 
 如果你更偏向 shell wrapper：
 

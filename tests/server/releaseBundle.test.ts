@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -5,6 +6,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 type ReleaseBundleSummary = {
+  checksums: Record<string, string>;
   createdAt: string;
   files: string[];
   manifestPath: string;
@@ -120,6 +122,14 @@ describe('release bundle cli', () => {
 
     expect(summary).toEqual({
       ok: false,
+      checksums: {
+        '.env.example': sha256Hex('ADMIN_PASSWORD=change-me\n'),
+        'dist/server/index.js': sha256Hex('console.log("server");\n'),
+        'docs/DEPLOYMENT.md': sha256Hex('# Deploy\n'),
+        'ops/deploy-promobot.sh': sha256Hex('#!/usr/bin/env bash\n'),
+        'ops/deploy-release.sh': sha256Hex('#!/usr/bin/env bash\n'),
+        'package.json': sha256Hex('{ "name": "promobot" }\n'),
+      },
       createdAt: '2026-04-25T09:00:00.000Z',
       repoRoot,
       outputDir,
@@ -135,6 +145,10 @@ describe('release bundle cli', () => {
       ],
       missing: ['dist/client/**', 'pnpm-lock.yaml', 'pm2.config.js'],
     });
+    expect(Object.keys(summary.checksums).sort()).toEqual(
+      summary.files.filter((relativePath) => relativePath !== 'manifest.json'),
+    );
+    expect(summary.checksums).not.toHaveProperty('manifest.json');
     expect(JSON.parse(fs.readFileSync(path.join(outputDir, 'manifest.json'), 'utf8'))).toEqual(
       summary,
     );
@@ -143,7 +157,7 @@ describe('release bundle cli', () => {
     expect(process.exitCode).toBe(1);
   });
 
-  it('copies the release bundle into the output directory and writes a machine-readable manifest', async () => {
+  it('copies the release bundle into the output directory and writes a machine-readable manifest with checksums', async () => {
     const releaseBundle = await loadReleaseBundleModule();
 
     expect(releaseBundle).toBeTruthy();
@@ -175,7 +189,7 @@ describe('release bundle cli', () => {
       stdout: stdout.stdout,
     });
 
-    expect(summary).toEqual({
+    expect(summary).toMatchObject({
       ok: true,
       createdAt: '2026-04-25T10:00:00.000Z',
       repoRoot,
@@ -198,7 +212,23 @@ describe('release bundle cli', () => {
         'pnpm-lock.yaml',
       ],
       missing: [],
+      checksums: {
+        '.env.example': sha256Hex('ADMIN_PASSWORD=change-me\n'),
+        'dist/client/assets/app.js': sha256Hex('console.log("client");\n'),
+        'dist/server/index.js': sha256Hex('console.log("server");\n'),
+        'ops/rollback-promobot.sh': sha256Hex('#!/usr/bin/env bash\n'),
+        'package.json': sha256Hex('{ "name": "promobot" }\n'),
+      },
     });
+    expect(Object.keys(summary.checksums).sort()).toEqual(
+      summary.files.filter((relativePath) => relativePath !== 'manifest.json'),
+    );
+    expect(summary.checksums['dist/server/chunks/app.js']).toBe(
+      sha256Hex('export const app = true;\n'),
+    );
+    expect(summary.checksums['dist/client/index.html']).toBe(sha256Hex('<!doctype html>\n'));
+    expect(summary.checksums['docs/DEPLOYMENT.md']).toBe(sha256Hex('# Deploy\n'));
+    expect(summary.checksums).not.toHaveProperty('manifest.json');
 
     expect(fs.readFileSync(path.join(outputDir, 'dist/server/index.js'), 'utf8')).toBe(
       'console.log("server");\n',
@@ -248,4 +278,8 @@ function writeFile(repoRoot: string, relativePath: string, content: string) {
   const targetPath = path.join(repoRoot, relativePath);
   fs.mkdirSync(path.dirname(targetPath), { recursive: true });
   fs.writeFileSync(targetPath, content, 'utf8');
+}
+
+function sha256Hex(content: string) {
+  return crypto.createHash('sha256').update(content).digest('hex');
 }

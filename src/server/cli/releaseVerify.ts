@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,8 +18,17 @@ interface ReleaseBundleManifest {
   repoRoot?: string;
   outputDir?: string;
   manifestPath?: string;
-  files?: string[];
+  files?: Array<string | ReleaseBundleManifestFileEntry>;
   missing?: string[];
+  checksum?: Record<string, string>;
+  checksums?: Record<string, string>;
+}
+
+interface ReleaseBundleManifestFileEntry {
+  checksum?: string;
+  name?: string;
+  path?: string;
+  relativePath?: string;
 }
 
 type ReleaseVerifyCheck =
@@ -58,6 +68,11 @@ const REQUIRED_RELEASE_PATHS = [
   'pm2.config.js',
   'ops/deploy-promobot.sh',
 ] as const;
+
+interface ReleaseVerifyManifestFile {
+  checksum?: string;
+  relativePath: string;
+}
 
 export function parseReleaseVerifyArgs(argv: string[]): ReleaseVerifyArgs {
   const parsed: ReleaseVerifyArgs = {};
@@ -132,7 +147,9 @@ export function runReleaseVerify(input: { inputDir: string }): ReleaseVerifySumm
   }
 
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as ReleaseBundleManifest;
-  const manifestFiles = Array.isArray(manifest.files) ? manifest.files : [];
+  const manifestFiles = normalizeManifestFiles(manifest);
+  const manifestChecksums = getManifestChecksumMap(manifest);
+  const manifestFilePaths = new Set(manifestFiles.map((entry) => entry.relativePath));
   const manifestMissing = Array.isArray(manifest.missing) ? manifest.missing : [];
 
   if (manifest.ok === false) {
@@ -143,44 +160,30 @@ export function runReleaseVerify(input: { inputDir: string }): ReleaseVerifySumm
     });
   }
 
-  for (const relativePath of manifestFiles) {
-    const target = path.join(inputDir, relativePath);
-    const ok = fs.existsSync(target);
-    checks.push({
-      kind: 'manifest-item',
-      name: relativePath,
-      ok,
-      target,
+  for (const manifestFile of manifestFiles) {
+    recordManifestItemCheck({
+      checks,
+      checksum: manifestFile.checksum,
+      inputDir,
+      missing,
+      relativePath: manifestFile.relativePath,
+      warnings,
     });
-    if (!ok) {
-      missing.push({
-        kind: 'manifest-item',
-        name: relativePath,
-        target,
-      });
-    }
   }
 
   for (const requiredPath of REQUIRED_RELEASE_PATHS) {
-    if (manifestFiles.includes(requiredPath)) {
+    if (manifestFilePaths.has(requiredPath)) {
       continue;
     }
 
-    const target = path.join(inputDir, requiredPath);
-    const ok = fs.existsSync(target);
-    checks.push({
-      kind: 'manifest-item',
-      name: requiredPath,
-      ok,
-      target,
+    recordManifestItemCheck({
+      checks,
+      checksum: manifestChecksums.get(requiredPath),
+      inputDir,
+      missing,
+      relativePath: requiredPath,
+      warnings,
     });
-    if (!ok) {
-      missing.push({
-        kind: 'manifest-item',
-        name: requiredPath,
-        target,
-      });
-    }
   }
 
   if (manifestMissing.length > 0) {
@@ -201,6 +204,202 @@ export function runReleaseVerify(input: { inputDir: string }): ReleaseVerifySumm
     missing,
     warnings,
   };
+}
+
+function recordManifestItemCheck(input: {
+  checks: ReleaseVerifyCheck[];
+  checksum?: string;
+  inputDir: string;
+  missing: ReleaseVerifySummary['missing'];
+  relativePath: string;
+  warnings: ReleaseVerifySummary['warnings'];
+}) {
+  const target = path.join(input.inputDir, input.relativePath);
+  const exists = fs.existsSync(target);
+  const check: ReleaseVerifyCheck = {
+    kind: 'manifest-item',
+    name: input.relativePath,
+    ok: exists,
+    target,
+  };
+
+  if (!exists) {
+    input.checks.push(check);
+    input.missing.push({
+      kind: 'manifest-item',
+      name: input.relativePath,
+      target,
+    });
+    return;
+  }
+
+  const checksum = input.checksum?.trim();
+  if (!checksum) {
+    input.checks.push(check);
+    return;
+  }
+
+  const checksumResult = verifyFileChecksum(target, checksum);
+  if (checksumResult.ok) {
+    input.checks.push(check);
+    return;
+  }
+
+  input.checks.push({
+    ...check,
+    ok: false,
+  });
+  input.missing.push({
+    kind: 'manifest-item',
+    name: input.relativePath,
+    target,
+  });
+  input.warnings.push({
+    code: checksumResult.code,
+    message: checksumResult.message,
+    target,
+  });
+}
+
+function normalizeManifestFiles(manifest: ReleaseBundleManifest): ReleaseVerifyManifestFile[] {
+  const files = Array.isArray(manifest.files) ? manifest.files : [];
+  const checksumMap = getManifestChecksumMap(manifest);
+  const normalizedFiles: ReleaseVerifyManifestFile[] = [];
+
+  for (const entry of files) {
+    if (typeof entry === 'string') {
+      const relativePath = entry.trim();
+      if (!relativePath) {
+        continue;
+      }
+      normalizedFiles.push({
+        checksum: checksumMap.get(relativePath),
+        relativePath,
+      });
+      continue;
+    }
+
+    if (!isRecord(entry)) {
+      continue;
+    }
+
+    const relativePath =
+      readOptionalString(entry.path) ??
+      readOptionalString(entry.relativePath) ??
+      readOptionalString(entry.name);
+    if (!relativePath) {
+      continue;
+    }
+
+    normalizedFiles.push({
+      checksum: readOptionalString(entry.checksum) ?? checksumMap.get(relativePath),
+      relativePath,
+    });
+  }
+
+  return normalizedFiles;
+}
+
+function getManifestChecksumMap(manifest: ReleaseBundleManifest) {
+  const checksumMap = new Map<string, string>();
+
+  for (const source of [manifest.checksums, manifest.checksum]) {
+    if (!isRecord(source)) {
+      continue;
+    }
+
+    for (const [relativePath, checksum] of Object.entries(source)) {
+      const normalizedPath = relativePath.trim();
+      const normalizedChecksum = readOptionalString(checksum);
+      if (!normalizedPath || !normalizedChecksum) {
+        continue;
+      }
+
+      checksumMap.set(normalizedPath, normalizedChecksum);
+    }
+  }
+
+  return checksumMap;
+}
+
+function verifyFileChecksum(target: string, expectedChecksum: string) {
+  const parsedChecksum = parseExpectedChecksum(expectedChecksum);
+  if (!parsedChecksum) {
+    return {
+      ok: false as const,
+      code: 'checksum-invalid',
+      message: `Bundle manifest recorded an invalid checksum for ${path.basename(target)}`,
+    };
+  }
+
+  try {
+    const actualDigest = crypto
+      .createHash(parsedChecksum.algorithm)
+      .update(fs.readFileSync(target))
+      .digest('hex')
+      .toLowerCase();
+    const actualChecksum = `${parsedChecksum.algorithm}:${actualDigest}`;
+
+    if (actualDigest === parsedChecksum.digest) {
+      return {
+        ok: true as const,
+      };
+    }
+
+    return {
+      ok: false as const,
+      code: 'checksum-mismatch',
+      message: `Bundle checksum mismatch for ${target}: expected ${parsedChecksum.normalized}, got ${actualChecksum}`,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      ok: false as const,
+      code: 'checksum-invalid',
+      message: `Bundle checksum could not be verified for ${target}: ${message}`,
+    };
+  }
+}
+
+function parseExpectedChecksum(expectedChecksum: string) {
+  const trimmedChecksum = expectedChecksum.trim();
+  if (!trimmedChecksum) {
+    return null;
+  }
+
+  const separatorIndex = trimmedChecksum.indexOf(':');
+  if (separatorIndex === -1) {
+    return {
+      algorithm: 'sha256',
+      digest: trimmedChecksum.toLowerCase(),
+      normalized: `sha256:${trimmedChecksum.toLowerCase()}`,
+    };
+  }
+
+  const algorithm = trimmedChecksum.slice(0, separatorIndex).trim().toLowerCase();
+  const digest = trimmedChecksum.slice(separatorIndex + 1).trim().toLowerCase();
+  if (!algorithm || !digest) {
+    return null;
+  }
+
+  return {
+    algorithm,
+    digest,
+    normalized: `${algorithm}:${digest}`,
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function readOptionalString(value: unknown) {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const trimmedValue = value.trim();
+  return trimmedValue || undefined;
 }
 
 export async function runReleaseVerifyCli(
