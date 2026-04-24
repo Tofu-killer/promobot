@@ -88,9 +88,10 @@ describe('SessionStore', () => {
   });
 
   it('downgrades manually planted session metadata to missing when the storage path is outside allowed roots', () => {
-    const rootDir = mkdtempSync(path.join(tmpdir(), 'promobot-session-store-'));
-    const externalDir = mkdtempSync(path.join('/Users/wgz', 'promobot-session-outside-'));
-    tempDirs.push(rootDir, externalDir);
+    const storeParentDir = mkdtempSync(path.join(tmpdir(), 'promobot-test-'));
+    const rootDir = mkdtempSync(path.join(storeParentDir, 'session-store-'));
+    const externalDir = mkdtempSync(path.join(tmpdir(), 'promobot-session-outside-'));
+    tempDirs.push(storeParentDir, externalDir);
 
     const externalStorageStatePath = path.join(externalDir, 'facebook-group.json');
     writeFileSync(
