@@ -12,6 +12,8 @@
     "deploy:local": "bash ops/deploy-promobot.sh",
     "rollback:local": "bash ops/rollback-promobot.sh",
     "smoke:server": "tsx src/server/cli/deploymentSmoke.ts",
+    "preflight:prod": "tsx src/server/cli/preflightPromobot.ts",
+    "preflight:local": "bash ops/preflight-promobot.sh",
     "dev": "vite",
     "dev:server": "tsx watch src/server/index.ts",
     "build": "rm -rf dist && tsc -p tsconfig.json && vite build",

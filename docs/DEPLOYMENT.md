@@ -177,6 +177,31 @@ pnpm deploy:local -- --base-url http://127.0.0.1:3001
 4. 仓库根 `.env` 里的 `PROMOBOT_ADMIN_PASSWORD`
 5. 仓库根 `.env` 里的 `ADMIN_PASSWORD`
 
+如果只是想先做静态预检，不想马上 deploy，可运行：
+
+```bash
+pnpm preflight:prod -- --require-env AI_API_KEY,ADMIN_PASSWORD
+```
+
+它会检查：
+
+- `package.json`
+- `pm2.config.js`
+- `dist/server/index.js`
+- `dist/client/index.html`
+- 可选 `.env`
+- 你通过 `--require-env` 指定的 env keys
+
+输出是机器可读 JSON summary，不会启动服务。
+
+如果你还想顺手追加一次 smoke，而不是手动再敲第二条命令，可运行：
+
+```bash
+pnpm preflight:local -- --skip-smoke
+```
+
+脚本位置：`ops/preflight-promobot.sh`
+
 如果 `dist/client/index.html` 存在：
 
 - `/` 会返回前端入口

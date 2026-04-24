@@ -63,10 +63,12 @@ pnpm install
 pnpm dev
 pnpm dev:server
 pnpm test
+pnpm preflight:prod -- --require-env AI_API_KEY,ADMIN_PASSWORD
 pnpm runtime:backup
 pnpm runtime:restore -- --input-dir /tmp/promobot-backup
 pnpm deploy:local -- --skip-smoke
 pnpm rollback:local -- --backup-dir /tmp/promobot-backup --skip-smoke
+pnpm preflight:local -- --skip-smoke
 pnpm browser:artifacts:archive -- --older-than-hours 72
 ```
 
@@ -74,10 +76,12 @@ pnpm browser:artifacts:archive -- --older-than-hours 72
 - `pnpm dev:server`：Express API，默认 `3001`
 - `pnpm build`：分别构建到 `dist/client` 和 `dist/server`
 - `pnpm start`：启动 `dist/server/index.js`，并在 `dist/client` 存在时直接提供构建后的前端
+- `pnpm preflight:prod -- [options]`：做静态上线前检查，输出 JSON summary，不启动服务
 - `pnpm runtime:backup`：把当前可定位的 SQLite 文件来源、真实运行时 `browser-sessions/` 根目录和仓库根 `.env` 复制到时间戳备份目录，并生成 manifest JSON；若有缺失项，会在 manifest 里标记并以非零退出码返回
 - `pnpm runtime:restore -- --input-dir <backupDir>`：按 backup manifest 恢复运行时数据，并在覆盖前为已有目标创建 `.pre-restore-<timestamp>` 备份
 - `pnpm deploy:local -- [options]`：执行本机部署链路，封装 `pnpm install`、`pnpm build`、PM2 reload/start 和可选 smoke check
 - `pnpm rollback:local -- --backup-dir <path> [options]`：先停 PM2、从已有 runtime backup 恢复数据，再按恢复后的环境重启服务，并按需追加 smoke check
+- `pnpm preflight:local -- [options]`：先跑 `preflight:prod`，再按需追加 `smoke:server`
 - GitHub Actions CI：`main` 的 push / pull_request 会运行 `pnpm test` 和 `pnpm build`，用于提前拦截测试与构建回归
 - 生产访问时，浏览器可直接走同一个 Node 进程访问页面和 `/api`
 
@@ -86,6 +90,7 @@ pnpm browser:artifacts:archive -- --older-than-hours 72
 ## 生产运维补充
 
 - `pm2.config.js` 现在会把日志落到仓库下的 `logs/`，并带基本重启/退避配置。
+- `ops/preflight-promobot.sh` 现在提供上线前预检脚本；它会先跑 `preflight:prod`，再按需追加 smoke check。
 - `ops/deploy-promobot.sh` 现在提供一条可重复的本机部署脚本；默认会执行 install/build/PM2 切换，并默认启用 smoke check。脚本会优先读取 `--admin-password`，否则回退到 shell 里的 `PROMOBOT_ADMIN_PASSWORD` / `ADMIN_PASSWORD`，以及仓库根 `.env` 里的 `PROMOBOT_ADMIN_PASSWORD` / `ADMIN_PASSWORD`；如不想跑 smoke，可显式传 `--skip-smoke`。
 - `ops/rollback-promobot.sh` 现在提供对应的本机回滚脚本；它会先停 PM2，再调用 `runtime:restore` 恢复运行时数据，最后重启服务并可选追加 smoke check。需要保留当前 `.env` 时，可给 rollback 传 `--skip-env`。
 - 仓库提供 `ops/logrotate.promobot.conf` 作为 Linux `logrotate` 样例；使用前把其中的 `REPO_ROOT` 替换成实际仓库绝对路径。
