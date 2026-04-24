@@ -130,9 +130,11 @@ describe('release shell wrappers', () => {
       const result = runRepoScript('ops/verify-downloaded-release.sh', args);
 
       expect(result.status).toBe(0);
-      expect(result.stdout).toContain('Usage: ops/verify-downloaded-release.sh --archive-file <path> [options]');
+      expect(result.stdout).toContain('Usage: ops/verify-downloaded-release.sh --archive <path> [options]');
+      expect(result.stdout).toContain('--archive <path>');
       expect(result.stdout).toContain('--archive-file <path>');
-      expect(result.stdout).toContain('--extract-to <path>');
+      expect(result.stdout).toContain('--extract-root <path>');
+      expect(result.stdout).toContain('--keep-extracted');
     }
 
     const packageJson = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8')) as {
@@ -145,11 +147,14 @@ describe('release shell wrappers', () => {
 
   it('fails when verify-downloaded-release is missing required values', () => {
     const cases: Array<{ args: string[]; error: string }> = [
-      { args: [], error: '--archive-file is required' },
+      { args: [], error: '--archive is required' },
+      { args: ['--archive'], error: '--archive requires a value' },
+      { args: ['--archive='], error: '--archive requires a value' },
       { args: ['--archive-file'], error: '--archive-file requires a value' },
       { args: ['--archive-file='], error: '--archive-file requires a value' },
       { args: ['--archive-file', '/tmp/archive.tar.gz', '--checksum-file'], error: '--checksum-file requires a value' },
       { args: ['--archive-file', '/tmp/archive.tar.gz', '--metadata-file='], error: '--metadata-file requires a value' },
+      { args: ['--archive-file', '/tmp/archive.tar.gz', '--extract-root'], error: '--extract-root requires a value' },
       { args: ['--archive-file', '/tmp/archive.tar.gz', '--extract-to'], error: '--extract-to requires a value' },
     ];
 
@@ -186,9 +191,10 @@ describe('release shell wrappers', () => {
     );
 
     expect(result.status).toBe(0);
-    expect(result.stdout).toContain('Checksum verified for');
-    expect(result.stdout).toContain('Running node dist/server/cli/releaseVerify.js');
-    expect(fs.existsSync(path.join(extractRoot, 'promobot-release-bundle'))).toBe(true);
+    expect(result.stdout).toContain('Verifying archive checksum');
+    expect(result.stdout).toContain('Handing extracted bundle to ops/verify-release.sh');
+    expect(result.stdout).toContain('Verification succeeded; extracted bundle will be cleaned up');
+    expect(fs.existsSync(path.join(extractRoot, 'promobot-release-bundle'))).toBe(false);
   });
 });
 
@@ -245,6 +251,11 @@ function createDownloadedReleaseFixture() {
 
   fs.mkdirSync(path.dirname(scriptPath), { recursive: true });
   fs.copyFileSync(path.resolve(repoRoot, 'ops/verify-downloaded-release.sh'), scriptPath);
+  writeFile(
+    rootDir,
+    'ops/verify-release.sh',
+    fs.readFileSync(path.resolve(repoRoot, 'ops/verify-release.sh'), 'utf8'),
+  );
 
   writeFile(rootDir, 'package.json', '{}\n');
   writeFile(

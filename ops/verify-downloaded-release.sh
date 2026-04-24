@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+CHECKSUM_VERIFY_CMD=()
+
 log() {
   printf '[verify-downloaded-release] %s\n' "$*"
 }
@@ -12,21 +14,29 @@ fail() {
 
 usage() {
   cat <<'EOF'
-Usage: ops/verify-downloaded-release.sh --archive-file <path> [options]
+Usage: ops/verify-downloaded-release.sh --archive <path> [options]
 
-Verify a downloaded release archive, its checksum sidecar, and metadata sidecar,
-then run the existing release directory verification on the extracted bundle.
+Verify a downloaded release archive together with its .sha256 and .metadata.json
+sidecars, extract the bundle into a temporary directory, then hand the extracted
+bundle directory to the existing releaseVerify chain.
 
 Options:
-  --archive-file <path>       Downloaded .tar.gz archive to verify (required)
+  --archive <path>            Downloaded release archive to verify (required)
+  --archive-file <path>       Alias for --archive
   --checksum-file <path>      Checksum sidecar path (default: <archive>.sha256)
   --metadata-file <path>      Metadata sidecar path (default: <archive>.metadata.json)
-  --extract-to <path>         Extraction directory root (default: temporary directory)
+  --extract-root <path>       Parent directory for temporary extraction
+                              (default: $TMPDIR or /tmp)
+  --extract-to <path>         Alias for --extract-root
+  --keep-extracted            Keep the extracted directory instead of cleaning it up
   --help, -h                  Show this help
 
+The script never downloads files or performs network verification. It only
+checks local files and then reuses ops/verify-release.sh for bundle validation.
+
 Examples:
-  bash ops/verify-downloaded-release.sh --archive-file release/promobot-release-bundle.tar.gz
-  bash ops/verify-downloaded-release.sh --archive-file /tmp/promobot-release-bundle-v1.2.3.tar.gz --extract-to /tmp/release-check
+  bash ops/verify-downloaded-release.sh --archive /tmp/promobot-v1.2.3.tar.gz
+  bash ops/verify-downloaded-release.sh --archive /tmp/promobot-preview.demo.tar.gz --keep-extracted
 EOF
 }
 
@@ -36,41 +46,178 @@ require_command() {
   fi
 }
 
+resolve_existing_path() {
+  local input_path="$1"
+  local parent_dir
+
+  parent_dir="$(cd -- "$(dirname -- "$input_path")" >/dev/null 2>&1 && pwd -P)" || return 1
+  printf '%s/%s' "$parent_dir" "$(basename -- "$input_path")"
+}
+
+select_checksum_verifier() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    CHECKSUM_VERIFY_CMD=(sha256sum -c)
+    return 0
+  fi
+
+  if command -v shasum >/dev/null 2>&1; then
+    CHECKSUM_VERIFY_CMD=(shasum -a 256 -c)
+    return 0
+  fi
+
+  fail "Missing required command: sha256sum or shasum"
+}
+
+validate_metadata_and_print_bundle_dir() {
+  local archive_basename="$1"
+  local checksum_basename="$2"
+  local metadata_basename="$3"
+  local metadata_path="$4"
+
+  ARCHIVE_BASENAME="$archive_basename" \
+  CHECKSUM_BASENAME="$checksum_basename" \
+  METADATA_BASENAME="$metadata_basename" \
+  METADATA_PATH="$metadata_path" \
+  node <<'EOF'
+const fs = require('node:fs');
+
+const expectedSchemaVersion = 1;
+const expectedArchiveFormat = 'tar.gz';
+const expectedChecksumAlgorithm = 'sha256';
+const metadata = JSON.parse(fs.readFileSync(process.env.METADATA_PATH, 'utf8'));
+
+if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+  throw new Error('metadata sidecar must be a JSON object');
+}
+
+if (metadata.schema_version !== expectedSchemaVersion) {
+  throw new Error(
+    `unsupported metadata schema_version: ${metadata.schema_version} !== ${expectedSchemaVersion}`,
+  );
+}
+
+if (metadata.archive_format !== expectedArchiveFormat) {
+  throw new Error(
+    `unsupported archive_format: ${metadata.archive_format} !== ${expectedArchiveFormat}`,
+  );
+}
+
+if (metadata.checksum_algorithm !== expectedChecksumAlgorithm) {
+  throw new Error(
+    `unsupported checksum_algorithm: ${metadata.checksum_algorithm} !== ${expectedChecksumAlgorithm}`,
+  );
+}
+
+if (metadata.archive_file !== process.env.ARCHIVE_BASENAME) {
+  throw new Error(
+    `metadata archive_file mismatch: ${metadata.archive_file} !== ${process.env.ARCHIVE_BASENAME}`,
+  );
+}
+
+if (metadata.checksum_file !== process.env.CHECKSUM_BASENAME) {
+  throw new Error(
+    `metadata checksum_file mismatch: ${metadata.checksum_file} !== ${process.env.CHECKSUM_BASENAME}`,
+  );
+}
+
+if (metadata.metadata_file !== process.env.METADATA_BASENAME) {
+  throw new Error(
+    `metadata metadata_file mismatch: ${metadata.metadata_file} !== ${process.env.METADATA_BASENAME}`,
+  );
+}
+
+if (typeof metadata.bundle_dir_name !== 'string' || metadata.bundle_dir_name.trim() === '') {
+  throw new Error('metadata bundle_dir_name must be a non-empty string');
+}
+
+if (
+  metadata.bundle_dir_name === '.' ||
+  metadata.bundle_dir_name === '..' ||
+  metadata.bundle_dir_name.includes('/')
+) {
+  throw new Error(`unsafe metadata bundle_dir_name: ${metadata.bundle_dir_name}`);
+}
+
+if (!Array.isArray(metadata.assets) || metadata.assets.length !== 3) {
+  throw new Error('metadata.assets must be the ordered archive/checksum/metadata list');
+}
+
+const expectedAssets = [
+  { kind: 'archive', name: process.env.ARCHIVE_BASENAME },
+  { kind: 'checksum', name: process.env.CHECKSUM_BASENAME },
+  { kind: 'metadata', name: process.env.METADATA_BASENAME },
+];
+
+for (const [index, expectedAsset] of expectedAssets.entries()) {
+  const actualAsset = metadata.assets[index];
+  if (!actualAsset || typeof actualAsset !== 'object' || Array.isArray(actualAsset)) {
+    throw new Error(`metadata.assets[${index}] must be an object`);
+  }
+  if (actualAsset.kind !== expectedAsset.kind) {
+    throw new Error(
+      `metadata.assets[${index}].kind mismatch: ${actualAsset.kind} !== ${expectedAsset.kind}`,
+    );
+  }
+  if (actualAsset.name !== expectedAsset.name) {
+    throw new Error(
+      `metadata.assets[${index}].name mismatch: ${actualAsset.name} !== ${expectedAsset.name}`,
+    );
+  }
+}
+
+process.stdout.write(`${metadata.bundle_dir_name}\n`);
+EOF
+}
+
+cleanup() {
+  local exit_code="$1"
+
+  if [ -n "${CHECKSUM_WORKSPACE:-}" ] && [ -d "${CHECKSUM_WORKSPACE}" ]; then
+    rm -rf "${CHECKSUM_WORKSPACE}"
+  fi
+
+  if [ -n "${EXTRACTED_ROOT:-}" ] && [ -d "${EXTRACTED_ROOT}" ] && [ "${KEEP_EXTRACTED:-0}" -eq 0 ]; then
+    rm -rf "${EXTRACTED_ROOT}"
+  fi
+
+  return "$exit_code"
+}
+
 main() {
-  local archive_file=""
-  local checksum_file=""
-  local metadata_file=""
-  local extract_to=""
-  local script_dir
-  local repo_root
-  local archive_abs
-  local checksum_abs
-  local metadata_abs
-  local extract_root
-  local bundle_dir_name
-  local resolved_input_dir
-  local expected_archive_file
-  local expected_checksum_file
-  local expected_metadata_file
-  local expected_archive_format
-  local expected_checksum_algorithm
+  local archive_path=""
+  local checksum_path=""
+  local metadata_path=""
+  local extract_root=""
+  local metadata_output=""
+  local bundle_dir_name=""
+  local extracted_bundle_dir=""
+  local archive_listing=""
+  local archive_entry=""
+  local script_dir=""
+  local repo_root=""
+
+  KEEP_EXTRACTED=0
+  CHECKSUM_WORKSPACE=""
+  EXTRACTED_ROOT=""
+
+  trap 'cleanup $?' EXIT
 
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --)
         shift
         ;;
-      --archive-file)
-        [ "$#" -ge 2 ] || fail "--archive-file requires a value"
+      --archive|--archive-file)
+        [ "$#" -ge 2 ] || fail "$1 requires a value"
         case "$2" in
-          ""|--*) fail "--archive-file requires a value" ;;
+          ""|--*) fail "$1 requires a value" ;;
         esac
-        archive_file="$2"
+        archive_path="$2"
         shift 2
         ;;
-      --archive-file=*)
-        archive_file="${1#*=}"
-        [ -n "$archive_file" ] || fail "--archive-file requires a value"
+      --archive=*|--archive-file=*)
+        archive_path="${1#*=}"
+        [ -n "$archive_path" ] || fail "${1%%=*} requires a value"
         shift
         ;;
       --checksum-file)
@@ -78,12 +225,12 @@ main() {
         case "$2" in
           ""|--*) fail "--checksum-file requires a value" ;;
         esac
-        checksum_file="$2"
+        checksum_path="$2"
         shift 2
         ;;
       --checksum-file=*)
-        checksum_file="${1#*=}"
-        [ -n "$checksum_file" ] || fail "--checksum-file requires a value"
+        checksum_path="${1#*=}"
+        [ -n "$checksum_path" ] || fail "--checksum-file requires a value"
         shift
         ;;
       --metadata-file)
@@ -91,25 +238,29 @@ main() {
         case "$2" in
           ""|--*) fail "--metadata-file requires a value" ;;
         esac
-        metadata_file="$2"
+        metadata_path="$2"
         shift 2
         ;;
       --metadata-file=*)
-        metadata_file="${1#*=}"
-        [ -n "$metadata_file" ] || fail "--metadata-file requires a value"
+        metadata_path="${1#*=}"
+        [ -n "$metadata_path" ] || fail "--metadata-file requires a value"
         shift
         ;;
-      --extract-to)
-        [ "$#" -ge 2 ] || fail "--extract-to requires a value"
+      --extract-root|--extract-to)
+        [ "$#" -ge 2 ] || fail "$1 requires a value"
         case "$2" in
-          ""|--*) fail "--extract-to requires a value" ;;
+          ""|--*) fail "$1 requires a value" ;;
         esac
-        extract_to="$2"
+        extract_root="$2"
         shift 2
         ;;
-      --extract-to=*)
-        extract_to="${1#*=}"
-        [ -n "$extract_to" ] || fail "--extract-to requires a value"
+      --extract-root=*|--extract-to=*)
+        extract_root="${1#*=}"
+        [ -n "$extract_root" ] || fail "${1%%=*} requires a value"
+        shift
+        ;;
+      --keep-extracted)
+        KEEP_EXTRACTED=1
         shift
         ;;
       --help|-h)
@@ -122,112 +273,97 @@ main() {
     esac
   done
 
-  [ -n "$archive_file" ] || fail "--archive-file is required"
+  [ -n "$archive_path" ] || fail "--archive is required"
 
-  script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
-  repo_root="$(cd -- "${script_dir}/.." >/dev/null 2>&1 && pwd)"
+  if [ -z "$checksum_path" ]; then
+    checksum_path="${archive_path}.sha256"
+  fi
+  if [ -z "$metadata_path" ]; then
+    metadata_path="${archive_path}.metadata.json"
+  fi
+  if [ -z "$extract_root" ]; then
+    extract_root="${TMPDIR:-/tmp}"
+  fi
 
-  cd "${repo_root}"
+  [ -f "$archive_path" ] || fail "--archive file not found: $archive_path"
+  [ -f "$checksum_path" ] || fail "--checksum-file not found: $checksum_path"
+  [ -f "$metadata_path" ] || fail "--metadata-file not found: $metadata_path"
 
-  require_command sha256sum
-  require_command tar
-  require_command node
+  archive_path="$(resolve_existing_path "$archive_path")" || fail "Could not resolve archive path: $archive_path"
+  checksum_path="$(resolve_existing_path "$checksum_path")" || fail "Could not resolve checksum path: $checksum_path"
+  metadata_path="$(resolve_existing_path "$metadata_path")" || fail "Could not resolve metadata path: $metadata_path"
 
-  [ -f "package.json" ] || fail "package.json not found in ${repo_root}"
-  [ -f "dist/server/cli/releaseVerify.js" ] || fail "dist/server/cli/releaseVerify.js not found; run pnpm build first"
-
-  archive_abs="$(cd -- "$(dirname -- "$archive_file")" >/dev/null 2>&1 && pwd)/$(basename -- "$archive_file")"
-  [ -f "$archive_abs" ] || fail "--archive-file not found: ${archive_file}"
-
-  checksum_file="${checksum_file:-${archive_abs}.sha256}"
-  metadata_file="${metadata_file:-${archive_abs}.metadata.json}"
-
-  checksum_abs="$(cd -- "$(dirname -- "$checksum_file")" >/dev/null 2>&1 && pwd)/$(basename -- "$checksum_file")"
-  metadata_abs="$(cd -- "$(dirname -- "$metadata_file")" >/dev/null 2>&1 && pwd)/$(basename -- "$metadata_file")"
-
-  [ -f "$checksum_abs" ] || fail "--checksum-file not found: ${checksum_file}"
-  [ -f "$metadata_abs" ] || fail "--metadata-file not found: ${metadata_file}"
-
-  extract_root="${extract_to:-$(mktemp -d /tmp/promobot-release-verify-XXXXXX)}"
   mkdir -p "$extract_root"
+  extract_root="$(resolve_existing_path "$extract_root")" || fail "Could not resolve extract root: $extract_root"
 
-  expected_archive_file="$(basename -- "$archive_abs")"
-  expected_checksum_file="$(basename -- "$checksum_abs")"
-  expected_metadata_file="$(basename -- "$metadata_abs")"
+  script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
+  repo_root="$(cd -- "${script_dir}/.." >/dev/null 2>&1 && pwd -P)"
 
-  # Verify the downloaded archive against its sidecar without relying on path-sensitive output.
-  local expected_hash actual_hash
-  expected_hash="$(awk 'NR==1 {print $1}' "$checksum_abs")"
-  [ -n "$expected_hash" ] || fail "Failed to read checksum from ${checksum_abs}"
-  actual_hash="$(sha256sum "$archive_abs" | awk '{print $1}')"
-  [ "$actual_hash" = "$expected_hash" ] || fail "Checksum mismatch for ${archive_abs}"
+  [ -f "${repo_root}/package.json" ] || fail "package.json not found in ${repo_root}"
+  [ -f "${repo_root}/ops/verify-release.sh" ] || fail "ops/verify-release.sh not found in ${repo_root}"
 
-  # Read and validate the metadata sidecar before extraction.
-  local metadata_values
-  metadata_values="$(node - <<'EOF' "$metadata_abs" "$expected_archive_file" "$expected_checksum_file" "$expected_metadata_file"
-const fs = require('node:fs');
-const path = require('node:path');
+  require_command bash
+  require_command node
+  require_command tar
+  require_command mktemp
+  select_checksum_verifier
 
-const metadataPath = process.argv[2];
-const expectedArchive = process.argv[3];
-const expectedChecksum = process.argv[4];
-const expectedMetadata = process.argv[5];
-const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
+  metadata_output="$(
+    validate_metadata_and_print_bundle_dir \
+      "$(basename -- "$archive_path")" \
+      "$(basename -- "$checksum_path")" \
+      "$(basename -- "$metadata_path")" \
+      "$metadata_path" 2>&1
+  )" || fail "Metadata validation failed: ${metadata_output}"
+  bundle_dir_name="${metadata_output%$'\n'}"
+  [ -n "$bundle_dir_name" ] || fail "Metadata validation did not return bundle_dir_name"
 
-if (metadata.archive_file !== expectedArchive) {
-  throw new Error(`Unexpected metadata archive_file: ${metadata.archive_file} !== ${expectedArchive}`);
-}
+  log "Verifying archive checksum"
+  CHECKSUM_WORKSPACE="$(mktemp -d "${TMPDIR:-/tmp}/promobot-release-checksum.XXXXXX")"
+  ln -s "$archive_path" "${CHECKSUM_WORKSPACE}/$(basename -- "$archive_path")"
+  cp "$checksum_path" "${CHECKSUM_WORKSPACE}/$(basename -- "$checksum_path")"
+  (
+    cd "$CHECKSUM_WORKSPACE"
+    "${CHECKSUM_VERIFY_CMD[@]}" "$(basename -- "$checksum_path")"
+  ) >/dev/null || fail "Archive checksum verification failed for ${archive_path}"
 
-if (metadata.checksum_file !== expectedChecksum) {
-  throw new Error(`Unexpected metadata checksum_file: ${metadata.checksum_file} !== ${expectedChecksum}`);
-}
+  if ! archive_listing="$(tar -tzf "$archive_path")"; then
+    fail "Archive could not be listed: $archive_path"
+  fi
+  [ -n "$archive_listing" ] || fail "Archive is empty: $archive_path"
 
-if (metadata.metadata_file !== expectedMetadata) {
-  throw new Error(`Unexpected metadata metadata_file: ${metadata.metadata_file} !== ${expectedMetadata}`);
-}
+  while IFS= read -r archive_entry; do
+    [ -n "$archive_entry" ] || continue
 
-if (metadata.checksum_algorithm !== 'sha256') {
-  throw new Error(`Unexpected metadata checksum_algorithm: ${metadata.checksum_algorithm}`);
-}
+    case "$archive_entry" in
+      "$bundle_dir_name"|"$bundle_dir_name"/*) ;;
+      *)
+        fail "Archive entry escaped metadata bundle_dir_name (${bundle_dir_name}): ${archive_entry}"
+        ;;
+    esac
 
-if (metadata.archive_format !== 'tar.gz') {
-  throw new Error(`Unexpected metadata archive_format: ${metadata.archive_format}`);
-}
+    case "$archive_entry" in
+      /*|../*|*/../*|..)
+        fail "Archive entry contains an unsafe path: ${archive_entry}"
+        ;;
+    esac
+  done <<<"$archive_listing"
 
-if (!Array.isArray(metadata.assets) || metadata.assets.length === 0) {
-  throw new Error('Expected metadata.assets to be a non-empty array');
-}
+  EXTRACTED_ROOT="$(mktemp -d "${extract_root%/}/promobot-release-extract.XXXXXX")"
+  log "Extracting archive into ${EXTRACTED_ROOT}"
+  tar -xzf "$archive_path" -C "$EXTRACTED_ROOT"
 
-const assetsByKind = Object.fromEntries(metadata.assets.map((asset) => [asset.kind, asset.name]));
-for (const [kind, value] of Object.entries({
-  archive: expectedArchive,
-  checksum: expectedChecksum,
-  metadata: expectedMetadata,
-})) {
-  if (assetsByKind[kind] !== value) {
-    throw new Error(`Unexpected metadata.assets ${kind} asset: ${assetsByKind[kind]} !== ${value}`);
-  }
-}
+  extracted_bundle_dir="${EXTRACTED_ROOT}/${bundle_dir_name}"
+  [ -d "$extracted_bundle_dir" ] || fail "Expected extracted bundle directory not found: ${extracted_bundle_dir}"
 
-if (typeof metadata.bundle_dir_name !== 'string' || metadata.bundle_dir_name.length === 0) {
-  throw new Error('Expected metadata.bundle_dir_name to be a non-empty string');
-}
+  log "Handing extracted bundle to ops/verify-release.sh"
+  bash "${repo_root}/ops/verify-release.sh" --input-dir "$extracted_bundle_dir"
 
-process.stdout.write(`${metadata.bundle_dir_name}\n${metadata.run_url ?? ''}\n${metadata.release_url ?? ''}\n`);
-EOF
-)"
-  bundle_dir_name="$(printf '%s\n' "$metadata_values" | sed -n '1p')"
-  [ -n "$bundle_dir_name" ] || fail "Metadata did not provide bundle_dir_name"
-
-  log "Checksum verified for $(basename -- "$archive_abs")"
-  log "Extracting archive into ${extract_root}"
-  tar -xzf "$archive_abs" -C "$extract_root"
-
-  resolved_input_dir="${extract_root}/${bundle_dir_name}"
-  [ -d "$resolved_input_dir" ] || fail "Expected extracted bundle directory not found: ${resolved_input_dir}"
-
-  log "Running node dist/server/cli/releaseVerify.js --input-dir ${resolved_input_dir}"
-  node dist/server/cli/releaseVerify.js --input-dir "$resolved_input_dir"
+  if [ "$KEEP_EXTRACTED" -eq 1 ]; then
+    log "Verification succeeded; kept extracted bundle at ${extracted_bundle_dir}"
+  else
+    log "Verification succeeded; extracted bundle will be cleaned up"
+  fi
 }
 
 main "$@"
