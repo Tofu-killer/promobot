@@ -211,12 +211,15 @@ jobs:
           BUNDLE_DIR_NAME: ${{ steps.asset_names.outputs.bundle_dir_name }}
           METADATA_PATH: ${{ steps.asset_names.outputs.metadata_path }}
           PRERELEASE: ${{ steps.release_flags.outputs.prerelease }}
+          TEST_EXECUTION_STATE: ${{ steps.test_policy.outputs.test_execution_state }}
+          TEST_EXECUTION_MODE: ${{ steps.test_policy.outputs.test_execution_mode }}
+          TESTS_SUMMARY: ${{ steps.test_policy.outputs.tests_summary }}
         run: |
           GENERATED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           echo "generated_at=$GENERATED_AT" >> "$GITHUB_OUTPUT"
           echo "run_url=$RUN_URL" >> "$GITHUB_OUTPUT"
-          export ARTIFACT_NAME ASSET_BASENAME ARCHIVE_FILE CHECKSUM_FILE BUNDLE_DIR_NAME PRERELEASE GENERATED_AT RUN_URL
+          export ARTIFACT_NAME ASSET_BASENAME ARCHIVE_FILE CHECKSUM_FILE BUNDLE_DIR_NAME PRERELEASE GENERATED_AT RUN_URL TEST_EXECUTION_STATE TEST_EXECUTION_MODE TESTS_SUMMARY
           node <<'EOF'
           const fs = require('node:fs');
           const path = require('node:path');
@@ -238,6 +241,11 @@ jobs:
             tag: process.env.GITHUB_REF_TYPE === 'tag' ? process.env.GITHUB_REF_NAME : null,
             prerelease: process.env.PRERELEASE === 'true',
             commit_sha: process.env.GITHUB_SHA,
+            test_execution: {
+              state: process.env.TEST_EXECUTION_STATE,
+              mode: process.env.TEST_EXECUTION_MODE,
+              summary: process.env.TESTS_SUMMARY,
+            },
             archive_file: process.env.ARCHIVE_FILE,
             checksum_file: process.env.CHECKSUM_FILE,
             metadata_file: metadataFile,
@@ -264,8 +272,11 @@ jobs:
           EXPECTED_GENERATED_AT: ${{ steps.metadata_sidecar.outputs.generated_at }}
           EXPECTED_RUN_URL: ${{ steps.metadata_sidecar.outputs.run_url }}
           PRERELEASE: ${{ steps.release_flags.outputs.prerelease }}
+          TEST_EXECUTION_STATE: ${{ steps.test_policy.outputs.test_execution_state }}
+          TEST_EXECUTION_MODE: ${{ steps.test_policy.outputs.test_execution_mode }}
+          TESTS_SUMMARY: ${{ steps.test_policy.outputs.tests_summary }}
         run: |
-          export ARTIFACT_NAME ASSET_BASENAME ARCHIVE_FILE CHECKSUM_FILE BUNDLE_DIR_NAME EXPECTED_GENERATED_AT EXPECTED_RUN_URL PRERELEASE
+          export ARTIFACT_NAME ASSET_BASENAME ARCHIVE_FILE CHECKSUM_FILE BUNDLE_DIR_NAME EXPECTED_GENERATED_AT EXPECTED_RUN_URL PRERELEASE TEST_EXECUTION_STATE TEST_EXECUTION_MODE TESTS_SUMMARY
           node <<'EOF'
           const fs = require('node:fs');
           const path = require('node:path');
@@ -298,10 +309,25 @@ jobs:
               ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/releases/tag/${process.env.GITHUB_REF_NAME}`
               : null,
           };
+          const expectedTestExecution = {
+            state: process.env.TEST_EXECUTION_STATE,
+            mode: process.env.TEST_EXECUTION_MODE,
+            summary: process.env.TESTS_SUMMARY,
+          };
 
           for (const [key, value] of Object.entries(expected)) {
             if (metadata[key] !== value) {
               throw new Error(`Unexpected metadata field ${key}: ${metadata[key]} !== ${value}`);
+            }
+          }
+
+          if (!metadata.test_execution || typeof metadata.test_execution !== 'object') {
+            throw new Error('Expected metadata.test_execution to be an object');
+          }
+
+          for (const [key, value] of Object.entries(expectedTestExecution)) {
+            if (metadata.test_execution[key] !== value) {
+              throw new Error(`Unexpected metadata.test_execution.${key}: ${metadata.test_execution[key]} !== ${value}`);
             }
           }
 
@@ -350,9 +376,11 @@ jobs:
           METADATA_PATH: ${{ steps.asset_names.outputs.metadata_path }}
           PRERELEASE: ${{ steps.release_flags.outputs.prerelease }}
           RAW_ASSET_SUFFIX: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.asset_suffix || '' }}
+          TEST_EXECUTION_STATE: ${{ steps.test_policy.outputs.test_execution_state }}
+          TEST_EXECUTION_MODE: ${{ steps.test_policy.outputs.test_execution_mode }}
           TESTS_SUMMARY: ${{ steps.test_policy.outputs.tests_summary }}
         run: |
-          export ARTIFACT_NAME ASSET_BASENAME ARCHIVE_FILE CHECKSUM_FILE METADATA_FILE BUNDLE_DIR_NAME METADATA_PATH PRERELEASE RAW_ASSET_SUFFIX TESTS_SUMMARY
+          export ARTIFACT_NAME ASSET_BASENAME ARCHIVE_FILE CHECKSUM_FILE METADATA_FILE BUNDLE_DIR_NAME METADATA_PATH PRERELEASE RAW_ASSET_SUFFIX TEST_EXECUTION_STATE TEST_EXECUTION_MODE TESTS_SUMMARY
           node <<'EOF'
           const fs = require('node:fs');
           const path = require('node:path');
@@ -364,6 +392,11 @@ jobs:
           const expectedReleaseUrl = process.env.GITHUB_REF_TYPE === 'tag'
             ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/releases/tag/${process.env.GITHUB_REF_NAME}`
             : null;
+          const expectedTestExecution = {
+            state: process.env.TEST_EXECUTION_STATE,
+            mode: process.env.TEST_EXECUTION_MODE,
+            summary: process.env.TESTS_SUMMARY,
+          };
 
           if (metadata.artifact_name !== process.env.ARTIFACT_NAME) {
             throw new Error(`Unexpected metadata artifact_name: ${metadata.artifact_name} !== ${process.env.ARTIFACT_NAME}`);
@@ -411,6 +444,16 @@ jobs:
 
           if (metadataFile !== process.env.METADATA_FILE) {
             throw new Error(`Unexpected metadata file name: ${metadataFile} !== ${process.env.METADATA_FILE}`);
+          }
+
+          if (!metadata.test_execution || typeof metadata.test_execution !== 'object') {
+            throw new Error('Expected metadata.test_execution to be an object');
+          }
+
+          for (const [key, value] of Object.entries(expectedTestExecution)) {
+            if (metadata.test_execution[key] !== value) {
+              throw new Error(`Unexpected metadata.test_execution.${key}: ${metadata.test_execution[key]} !== ${value}`);
+            }
           }
 
           if (!Array.isArray(metadata.assets) || metadata.assets.length === 0) {
@@ -477,7 +520,7 @@ jobs:
             ? [
                 ['Run mode', 'Tag release'],
                 ['Release tag', `\`${process.env.GITHUB_REF_NAME}\``],
-                ['`pnpm test`', process.env.TESTS_SUMMARY],
+                ['`pnpm test`', metadata.test_execution.summary],
                 ['Derived `asset_basename`', `\`${metadata.asset_basename}\``],
                 ['`artifact_name`', `\`${metadata.artifact_name}\``],
                 ['`archive`', `\`${assetsByKind.archive}\``],
@@ -487,7 +530,7 @@ jobs:
             : [
                 ['Run mode', 'Manual preview'],
                 ['Requested `asset_suffix`', requestedPreviewSuffix ? `\`${requestedPreviewSuffix}\`` : '`not set`'],
-                ['`pnpm test`', process.env.TESTS_SUMMARY],
+                ['`pnpm test`', metadata.test_execution.summary],
                 ['`asset_suffix` effective', requestedPreviewSuffix
                   ? `yes, via \`${metadata.asset_basename}\``
                   : 'not requested; default basename retained'],
@@ -577,9 +620,12 @@ jobs:
           EXPECTED_ASSET_BASENAME: ${{ needs.release-bundle.outputs.asset_basename }}
           EXPECTED_BUNDLE_DIR_NAME: ${{ needs.release-bundle.outputs.bundle_dir_name }}
           EXPECTED_PRERELEASE: ${{ needs.release-bundle.outputs.prerelease }}
+          EXPECTED_TEST_EXECUTION_STATE: ${{ needs.release-bundle.outputs.test_execution_state }}
+          EXPECTED_TEST_EXECUTION_MODE: ${{ needs.release-bundle.outputs.test_execution_mode }}
+          EXPECTED_TESTS_SUMMARY: ${{ needs.release-bundle.outputs.tests_summary }}
           RELEASE_BODY_PATH: ${{ runner.temp }}/release-body.md
         run: |
-          export ARCHIVE_PATH CHECKSUM_PATH METADATA_PATH EXPECTED_ARTIFACT_NAME EXPECTED_ASSET_BASENAME EXPECTED_BUNDLE_DIR_NAME EXPECTED_PRERELEASE RELEASE_BODY_PATH
+          export ARCHIVE_PATH CHECKSUM_PATH METADATA_PATH EXPECTED_ARTIFACT_NAME EXPECTED_ASSET_BASENAME EXPECTED_BUNDLE_DIR_NAME EXPECTED_PRERELEASE EXPECTED_TEST_EXECUTION_STATE EXPECTED_TEST_EXECUTION_MODE EXPECTED_TESTS_SUMMARY RELEASE_BODY_PATH
           node <<'EOF'
           const fs = require('node:fs');
           const path = require('node:path');
@@ -592,6 +638,11 @@ jobs:
           const isoUtcPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
           const expectedRunUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
           const expectedReleaseUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/releases/tag/${process.env.GITHUB_REF_NAME}`;
+          const expectedTestExecution = {
+            state: process.env.EXPECTED_TEST_EXECUTION_STATE,
+            mode: process.env.EXPECTED_TEST_EXECUTION_MODE,
+            summary: process.env.EXPECTED_TESTS_SUMMARY,
+          };
 
           if (assetBasename !== process.env.EXPECTED_ASSET_BASENAME) {
             throw new Error(`Unexpected metadata asset_basename: ${assetBasename} !== ${process.env.EXPECTED_ASSET_BASENAME}`);
@@ -607,6 +658,16 @@ jobs:
 
           if (metadata.prerelease !== (process.env.EXPECTED_PRERELEASE === 'true')) {
             throw new Error(`Unexpected metadata prerelease: ${metadata.prerelease} !== ${process.env.EXPECTED_PRERELEASE === 'true'}`);
+          }
+
+          if (!metadata.test_execution || typeof metadata.test_execution !== 'object') {
+            throw new Error('Expected metadata.test_execution to be an object');
+          }
+
+          for (const [key, value] of Object.entries(expectedTestExecution)) {
+            if (metadata.test_execution[key] !== value) {
+              throw new Error(`Unexpected metadata.test_execution.${key}: ${metadata.test_execution[key]} !== ${value}`);
+            }
           }
 
           const expectedArchiveFile = `${assetBasename}.tar.gz`;

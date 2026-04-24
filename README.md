@@ -102,7 +102,7 @@ pnpm browser:artifacts:archive -- --older-than-hours 72
 - 正式 `v*` tag push 会在保留 Actions artifact 的同时追加 `release asset`，并基于对应的 archive、`.sha256` sidecar、`.metadata.json` metadata sidecar 自动生成 `release body`，也就是 Release 页面自带的 download / verify 说明。
 - 这个手动 preview suffix（`asset_suffix`）不参与 tag release 这组 `release asset` 的版本化命名；tag release 文件名仍会带版本号，避免多版本下载时混淆，配套 sidecar 和 metadata sidecar 也会沿用同一个版本化 archive 名。workflow 还会把同一 ref 的 run 串行化，并给构建 / 发布 job 加超时保护，避免并发运行或卡死 runner 时互相踩资产。
 - 要注意，`release body` 只是给人读的页面说明，不等于页面下方真正可下载的 `release asset`；workflow 真正附着的是 archive、checksum sidecar 和 metadata sidecar。
-- `release asset` 下载链路里的 `.metadata.json` metadata sidecar 仍是给下载方 / 自动化方消费的机器可读说明，用来描述这次 `Release Bundle` 产物及校验入口，并区分 `run_url` 与 `release_url` 这两类页面链接；它不替代 tar.gz 的 sidecar，也不替代解压后的 `manifest.json` 校验
+- `release asset` 下载链路里的 `.metadata.json` metadata sidecar 仍是给下载方 / 自动化方消费的机器可读说明，用来描述这次 `Release Bundle` 产物及校验入口，并区分 `run_url`、`release_url`、`tests_summary` 这些发布上下文字段；它不替代 tar.gz 的 sidecar，也不替代 workflow run 页面里给人读的 `summary`，更不替代解压后的 `manifest.json` 校验
 - 生产访问时，浏览器可直接走同一个 Node 进程访问页面和 `/api`
 
 更完整的本地开发、构建、LAN 访问、环境变量和限制说明见 `docs/DEPLOYMENT.md`。
