@@ -76,3 +76,36 @@ jobs:
             ${{ env.ARCHIVE_PATH }}
           if-no-files-found: error
           compression-level: 0
+
+  publish-release-asset:
+    name: Publish release bundle release asset
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - release-bundle
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download release bundle artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: promobot-release-bundle
+          path: ${{ runner.temp }}/release-bundle-artifact
+
+      - name: Locate archived release bundle
+        id: archive
+        run: |
+          ARCHIVE_PATH="$(find "${RUNNER_TEMP}/release-bundle-artifact" -type f -name '*.tar.gz' -print -quit)"
+          if [ -z "$ARCHIVE_PATH" ]; then
+            echo "Expected a .tar.gz archive in the downloaded release bundle artifact" >&2
+            exit 1
+          fi
+          echo "archive_path=$ARCHIVE_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Publish archived release bundle to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.archive.outputs.archive_path }}
+          fail_on_unmatched_files: true
+          overwrite_files: true

@@ -269,12 +269,15 @@ pnpm release:deploy
 3. 把 bundle 目录复制到目标机
 4. 在目标机进入 bundle 根目录，执行 `pnpm release:deploy`
 
-如果你不想自己在构建机跑这几步，也可以直接使用仓库里的 GitHub Actions Release Bundle workflow：
+如果你不想自己在构建机跑这几步，也可以直接使用仓库里的 GitHub Actions `Release Bundle` workflow：
 
 - 支持手动触发 `workflow_dispatch`
 - 支持在 `v*` tag push 时自动触发
+- `Actions artifact` 指 workflow run 页面里的下载产物；`GitHub Release asset` 指挂在 GitHub Release 页面下的正式附件，两者不是同一个东西
+- 手动 `workflow_dispatch` 仍主要产出 Actions artifact，里面同时带 bundle 目录和压缩包，适合作为交付件发往目标机
+- 只有 `v*` tag push 这条正式发版入口，才会在保留 Actions artifact 的同时，把 `promobot-release-bundle.tar.gz` 附着到 GitHub Release；如果只是临时取包 / 验包，直接下载 Actions artifact 即可
 - 会自动执行 `pnpm test`、`pnpm build`、静态 `preflight`、`release:bundle` 和 `release:verify`
-- 最终上传一个可下载 artifact，里面同时带 bundle 目录和压缩包，适合作为交付件发往目标机
+- Actions artifact 里同时带 bundle 目录和压缩包；GitHub Release asset 只挂压缩包，但内容和已校验 bundle 一致。拿到压缩包后先解压，后续部署步骤一样
 
 换句话说：
 

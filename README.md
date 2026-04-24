@@ -92,7 +92,7 @@ pnpm browser:artifacts:archive -- --older-than-hours 72
 - `pnpm rollback:local -- --backup-dir <path> [options]`：先停 PM2、从已有 runtime backup 恢复数据，再按恢复后的环境重启服务，并按需追加 smoke check
 - `pnpm preflight:local -- [options]`：先跑 `preflight:prod`，再按需追加 `smoke:server`
 - GitHub Actions CI：`main` 的 push / pull_request 会运行 `pnpm test` 和 `pnpm build`，用于提前拦截测试与构建回归
-- GitHub Actions Release Bundle：支持手动触发和 `v*` tag push，自动执行 `pnpm test`、`pnpm build`、静态 preflight、release bundle 生成与校验，并上传可下载 artifact
+- GitHub Actions `Release Bundle`：支持手动触发和 `v*` tag push，都会执行 `pnpm test`、`pnpm build`、静态 preflight、release bundle 生成与校验；其中手动 `workflow_dispatch` 主要产出可下载的 Actions artifact，`v*` tag push 会在保留 Actions artifact 的同时追加 GitHub Release asset
 - 生产访问时，浏览器可直接走同一个 Node 进程访问页面和 `/api`
 
 更完整的本地开发、构建、LAN 访问、环境变量和限制说明见 `docs/DEPLOYMENT.md`。
@@ -103,7 +103,7 @@ pnpm browser:artifacts:archive -- --older-than-hours 72
 - `pnpm release:deploy` / `ops/deploy-release.sh` 面向“目标机只拿到目录型 release bundle”的部署：bundle 会随产物带上 deploy 脚本，解压后直接在 bundle 根目录执行即可。
 - 新生成的 bundle manifest 会记录文件 checksum；`pnpm release:verify` / `pnpm verify:release` 会在文件存在时重算并比对，不匹配会返回失败。旧 manifest 没有 checksum 时，仍按原来的目录结构校验处理。
 - 推荐顺序是先在构建机生成并校验 bundle，再把 bundle 目录传到目标机部署。
-- 如果不想在本地手动打包，也可以直接用 GitHub Actions Release Bundle workflow 生成并下载 artifact；它产出的 bundle 同样适用后面的 `verify -> deploy -> smoke` 流程。
+- 如果不想在本地手动打包，也可以直接用 GitHub Actions `Release Bundle` workflow 取包：手动 `workflow_dispatch` 下载的是 Actions artifact，里面同时带 bundle 目录和压缩包；正式 `v*` tag push 会在保留 Actions artifact 的同时，把压缩包挂到 GitHub Release asset。两者对应的是同一份已校验的 release bundle 内容，只是挂载位置和消费场景不同；拿到压缩包后先解压，再走后面的 `verify -> deploy -> smoke` 流程。
 
 ```bash
 pnpm release:local -- --output-dir /tmp/promobot-release
