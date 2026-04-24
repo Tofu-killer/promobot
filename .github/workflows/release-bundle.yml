@@ -334,30 +334,42 @@ jobs:
             throw new Error(`Unexpected metadata file name: ${metadataFile} !== ${process.env.METADATA_FILE}`);
           }
 
-          const expectedAssets = [
-            { kind: 'archive', name: process.env.ARCHIVE_FILE },
-            { kind: 'checksum', name: process.env.CHECKSUM_FILE },
-            { kind: 'metadata', name: process.env.METADATA_FILE },
-          ];
-
-          if (!Array.isArray(metadata.assets)) {
-            throw new Error('Expected metadata.assets to be an array');
+          if (!Array.isArray(metadata.assets) || metadata.assets.length === 0) {
+            throw new Error('Expected metadata.assets to be a non-empty array');
           }
 
-          if (metadata.assets.length !== expectedAssets.length) {
-            throw new Error(`Unexpected metadata.assets length: ${metadata.assets.length} !== ${expectedAssets.length}`);
-          }
+          const seenAssetKinds = new Set();
+          const assetsByKind = Object.fromEntries(metadata.assets.map((asset, index) => {
+            if (!asset || typeof asset !== 'object') {
+              throw new Error(`Unexpected metadata.assets[${index}] entry`);
+            }
 
-          for (const [index, expectedAsset] of expectedAssets.entries()) {
-            const actualAsset = metadata.assets[index];
-            for (const key of ['kind', 'name']) {
-              if (actualAsset?.[key] !== expectedAsset[key]) {
-                throw new Error(`Unexpected metadata.assets[${index}].${key}: ${actualAsset?.[key]} !== ${expectedAsset[key]}`);
-              }
+            if (typeof asset.kind !== 'string' || asset.kind.length === 0) {
+              throw new Error(`Unexpected metadata.assets[${index}].kind: ${asset?.kind}`);
+            }
+
+            if (typeof asset.name !== 'string' || asset.name.length === 0) {
+              throw new Error(`Unexpected metadata.assets[${index}].name: ${asset?.name}`);
+            }
+
+            if (seenAssetKinds.has(asset.kind)) {
+              throw new Error(`Duplicate metadata.assets kind: ${asset.kind}`);
+            }
+
+            seenAssetKinds.add(asset.kind);
+            return [asset.kind, asset.name];
+          }));
+
+          for (const [kind, name] of Object.entries({
+            archive: process.env.ARCHIVE_FILE,
+            checksum: process.env.CHECKSUM_FILE,
+            metadata: process.env.METADATA_FILE,
+          })) {
+            if (assetsByKind[kind] !== name) {
+              throw new Error(`Unexpected metadata.assets ${kind} asset: ${assetsByKind[kind]} !== ${name}`);
             }
           }
 
-          const assetsByKind = Object.fromEntries(metadata.assets.map((asset) => [asset.kind, asset.name]));
           const orderedAssetSet = metadata.assets.map((asset) => `\`${asset.name}\``).join(', ');
 
           const isTagRelease = process.env.GITHUB_REF_TYPE === 'tag';
@@ -504,30 +516,42 @@ jobs:
             throw new Error(`Unexpected bundle_dir_name: ${bundleDirName} !== ${process.env.EXPECTED_BUNDLE_DIR_NAME}`);
           }
 
-          const expectedAssets = [
-            { kind: 'archive', name: expectedArchiveFile },
-            { kind: 'checksum', name: expectedChecksumFile },
-            { kind: 'metadata', name: expectedMetadataFile },
-          ];
-
-          if (!Array.isArray(metadata.assets)) {
-            throw new Error('Expected metadata.assets to be an array');
+          if (!Array.isArray(metadata.assets) || metadata.assets.length === 0) {
+            throw new Error('Expected metadata.assets to be a non-empty array');
           }
 
-          if (metadata.assets.length !== expectedAssets.length) {
-            throw new Error(`Unexpected metadata.assets length: ${metadata.assets.length} !== ${expectedAssets.length}`);
-          }
+          const seenAssetKinds = new Set();
+          const assetsByKind = Object.fromEntries(metadata.assets.map((asset, index) => {
+            if (!asset || typeof asset !== 'object') {
+              throw new Error(`Unexpected metadata.assets[${index}] entry`);
+            }
 
-          for (const [index, expectedAsset] of expectedAssets.entries()) {
-            const actualAsset = metadata.assets[index];
-            for (const key of ['kind', 'name']) {
-              if (actualAsset?.[key] !== expectedAsset[key]) {
-                throw new Error(`Unexpected metadata.assets[${index}].${key}: ${actualAsset?.[key]} !== ${expectedAsset[key]}`);
-              }
+            if (typeof asset.kind !== 'string' || asset.kind.length === 0) {
+              throw new Error(`Unexpected metadata.assets[${index}].kind: ${asset?.kind}`);
+            }
+
+            if (typeof asset.name !== 'string' || asset.name.length === 0) {
+              throw new Error(`Unexpected metadata.assets[${index}].name: ${asset?.name}`);
+            }
+
+            if (seenAssetKinds.has(asset.kind)) {
+              throw new Error(`Duplicate metadata.assets kind: ${asset.kind}`);
+            }
+
+            seenAssetKinds.add(asset.kind);
+            return [asset.kind, asset.name];
+          }));
+
+          for (const [kind, name] of Object.entries({
+            archive: expectedArchiveFile,
+            checksum: expectedChecksumFile,
+            metadata: expectedMetadataFile,
+          })) {
+            if (assetsByKind[kind] !== name) {
+              throw new Error(`Unexpected metadata.assets ${kind} asset: ${assetsByKind[kind]} !== ${name}`);
             }
           }
 
-          const assetsByKind = Object.fromEntries(metadata.assets.map((asset) => [asset.kind, asset.name]));
           const downloadLines = metadata.assets.map((asset) => `- \`${asset.name}\``);
 
           const body = [
