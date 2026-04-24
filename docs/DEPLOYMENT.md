@@ -255,6 +255,14 @@ pnpm verify:release -- --input-dir /tmp/promobot-release
 
 `verify:release` 默认只做目录结构和 manifest 校验，不会启动服务；只有显式开启 smoke 时，才会追加 `smoke:server`。
 
+如果你拿到的是下载后的 archive，而不是已经解压好的目录型 bundle，可直接用：
+
+```bash
+pnpm verify:downloaded-release -- --archive-file /tmp/promobot-release-bundle-v1.2.3.tar.gz
+```
+
+这个入口会先校验 archive、`.sha256` sidecar、`.metadata.json` metadata sidecar，再把解压出来的目录交给现有 `release:verify`；因此它复用的是同一套目录校验 contract，而不是再造一套平行逻辑。
+
 如果目标机不保留源码仓库，而是只接收 bundle 目录，可在 bundle 解压后直接部署：
 
 ```bash

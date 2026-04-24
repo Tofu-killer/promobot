@@ -124,6 +124,72 @@ describe('release shell wrappers', () => {
       'Smoke check requires --admin-password, PROMOBOT_ADMIN_PASSWORD, ADMIN_PASSWORD, or bundle-root .env',
     );
   });
+
+  it('shows verify-downloaded-release help for direct and leading dash-dash help paths', () => {
+    for (const args of [['--help'], ['--', '--help']]) {
+      const result = runRepoScript('ops/verify-downloaded-release.sh', args);
+
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain('Usage: ops/verify-downloaded-release.sh --archive-file <path> [options]');
+      expect(result.stdout).toContain('--archive-file <path>');
+      expect(result.stdout).toContain('--extract-to <path>');
+    }
+
+    const packageJson = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8')) as {
+      scripts?: Record<string, string>;
+    };
+    expect(packageJson.scripts?.['verify:downloaded-release']).toBe(
+      'bash ops/verify-downloaded-release.sh',
+    );
+  });
+
+  it('fails when verify-downloaded-release is missing required values', () => {
+    const cases: Array<{ args: string[]; error: string }> = [
+      { args: [], error: '--archive-file is required' },
+      { args: ['--archive-file'], error: '--archive-file requires a value' },
+      { args: ['--archive-file='], error: '--archive-file requires a value' },
+      { args: ['--archive-file', '/tmp/archive.tar.gz', '--checksum-file'], error: '--checksum-file requires a value' },
+      { args: ['--archive-file', '/tmp/archive.tar.gz', '--metadata-file='], error: '--metadata-file requires a value' },
+      { args: ['--archive-file', '/tmp/archive.tar.gz', '--extract-to'], error: '--extract-to requires a value' },
+    ];
+
+    for (const testCase of cases) {
+      const result = runRepoScript('ops/verify-downloaded-release.sh', testCase.args);
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain(testCase.error);
+    }
+  });
+
+  it('fails verify-downloaded-release when expected sidecars are missing', () => {
+    const fixture = createDownloadedReleaseFixture();
+    fs.rmSync(fixture.metadataPath);
+
+    const result = runScript(fixture.scriptPath, ['--archive-file', fixture.archivePath], {
+      cwd: fixture.rootDir,
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('--metadata-file not found');
+  });
+
+  it('verifies and extracts a downloaded release archive', () => {
+    const fixture = createDownloadedReleaseFixture();
+    const extractRoot = path.join(fixture.rootDir, 'extract-target');
+
+    const result = runScript(
+      fixture.scriptPath,
+      ['--archive-file', fixture.archivePath, '--extract-to', extractRoot],
+      {
+        cwd: fixture.rootDir,
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Checksum verified for');
+    expect(result.stdout).toContain('Running node dist/server/cli/releaseVerify.js');
+    expect(fs.existsSync(path.join(extractRoot, 'promobot-release-bundle'))).toBe(true);
+  });
 });
 
 function runRepoScript(relativePath: string, args: string[], options: SpawnSyncOptions = {}) {
@@ -166,6 +232,110 @@ function createDeployReleaseFixture() {
     rootDir,
     binDir,
     scriptPath,
+  };
+}
+
+function createDownloadedReleaseFixture() {
+  const rootDir = createTempDir('promobot-verify-downloaded-release-');
+  const scriptPath = path.join(rootDir, 'ops/verify-downloaded-release.sh');
+  const archivePath = path.join(rootDir, 'downloads/promobot-release-bundle.tar.gz');
+  const metadataPath = `${archivePath}.metadata.json`;
+  const checksumPath = `${archivePath}.sha256`;
+  const bundleSourceDir = path.join(rootDir, 'bundle-source/promobot-release-bundle');
+
+  fs.mkdirSync(path.dirname(scriptPath), { recursive: true });
+  fs.copyFileSync(path.resolve(repoRoot, 'ops/verify-downloaded-release.sh'), scriptPath);
+
+  writeFile(rootDir, 'package.json', '{}\n');
+  writeFile(
+    rootDir,
+    'dist/server/cli/releaseVerify.js',
+    'process.exit(0);\n',
+  );
+
+  writeFile(rootDir, 'bundle-source/promobot-release-bundle/manifest.json', '{}\n');
+  writeFile(rootDir, 'bundle-source/promobot-release-bundle/dist/server/index.js', 'console.log("server");\n');
+  writeFile(rootDir, 'bundle-source/promobot-release-bundle/dist/client/index.html', '<!doctype html>\n');
+  writeFile(rootDir, 'bundle-source/promobot-release-bundle/pm2.config.js', 'export default {};\n');
+  writeFile(rootDir, 'bundle-source/promobot-release-bundle/ops/deploy-promobot.sh', '#!/usr/bin/env bash\n');
+  writeFile(rootDir, 'bundle-source/promobot-release-bundle/ops/deploy-release.sh', '#!/usr/bin/env bash\n');
+  writeFile(rootDir, 'bundle-source/promobot-release-bundle/ops/verify-release.sh', '#!/usr/bin/env bash\n');
+  writeFile(rootDir, 'bundle-source/promobot-release-bundle/package.json', '{}\n');
+  writeFile(rootDir, 'bundle-source/promobot-release-bundle/pnpm-lock.yaml', 'lockfileVersion: 9\n');
+  writeFile(rootDir, 'bundle-source/promobot-release-bundle/dist/server/cli/deploymentSmoke.js', 'console.log("smoke");\n');
+  writeFile(rootDir, 'bundle-source/promobot-release-bundle/dist/server/cli/releaseVerify.js', 'console.log("verify");\n');
+
+  fs.mkdirSync(path.dirname(archivePath), { recursive: true });
+
+  const tarResult = spawnSync(
+    'tar',
+    ['-czf', archivePath, '-C', path.dirname(bundleSourceDir), path.basename(bundleSourceDir)],
+    {
+      cwd: rootDir,
+      encoding: 'utf8',
+    },
+  );
+  if (tarResult.status !== 0) {
+    throw new Error(`Failed to create archive fixture: ${tarResult.stderr || tarResult.stdout}`);
+  }
+
+  const hashResult = spawnSync('sha256sum', [archivePath], {
+    cwd: rootDir,
+    encoding: 'utf8',
+  });
+  if (hashResult.status !== 0) {
+    throw new Error(`Failed to hash archive fixture: ${hashResult.stderr || hashResult.stdout}`);
+  }
+
+  const checksumLine = hashResult.stdout.trim();
+  fs.writeFileSync(checksumPath, `${checksumLine}\n`, 'utf8');
+
+  writeFile(
+    rootDir,
+    path.relative(rootDir, metadataPath),
+    JSON.stringify(
+      {
+        schema_version: 1,
+        checksum_algorithm: 'sha256',
+        archive_format: 'tar.gz',
+        artifact_name: 'promobot-release-bundle-artifact',
+        asset_basename: 'promobot-release-bundle',
+        event_name: 'workflow_dispatch',
+        ref: 'refs/heads/main',
+        ref_name: 'main',
+        ref_type: 'branch',
+        tag: null,
+        prerelease: false,
+        commit_sha: '0123456789abcdef0123456789abcdef01234567',
+        test_execution: {
+          state: 'executed',
+          mode: 'manual_default',
+          summary: 'executed (default manual behavior)',
+        },
+        archive_file: path.basename(archivePath),
+        checksum_file: path.basename(checksumPath),
+        metadata_file: path.basename(metadataPath),
+        assets: [
+          { kind: 'archive', name: path.basename(archivePath) },
+          { kind: 'checksum', name: path.basename(checksumPath) },
+          { kind: 'metadata', name: path.basename(metadataPath) },
+        ],
+        bundle_dir_name: 'promobot-release-bundle',
+        generated_at: '2026-04-24T00:00:00Z',
+        run_url: 'https://github.com/Tofu-killer/promobot/actions/runs/123',
+        release_url: null,
+      },
+      null,
+      2,
+    ) + '\n',
+  );
+
+  return {
+    rootDir,
+    scriptPath,
+    archivePath,
+    checksumPath,
+    metadataPath,
   };
 }
 

@@ -14,6 +14,7 @@
     "release:local": "bash ops/release-promobot.sh",
     "release:deploy": "bash ops/deploy-release.sh",
     "verify:release": "bash ops/verify-release.sh",
+    "verify:downloaded-release": "bash ops/verify-downloaded-release.sh",
     "deploy:local": "bash ops/deploy-promobot.sh",
     "rollback:local": "bash ops/rollback-promobot.sh",
     "smoke:server": "tsx src/server/cli/deploymentSmoke.ts",
