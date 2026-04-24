@@ -31,6 +31,7 @@ jobs:
       archive_file: ${{ steps.asset_names.outputs.archive_file }}
       checksum_file: ${{ steps.asset_names.outputs.checksum_file }}
       metadata_file: ${{ steps.asset_names.outputs.metadata_file }}
+      prerelease: ${{ steps.release_flags.outputs.prerelease }}
     env:
       ASSET_NAME_ROOT: promobot-release-bundle
       BUNDLE_ROOT: ${{ runner.temp }}/release-artifacts
@@ -99,6 +100,17 @@ jobs:
           echo "metadata_file=$METADATA_FILE" >> "$GITHUB_OUTPUT"
           echo "metadata_path=$METADATA_PATH" >> "$GITHUB_OUTPUT"
 
+      - name: Derive release prerelease flag
+        id: release_flags
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          is_prerelease=false
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ] && [[ "$TAG_NAME" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+            is_prerelease=true
+          fi
+          echo "prerelease=$is_prerelease" >> "$GITHUB_OUTPUT"
+
       - name: Generate release bundle
         env:
           BUNDLE_DIR: ${{ steps.asset_names.outputs.bundle_dir }}
@@ -158,22 +170,27 @@ jobs:
 
       - name: Generate archived release bundle metadata
         env:
+          ARTIFACT_NAME: ${{ steps.asset_names.outputs.artifact_name }}
           ASSET_BASENAME: ${{ steps.asset_names.outputs.asset_basename }}
           ARCHIVE_FILE: ${{ steps.asset_names.outputs.archive_file }}
           CHECKSUM_FILE: ${{ steps.asset_names.outputs.checksum_file }}
           BUNDLE_DIR_NAME: ${{ steps.asset_names.outputs.bundle_dir_name }}
           METADATA_PATH: ${{ steps.asset_names.outputs.metadata_path }}
+          PRERELEASE: ${{ steps.release_flags.outputs.prerelease }}
         run: |
-          export ASSET_BASENAME ARCHIVE_FILE CHECKSUM_FILE BUNDLE_DIR_NAME
+          export ARTIFACT_NAME ASSET_BASENAME ARCHIVE_FILE CHECKSUM_FILE BUNDLE_DIR_NAME PRERELEASE
           node <<'EOF'
           const fs = require('node:fs');
 
           const metadata = {
+            artifact_name: process.env.ARTIFACT_NAME,
             asset_basename: process.env.ASSET_BASENAME,
+            event_name: process.env.GITHUB_EVENT_NAME,
             ref: process.env.GITHUB_REF,
             ref_name: process.env.GITHUB_REF_NAME,
             ref_type: process.env.GITHUB_REF_TYPE,
             tag: process.env.GITHUB_REF_TYPE === 'tag' ? process.env.GITHUB_REF_NAME : null,
+            prerelease: process.env.PRERELEASE === 'true',
             commit_sha: process.env.GITHUB_SHA,
             archive_file: process.env.ARCHIVE_FILE,
             checksum_file: process.env.CHECKSUM_FILE,
@@ -185,23 +202,28 @@ jobs:
 
       - name: Verify archived release bundle metadata
         env:
+          ARTIFACT_NAME: ${{ steps.asset_names.outputs.artifact_name }}
           ASSET_BASENAME: ${{ steps.asset_names.outputs.asset_basename }}
           ARCHIVE_FILE: ${{ steps.asset_names.outputs.archive_file }}
           CHECKSUM_FILE: ${{ steps.asset_names.outputs.checksum_file }}
           BUNDLE_DIR_NAME: ${{ steps.asset_names.outputs.bundle_dir_name }}
           METADATA_PATH: ${{ steps.asset_names.outputs.metadata_path }}
+          PRERELEASE: ${{ steps.release_flags.outputs.prerelease }}
         run: |
-          export ASSET_BASENAME ARCHIVE_FILE CHECKSUM_FILE BUNDLE_DIR_NAME
+          export ARTIFACT_NAME ASSET_BASENAME ARCHIVE_FILE CHECKSUM_FILE BUNDLE_DIR_NAME PRERELEASE
           node <<'EOF'
           const fs = require('node:fs');
 
           const metadata = JSON.parse(fs.readFileSync(process.env.METADATA_PATH, 'utf8'));
           const expected = {
+            artifact_name: process.env.ARTIFACT_NAME,
             asset_basename: process.env.ASSET_BASENAME,
+            event_name: process.env.GITHUB_EVENT_NAME,
             ref: process.env.GITHUB_REF,
             ref_name: process.env.GITHUB_REF_NAME,
             ref_type: process.env.GITHUB_REF_TYPE,
             tag: process.env.GITHUB_REF_TYPE === 'tag' ? process.env.GITHUB_REF_NAME : null,
+            prerelease: process.env.PRERELEASE === 'true',
             commit_sha: process.env.GITHUB_SHA,
             archive_file: process.env.ARCHIVE_FILE,
             checksum_file: process.env.CHECKSUM_FILE,
@@ -235,14 +257,27 @@ jobs:
           METADATA_FILE: ${{ steps.asset_names.outputs.metadata_file }}
           BUNDLE_DIR_NAME: ${{ steps.asset_names.outputs.bundle_dir_name }}
           METADATA_PATH: ${{ steps.asset_names.outputs.metadata_path }}
+          PRERELEASE: ${{ steps.release_flags.outputs.prerelease }}
         run: |
-          export ARTIFACT_NAME ARCHIVE_FILE CHECKSUM_FILE METADATA_FILE BUNDLE_DIR_NAME METADATA_PATH
+          export ARTIFACT_NAME ARCHIVE_FILE CHECKSUM_FILE METADATA_FILE BUNDLE_DIR_NAME METADATA_PATH PRERELEASE
           node <<'EOF'
           const fs = require('node:fs');
           const path = require('node:path');
 
           const metadata = JSON.parse(fs.readFileSync(process.env.METADATA_PATH, 'utf8'));
           const metadataFile = path.basename(process.env.METADATA_PATH);
+
+          if (metadata.artifact_name !== process.env.ARTIFACT_NAME) {
+            throw new Error(`Unexpected metadata artifact_name: ${metadata.artifact_name} !== ${process.env.ARTIFACT_NAME}`);
+          }
+
+          if (metadata.event_name !== process.env.GITHUB_EVENT_NAME) {
+            throw new Error(`Unexpected metadata event_name: ${metadata.event_name} !== ${process.env.GITHUB_EVENT_NAME}`);
+          }
+
+          if (metadata.prerelease !== (process.env.PRERELEASE === 'true')) {
+            throw new Error(`Unexpected metadata prerelease: ${metadata.prerelease} !== ${process.env.PRERELEASE === 'true'}`);
+          }
 
           if (metadata.archive_file !== process.env.ARCHIVE_FILE) {
             throw new Error(`Unexpected metadata archive_file: ${metadata.archive_file} !== ${process.env.ARCHIVE_FILE}`);
@@ -334,11 +369,13 @@ jobs:
           ARCHIVE_PATH: ${{ steps.archive.outputs.archive_path }}
           CHECKSUM_PATH: ${{ steps.archive.outputs.checksum_path }}
           METADATA_PATH: ${{ steps.archive.outputs.metadata_path }}
+          EXPECTED_ARTIFACT_NAME: ${{ needs.release-bundle.outputs.artifact_name }}
           EXPECTED_ASSET_BASENAME: ${{ needs.release-bundle.outputs.asset_basename }}
           EXPECTED_BUNDLE_DIR_NAME: ${{ needs.release-bundle.outputs.bundle_dir_name }}
+          EXPECTED_PRERELEASE: ${{ needs.release-bundle.outputs.prerelease }}
           RELEASE_BODY_PATH: ${{ runner.temp }}/release-body.md
         run: |
-          export ARCHIVE_PATH CHECKSUM_PATH METADATA_PATH EXPECTED_ASSET_BASENAME EXPECTED_BUNDLE_DIR_NAME RELEASE_BODY_PATH
+          export ARCHIVE_PATH CHECKSUM_PATH METADATA_PATH EXPECTED_ARTIFACT_NAME EXPECTED_ASSET_BASENAME EXPECTED_BUNDLE_DIR_NAME EXPECTED_PRERELEASE RELEASE_BODY_PATH
           node <<'EOF'
           const fs = require('node:fs');
           const path = require('node:path');
@@ -351,6 +388,18 @@ jobs:
 
           if (assetBasename !== process.env.EXPECTED_ASSET_BASENAME) {
             throw new Error(`Unexpected metadata asset_basename: ${assetBasename} !== ${process.env.EXPECTED_ASSET_BASENAME}`);
+          }
+
+          if (metadata.artifact_name !== process.env.EXPECTED_ARTIFACT_NAME) {
+            throw new Error(`Unexpected metadata artifact_name: ${metadata.artifact_name} !== ${process.env.EXPECTED_ARTIFACT_NAME}`);
+          }
+
+          if (metadata.event_name !== process.env.GITHUB_EVENT_NAME) {
+            throw new Error(`Unexpected metadata event_name: ${metadata.event_name} !== ${process.env.GITHUB_EVENT_NAME}`);
+          }
+
+          if (metadata.prerelease !== (process.env.EXPECTED_PRERELEASE === 'true')) {
+            throw new Error(`Unexpected metadata prerelease: ${metadata.prerelease} !== ${process.env.EXPECTED_PRERELEASE === 'true'}`);
           }
 
           const expectedArchiveFile = `${assetBasename}.tar.gz`;
@@ -407,17 +456,6 @@ jobs:
           EOF
           echo "body_path=$RELEASE_BODY_PATH" >> "$GITHUB_OUTPUT"
 
-      - name: Derive GitHub Release prerelease flag
-        id: release_flags
-        env:
-          TAG_NAME: ${{ github.ref_name }}
-        run: |
-          is_prerelease=false
-          if [[ "$TAG_NAME" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
-            is_prerelease=true
-          fi
-          echo "prerelease=$is_prerelease" >> "$GITHUB_OUTPUT"
-
       - name: Publish archived release bundle assets to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -426,7 +464,7 @@ jobs:
             ${{ steps.archive.outputs.checksum_path }}
             ${{ steps.archive.outputs.metadata_path }}
           body_path: ${{ steps.release_body.outputs.body_path }}
-          prerelease: ${{ steps.release_flags.outputs.prerelease }}
+          prerelease: ${{ needs.release-bundle.outputs.prerelease }}
           fail_on_unmatched_files: true
           overwrite_files: true
 

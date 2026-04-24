@@ -274,13 +274,15 @@ pnpm release:deploy
 - 支持手动触发 `workflow_dispatch`
 - 支持在 `v*` tag push 时自动触发
 - `Actions artifact` 指 workflow run 页面里的下载产物；`GitHub Release asset` 指挂在 GitHub Release 页面下的正式附件，两者不是同一个东西
-- workflow run 页面里的 `summary` 只是 Actions run 页面内的结果摘要，用来帮助定位这次 `Release Bundle` run 产出的 bundle、archive、`.sha256` sidecar、`.metadata.json` metadata sidecar 和解压后 `manifest.json` 的关系；它不是 GitHub Release asset，也不替代 GitHub Release body
+- workflow run 页面里的 `summary` 只是 Actions run 页面内的结果摘要，用来帮助定位这次 `Release Bundle` run 产出的 bundle、archive、`.sha256` sidecar、`.metadata.json` metadata sidecar 和解压后 `manifest.json` 的关系；它不是 GitHub Release asset，也不替代 `release body`
+- `.metadata.json` metadata sidecar 的新增字段里，`artifact_name` 记录这组文件在 Actions run 里的 artifact 容器名，`event_name` 记录触发这次 workflow 的事件来源，例如 `workflow_dispatch` 或 `push`，`prerelease` 记录对应 GitHub Release 页面是否应标成 prerelease 的布尔状态。它们都是给下载方 / 自动化方消费的机器可读上下文，用来说明“这组文件从哪次 run 来、走哪条发布入口、对应什么 Release 状态”，不等于 `release body`、workflow run `summary`，也不替代解压后 bundle 内的 `manifest.json`
 - workflow 还会把同一 ref 的 run 串行化，并给 build / publish job 加超时保护，避免并发运行或卡死 runner 时互相踩资产
-- 正式 `v*` tag push 生成的 GitHub Release 页面会自带 download / verify 说明；这段内容由 `Release Bundle` workflow 写进 `Release body`，会列出该 tag 对应的版本化 archive、`.sha256` sidecar、`.metadata.json` metadata sidecar 和推荐的校验顺序。要注意，`Release body` 只是给人读的页面说明；真正供下载和校验消费的仍是页面下方这些 GitHub Release asset，以及解压后 bundle 里的 `manifest.json`
+- 正式 `v*` tag push 生成的 GitHub Release 页面会自带 download / verify 说明；这段内容由 `Release Bundle` workflow 写进 `release body`，会列出该 tag 对应的版本化 archive、`.sha256` sidecar、`.metadata.json` metadata sidecar 和推荐的校验顺序。要注意，`release body` 只是给人读的页面说明；真正供下载和校验消费的仍是页面下方这些 GitHub Release asset，以及解压后 bundle 里的 `manifest.json`
 - 手动 `workflow_dispatch` 仍主要产出 Actions artifact，里面同时带 bundle 目录、archive、`.sha256` sidecar 和 `.metadata.json` metadata sidecar，适合作为交付件发往目标机；这里不额外承诺发布 GitHub Release asset。手动 run 可选传 `asset_suffix`，只用于区分这次手动预览包命名：会影响 Actions artifact 名称，以及其中 archive、`.sha256` sidecar、`.metadata.json` metadata sidecar 的命名；允许字符为 `1-32` 个小写字母、数字、`.`、`_`、`-`，并且必须以字母或数字开头和结尾，它也不会改变 bundle 内 `manifest.json` 的语义
 - `prerelease` 状态只和 `v*` tag push 这条 tag release 有关。当前 workflow 会按 tag 名本身自动判定是否为 semver 预发布：像 `v1.2.3-rc.1`、`v1.2.3-beta.1` 这类会标成 `prerelease=true`，`v1.2.3` 这类正式版 tag 仍保持 `false`。这个判定不从 `asset_suffix`、`release body` 或 `summary` 推导
 - 只有 `v*` tag push 这条正式发版入口，才会在保留 Actions artifact 的同时，把带版本号的 archive、`.sha256` sidecar 和 `.metadata.json` metadata sidecar 附着到 GitHub Release；这个手动 `asset_suffix` 不参与这条正式发版命名。新的 release asset sidecar 只服务这条 tar.gz 下载链路，如果只是临时取包 / 验包，直接下载 Actions artifact 即可
 - 与版本化 archive 同名派生的 `.metadata.json` sidecar 的定位是给下载方 / 自动化方消费的机器可读说明，用来描述 `Release Bundle` workflow 产出的 bundle、archive 和校验入口；它不替代配套 `.sha256` sidecar，也不替代解压后对 `manifest.json` 以及 `pnpm release:verify` / `pnpm verify:release` 的 bundle 校验
+- `.metadata.json` metadata sidecar 里的 `artifact_name`、`event_name`、`prerelease` 也应按同一层级理解：`artifact_name` 对应 Actions artifact 下载入口，`event_name` 对应 workflow 触发来源，`prerelease` 对应 GitHub Release 状态。三者都只是 sidecar 的发布上下文字段，不是 `release body` 文案，不是 workflow run `summary` 摘要，也不是 bundle 内 `manifest.json` 的内容摘要
 - 会自动执行 `pnpm test`、`pnpm build`、静态 `preflight`、`release:bundle` 和 `release:verify`
 - Actions artifact 里同时带 bundle 目录、archive、`.sha256` sidecar 和 `.metadata.json` metadata sidecar；GitHub Release asset 的 tar.gz 下载应先用配套 sidecar 做下载完整性校验，再用 `.metadata.json` 读取 ref / commit / 文件名信息，最后再解压拿到目录型 bundle。解压后的 `manifest.json` 和 `pnpm release:verify` / `pnpm verify:release` 校验的是 bundle 内文件，不是 tar.gz 下载字节本身
 
