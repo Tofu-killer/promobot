@@ -1,0 +1,78 @@
+name: Release Bundle
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  release-bundle:
+    name: Build release bundle artifact
+    runs-on: ubuntu-latest
+    env:
+      ARTIFACT_NAME: promobot-release-bundle
+      BUNDLE_ROOT: ${{ runner.temp }}/release-artifacts
+      BUNDLE_DIR: ${{ runner.temp }}/release-artifacts/promobot-release-bundle
+      ARCHIVE_PATH: ${{ runner.temp }}/release-artifacts/promobot-release-bundle.tar.gz
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run tests
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Run static preflight
+        run: node dist/server/cli/preflightPromobot.js --repo-root "$GITHUB_WORKSPACE"
+
+      - name: Generate release bundle
+        run: |
+          mkdir -p "$BUNDLE_ROOT"
+          node dist/server/cli/releaseBundle.js --output-dir "$BUNDLE_DIR"
+
+      - name: Verify release bundle
+        run: node dist/server/cli/releaseVerify.js --input-dir "$BUNDLE_DIR"
+
+      - name: Archive release bundle
+        run: |
+          rm -f "$ARCHIVE_PATH"
+          tar -czf "$ARCHIVE_PATH" -C "$BUNDLE_ROOT" "$ARTIFACT_NAME"
+
+      - name: Verify archived release bundle
+        run: |
+          EXTRACT_ROOT="${RUNNER_TEMP}/release-archive-check"
+          rm -rf "$EXTRACT_ROOT"
+          mkdir -p "$EXTRACT_ROOT"
+          tar -xzf "$ARCHIVE_PATH" -C "$EXTRACT_ROOT"
+          node dist/server/cli/releaseVerify.js --input-dir "$EXTRACT_ROOT/$ARTIFACT_NAME"
+
+      - name: Upload release bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: promobot-release-bundle
+          path: |
+            ${{ env.BUNDLE_DIR }}
+            ${{ env.ARCHIVE_PATH }}
+          if-no-files-found: error
+          compression-level: 0

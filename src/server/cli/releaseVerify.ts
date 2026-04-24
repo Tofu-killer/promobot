@@ -63,10 +63,16 @@ export interface ReleaseVerifySummary {
 }
 
 const REQUIRED_RELEASE_PATHS = [
+  'package.json',
+  'pnpm-lock.yaml',
   'dist/server/index.js',
+  'dist/server/cli/deploymentSmoke.js',
+  'dist/server/cli/releaseVerify.js',
   'dist/client/index.html',
   'pm2.config.js',
   'ops/deploy-promobot.sh',
+  'ops/deploy-release.sh',
+  'ops/verify-release.sh',
 ] as const;
 
 interface ReleaseVerifyManifestFile {

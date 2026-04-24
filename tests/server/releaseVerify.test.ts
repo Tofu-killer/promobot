@@ -87,6 +87,11 @@ describe('release verify cli', () => {
       expect.arrayContaining([
         {
           kind: 'manifest-item',
+          name: 'package.json',
+          target: path.join(inputDir, 'package.json'),
+        },
+        {
+          kind: 'manifest-item',
           name: 'dist/client/index.html',
           target: path.join(inputDir, 'dist/client/index.html'),
         },
@@ -108,15 +113,17 @@ describe('release verify cli', () => {
 
     const inputDir = createTempDir();
     const serverContent = 'console.log("server");\n';
-    writeFile(inputDir, 'dist/server/index.js', serverContent);
-    writeFile(inputDir, 'dist/client/index.html', '<!doctype html>\n');
-    writeFile(inputDir, 'pm2.config.js', 'export default {};\n');
-    writeFile(inputDir, 'ops/deploy-promobot.sh', '#!/usr/bin/env bash\n');
+    writeRequiredBundleCore(inputDir, { serverContent });
+    writeBundleNativeEntryScripts(inputDir);
 
     writeManifest(inputDir, {
       ok: true,
       files: [
+        'package.json',
+        'pnpm-lock.yaml',
         'dist/server/index.js',
+        'dist/server/cli/deploymentSmoke.js',
+        'dist/server/cli/releaseVerify.js',
         'dist/client/index.html',
         'pm2.config.js',
         'ops/deploy-promobot.sh',
@@ -170,15 +177,17 @@ describe('release verify cli', () => {
     }
 
     const inputDir = createTempDir();
-    writeFile(inputDir, 'dist/server/index.js', 'console.log("server");\n');
-    writeFile(inputDir, 'dist/client/index.html', '<!doctype html>\n');
-    writeFile(inputDir, 'pm2.config.js', 'export default {};\n');
-    writeFile(inputDir, 'ops/deploy-promobot.sh', '#!/usr/bin/env bash\n');
+    writeRequiredBundleCore(inputDir);
+    writeBundleNativeEntryScripts(inputDir);
 
     writeManifest(inputDir, {
       ok: true,
       files: [
+        'package.json',
+        'pnpm-lock.yaml',
         'dist/server/index.js',
+        'dist/server/cli/deploymentSmoke.js',
+        'dist/server/cli/releaseVerify.js',
         'dist/client/index.html',
         'pm2.config.js',
         'ops/deploy-promobot.sh',
@@ -204,9 +213,33 @@ describe('release verify cli', () => {
         },
         {
           kind: 'manifest-item',
+          name: 'package.json',
+          ok: true,
+          target: path.join(inputDir, 'package.json'),
+        },
+        {
+          kind: 'manifest-item',
+          name: 'pnpm-lock.yaml',
+          ok: true,
+          target: path.join(inputDir, 'pnpm-lock.yaml'),
+        },
+        {
+          kind: 'manifest-item',
           name: 'dist/server/index.js',
           ok: true,
           target: path.join(inputDir, 'dist/server/index.js'),
+        },
+        {
+          kind: 'manifest-item',
+          name: 'dist/server/cli/deploymentSmoke.js',
+          ok: true,
+          target: path.join(inputDir, 'dist/server/cli/deploymentSmoke.js'),
+        },
+        {
+          kind: 'manifest-item',
+          name: 'dist/server/cli/releaseVerify.js',
+          ok: true,
+          target: path.join(inputDir, 'dist/server/cli/releaseVerify.js'),
         },
         {
           kind: 'manifest-item',
@@ -226,11 +259,67 @@ describe('release verify cli', () => {
           ok: true,
           target: path.join(inputDir, 'ops/deploy-promobot.sh'),
         },
+        {
+          kind: 'manifest-item',
+          name: 'ops/deploy-release.sh',
+          ok: true,
+          target: path.join(inputDir, 'ops/deploy-release.sh'),
+        },
+        {
+          kind: 'manifest-item',
+          name: 'ops/verify-release.sh',
+          ok: true,
+          target: path.join(inputDir, 'ops/verify-release.sh'),
+        },
       ],
       missing: [],
       warnings: [],
     });
     expect(JSON.parse(stdout.read())).toEqual(summary);
+  });
+
+  it('fails when bundle-native release wrapper scripts are missing from an older manifest', async () => {
+    const releaseVerify = await loadReleaseVerifyModule();
+    expect(releaseVerify).toBeTruthy();
+    if (!releaseVerify) {
+      return;
+    }
+
+    const inputDir = createTempDir();
+    writeRequiredBundleCore(inputDir);
+
+    writeManifest(inputDir, {
+      ok: true,
+      files: [
+        'package.json',
+        'pnpm-lock.yaml',
+        'dist/server/index.js',
+        'dist/server/cli/deploymentSmoke.js',
+        'dist/server/cli/releaseVerify.js',
+        'dist/client/index.html',
+        'pm2.config.js',
+        'ops/deploy-promobot.sh',
+      ],
+      missing: [],
+    });
+
+    const summary = releaseVerify.runReleaseVerify({ inputDir });
+
+    expect(summary.ok).toBe(false);
+    expect(summary.missing).toEqual(
+      expect.arrayContaining([
+        {
+          kind: 'manifest-item',
+          name: 'ops/deploy-release.sh',
+          target: path.join(inputDir, 'ops/deploy-release.sh'),
+        },
+        {
+          kind: 'manifest-item',
+          name: 'ops/verify-release.sh',
+          target: path.join(inputDir, 'ops/verify-release.sh'),
+        },
+      ]),
+    );
   });
 
   it('passes when recorded checksums match existing bundle files', async () => {
@@ -246,15 +335,22 @@ describe('release verify cli', () => {
     const pm2Content = 'export default {};\n';
     const deployScript = '#!/usr/bin/env bash\n';
 
-    writeFile(inputDir, 'dist/server/index.js', serverContent);
-    writeFile(inputDir, 'dist/client/index.html', clientContent);
-    writeFile(inputDir, 'pm2.config.js', pm2Content);
-    writeFile(inputDir, 'ops/deploy-promobot.sh', deployScript);
+    writeRequiredBundleCore(inputDir, {
+      clientContent,
+      deployScript,
+      pm2Content,
+      serverContent,
+    });
+    writeBundleNativeEntryScripts(inputDir);
 
     writeManifest(inputDir, {
       ok: true,
       files: [
+        'package.json',
+        'pnpm-lock.yaml',
         'dist/server/index.js',
+        'dist/server/cli/deploymentSmoke.js',
+        'dist/server/cli/releaseVerify.js',
         'dist/client/index.html',
         'pm2.config.js',
         'ops/deploy-promobot.sh',
@@ -265,6 +361,46 @@ describe('release verify cli', () => {
         'dist/client/index.html': createSha256Checksum(clientContent),
         'pm2.config.js': createSha256Checksum(pm2Content),
         'ops/deploy-promobot.sh': createSha256Checksum(deployScript),
+      },
+    });
+
+    const summary = releaseVerify.runReleaseVerify({ inputDir });
+
+    expect(summary.ok).toBe(true);
+    expect(summary.missing).toEqual([]);
+    expect(summary.warnings).toEqual([]);
+  });
+
+  it('passes when an older manifest uses file-entry objects and checksum map', async () => {
+    const releaseVerify = await loadReleaseVerifyModule();
+    expect(releaseVerify).toBeTruthy();
+    if (!releaseVerify) {
+      return;
+    }
+
+    const inputDir = createTempDir();
+    const serverContent = 'console.log("server");\n';
+
+    writeRequiredBundleCore(inputDir, { serverContent });
+    writeBundleNativeEntryScripts(inputDir);
+
+    writeManifest(inputDir, {
+      ok: true,
+      files: [
+        { path: 'package.json' },
+        { relativePath: 'pnpm-lock.yaml' },
+        { path: 'dist/server/index.js' },
+        { relativePath: 'dist/server/cli/deploymentSmoke.js' },
+        { name: 'dist/server/cli/releaseVerify.js' },
+        { path: 'dist/client/index.html' },
+        { relativePath: 'pm2.config.js' },
+        { name: 'ops/deploy-promobot.sh' },
+        { path: 'ops/deploy-release.sh' },
+        { relativePath: 'ops/verify-release.sh' },
+      ],
+      missing: [],
+      checksum: {
+        'dist/server/index.js': createSha256Checksum(serverContent),
       },
     });
 
@@ -294,8 +430,9 @@ function writeManifest(
   inputDir: string,
   manifest: {
     ok: boolean;
-    files: string[];
+    files: Array<string | { name?: string; path?: string; relativePath?: string }>;
     missing: string[];
+    checksum?: Record<string, string>;
     checksums?: Record<string, string>;
   },
 ) {
@@ -336,6 +473,45 @@ function writeFile(rootDir: string, relativePath: string, content: string) {
   const targetPath = path.join(rootDir, relativePath);
   fs.mkdirSync(path.dirname(targetPath), { recursive: true });
   fs.writeFileSync(targetPath, content, 'utf8');
+}
+
+function writeBundleNativeEntryScripts(rootDir: string) {
+  writeFile(rootDir, 'ops/deploy-release.sh', '#!/usr/bin/env bash\n');
+  writeFile(rootDir, 'ops/verify-release.sh', '#!/usr/bin/env bash\n');
+}
+
+function writeRequiredBundleCore(
+  rootDir: string,
+  content: {
+    clientContent?: string;
+    deployScript?: string;
+    deploymentSmokeContent?: string;
+    packageJsonContent?: string;
+    pm2Content?: string;
+    releaseVerifyCliContent?: string;
+    serverContent?: string;
+  } = {},
+) {
+  writeFile(rootDir, 'package.json', content.packageJsonContent ?? '{}\n');
+  writeFile(rootDir, 'pnpm-lock.yaml', 'lockfileVersion: 9\n');
+  writeFile(rootDir, 'dist/server/index.js', content.serverContent ?? 'console.log("server");\n');
+  writeFile(
+    rootDir,
+    'dist/server/cli/deploymentSmoke.js',
+    content.deploymentSmokeContent ?? 'console.log("smoke");\n',
+  );
+  writeFile(
+    rootDir,
+    'dist/server/cli/releaseVerify.js',
+    content.releaseVerifyCliContent ?? 'console.log("verify");\n',
+  );
+  writeFile(rootDir, 'dist/client/index.html', content.clientContent ?? '<!doctype html>\n');
+  writeFile(rootDir, 'pm2.config.js', content.pm2Content ?? 'export default {};\n');
+  writeFile(
+    rootDir,
+    'ops/deploy-promobot.sh',
+    content.deployScript ?? '#!/usr/bin/env bash\n',
+  );
 }
 
 function createSha256Checksum(content: string) {
