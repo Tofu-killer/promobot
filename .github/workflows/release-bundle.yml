@@ -6,19 +6,25 @@ on:
     tags:
       - 'v*'
 
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
   release-bundle:
     name: Build release bundle artifact
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      artifact_name: ${{ steps.asset_names.outputs.artifact_name }}
+      asset_basename: ${{ steps.asset_names.outputs.asset_basename }}
+      bundle_dir_name: ${{ steps.asset_names.outputs.bundle_dir_name }}
+      archive_file: ${{ steps.asset_names.outputs.archive_file }}
+      checksum_file: ${{ steps.asset_names.outputs.checksum_file }}
+      metadata_file: ${{ steps.asset_names.outputs.metadata_file }}
     env:
       ARTIFACT_NAME: promobot-release-bundle
       BUNDLE_ROOT: ${{ runner.temp }}/release-artifacts
-      BUNDLE_DIR: ${{ runner.temp }}/release-artifacts/promobot-release-bundle
-      ARCHIVE_PATH: ${{ runner.temp }}/release-artifacts/promobot-release-bundle.tar.gz
-      CHECKSUM_PATH: ${{ runner.temp }}/release-artifacts/promobot-release-bundle.tar.gz.sha256
+      BUNDLE_DIR_NAME: promobot-release-bundle
 
     steps:
       - name: Checkout
@@ -47,28 +53,66 @@ jobs:
       - name: Run static preflight
         run: node dist/server/cli/preflightPromobot.js --repo-root "$GITHUB_WORKSPACE"
 
+      - name: Derive release bundle asset names
+        id: asset_names
+        run: |
+          ASSET_BASENAME="$ARTIFACT_NAME"
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ] && [ -n "${GITHUB_REF_NAME:-}" ]; then
+            ASSET_BASENAME="${ARTIFACT_NAME}-${GITHUB_REF_NAME}"
+          fi
+          BUNDLE_DIR="${BUNDLE_ROOT}/${BUNDLE_DIR_NAME}"
+          ARCHIVE_FILE="${ASSET_BASENAME}.tar.gz"
+          ARCHIVE_PATH="${BUNDLE_ROOT}/${ARCHIVE_FILE}"
+          CHECKSUM_FILE="${ARCHIVE_FILE}.sha256"
+          CHECKSUM_PATH="${BUNDLE_ROOT}/${CHECKSUM_FILE}"
+          METADATA_FILE="${ARCHIVE_FILE}.metadata.json"
+          METADATA_PATH="${BUNDLE_ROOT}/${METADATA_FILE}"
+          echo "artifact_name=$ARTIFACT_NAME" >> "$GITHUB_OUTPUT"
+          echo "asset_basename=$ASSET_BASENAME" >> "$GITHUB_OUTPUT"
+          echo "bundle_dir_name=$BUNDLE_DIR_NAME" >> "$GITHUB_OUTPUT"
+          echo "bundle_dir=$BUNDLE_DIR" >> "$GITHUB_OUTPUT"
+          echo "archive_file=$ARCHIVE_FILE" >> "$GITHUB_OUTPUT"
+          echo "archive_path=$ARCHIVE_PATH" >> "$GITHUB_OUTPUT"
+          echo "checksum_file=$CHECKSUM_FILE" >> "$GITHUB_OUTPUT"
+          echo "checksum_path=$CHECKSUM_PATH" >> "$GITHUB_OUTPUT"
+          echo "metadata_file=$METADATA_FILE" >> "$GITHUB_OUTPUT"
+          echo "metadata_path=$METADATA_PATH" >> "$GITHUB_OUTPUT"
+
       - name: Generate release bundle
+        env:
+          BUNDLE_DIR: ${{ steps.asset_names.outputs.bundle_dir }}
         run: |
           mkdir -p "$BUNDLE_ROOT"
           node dist/server/cli/releaseBundle.js --output-dir "$BUNDLE_DIR"
 
       - name: Verify release bundle
+        env:
+          BUNDLE_DIR: ${{ steps.asset_names.outputs.bundle_dir }}
         run: node dist/server/cli/releaseVerify.js --input-dir "$BUNDLE_DIR"
 
       - name: Archive release bundle
+        env:
+          ARCHIVE_PATH: ${{ steps.asset_names.outputs.archive_path }}
+          BUNDLE_DIR_NAME: ${{ steps.asset_names.outputs.bundle_dir_name }}
         run: |
           rm -f "$ARCHIVE_PATH"
-          tar -czf "$ARCHIVE_PATH" -C "$BUNDLE_ROOT" "$ARTIFACT_NAME"
+          tar -czf "$ARCHIVE_PATH" -C "$BUNDLE_ROOT" "$BUNDLE_DIR_NAME"
 
       - name: Verify archived release bundle
+        env:
+          ARCHIVE_PATH: ${{ steps.asset_names.outputs.archive_path }}
+          BUNDLE_DIR_NAME: ${{ steps.asset_names.outputs.bundle_dir_name }}
         run: |
           EXTRACT_ROOT="${RUNNER_TEMP}/release-archive-check"
           rm -rf "$EXTRACT_ROOT"
           mkdir -p "$EXTRACT_ROOT"
           tar -xzf "$ARCHIVE_PATH" -C "$EXTRACT_ROOT"
-          node dist/server/cli/releaseVerify.js --input-dir "$EXTRACT_ROOT/$ARTIFACT_NAME"
+          node dist/server/cli/releaseVerify.js --input-dir "$EXTRACT_ROOT/$BUNDLE_DIR_NAME"
 
       - name: Generate archived release bundle checksum sidecar
+        env:
+          ARCHIVE_PATH: ${{ steps.asset_names.outputs.archive_path }}
+          CHECKSUM_PATH: ${{ steps.asset_names.outputs.checksum_path }}
         run: |
           CHECKSUM_DIR="$(dirname "$CHECKSUM_PATH")"
           ARCHIVE_FILE="$(basename "$ARCHIVE_PATH")"
@@ -78,32 +122,33 @@ jobs:
           sha256sum "$ARCHIVE_FILE" > "$CHECKSUM_FILE"
 
       - name: Verify archived release bundle checksum sidecar
+        env:
+          CHECKSUM_PATH: ${{ steps.asset_names.outputs.checksum_path }}
         run: |
           CHECKSUM_DIR="$(dirname "$CHECKSUM_PATH")"
           cd "$CHECKSUM_DIR"
           sha256sum -c "$(basename "$CHECKSUM_PATH")"
 
-      - name: Derive archived release bundle metadata path
-        id: metadata
+      - name: Reset archived release bundle metadata file
+        env:
+          METADATA_PATH: ${{ steps.asset_names.outputs.metadata_path }}
         run: |
-          METADATA_FILE="$(basename "$ARCHIVE_PATH").metadata.json"
-          METADATA_PATH="$(dirname "$ARCHIVE_PATH")/$METADATA_FILE"
           rm -f "$METADATA_PATH"
-          echo "metadata_file=$METADATA_FILE" >> "$GITHUB_OUTPUT"
-          echo "metadata_path=$METADATA_PATH" >> "$GITHUB_OUTPUT"
 
       - name: Generate archived release bundle metadata
         env:
-          METADATA_PATH: ${{ steps.metadata.outputs.metadata_path }}
+          ASSET_BASENAME: ${{ steps.asset_names.outputs.asset_basename }}
+          ARCHIVE_FILE: ${{ steps.asset_names.outputs.archive_file }}
+          CHECKSUM_FILE: ${{ steps.asset_names.outputs.checksum_file }}
+          BUNDLE_DIR_NAME: ${{ steps.asset_names.outputs.bundle_dir_name }}
+          METADATA_PATH: ${{ steps.asset_names.outputs.metadata_path }}
         run: |
-          ARCHIVE_FILE="$(basename "$ARCHIVE_PATH")"
-          CHECKSUM_FILE="$(basename "$CHECKSUM_PATH")"
-          BUNDLE_DIR_NAME="$(basename "$BUNDLE_DIR")"
-          export ARCHIVE_FILE CHECKSUM_FILE BUNDLE_DIR_NAME
+          export ASSET_BASENAME ARCHIVE_FILE CHECKSUM_FILE BUNDLE_DIR_NAME
           node <<'EOF'
           const fs = require('node:fs');
 
           const metadata = {
+            asset_basename: process.env.ASSET_BASENAME,
             ref: process.env.GITHUB_REF,
             ref_name: process.env.GITHUB_REF_NAME,
             ref_type: process.env.GITHUB_REF_TYPE,
@@ -119,17 +164,19 @@ jobs:
 
       - name: Verify archived release bundle metadata
         env:
-          METADATA_PATH: ${{ steps.metadata.outputs.metadata_path }}
+          ASSET_BASENAME: ${{ steps.asset_names.outputs.asset_basename }}
+          ARCHIVE_FILE: ${{ steps.asset_names.outputs.archive_file }}
+          CHECKSUM_FILE: ${{ steps.asset_names.outputs.checksum_file }}
+          BUNDLE_DIR_NAME: ${{ steps.asset_names.outputs.bundle_dir_name }}
+          METADATA_PATH: ${{ steps.asset_names.outputs.metadata_path }}
         run: |
-          ARCHIVE_FILE="$(basename "$ARCHIVE_PATH")"
-          CHECKSUM_FILE="$(basename "$CHECKSUM_PATH")"
-          BUNDLE_DIR_NAME="$(basename "$BUNDLE_DIR")"
-          export ARCHIVE_FILE CHECKSUM_FILE BUNDLE_DIR_NAME
+          export ASSET_BASENAME ARCHIVE_FILE CHECKSUM_FILE BUNDLE_DIR_NAME
           node <<'EOF'
           const fs = require('node:fs');
 
           const metadata = JSON.parse(fs.readFileSync(process.env.METADATA_PATH, 'utf8'));
           const expected = {
+            asset_basename: process.env.ASSET_BASENAME,
             ref: process.env.GITHUB_REF,
             ref_name: process.env.GITHUB_REF_NAME,
             ref_type: process.env.GITHUB_REF_TYPE,
@@ -150,12 +197,12 @@ jobs:
       - name: Upload release bundle artifact
         uses: actions/upload-artifact@v4
         with:
-          name: promobot-release-bundle
+          name: ${{ steps.asset_names.outputs.artifact_name }}
           path: |
-            ${{ env.BUNDLE_DIR }}
-            ${{ env.ARCHIVE_PATH }}
-            ${{ env.CHECKSUM_PATH }}
-            ${{ steps.metadata.outputs.metadata_path }}
+            ${{ steps.asset_names.outputs.bundle_dir }}
+            ${{ steps.asset_names.outputs.archive_path }}
+            ${{ steps.asset_names.outputs.checksum_path }}
+            ${{ steps.asset_names.outputs.metadata_path }}
           if-no-files-found: error
           compression-level: 0
 
@@ -172,25 +219,29 @@ jobs:
       - name: Download release bundle artifact
         uses: actions/download-artifact@v4
         with:
-          name: promobot-release-bundle
+          name: ${{ needs.release-bundle.outputs.artifact_name }}
           path: ${{ runner.temp }}/release-bundle-artifact
 
       - name: Locate archived release bundle assets
         id: archive
+        env:
+          ARCHIVE_FILE: ${{ needs.release-bundle.outputs.archive_file }}
+          CHECKSUM_FILE: ${{ needs.release-bundle.outputs.checksum_file }}
+          METADATA_FILE: ${{ needs.release-bundle.outputs.metadata_file }}
         run: |
-          ARCHIVE_PATH="$(find "${RUNNER_TEMP}/release-bundle-artifact" -type f -name '*.tar.gz' -print -quit)"
+          ARCHIVE_PATH="$(find "${RUNNER_TEMP}/release-bundle-artifact" -type f -name "$ARCHIVE_FILE" -print -quit)"
           if [ -z "$ARCHIVE_PATH" ]; then
-            echo "Expected a .tar.gz archive in the downloaded release bundle artifact" >&2
+            echo "Expected $ARCHIVE_FILE in the downloaded release bundle artifact" >&2
             exit 1
           fi
-          CHECKSUM_PATH="$(find "${RUNNER_TEMP}/release-bundle-artifact" -type f -name "$(basename "$ARCHIVE_PATH").sha256" -print -quit)"
+          CHECKSUM_PATH="$(find "${RUNNER_TEMP}/release-bundle-artifact" -type f -name "$CHECKSUM_FILE" -print -quit)"
           if [ -z "$CHECKSUM_PATH" ]; then
-            echo "Expected a .sha256 sidecar next to the archived release bundle" >&2
+            echo "Expected $CHECKSUM_FILE in the downloaded release bundle artifact" >&2
             exit 1
           fi
-          METADATA_PATH="$(find "${RUNNER_TEMP}/release-bundle-artifact" -type f -name "$(basename "$ARCHIVE_PATH").metadata.json" -print -quit)"
+          METADATA_PATH="$(find "${RUNNER_TEMP}/release-bundle-artifact" -type f -name "$METADATA_FILE" -print -quit)"
           if [ -z "$METADATA_PATH" ]; then
-            echo "Expected a .metadata.json sidecar next to the archived release bundle" >&2
+            echo "Expected $METADATA_FILE in the downloaded release bundle artifact" >&2
             exit 1
           fi
           echo "archive_path=$ARCHIVE_PATH" >> "$GITHUB_OUTPUT"
@@ -203,9 +254,11 @@ jobs:
           ARCHIVE_PATH: ${{ steps.archive.outputs.archive_path }}
           CHECKSUM_PATH: ${{ steps.archive.outputs.checksum_path }}
           METADATA_PATH: ${{ steps.archive.outputs.metadata_path }}
+          EXPECTED_ASSET_BASENAME: ${{ needs.release-bundle.outputs.asset_basename }}
+          EXPECTED_BUNDLE_DIR_NAME: ${{ needs.release-bundle.outputs.bundle_dir_name }}
           RELEASE_BODY_PATH: ${{ runner.temp }}/release-body.md
         run: |
-          export ARCHIVE_PATH CHECKSUM_PATH METADATA_PATH RELEASE_BODY_PATH
+          export ARCHIVE_PATH CHECKSUM_PATH METADATA_PATH EXPECTED_ASSET_BASENAME EXPECTED_BUNDLE_DIR_NAME RELEASE_BODY_PATH
           node <<'EOF'
           const fs = require('node:fs');
           const path = require('node:path');
@@ -214,10 +267,26 @@ jobs:
           const archiveFile = path.basename(process.env.ARCHIVE_PATH);
           const checksumFile = path.basename(process.env.CHECKSUM_PATH);
           const metadataFile = path.basename(process.env.METADATA_PATH);
-          const expectedMetadataFile = `${archiveFile}.metadata.json`;
+          const assetBasename = metadata.asset_basename;
+
+          if (assetBasename !== process.env.EXPECTED_ASSET_BASENAME) {
+            throw new Error(`Unexpected metadata asset_basename: ${assetBasename} !== ${process.env.EXPECTED_ASSET_BASENAME}`);
+          }
+
+          const expectedArchiveFile = `${assetBasename}.tar.gz`;
+          const expectedChecksumFile = `${expectedArchiveFile}.sha256`;
+          const expectedMetadataFile = `${expectedArchiveFile}.metadata.json`;
+
+          if (archiveFile !== expectedArchiveFile) {
+            throw new Error(`Unexpected archive file name: ${archiveFile} !== ${expectedArchiveFile}`);
+          }
 
           if (metadata.archive_file !== archiveFile) {
             throw new Error(`Unexpected metadata archive_file: ${metadata.archive_file} !== ${archiveFile}`);
+          }
+
+          if (checksumFile !== expectedChecksumFile) {
+            throw new Error(`Unexpected checksum file name: ${checksumFile} !== ${expectedChecksumFile}`);
           }
 
           if (metadata.checksum_file !== checksumFile) {
@@ -233,21 +302,25 @@ jobs:
             throw new Error('Expected bundle_dir_name in release metadata');
           }
 
+          if (bundleDirName !== process.env.EXPECTED_BUNDLE_DIR_NAME) {
+            throw new Error(`Unexpected bundle_dir_name: ${bundleDirName} !== ${process.env.EXPECTED_BUNDLE_DIR_NAME}`);
+          }
+
           const body = [
             `Release bundle assets for ${process.env.GITHUB_REF_NAME}.`,
             '',
             'Download:',
-            `- \`${archiveFile}\``,
-            `- \`${checksumFile}\``,
-            `- \`${metadataFile}\``,
+            `- \`${expectedArchiveFile}\``,
+            `- \`${expectedChecksumFile}\``,
+            `- \`${expectedMetadataFile}\``,
             '',
             'Recommended verification flow:',
-            `1. Run \`sha256sum -c ${checksumFile}\` before trusting \`${archiveFile}\`.`,
-            `2. Read \`${metadataFile}\` to confirm the tag, commit SHA, and asset-to-bundle mapping.`,
-            `3. Extract \`${archiveFile}\` with \`tar -xzf ${archiveFile}\`.`,
+            `1. Run \`sha256sum -c ${expectedChecksumFile}\` before trusting \`${expectedArchiveFile}\`.`,
+            `2. Read \`${expectedMetadataFile}\` to confirm the tag, commit SHA, and asset-to-bundle mapping.`,
+            `3. Extract \`${expectedArchiveFile}\` with \`tar -xzf ${expectedArchiveFile}\`.`,
             `4. Verify the extracted \`${bundleDirName}\` directory with \`pnpm release:verify -- --input-dir ./${bundleDirName}\` or \`pnpm verify:release -- --input-dir ./${bundleDirName}\`.`,
             '',
-            `The extracted directory name should match \`bundle_dir_name: ${bundleDirName}\` in \`${metadataFile}\`.`,
+            `The extracted directory name should match \`bundle_dir_name: ${bundleDirName}\` in \`${expectedMetadataFile}\`.`,
           ].join('\n');
 
           fs.writeFileSync(process.env.RELEASE_BODY_PATH, `${body}\n`);
