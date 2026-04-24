@@ -7,6 +7,11 @@ on:
         description: "Optional preview suffix (1-32 chars: lowercase letters, digits, ., _, -; must start and end with a letter or digit)"
         required: false
         type: string
+      skip_tests:
+        description: "Skip pnpm test for this manual preview bundle run"
+        required: false
+        default: false
+        type: boolean
   push:
     tags:
       - 'v*'
@@ -55,7 +60,25 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Derive test execution policy
+        id: test_policy
+        env:
+          SKIP_TESTS_REQUESTED: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.skip_tests == 'true' }}
+        run: |
+          skip_tests="${SKIP_TESTS_REQUESTED:-false}"
+          tests_summary='executed (required for tag release)'
+
+          if [ "$skip_tests" = "true" ]; then
+            tests_summary='skipped via manual workflow_dispatch input'
+          elif [ "${GITHUB_EVENT_NAME:-}" = "workflow_dispatch" ]; then
+            tests_summary='executed (default manual behavior)'
+          fi
+
+          echo "skip_tests=$skip_tests" >> "$GITHUB_OUTPUT"
+          echo "tests_summary=$tests_summary" >> "$GITHUB_OUTPUT"
+
       - name: Run tests
+        if: ${{ steps.test_policy.outputs.skip_tests != 'true' }}
         run: pnpm test
 
       - name: Build
@@ -295,8 +318,9 @@ jobs:
           METADATA_PATH: ${{ steps.asset_names.outputs.metadata_path }}
           PRERELEASE: ${{ steps.release_flags.outputs.prerelease }}
           RAW_ASSET_SUFFIX: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.asset_suffix || '' }}
+          TESTS_SUMMARY: ${{ steps.test_policy.outputs.tests_summary }}
         run: |
-          export ARTIFACT_NAME ASSET_BASENAME ARCHIVE_FILE CHECKSUM_FILE METADATA_FILE BUNDLE_DIR_NAME METADATA_PATH PRERELEASE RAW_ASSET_SUFFIX
+          export ARTIFACT_NAME ASSET_BASENAME ARCHIVE_FILE CHECKSUM_FILE METADATA_FILE BUNDLE_DIR_NAME METADATA_PATH PRERELEASE RAW_ASSET_SUFFIX TESTS_SUMMARY
           node <<'EOF'
           const fs = require('node:fs');
           const path = require('node:path');
@@ -406,6 +430,7 @@ jobs:
             ? [
                 ['Run mode', 'Tag release'],
                 ['Release tag', `\`${process.env.GITHUB_REF_NAME}\``],
+                ['`pnpm test`', process.env.TESTS_SUMMARY],
                 ['Derived `asset_basename`', `\`${metadata.asset_basename}\``],
                 ['`artifact_name`', `\`${metadata.artifact_name}\``],
                 ['`archive`', `\`${assetsByKind.archive}\``],
@@ -415,6 +440,7 @@ jobs:
             : [
                 ['Run mode', 'Manual preview'],
                 ['Requested `asset_suffix`', requestedPreviewSuffix ? `\`${requestedPreviewSuffix}\`` : '`not set`'],
+                ['`pnpm test`', process.env.TESTS_SUMMARY],
                 ['`asset_suffix` effective', requestedPreviewSuffix
                   ? `yes, via \`${metadata.asset_basename}\``
                   : 'not requested; default basename retained'],
