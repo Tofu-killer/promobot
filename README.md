@@ -92,7 +92,7 @@ pnpm browser:artifacts:archive -- --older-than-hours 72
 - `pnpm rollback:local -- --backup-dir <path> [options]`：先停 PM2、从已有 runtime backup 恢复数据，再按恢复后的环境重启服务，并按需追加 smoke check
 - `pnpm preflight:local -- [options]`：先跑 `preflight:prod`，再按需追加 `smoke:server`
 - GitHub Actions CI：`main` 的 push / pull_request 会运行 `pnpm test` 和 `pnpm build`，用于提前拦截测试与构建回归
-- GitHub Actions `Release Bundle`：支持手动触发和 `v*` tag push，都会执行 `pnpm test`、`pnpm build`、静态 preflight、release bundle 生成与校验；其中手动 `workflow_dispatch` 主要产出可下载的 Actions artifact，`v*` tag push 会在保留 Actions artifact 的同时追加 GitHub Release asset；如果走 GitHub Release asset 下载链路，tar.gz 的 sidecar 只用于下载完整性校验，不替代解压后的 bundle manifest 校验
+- GitHub Actions `Release Bundle`：支持手动触发和 `v*` tag push，都会执行 `pnpm test`、`pnpm build`、静态 preflight、release bundle 生成与校验；其中手动 `workflow_dispatch` 主要产出可下载的 Actions artifact，`v*` tag push 会在保留 Actions artifact 的同时追加 GitHub Release asset；如果走 GitHub Release asset 下载链路，release metadata asset 的定位就是给下载方 / 自动化方消费的机器可读说明，用来描述这次 `Release Bundle` 产物及校验入口；它不替代 tar.gz 的 sidecar，也不替代解压后的 bundle manifest 校验
 - 生产访问时，浏览器可直接走同一个 Node 进程访问页面和 `/api`
 
 更完整的本地开发、构建、LAN 访问、环境变量和限制说明见 `docs/DEPLOYMENT.md`。
@@ -103,8 +103,9 @@ pnpm browser:artifacts:archive -- --older-than-hours 72
 - `pnpm release:deploy` / `ops/deploy-release.sh` 面向“目标机只拿到目录型 release bundle”的部署：bundle 会随产物带上 deploy 脚本，解压后直接在 bundle 根目录执行即可。
 - 新生成的 bundle manifest 会记录 bundle 内文件 checksum；`pnpm release:verify` / `pnpm verify:release` 会在文件存在时重算并比对，不匹配会返回失败。旧 manifest 没有 checksum 时，仍按原来的目录结构校验处理。
 - GitHub Release 上和 `promobot-release-bundle.tar.gz` 配套的 sidecar 只用于 tar.gz 下载完整性校验；这一步发生在解压前，和 bundle 内 `manifest.json` 的文件 checksum 校验不是一回事。
+- GitHub Release 上和 `promobot-release-bundle.tar.gz` 配套的 `promobot-release-bundle.tar.gz.metadata.json` 是机器可读说明，帮助下载方 / 自动化方识别 bundle、archive 和 sidecar 的关系；它不替代 tar.gz sidecar，也不替代解压后对 `manifest.json` 以及 `pnpm release:verify` / `pnpm verify:release` 的 bundle 校验。
 - 推荐顺序是先在构建机生成并校验 bundle，再把 bundle 目录传到目标机部署。
-- 如果不想在本地手动打包，也可以直接用 GitHub Actions `Release Bundle` workflow 取包：手动 `workflow_dispatch` 下载的是 Actions artifact，里面同时带 bundle 目录和压缩包；正式 `v*` tag push 会在保留 Actions artifact 的同时，把压缩包挂到 GitHub Release asset。两者对应的是同一份已校验的 release bundle 内容，只是挂载位置和消费场景不同；如果拿的是 GitHub Release asset，先用配套 sidecar 校验 `promobot-release-bundle.tar.gz` 的下载完整性，再解压并走后面的 `verify -> deploy -> smoke` 流程。
+- 如果不想在本地手动打包，也可以直接用 GitHub Actions `Release Bundle` workflow 取包：手动 `workflow_dispatch` 下载的是 Actions artifact，里面同时带 bundle 目录、压缩包、`.sha256` 和 `.metadata.json`；正式 `v*` tag push 会在保留 Actions artifact 的同时，把压缩包、`.sha256` 和 `.metadata.json` 挂到 GitHub Release asset。两者对应的是同一份已校验的 release bundle 内容，只是挂载位置和消费场景不同；如果拿的是 GitHub Release asset，先用配套 sidecar 校验 `promobot-release-bundle.tar.gz` 的下载完整性，再用 `.metadata.json` 核对资产信息，之后再解压并走后面的 `verify -> deploy -> smoke` 流程。
 
 ```bash
 pnpm release:local -- --output-dir /tmp/promobot-release

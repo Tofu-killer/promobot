@@ -274,18 +274,20 @@ pnpm release:deploy
 - 支持手动触发 `workflow_dispatch`
 - 支持在 `v*` tag push 时自动触发
 - `Actions artifact` 指 workflow run 页面里的下载产物；`GitHub Release asset` 指挂在 GitHub Release 页面下的正式附件，两者不是同一个东西
-- 手动 `workflow_dispatch` 仍主要产出 Actions artifact，里面同时带 bundle 目录和压缩包，适合作为交付件发往目标机
-- 只有 `v*` tag push 这条正式发版入口，才会在保留 Actions artifact 的同时，把 `promobot-release-bundle.tar.gz` 附着到 GitHub Release；新的 release asset sidecar 只服务这条 tar.gz 下载链路，如果只是临时取包 / 验包，直接下载 Actions artifact 即可
+- 手动 `workflow_dispatch` 仍主要产出 Actions artifact，里面同时带 bundle 目录、压缩包、`.sha256` 和 `.metadata.json`，适合作为交付件发往目标机
+- 只有 `v*` tag push 这条正式发版入口，才会在保留 Actions artifact 的同时，把 `promobot-release-bundle.tar.gz`、`.sha256` 和 `.metadata.json` 附着到 GitHub Release；新的 release asset sidecar 只服务这条 tar.gz 下载链路，如果只是临时取包 / 验包，直接下载 Actions artifact 即可
+- `promobot-release-bundle.tar.gz.metadata.json` 的定位是给下载方 / 自动化方消费的机器可读说明，用来描述 `Release Bundle` workflow 产出的 bundle、archive 和校验入口；它不替代 `promobot-release-bundle.tar.gz.sha256` 这个 tar.gz sidecar，也不替代解压后对 `manifest.json` 以及 `pnpm release:verify` / `pnpm verify:release` 的 bundle 校验
 - 会自动执行 `pnpm test`、`pnpm build`、静态 `preflight`、`release:bundle` 和 `release:verify`
-- Actions artifact 里同时带 bundle 目录和压缩包；GitHub Release asset 的 tar.gz 下载应先用配套 sidecar 做下载完整性校验，再解压拿到目录型 bundle。解压后的 `manifest.json` 和 `pnpm release:verify` / `pnpm verify:release` 校验的是 bundle 内文件，不是 tar.gz 下载字节本身
+- Actions artifact 里同时带 bundle 目录、压缩包、`.sha256` 和 `.metadata.json`；GitHub Release asset 的 tar.gz 下载应先用配套 sidecar 做下载完整性校验，再用 `.metadata.json` 读取 ref / commit / 文件名信息，最后再解压拿到目录型 bundle。解压后的 `manifest.json` 和 `pnpm release:verify` / `pnpm verify:release` 校验的是 bundle 内文件，不是 tar.gz 下载字节本身
 
 如果你走 GitHub Release asset 下载链路，建议顺序是：
 
-1. 下载 `promobot-release-bundle.tar.gz` 和配套 sidecar
+1. 下载 `promobot-release-bundle.tar.gz`、配套 `.sha256` 和 `.metadata.json`
 2. 先用 sidecar 校验 tar.gz 下载完整性
-3. 解压 tar.gz，得到目录型 release bundle 和其中的 `manifest.json`
-4. 对解压后的目录运行 `pnpm release:verify -- --input-dir <path>` 或 `pnpm verify:release -- --input-dir <path>`
-5. 校验通过后，再在 bundle 根目录执行 `pnpm release:deploy`
+3. 再用 `.metadata.json` 核对 ref / commit / 资产文件名是否符合预期
+4. 解压 tar.gz，得到目录型 release bundle 和其中的 `manifest.json`
+5. 对解压后的目录运行 `pnpm release:verify -- --input-dir <path>` 或 `pnpm verify:release -- --input-dir <path>`
+6. 校验通过后，再在 bundle 根目录执行 `pnpm release:deploy`
 
 换句话说：
 

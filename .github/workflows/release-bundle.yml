@@ -83,6 +83,70 @@ jobs:
           cd "$CHECKSUM_DIR"
           sha256sum -c "$(basename "$CHECKSUM_PATH")"
 
+      - name: Derive archived release bundle metadata path
+        id: metadata
+        run: |
+          METADATA_FILE="$(basename "$ARCHIVE_PATH").metadata.json"
+          METADATA_PATH="$(dirname "$ARCHIVE_PATH")/$METADATA_FILE"
+          rm -f "$METADATA_PATH"
+          echo "metadata_file=$METADATA_FILE" >> "$GITHUB_OUTPUT"
+          echo "metadata_path=$METADATA_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Generate archived release bundle metadata
+        env:
+          METADATA_PATH: ${{ steps.metadata.outputs.metadata_path }}
+        run: |
+          ARCHIVE_FILE="$(basename "$ARCHIVE_PATH")"
+          CHECKSUM_FILE="$(basename "$CHECKSUM_PATH")"
+          BUNDLE_DIR_NAME="$(basename "$BUNDLE_DIR")"
+          export ARCHIVE_FILE CHECKSUM_FILE BUNDLE_DIR_NAME
+          node <<'EOF'
+          const fs = require('node:fs');
+
+          const metadata = {
+            ref: process.env.GITHUB_REF,
+            ref_name: process.env.GITHUB_REF_NAME,
+            ref_type: process.env.GITHUB_REF_TYPE,
+            tag: process.env.GITHUB_REF_TYPE === 'tag' ? process.env.GITHUB_REF_NAME : null,
+            commit_sha: process.env.GITHUB_SHA,
+            archive_file: process.env.ARCHIVE_FILE,
+            checksum_file: process.env.CHECKSUM_FILE,
+            bundle_dir_name: process.env.BUNDLE_DIR_NAME,
+          };
+
+          fs.writeFileSync(process.env.METADATA_PATH, `${JSON.stringify(metadata, null, 2)}\n`);
+          EOF
+
+      - name: Verify archived release bundle metadata
+        env:
+          METADATA_PATH: ${{ steps.metadata.outputs.metadata_path }}
+        run: |
+          ARCHIVE_FILE="$(basename "$ARCHIVE_PATH")"
+          CHECKSUM_FILE="$(basename "$CHECKSUM_PATH")"
+          BUNDLE_DIR_NAME="$(basename "$BUNDLE_DIR")"
+          export ARCHIVE_FILE CHECKSUM_FILE BUNDLE_DIR_NAME
+          node <<'EOF'
+          const fs = require('node:fs');
+
+          const metadata = JSON.parse(fs.readFileSync(process.env.METADATA_PATH, 'utf8'));
+          const expected = {
+            ref: process.env.GITHUB_REF,
+            ref_name: process.env.GITHUB_REF_NAME,
+            ref_type: process.env.GITHUB_REF_TYPE,
+            tag: process.env.GITHUB_REF_TYPE === 'tag' ? process.env.GITHUB_REF_NAME : null,
+            commit_sha: process.env.GITHUB_SHA,
+            archive_file: process.env.ARCHIVE_FILE,
+            checksum_file: process.env.CHECKSUM_FILE,
+            bundle_dir_name: process.env.BUNDLE_DIR_NAME,
+          };
+
+          for (const [key, value] of Object.entries(expected)) {
+            if (metadata[key] !== value) {
+              throw new Error(`Unexpected metadata field ${key}: ${metadata[key]} !== ${value}`);
+            }
+          }
+          EOF
+
       - name: Upload release bundle artifact
         uses: actions/upload-artifact@v4
         with:
@@ -91,6 +155,7 @@ jobs:
             ${{ env.BUNDLE_DIR }}
             ${{ env.ARCHIVE_PATH }}
             ${{ env.CHECKSUM_PATH }}
+            ${{ steps.metadata.outputs.metadata_path }}
           if-no-files-found: error
           compression-level: 0
 
@@ -110,7 +175,7 @@ jobs:
           name: promobot-release-bundle
           path: ${{ runner.temp }}/release-bundle-artifact
 
-      - name: Locate archived release bundle and checksum sidecar
+      - name: Locate archived release bundle assets
         id: archive
         run: |
           ARCHIVE_PATH="$(find "${RUNNER_TEMP}/release-bundle-artifact" -type f -name '*.tar.gz' -print -quit)"
@@ -123,14 +188,21 @@ jobs:
             echo "Expected a .sha256 sidecar next to the archived release bundle" >&2
             exit 1
           fi
+          METADATA_PATH="$(find "${RUNNER_TEMP}/release-bundle-artifact" -type f -name "$(basename "$ARCHIVE_PATH").metadata.json" -print -quit)"
+          if [ -z "$METADATA_PATH" ]; then
+            echo "Expected a .metadata.json sidecar next to the archived release bundle" >&2
+            exit 1
+          fi
           echo "archive_path=$ARCHIVE_PATH" >> "$GITHUB_OUTPUT"
           echo "checksum_path=$CHECKSUM_PATH" >> "$GITHUB_OUTPUT"
+          echo "metadata_path=$METADATA_PATH" >> "$GITHUB_OUTPUT"
 
-      - name: Publish archived release bundle and checksum sidecar to GitHub Release
+      - name: Publish archived release bundle assets to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             ${{ steps.archive.outputs.archive_path }}
             ${{ steps.archive.outputs.checksum_path }}
+            ${{ steps.archive.outputs.metadata_path }}
           fail_on_unmatched_files: true
           overwrite_files: true
