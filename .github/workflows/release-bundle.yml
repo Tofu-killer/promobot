@@ -192,6 +192,7 @@ jobs:
           rm -f "$METADATA_PATH"
 
       - name: Generate archived release bundle metadata
+        id: metadata_sidecar
         env:
           ARTIFACT_NAME: ${{ steps.asset_names.outputs.artifact_name }}
           ASSET_BASENAME: ${{ steps.asset_names.outputs.asset_basename }}
@@ -201,7 +202,11 @@ jobs:
           METADATA_PATH: ${{ steps.asset_names.outputs.metadata_path }}
           PRERELEASE: ${{ steps.release_flags.outputs.prerelease }}
         run: |
-          export ARTIFACT_NAME ASSET_BASENAME ARCHIVE_FILE CHECKSUM_FILE BUNDLE_DIR_NAME PRERELEASE
+          GENERATED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          echo "generated_at=$GENERATED_AT" >> "$GITHUB_OUTPUT"
+          echo "run_url=$RUN_URL" >> "$GITHUB_OUTPUT"
+          export ARTIFACT_NAME ASSET_BASENAME ARCHIVE_FILE CHECKSUM_FILE BUNDLE_DIR_NAME PRERELEASE GENERATED_AT RUN_URL
           node <<'EOF'
           const fs = require('node:fs');
           const path = require('node:path');
@@ -228,6 +233,8 @@ jobs:
             metadata_file: metadataFile,
             assets,
             bundle_dir_name: process.env.BUNDLE_DIR_NAME,
+            generated_at: process.env.GENERATED_AT,
+            run_url: process.env.RUN_URL,
           };
 
           fs.writeFileSync(process.env.METADATA_PATH, `${JSON.stringify(metadata, null, 2)}\n`);
@@ -241,15 +248,18 @@ jobs:
           CHECKSUM_FILE: ${{ steps.asset_names.outputs.checksum_file }}
           BUNDLE_DIR_NAME: ${{ steps.asset_names.outputs.bundle_dir_name }}
           METADATA_PATH: ${{ steps.asset_names.outputs.metadata_path }}
+          EXPECTED_GENERATED_AT: ${{ steps.metadata_sidecar.outputs.generated_at }}
+          EXPECTED_RUN_URL: ${{ steps.metadata_sidecar.outputs.run_url }}
           PRERELEASE: ${{ steps.release_flags.outputs.prerelease }}
         run: |
-          export ARTIFACT_NAME ASSET_BASENAME ARCHIVE_FILE CHECKSUM_FILE BUNDLE_DIR_NAME PRERELEASE
+          export ARTIFACT_NAME ASSET_BASENAME ARCHIVE_FILE CHECKSUM_FILE BUNDLE_DIR_NAME EXPECTED_GENERATED_AT EXPECTED_RUN_URL PRERELEASE
           node <<'EOF'
           const fs = require('node:fs');
           const path = require('node:path');
 
           const metadata = JSON.parse(fs.readFileSync(process.env.METADATA_PATH, 'utf8'));
           const metadataFile = path.basename(process.env.METADATA_PATH);
+          const isoUtcPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
           const expectedAssets = [
             { kind: 'archive', name: process.env.ARCHIVE_FILE },
             { kind: 'checksum', name: process.env.CHECKSUM_FILE },
@@ -269,12 +279,18 @@ jobs:
             checksum_file: process.env.CHECKSUM_FILE,
             metadata_file: metadataFile,
             bundle_dir_name: process.env.BUNDLE_DIR_NAME,
+            generated_at: process.env.EXPECTED_GENERATED_AT,
+            run_url: process.env.EXPECTED_RUN_URL,
           };
 
           for (const [key, value] of Object.entries(expected)) {
             if (metadata[key] !== value) {
               throw new Error(`Unexpected metadata field ${key}: ${metadata[key]} !== ${value}`);
             }
+          }
+
+          if (!isoUtcPattern.test(metadata.generated_at)) {
+            throw new Error(`Unexpected metadata generated_at format: ${metadata.generated_at}`);
           }
 
           if (!Array.isArray(metadata.assets)) {
@@ -327,6 +343,8 @@ jobs:
 
           const metadata = JSON.parse(fs.readFileSync(process.env.METADATA_PATH, 'utf8'));
           const metadataFile = path.basename(process.env.METADATA_PATH);
+          const isoUtcPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
+          const expectedRunUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
 
           if (metadata.artifact_name !== process.env.ARTIFACT_NAME) {
             throw new Error(`Unexpected metadata artifact_name: ${metadata.artifact_name} !== ${process.env.ARTIFACT_NAME}`);
@@ -358,6 +376,14 @@ jobs:
 
           if (metadata.bundle_dir_name !== process.env.BUNDLE_DIR_NAME) {
             throw new Error(`Unexpected metadata bundle_dir_name: ${metadata.bundle_dir_name} !== ${process.env.BUNDLE_DIR_NAME}`);
+          }
+
+          if (!isoUtcPattern.test(metadata.generated_at)) {
+            throw new Error(`Unexpected metadata generated_at format: ${metadata.generated_at}`);
+          }
+
+          if (metadata.run_url !== expectedRunUrl) {
+            throw new Error(`Unexpected metadata run_url: ${metadata.run_url} !== ${expectedRunUrl}`);
           }
 
           if (metadataFile !== process.env.METADATA_FILE) {
@@ -542,6 +568,8 @@ jobs:
           const checksumFile = path.basename(process.env.CHECKSUM_PATH);
           const metadataFile = path.basename(process.env.METADATA_PATH);
           const assetBasename = metadata.asset_basename;
+          const isoUtcPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
+          const expectedRunUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
 
           if (assetBasename !== process.env.EXPECTED_ASSET_BASENAME) {
             throw new Error(`Unexpected metadata asset_basename: ${assetBasename} !== ${process.env.EXPECTED_ASSET_BASENAME}`);
@@ -594,6 +622,14 @@ jobs:
 
           if (bundleDirName !== process.env.EXPECTED_BUNDLE_DIR_NAME) {
             throw new Error(`Unexpected bundle_dir_name: ${bundleDirName} !== ${process.env.EXPECTED_BUNDLE_DIR_NAME}`);
+          }
+
+          if (!isoUtcPattern.test(metadata.generated_at)) {
+            throw new Error(`Unexpected metadata generated_at format: ${metadata.generated_at}`);
+          }
+
+          if (metadata.run_url !== expectedRunUrl) {
+            throw new Error(`Unexpected metadata run_url: ${metadata.run_url} !== ${expectedRunUrl}`);
           }
 
           if (!Array.isArray(metadata.assets) || metadata.assets.length === 0) {
