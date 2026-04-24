@@ -37,6 +37,9 @@ jobs:
       checksum_file: ${{ steps.asset_names.outputs.checksum_file }}
       metadata_file: ${{ steps.asset_names.outputs.metadata_file }}
       prerelease: ${{ steps.release_flags.outputs.prerelease }}
+      test_execution_state: ${{ steps.test_policy.outputs.test_execution_state }}
+      test_execution_mode: ${{ steps.test_policy.outputs.test_execution_mode }}
+      tests_summary: ${{ steps.test_policy.outputs.tests_summary }}
     env:
       ASSET_NAME_ROOT: promobot-release-bundle
       BUNDLE_ROOT: ${{ runner.temp }}/release-artifacts
@@ -66,15 +69,22 @@ jobs:
           SKIP_TESTS_REQUESTED: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.skip_tests == 'true' }}
         run: |
           skip_tests="${SKIP_TESTS_REQUESTED:-false}"
+          test_execution_state='executed'
+          test_execution_mode='tag_release_forced'
           tests_summary='executed (required for tag release)'
 
           if [ "$skip_tests" = "true" ]; then
+            test_execution_state='skipped'
+            test_execution_mode='manual_skip'
             tests_summary='skipped via manual workflow_dispatch input'
           elif [ "${GITHUB_EVENT_NAME:-}" = "workflow_dispatch" ]; then
+            test_execution_mode='manual_default'
             tests_summary='executed (default manual behavior)'
           fi
 
           echo "skip_tests=$skip_tests" >> "$GITHUB_OUTPUT"
+          echo "test_execution_state=$test_execution_state" >> "$GITHUB_OUTPUT"
+          echo "test_execution_mode=$test_execution_mode" >> "$GITHUB_OUTPUT"
           echo "tests_summary=$tests_summary" >> "$GITHUB_OUTPUT"
 
       - name: Run tests
