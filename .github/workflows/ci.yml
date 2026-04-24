@@ -25,6 +25,8 @@ jobs:
 
   ci:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout
@@ -49,3 +51,11 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+      - name: Smoke release bundle flow
+        env:
+          RELEASE_BUNDLE_DIR: ${{ runner.temp }}/promobot-release
+        run: |
+          rm -rf "$RELEASE_BUNDLE_DIR"
+          node dist/server/cli/releaseBundle.js --output-dir "$RELEASE_BUNDLE_DIR"
+          bash "$RELEASE_BUNDLE_DIR/ops/verify-release.sh" --input-dir "$RELEASE_BUNDLE_DIR"
