@@ -224,6 +224,9 @@ jobs:
           const fs = require('node:fs');
           const path = require('node:path');
 
+          const schemaVersion = 1;
+          const checksumAlgorithm = 'sha256';
+          const archiveFormat = 'tar.gz';
           const metadataFile = path.basename(process.env.METADATA_PATH);
           const assets = [
             { kind: 'archive', name: process.env.ARCHIVE_FILE },
@@ -232,6 +235,7 @@ jobs:
           ];
 
           const metadata = {
+            schema_version: schemaVersion,
             artifact_name: process.env.ARTIFACT_NAME,
             asset_basename: process.env.ASSET_BASENAME,
             event_name: process.env.GITHUB_EVENT_NAME,
@@ -247,7 +251,9 @@ jobs:
               summary: process.env.TESTS_SUMMARY,
             },
             archive_file: process.env.ARCHIVE_FILE,
+            archive_format: archiveFormat,
             checksum_file: process.env.CHECKSUM_FILE,
+            checksum_algorithm: checksumAlgorithm,
             metadata_file: metadataFile,
             assets,
             bundle_dir_name: process.env.BUNDLE_DIR_NAME,
@@ -281,6 +287,9 @@ jobs:
           const fs = require('node:fs');
           const path = require('node:path');
 
+          const expectedSchemaVersion = 1;
+          const expectedChecksumAlgorithm = 'sha256';
+          const expectedArchiveFormat = 'tar.gz';
           const metadata = JSON.parse(fs.readFileSync(process.env.METADATA_PATH, 'utf8'));
           const metadataFile = path.basename(process.env.METADATA_PATH);
           const isoUtcPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
@@ -299,8 +308,11 @@ jobs:
             tag: process.env.GITHUB_REF_TYPE === 'tag' ? process.env.GITHUB_REF_NAME : null,
             prerelease: process.env.PRERELEASE === 'true',
             commit_sha: process.env.GITHUB_SHA,
+            schema_version: expectedSchemaVersion,
             archive_file: process.env.ARCHIVE_FILE,
+            archive_format: expectedArchiveFormat,
             checksum_file: process.env.CHECKSUM_FILE,
+            checksum_algorithm: expectedChecksumAlgorithm,
             metadata_file: metadataFile,
             bundle_dir_name: process.env.BUNDLE_DIR_NAME,
             generated_at: process.env.EXPECTED_GENERATED_AT,
@@ -385,6 +397,9 @@ jobs:
           const fs = require('node:fs');
           const path = require('node:path');
 
+          const expectedSchemaVersion = 1;
+          const expectedChecksumAlgorithm = 'sha256';
+          const expectedArchiveFormat = 'tar.gz';
           const metadata = JSON.parse(fs.readFileSync(process.env.METADATA_PATH, 'utf8'));
           const metadataFile = path.basename(process.env.METADATA_PATH);
           const isoUtcPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
@@ -406,6 +421,10 @@ jobs:
             throw new Error(`Unexpected metadata asset_basename: ${metadata.asset_basename} !== ${process.env.ASSET_BASENAME}`);
           }
 
+          if (metadata.schema_version !== expectedSchemaVersion) {
+            throw new Error(`Unexpected metadata schema_version: ${metadata.schema_version} !== ${expectedSchemaVersion}`);
+          }
+
           if (metadata.event_name !== process.env.GITHUB_EVENT_NAME) {
             throw new Error(`Unexpected metadata event_name: ${metadata.event_name} !== ${process.env.GITHUB_EVENT_NAME}`);
           }
@@ -418,8 +437,16 @@ jobs:
             throw new Error(`Unexpected metadata archive_file: ${metadata.archive_file} !== ${process.env.ARCHIVE_FILE}`);
           }
 
+          if (metadata.archive_format !== expectedArchiveFormat) {
+            throw new Error(`Unexpected metadata archive_format: ${metadata.archive_format} !== ${expectedArchiveFormat}`);
+          }
+
           if (metadata.checksum_file !== process.env.CHECKSUM_FILE) {
             throw new Error(`Unexpected metadata checksum_file: ${metadata.checksum_file} !== ${process.env.CHECKSUM_FILE}`);
+          }
+
+          if (metadata.checksum_algorithm !== expectedChecksumAlgorithm) {
+            throw new Error(`Unexpected metadata checksum_algorithm: ${metadata.checksum_algorithm} !== ${expectedChecksumAlgorithm}`);
           }
 
           if (metadata.metadata_file !== process.env.METADATA_FILE) {
@@ -630,6 +657,9 @@ jobs:
           const fs = require('node:fs');
           const path = require('node:path');
 
+          const expectedSchemaVersion = 1;
+          const expectedChecksumAlgorithm = 'sha256';
+          const expectedArchiveFormat = 'tar.gz';
           const metadata = JSON.parse(fs.readFileSync(process.env.METADATA_PATH, 'utf8'));
           const archiveFile = path.basename(process.env.ARCHIVE_PATH);
           const checksumFile = path.basename(process.env.CHECKSUM_PATH);
@@ -646,6 +676,10 @@ jobs:
 
           if (assetBasename !== process.env.EXPECTED_ASSET_BASENAME) {
             throw new Error(`Unexpected metadata asset_basename: ${assetBasename} !== ${process.env.EXPECTED_ASSET_BASENAME}`);
+          }
+
+          if (metadata.schema_version !== expectedSchemaVersion) {
+            throw new Error(`Unexpected metadata schema_version: ${metadata.schema_version} !== ${expectedSchemaVersion}`);
           }
 
           if (metadata.artifact_name !== process.env.EXPECTED_ARTIFACT_NAME) {
@@ -682,12 +716,20 @@ jobs:
             throw new Error(`Unexpected metadata archive_file: ${metadata.archive_file} !== ${archiveFile}`);
           }
 
+          if (metadata.archive_format !== expectedArchiveFormat) {
+            throw new Error(`Unexpected metadata archive_format: ${metadata.archive_format} !== ${expectedArchiveFormat}`);
+          }
+
           if (checksumFile !== expectedChecksumFile) {
             throw new Error(`Unexpected checksum file name: ${checksumFile} !== ${expectedChecksumFile}`);
           }
 
           if (metadata.checksum_file !== checksumFile) {
             throw new Error(`Unexpected metadata checksum_file: ${metadata.checksum_file} !== ${checksumFile}`);
+          }
+
+          if (metadata.checksum_algorithm !== expectedChecksumAlgorithm) {
+            throw new Error(`Unexpected metadata checksum_algorithm: ${metadata.checksum_algorithm} !== ${expectedChecksumAlgorithm}`);
           }
 
           if (metadata.metadata_file !== metadataFile) {
