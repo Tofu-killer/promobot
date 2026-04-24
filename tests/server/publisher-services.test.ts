@@ -1,7 +1,7 @@
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   SessionStore,
@@ -11,19 +11,28 @@ import * as sessionStoreModule from '../../src/server/services/browser/sessionSt
 import { publishToWeibo } from '../../src/server/services/publishers/weibo';
 import { publishToXiaohongshu } from '../../src/server/services/publishers/xiaohongshu';
 import { publishToX } from '../../src/server/services/publishers/x';
+import { isolateProcessCwd } from './testDb';
 
 const tempDirs: string[] = [];
+let restoreCwd: (() => void) | null = null;
+
+beforeEach(() => {
+  restoreCwd = isolateProcessCwd();
+});
+
+afterEach(() => {
+  restoreCwd?.();
+  restoreCwd = null;
+
+  for (const dir of tempDirs.splice(0)) {
+    rmSync(dir, { force: true, recursive: true });
+  }
+
+  delete process.env.BROWSER_HANDOFF_OUTPUT_DIR;
+  vi.restoreAllMocks();
+});
 
 describe('SessionStore', () => {
-  afterEach(() => {
-    for (const dir of tempDirs.splice(0)) {
-      rmSync(dir, { force: true, recursive: true });
-    }
-
-    delete process.env.BROWSER_HANDOFF_OUTPUT_DIR;
-    vi.restoreAllMocks();
-  });
-
   it('persists and reloads local session metadata for a platform account', () => {
     const rootDir = mkdtempSync(path.join(tmpdir(), 'promobot-session-store-'));
     tempDirs.push(rootDir);

@@ -1,8 +1,8 @@
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/server/app';
-import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
+import { cleanupTestDatabasePath, createTestDatabasePath, isolateProcessCwd } from './testDb';
 
 async function requestApp(
   method: string,
@@ -99,6 +99,17 @@ async function requestApp(
 }
 
 describe('settings api', () => {
+  let restoreCwd: (() => void) | null = null;
+
+  beforeEach(() => {
+    restoreCwd = isolateProcessCwd();
+  });
+
+  afterEach(() => {
+    restoreCwd?.();
+    restoreCwd = null;
+  });
+
   it('persists allowlist and scheduler settings in SQLite', async () => {
     const { rootDir } = createTestDatabasePath();
     try {

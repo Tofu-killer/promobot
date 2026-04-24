@@ -2,11 +2,11 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import express from 'express';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { channelAccountsRouter } from '../../src/server/routes/channelAccounts';
 import { createSQLiteDraftStore } from '../../src/server/store/drafts';
 import { createJobQueueStore } from '../../src/server/store/jobQueue';
-import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
+import { cleanupTestDatabasePath, createTestDatabasePath, isolateProcessCwd } from './testDb';
 
 const defaultStorageState = {
   cookies: [],
@@ -109,6 +109,17 @@ async function requestApp(method: string, url: string, body?: unknown) {
 }
 
 describe('channel accounts api', () => {
+  let restoreCwd: (() => void) | null = null;
+
+  beforeEach(() => {
+    restoreCwd = isolateProcessCwd();
+  });
+
+  afterEach(() => {
+    restoreCwd?.();
+    restoreCwd = null;
+  });
+
   it('rejects channel account creation when the platform is not supported', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
