@@ -153,10 +153,14 @@ main() {
   [ -f "dist/server/index.js" ] || fail "dist/server/index.js not found in ${bundle_root}"
   [ -f "dist/client/index.html" ] || fail "dist/client/index.html not found in ${bundle_root}"
   [ -f "dist/server/cli/deploymentSmoke.js" ] || fail "dist/server/cli/deploymentSmoke.js not found in ${bundle_root}"
+  [ -f "dist/server/cli/releaseVerify.js" ] || fail "dist/server/cli/releaseVerify.js not found in ${bundle_root}"
 
   require_command pnpm
   require_command pm2
   require_command node
+
+  log "Verifying release bundle integrity"
+  node dist/server/cli/releaseVerify.js --input-dir "${bundle_root}"
 
   if [ "${skip_install}" -eq 0 ]; then
     log "Running pnpm install --frozen-lockfile"

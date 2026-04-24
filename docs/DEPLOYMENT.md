@@ -280,6 +280,70 @@ pnpm release:deploy
 - `/assets/*` 会返回构建产物
 - 非 API 的无扩展名路由会 fallback 到 `index.html`
 
+## 最终交付 / 验收流程
+
+最终交付建议按同一套五段门禁收口：`preflight -> build/release bundle -> verify -> deploy -> smoke`。当前 `pnpm preflight:prod` / `pnpm preflight:local` 都会检查 `dist/server/index.js` 和 `dist/client/index.html`，所以实际执行时要先产出构建结果，再做 preflight；下面的命令按“可直接执行”的最少顺序列出来。
+
+### 路径 A：源码仓库部署
+
+适用场景：
+
+- 目标机上已经有源码 checkout
+- 目标机接受在仓库根目录执行 install / build / PM2 切换
+
+阶段对应：
+
+- `preflight`：`pnpm preflight:prod -- --require-env AI_API_KEY,ADMIN_PASSWORD`
+- `build`：`pnpm build`
+- `verify`：`pnpm test`
+- `deploy`：`pnpm deploy:local -- --skip-install --skip-smoke`
+- `smoke`：`pnpm smoke:server -- --base-url http://127.0.0.1:3001`
+
+最少命令清单：
+
+```bash
+pnpm install --frozen-lockfile
+pnpm build
+pnpm preflight:prod -- --require-env AI_API_KEY,ADMIN_PASSWORD
+pnpm test
+pnpm deploy:local -- --skip-install --skip-smoke
+pnpm smoke:server -- --base-url http://127.0.0.1:3001
+```
+
+这条链路的交付物就是源码仓库本身；`deploy:local` 会在仓库目录里接手 PM2 reload / start，所以前面的 `install` 和 `build` 已经单独执行过时，建议显式加 `--skip-install --skip-smoke`，把 deploy 和 smoke 拆开，便于验收记录留痕。
+
+### 路径 B：release bundle 直接部署
+
+适用场景：
+
+- 构建机负责打包
+- 目标机不要求保留源码仓库，只接收目录型 release bundle
+
+阶段对应：
+
+- `preflight`：`pnpm preflight:prod -- --require-env AI_API_KEY,ADMIN_PASSWORD`
+- `release bundle`：`pnpm release:bundle -- --output-dir /tmp/promobot-release`
+- `verify`：`pnpm verify:release -- --input-dir /tmp/promobot-release`
+- `deploy`：在 bundle 根目录执行 `pnpm release:deploy -- --skip-smoke`
+- `smoke`：在 bundle 根目录执行 `node dist/server/cli/deploymentSmoke.js --base-url http://127.0.0.1:3001`
+
+最少命令清单：
+
+```bash
+pnpm install --frozen-lockfile
+pnpm build
+pnpm preflight:prod -- --require-env AI_API_KEY,ADMIN_PASSWORD
+pnpm release:bundle -- --output-dir /tmp/promobot-release
+pnpm verify:release -- --input-dir /tmp/promobot-release
+
+# 先把 /tmp/promobot-release 复制到目标机
+cd /tmp/promobot-release
+pnpm release:deploy -- --skip-smoke
+node dist/server/cli/deploymentSmoke.js --base-url http://127.0.0.1:3001
+```
+
+这条链路建议在构建机先做一次 `verify:release`，再把 bundle 目录发往目标机。目标机上的独立 smoke 继续沿用 bundle 自带的 compiled CLI，与 `ops/deploy-release.sh` 内部的检查方式保持一致。
+
 ## 用 PM2 运行
 
 ```bash

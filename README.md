@@ -112,6 +112,40 @@ cd /tmp/promobot-release
 pnpm release:deploy
 ```
 
+## 最终交付 / 验收流程
+
+最终交付建议把记录统一按 `preflight -> build/release bundle -> verify -> deploy -> smoke` 五段收口。要注意：当前 `pnpm preflight:prod` / `pnpm preflight:local` 都会检查 `dist/server/index.js` 和 `dist/client/index.html`，所以实际执行时需要先拿到构建产物；下面的命令清单按“可直接执行”的最少顺序给出。
+
+### 1. 源码仓库部署
+
+适用场景：目标机保留源码 checkout，直接在仓库根目录部署。
+
+```bash
+pnpm install --frozen-lockfile
+pnpm build
+pnpm preflight:prod -- --require-env AI_API_KEY,ADMIN_PASSWORD
+pnpm test
+pnpm deploy:local -- --skip-install --skip-smoke
+pnpm smoke:server -- --base-url http://127.0.0.1:3001
+```
+
+### 2. Release bundle 直接部署
+
+适用场景：构建机先产出目录型 release bundle，目标机只拿 bundle 目录上线。
+
+```bash
+pnpm install --frozen-lockfile
+pnpm build
+pnpm preflight:prod -- --require-env AI_API_KEY,ADMIN_PASSWORD
+pnpm release:bundle -- --output-dir /tmp/promobot-release
+pnpm verify:release -- --input-dir /tmp/promobot-release
+
+# 先把 /tmp/promobot-release 复制到目标机
+cd /tmp/promobot-release
+pnpm release:deploy -- --skip-smoke
+node dist/server/cli/deploymentSmoke.js --base-url http://127.0.0.1:3001
+```
+
 ## 生产运维补充
 
 - `pm2.config.js` 现在会把日志落到仓库下的 `logs/`，并带基本重启/退避配置。
