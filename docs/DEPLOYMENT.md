@@ -261,7 +261,15 @@ pnpm verify:release -- --input-dir /tmp/promobot-release
 pnpm verify:downloaded-release -- --archive-file /tmp/promobot-release-bundle-v1.2.3.tar.gz
 ```
 
-这个入口会先校验 archive、`.sha256` sidecar、`.metadata.json` metadata sidecar，再把解压出来的目录交给现有 `release:verify`；因此它复用的是同一套目录校验 contract，而不是再造一套平行逻辑。
+这个入口会先校验 archive、`.sha256` sidecar、`.metadata.json` metadata sidecar，再把解压出来的目录交给 bundle 自带的 `dist/server/cli/releaseVerify.js`；因此它复用的是同一套目录校验 contract，而不是再造一套平行逻辑。
+
+如果你是 GitHub Release 页面的下载方，而且本机不保留源码 checkout，可额外下载 release 页面现在随包分发的 standalone `verify-downloaded-release.sh` helper，然后直接在本机运行：
+
+```bash
+bash ./verify-downloaded-release.sh --archive-file /tmp/promobot-release-bundle-v1.2.3.tar.gz
+```
+
+这里的 standalone helper 和仓库内的 `pnpm verify:downloaded-release` 是同一条校验链的两种入口：前者面向“只下载 release asset、不 checkout 仓库”的场景，后者只是对仓库里 `ops/verify-downloaded-release.sh` 的 `pnpm` 包装，适合已经有源码 checkout 的构建机或运维机。两者都会先核对本地 `archive + .sha256 + .metadata.json`，再复用解压后 bundle 自带的目录校验 CLI，不会引入第二套规则。
 
 如果目标机不保留源码仓库，而是只接收 bundle 目录，可在 bundle 解压后直接部署：
 
@@ -286,7 +294,7 @@ pnpm release:deploy
 - workflow run 页面里的 `summary` 只是 Actions run 页面内的结果摘要，用来帮助定位这次 `Release Bundle` run 产出的 bundle、archive、`.sha256` sidecar、`.metadata.json` metadata sidecar 和解压后 `manifest.json` 的关系；对手动 preview run，它会显示带 preview suffix 的最终派生命名；对 tag release（`v*` tag push），它会显示带 tag 版本号的最终派生命名，并把下一步指向 GitHub Release 页面。它不是 GitHub Release asset，也不替代 `release body`
 - `.metadata.json` metadata sidecar 的新增字段里，`schema_version` 记录这份 metadata sidecar 自身的 schema 版本，只用于让下载方 / 自动化方按对应 schema 解析 sidecar，不表示 release 版本、tag 版本，也不替代 bundle 内 `manifest.json` 的结构版本；`checksum_algorithm` 记录这条 archive 下载链路配套 checksum sidecar 使用的算法，当前和 `.sha256` sidecar 一起描述 archive 的 `sha256` 校验，不描述解压后 bundle 内文件的 checksum 规则；`archive_format` 记录这次 release asset 下载链路里 archive 的封装格式，当前对应版本化 `tar.gz` archive，不描述解压后的 bundle 目录格式。`artifact_name` 记录这组文件在 Actions run 里的 artifact 容器名，`event_name` 记录触发这次 workflow 的事件来源，例如 `workflow_dispatch` 或 `push`，`prerelease` 记录对应 GitHub Release 页面是否应标成 prerelease 的布尔状态；新增的 `generated_at` 记录这份 metadata sidecar 由 workflow 写出的时间戳，`run_url` 记录这次 workflow run 页面的链接，`release_url` 只在 `v*` tag push 这条 tag release 时记录对应 GitHub Release 页面的链接，手动 preview run（`workflow_dispatch`）则固定为 `null`；新增的 `tests_summary` 只描述这次 metadata sidecar 对应产物在 workflow 里如何执行 `pnpm test`，并固定写成三种状态之一：手动 preview run 显式传 `skip_tests=true` 时为 `skipped via manual workflow_dispatch input`，手动 preview run 没传或保持默认时为 `executed (default manual behavior)`，`v*` tag push 的 tag release 时为 `executed (required for tag release)`。它们和 sidecar 里的有序 asset 列表一样，都是给下载方 / 自动化方消费的机器可读发布上下文：有序 asset 列表表达的是 asset 清单顺序，按 workflow 对外提供下载与校验的顺序列出 `archive -> .sha256 sidecar -> .metadata.json metadata sidecar`，便于稳定展示、核对和串接后续步骤；其中 `schema_version` 只是 metadata sidecar 自身的 schema 版本，`checksum_algorithm` 只是 archive 下载链路的 checksum 算法，`archive_format` 只是 archive 下载链路的封装格式，`run_url` 只是 workflow run 页面链接，`release_url` 只是 GitHub Release 页面链接，`tests_summary` 只是 metadata sidecar 里的机器可读测试执行状态；这些内容都不等于 `release body`、workflow run `summary`，也不替代 workflow run 页面里给人读的 `summary` 或解压后 bundle 内的 `manifest.json`
 - workflow 还会把同一 ref 的 run 串行化，并给 build / publish job 加超时保护，避免并发运行或卡死 runner 时互相踩资产
-- 正式 `v*` tag push 生成的 GitHub Release 页面会自带 download / verify 说明；这段内容由 `Release Bundle` workflow 写进 `release body`，会列出该 tag 对应的版本化 archive、`.sha256` sidecar、`.metadata.json` metadata sidecar 和推荐的校验顺序，也会把该 tag 的 `prerelease` 和 `tests_summary` 对应的测试执行状态写成给人读的页面说明。要注意，`release body` 只是给人读的页面说明；真正供下载和校验消费的仍是页面下方这些 GitHub Release asset，以及解压后 bundle 里的 `manifest.json`。即使 `release body` 现在会显示这些状态语义，机器可读发布上下文仍以 `.metadata.json` metadata sidecar 里的 `prerelease`、`tests_summary` 等字段为准，它不替代 metadata sidecar
+- 正式 `v*` tag push 生成的 GitHub Release 页面会自带 download / verify 说明；这段内容由 `Release Bundle` workflow 写进 `release body`，会列出该 tag 对应的版本化 archive、`.sha256` sidecar、`.metadata.json` metadata sidecar、额外分发的 standalone `verify-downloaded-release.sh` helper 和推荐的校验顺序，也会把该 tag 的 `prerelease` 和 `tests_summary` 对应的测试执行状态写成给人读的页面说明。要注意，`release body` 只是给人读的页面说明；真正供下载和校验消费的仍是页面下方这些 GitHub Release asset，以及解压后 bundle 里的 `manifest.json`。即使 `release body` 现在会显示这些状态语义，机器可读发布上下文仍以 `.metadata.json` metadata sidecar 里的 `prerelease`、`tests_summary` 等字段为准，它不替代 metadata sidecar
 - 手动 preview run（`workflow_dispatch`）仍主要产出 Actions artifact，里面同时带 bundle 目录、archive、`.sha256` sidecar 和 `.metadata.json` metadata sidecar，适合作为交付件发往目标机；这里不额外承诺发布 GitHub Release asset，因此 `.metadata.json` metadata sidecar 里的 `release_url` 也固定为 `null`。手动 preview run 可选传 `asset_suffix` 作为 preview suffix，只用于区分这次手动预览包命名：会影响 Actions artifact 名称，以及其中 archive、`.sha256` sidecar、`.metadata.json` metadata sidecar 的命名；允许字符为 `1-32` 个小写字母、数字、`.`、`_`、`-`，并且必须以字母或数字开头和结尾。workflow run 页面的 `summary` 会直接列出这组带 preview suffix 的最终派生命名，它也不会改变 bundle 内 `manifest.json` 的语义
 - 手动 preview run（`workflow_dispatch`）还可选传 `skip_tests=true`，作为只用于加速手动 preview 包的自担风险选项：默认仍会执行 `pnpm test`；只有这条手动 preview 入口能跳过，`v*` tag push 这条 tag release 入口不受影响，仍会执行测试。它只影响打包前是否执行 `pnpm test`，不会改变已生成 archive、`.sha256` sidecar、`.metadata.json` metadata sidecar、bundle 内 `manifest.json` 和后续校验链语义
 - `prerelease` 状态只和 `v*` tag push 这条 tag release 有关。当前 workflow 会按 tag 名本身自动判定是否为 semver 预发布：像 `v1.2.3-rc.1`、`v1.2.3-beta.1` 这类会标成 `prerelease=true`，`v1.2.3` 这类正式版 tag 仍保持 `false`。这个判定不从 `asset_suffix`、`release body` 或 `summary` 推导；`release body` 现在只是把这个既有状态和对应测试执行状态以给人读的方式显示出来
@@ -294,15 +302,15 @@ pnpm release:deploy
 - 与版本化 archive 同名派生的 `.metadata.json` sidecar 的定位是给下载方 / 自动化方消费的机器可读说明，用来描述 `Release Bundle` workflow 产出的 bundle、archive 和校验入口；它不替代配套 `.sha256` sidecar，也不替代解压后对 `manifest.json` 以及 `pnpm release:verify` / `pnpm verify:release` 的 bundle 校验
 - `.metadata.json` metadata sidecar 里的 `schema_version`、`checksum_algorithm`、`archive_format`、`artifact_name`、`event_name`、`prerelease`、`generated_at`、`run_url`、`release_url`、`tests_summary` 和有序 asset 列表也应按同一层级理解：`schema_version` 对应 metadata sidecar 自身的 schema 版本，`checksum_algorithm` 对应 archive 下载链路的 checksum 算法，`archive_format` 对应 archive 下载链路的封装格式，`artifact_name` 对应 Actions artifact 下载入口，`event_name` 对应 workflow 触发来源，`prerelease` 对应 GitHub Release 状态，`generated_at` 对应 metadata sidecar 的生成时间，`run_url` 对应这次 workflow run 页面链接，`release_url` 对应 GitHub Release 页面链接，但只有 tag release 时有值、手动 preview run 为 `null`，`tests_summary` 对应这次产物的测试执行状态，并且只会是 `skipped via manual workflow_dispatch input`、`executed (default manual behavior)`、`executed (required for tag release)` 三种固定字符串之一，有序 asset 列表对应下载方 / 自动化方消费的 asset 清单顺序。这里这些字段只说明 metadata sidecar 的发布上下文，以及 `archive -> .sha256 sidecar -> .metadata.json metadata sidecar` 这组文件该按什么顺序识别与消费，不是 `release body` 文案，不是 workflow run `summary` 摘要，也不替代 workflow run 页面里给人读的 `summary`，更不是 bundle 内 `manifest.json` 的内容摘要
 - 默认会执行 `pnpm test`、`pnpm build`、静态 `preflight`、`release:bundle` 和 `release:verify`
-- Actions artifact 里同时带 bundle 目录、archive、`.sha256` sidecar 和 `.metadata.json` metadata sidecar；GitHub Release asset 的 tar.gz 下载应先用配套 sidecar 做下载完整性校验，再用 `.metadata.json` 读取 `schema_version` / `checksum_algorithm` / `archive_format` / ref / commit / `generated_at` / `run_url` / `release_url` / `tests_summary` / 文件名这些发布上下文，最后再解压拿到目录型 bundle。解压后的 `manifest.json` 和 `pnpm release:verify` / `pnpm verify:release` 校验的是 bundle 内文件，不是 tar.gz 下载字节本身
+- Actions artifact 里同时带 bundle 目录、archive、`.sha256` sidecar 和 `.metadata.json` metadata sidecar；正式 GitHub Release 页面则会在这组三件套之外额外分发 standalone `verify-downloaded-release.sh` helper，方便下载方不 checkout 仓库也能直接跑现成校验入口。GitHub Release asset 的 tar.gz 下载应先用配套 sidecar 做下载完整性校验，再用 `.metadata.json` 读取 `schema_version` / `checksum_algorithm` / `archive_format` / ref / commit / `generated_at` / `run_url` / `release_url` / `tests_summary` / 文件名这些发布上下文，最后再解压拿到目录型 bundle。解压后的 `manifest.json` 和 `pnpm release:verify` / `pnpm verify:release` 校验的是 bundle 内文件，不是 tar.gz 下载字节本身
 
 如果你走 GitHub Release asset 下载链路，建议顺序是：
 
-1. 下载该 tag 对应的版本化 archive、配套 `.sha256` sidecar 和 `.metadata.json` metadata sidecar
-2. 先用 sidecar 校验 tar.gz 下载完整性
-3. 再用 `.metadata.json` 核对 `schema_version` / `checksum_algorithm` / `archive_format` / ref / commit / `generated_at` / `run_url` / `release_url` / `tests_summary` / 资产文件名是否符合预期
-4. 解压 tar.gz，得到目录型 release bundle 和其中的 `manifest.json`
-5. 对解压后的目录运行 `pnpm release:verify -- --input-dir <path>` 或 `pnpm verify:release -- --input-dir <path>`
+1. 下载该 tag 对应的版本化 archive、配套 `.sha256` sidecar 和 `.metadata.json` metadata sidecar；如果目标机没有源码 checkout，再额外下载 release 页面分发的 standalone `verify-downloaded-release.sh` helper
+2. 无源码 checkout 时直接运行 `bash ./verify-downloaded-release.sh --archive-file <archive>`；有源码 checkout 时可运行 `pnpm verify:downloaded-release -- --archive-file <archive>`
+3. 如果需要人工核对，再查看 `.metadata.json` 中的 `schema_version` / `checksum_algorithm` / `archive_format` / ref / commit / `generated_at` / `run_url` / `release_url` / `tests_summary` / 资产文件名是否符合预期
+4. helper / `pnpm verify:downloaded-release` 校验通过后，保留解压出来的目录型 release bundle 和其中的 `manifest.json`
+5. 如需再次单独复核目录内容，可对解压后的目录运行 `pnpm release:verify -- --input-dir <path>` 或 `pnpm verify:release -- --input-dir <path>`
 6. 校验通过后，再在 bundle 根目录执行 `pnpm release:deploy`
 
 换句话说：

@@ -192,7 +192,7 @@ describe('release shell wrappers', () => {
 
     expect(result.status).toBe(0);
     expect(result.stdout).toContain('Verifying archive checksum');
-    expect(result.stdout).toContain('Handing extracted bundle to ops/verify-release.sh');
+    expect(result.stdout).toContain('Running extracted bundle release verifier');
     expect(result.stdout).toContain('Verification succeeded; extracted bundle will be cleaned up');
     expect(fs.existsSync(path.join(extractRoot, 'promobot-release-bundle'))).toBe(false);
   });
@@ -251,18 +251,6 @@ function createDownloadedReleaseFixture() {
 
   fs.mkdirSync(path.dirname(scriptPath), { recursive: true });
   fs.copyFileSync(path.resolve(repoRoot, 'ops/verify-downloaded-release.sh'), scriptPath);
-  writeFile(
-    rootDir,
-    'ops/verify-release.sh',
-    fs.readFileSync(path.resolve(repoRoot, 'ops/verify-release.sh'), 'utf8'),
-  );
-
-  writeFile(rootDir, 'package.json', '{}\n');
-  writeFile(
-    rootDir,
-    'dist/server/cli/releaseVerify.js',
-    'process.exit(0);\n',
-  );
 
   writeFile(rootDir, 'bundle-source/promobot-release-bundle/manifest.json', '{}\n');
   writeFile(rootDir, 'bundle-source/promobot-release-bundle/dist/server/index.js', 'console.log("server");\n');

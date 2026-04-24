@@ -18,7 +18,7 @@ Usage: ops/verify-downloaded-release.sh --archive <path> [options]
 
 Verify a downloaded release archive together with its .sha256 and .metadata.json
 sidecars, extract the bundle into a temporary directory, then hand the extracted
-bundle directory to the existing releaseVerify chain.
+bundle directory to the bundled releaseVerify CLI.
 
 Options:
   --archive <path>            Downloaded release archive to verify (required)
@@ -32,7 +32,8 @@ Options:
   --help, -h                  Show this help
 
 The script never downloads files or performs network verification. It only
-checks local files and then reuses ops/verify-release.sh for bundle validation.
+checks local files and then reuses the extracted bundle's releaseVerify CLI
+for directory validation.
 
 Examples:
   bash ops/verify-downloaded-release.sh --archive /tmp/promobot-v1.2.3.tar.gz
@@ -193,9 +194,6 @@ main() {
   local extracted_bundle_dir=""
   local archive_listing=""
   local archive_entry=""
-  local script_dir=""
-  local repo_root=""
-
   KEEP_EXTRACTED=0
   CHECKSUM_WORKSPACE=""
   EXTRACTED_ROOT=""
@@ -296,13 +294,6 @@ main() {
   mkdir -p "$extract_root"
   extract_root="$(resolve_existing_path "$extract_root")" || fail "Could not resolve extract root: $extract_root"
 
-  script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
-  repo_root="$(cd -- "${script_dir}/.." >/dev/null 2>&1 && pwd -P)"
-
-  [ -f "${repo_root}/package.json" ] || fail "package.json not found in ${repo_root}"
-  [ -f "${repo_root}/ops/verify-release.sh" ] || fail "ops/verify-release.sh not found in ${repo_root}"
-
-  require_command bash
   require_command node
   require_command tar
   require_command mktemp
@@ -355,9 +346,10 @@ main() {
 
   extracted_bundle_dir="${EXTRACTED_ROOT}/${bundle_dir_name}"
   [ -d "$extracted_bundle_dir" ] || fail "Expected extracted bundle directory not found: ${extracted_bundle_dir}"
+  [ -f "${extracted_bundle_dir}/dist/server/cli/releaseVerify.js" ] || fail "Extracted bundle is missing dist/server/cli/releaseVerify.js"
 
-  log "Handing extracted bundle to ops/verify-release.sh"
-  bash "${repo_root}/ops/verify-release.sh" --input-dir "$extracted_bundle_dir"
+  log "Running extracted bundle release verifier"
+  node "${extracted_bundle_dir}/dist/server/cli/releaseVerify.js" --input-dir "$extracted_bundle_dir"
 
   if [ "$KEEP_EXTRACTED" -eq 1 ]; then
     log "Verification succeeded; kept extracted bundle at ${extracted_bundle_dir}"

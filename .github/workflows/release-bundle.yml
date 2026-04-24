@@ -33,6 +33,7 @@ jobs:
       artifact_name: ${{ steps.asset_names.outputs.artifact_name }}
       asset_basename: ${{ steps.asset_names.outputs.asset_basename }}
       bundle_dir_name: ${{ steps.asset_names.outputs.bundle_dir_name }}
+      helper_file: ${{ steps.asset_names.outputs.helper_file }}
       archive_file: ${{ steps.asset_names.outputs.archive_file }}
       checksum_file: ${{ steps.asset_names.outputs.checksum_file }}
       metadata_file: ${{ steps.asset_names.outputs.metadata_file }}
@@ -122,10 +123,14 @@ jobs:
           CHECKSUM_PATH="${BUNDLE_ROOT}/${CHECKSUM_FILE}"
           METADATA_FILE="${ARCHIVE_FILE}.metadata.json"
           METADATA_PATH="${BUNDLE_ROOT}/${METADATA_FILE}"
+          HELPER_FILE="verify-downloaded-release.sh"
+          HELPER_PATH="${BUNDLE_ROOT}/${HELPER_FILE}"
           echo "artifact_name=$ARTIFACT_NAME" >> "$GITHUB_OUTPUT"
           echo "asset_basename=$ASSET_BASENAME" >> "$GITHUB_OUTPUT"
           echo "bundle_dir_name=$BUNDLE_DIR_NAME" >> "$GITHUB_OUTPUT"
           echo "bundle_dir=$BUNDLE_DIR" >> "$GITHUB_OUTPUT"
+          echo "helper_file=$HELPER_FILE" >> "$GITHUB_OUTPUT"
+          echo "helper_path=$HELPER_PATH" >> "$GITHUB_OUTPUT"
           echo "archive_file=$ARCHIVE_FILE" >> "$GITHUB_OUTPUT"
           echo "archive_path=$ARCHIVE_PATH" >> "$GITHUB_OUTPUT"
           echo "checksum_file=$CHECKSUM_FILE" >> "$GITHUB_OUTPUT"
@@ -195,6 +200,14 @@ jobs:
           cd "$CHECKSUM_DIR"
           sha256sum -c "$(basename "$CHECKSUM_PATH")"
 
+      - name: Stage downloaded release verification helper
+        env:
+          HELPER_PATH: ${{ steps.asset_names.outputs.helper_path }}
+        run: |
+          cp ops/verify-downloaded-release.sh "$HELPER_PATH"
+          chmod +x "$HELPER_PATH"
+          bash -n "$HELPER_PATH"
+
       - name: Reset archived release bundle metadata file
         env:
           METADATA_PATH: ${{ steps.asset_names.outputs.metadata_path }}
@@ -206,6 +219,7 @@ jobs:
         env:
           ARTIFACT_NAME: ${{ steps.asset_names.outputs.artifact_name }}
           ASSET_BASENAME: ${{ steps.asset_names.outputs.asset_basename }}
+          HELPER_FILE: ${{ steps.asset_names.outputs.helper_file }}
           ARCHIVE_FILE: ${{ steps.asset_names.outputs.archive_file }}
           CHECKSUM_FILE: ${{ steps.asset_names.outputs.checksum_file }}
           BUNDLE_DIR_NAME: ${{ steps.asset_names.outputs.bundle_dir_name }}
@@ -219,7 +233,7 @@ jobs:
           RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           echo "generated_at=$GENERATED_AT" >> "$GITHUB_OUTPUT"
           echo "run_url=$RUN_URL" >> "$GITHUB_OUTPUT"
-          export ARTIFACT_NAME ASSET_BASENAME ARCHIVE_FILE CHECKSUM_FILE BUNDLE_DIR_NAME PRERELEASE GENERATED_AT RUN_URL TEST_EXECUTION_STATE TEST_EXECUTION_MODE TESTS_SUMMARY
+          export ARTIFACT_NAME ASSET_BASENAME HELPER_FILE ARCHIVE_FILE CHECKSUM_FILE BUNDLE_DIR_NAME PRERELEASE GENERATED_AT RUN_URL TEST_EXECUTION_STATE TEST_EXECUTION_MODE TESTS_SUMMARY
           node <<'EOF'
           const fs = require('node:fs');
           const path = require('node:path');
@@ -238,6 +252,7 @@ jobs:
             schema_version: schemaVersion,
             artifact_name: process.env.ARTIFACT_NAME,
             asset_basename: process.env.ASSET_BASENAME,
+            helper_file: process.env.HELPER_FILE,
             event_name: process.env.GITHUB_EVENT_NAME,
             ref: process.env.GITHUB_REF,
             ref_name: process.env.GITHUB_REF_NAME,
@@ -271,6 +286,7 @@ jobs:
         env:
           ARTIFACT_NAME: ${{ steps.asset_names.outputs.artifact_name }}
           ASSET_BASENAME: ${{ steps.asset_names.outputs.asset_basename }}
+          HELPER_FILE: ${{ steps.asset_names.outputs.helper_file }}
           ARCHIVE_FILE: ${{ steps.asset_names.outputs.archive_file }}
           CHECKSUM_FILE: ${{ steps.asset_names.outputs.checksum_file }}
           BUNDLE_DIR_NAME: ${{ steps.asset_names.outputs.bundle_dir_name }}
@@ -282,7 +298,7 @@ jobs:
           TEST_EXECUTION_MODE: ${{ steps.test_policy.outputs.test_execution_mode }}
           TESTS_SUMMARY: ${{ steps.test_policy.outputs.tests_summary }}
         run: |
-          export ARTIFACT_NAME ASSET_BASENAME ARCHIVE_FILE CHECKSUM_FILE BUNDLE_DIR_NAME EXPECTED_GENERATED_AT EXPECTED_RUN_URL PRERELEASE TEST_EXECUTION_STATE TEST_EXECUTION_MODE TESTS_SUMMARY
+          export ARTIFACT_NAME ASSET_BASENAME HELPER_FILE ARCHIVE_FILE CHECKSUM_FILE BUNDLE_DIR_NAME EXPECTED_GENERATED_AT EXPECTED_RUN_URL PRERELEASE TEST_EXECUTION_STATE TEST_EXECUTION_MODE TESTS_SUMMARY
           node <<'EOF'
           const fs = require('node:fs');
           const path = require('node:path');
@@ -301,6 +317,7 @@ jobs:
           const expected = {
             artifact_name: process.env.ARTIFACT_NAME,
             asset_basename: process.env.ASSET_BASENAME,
+            helper_file: process.env.HELPER_FILE,
             event_name: process.env.GITHUB_EVENT_NAME,
             ref: process.env.GITHUB_REF,
             ref_name: process.env.GITHUB_REF_NAME,
@@ -365,12 +382,25 @@ jobs:
           }
           EOF
 
+      - name: Verify standalone downloaded release helper
+        env:
+          HELPER_PATH: ${{ steps.asset_names.outputs.helper_path }}
+          ARCHIVE_PATH: ${{ steps.asset_names.outputs.archive_path }}
+          CHECKSUM_PATH: ${{ steps.asset_names.outputs.checksum_path }}
+          METADATA_PATH: ${{ steps.asset_names.outputs.metadata_path }}
+        run: |
+          bash "$HELPER_PATH" \
+            --archive-file "$ARCHIVE_PATH" \
+            --checksum-file "$CHECKSUM_PATH" \
+            --metadata-file "$METADATA_PATH"
+
       - name: Upload release bundle artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.asset_names.outputs.artifact_name }}
           path: |
             ${{ steps.asset_names.outputs.bundle_dir }}
+            ${{ steps.asset_names.outputs.helper_path }}
             ${{ steps.asset_names.outputs.archive_path }}
             ${{ steps.asset_names.outputs.checksum_path }}
             ${{ steps.asset_names.outputs.metadata_path }}
@@ -381,6 +411,7 @@ jobs:
         env:
           ARTIFACT_NAME: ${{ steps.asset_names.outputs.artifact_name }}
           ASSET_BASENAME: ${{ steps.asset_names.outputs.asset_basename }}
+          HELPER_FILE: ${{ steps.asset_names.outputs.helper_file }}
           ARCHIVE_FILE: ${{ steps.asset_names.outputs.archive_file }}
           CHECKSUM_FILE: ${{ steps.asset_names.outputs.checksum_file }}
           METADATA_FILE: ${{ steps.asset_names.outputs.metadata_file }}
@@ -392,7 +423,7 @@ jobs:
           TEST_EXECUTION_MODE: ${{ steps.test_policy.outputs.test_execution_mode }}
           TESTS_SUMMARY: ${{ steps.test_policy.outputs.tests_summary }}
         run: |
-          export ARTIFACT_NAME ASSET_BASENAME ARCHIVE_FILE CHECKSUM_FILE METADATA_FILE BUNDLE_DIR_NAME METADATA_PATH PRERELEASE RAW_ASSET_SUFFIX TEST_EXECUTION_STATE TEST_EXECUTION_MODE TESTS_SUMMARY
+          export ARTIFACT_NAME ASSET_BASENAME HELPER_FILE ARCHIVE_FILE CHECKSUM_FILE METADATA_FILE BUNDLE_DIR_NAME METADATA_PATH PRERELEASE RAW_ASSET_SUFFIX TEST_EXECUTION_STATE TEST_EXECUTION_MODE TESTS_SUMMARY
           node <<'EOF'
           const fs = require('node:fs');
           const path = require('node:path');
@@ -419,6 +450,10 @@ jobs:
 
           if (metadata.asset_basename !== process.env.ASSET_BASENAME) {
             throw new Error(`Unexpected metadata asset_basename: ${metadata.asset_basename} !== ${process.env.ASSET_BASENAME}`);
+          }
+
+          if (metadata.helper_file !== process.env.HELPER_FILE) {
+            throw new Error(`Unexpected metadata helper_file: ${metadata.helper_file} !== ${process.env.HELPER_FILE}`);
           }
 
           if (metadata.schema_version !== expectedSchemaVersion) {
@@ -520,6 +555,7 @@ jobs:
           }
 
           const orderedAssetSet = metadata.assets.map((asset) => `\`${asset.name}\``).join(', ');
+          const publishedAssetSet = [`\`${metadata.helper_file}\``, ...metadata.assets.map((asset) => `\`${asset.name}\``)].join(', ');
 
           const isTagRelease = process.env.GITHUB_REF_TYPE === 'tag';
           const isManualPreviewRun = process.env.GITHUB_EVENT_NAME === 'workflow_dispatch';
@@ -550,6 +586,7 @@ jobs:
                 ['`pnpm test`', metadata.test_execution.summary],
                 ['Derived `asset_basename`', `\`${metadata.asset_basename}\``],
                 ['`artifact_name`', `\`${metadata.artifact_name}\``],
+                ['Verification helper', `\`${metadata.helper_file}\``],
                 ['`archive`', `\`${assetsByKind.archive}\``],
                 ['Checksum sidecar', `\`${assetsByKind.checksum}\``],
                 ['Metadata sidecar', `\`${assetsByKind.metadata}\``],
@@ -563,6 +600,7 @@ jobs:
                   : 'not requested; default basename retained'],
                 ['Derived `asset_basename`', `\`${metadata.asset_basename}\``],
                 ['`artifact_name`', `\`${metadata.artifact_name}\``],
+                ['Verification helper', `\`${metadata.helper_file}\``],
                 ['`archive`', `\`${assetsByKind.archive}\``],
                 ['Checksum sidecar', `\`${assetsByKind.checksum}\``],
                 ['Metadata sidecar', `\`${assetsByKind.metadata}\``],
@@ -578,17 +616,25 @@ jobs:
             '',
             ...summaryTable,
             '',
-            `Generated asset set: ${orderedAssetSet}.`,
+            `Published release asset set: ${publishedAssetSet}.`,
+            `Metadata asset contract remains the ordered archive/checksum/metadata trio: ${orderedAssetSet}.`,
+            `Standalone helper purpose: \`${metadata.helper_file}\` verifies the downloaded archive against \`${assetsByKind.checksum}\` and \`${assetsByKind.metadata}\`, extracts \`${assetsByKind.archive}\`, then runs the bundled \`releaseVerify.js\` from \`${metadata.bundle_dir_name}\`.`,
+            '',
+            'Recommended download order:',
+            `1. Download \`${metadata.helper_file}\` first so the standalone verifier is available locally.`,
+            `2. Download \`${assetsByKind.checksum}\` and \`${assetsByKind.metadata}\` into the same directory you will place \`${assetsByKind.archive}\` in.`,
+            `3. Download \`${assetsByKind.archive}\` last, keeping all four files together for local verification.`,
             '',
             'Recommended verification order:',
-            `1. Run \`sha256sum -c ${assetsByKind.checksum}\` before trusting \`${assetsByKind.archive}\`.`,
-            `2. Read \`${assetsByKind.metadata}\` to confirm the ${isTagRelease ? 'tag' : 'ref'}, commit SHA, and asset-to-bundle mapping.`,
-            `3. Extract \`${assetsByKind.archive}\` with \`tar -xzf ${assetsByKind.archive}\`.`,
-            `4. Verify the extracted \`${metadata.bundle_dir_name}\` directory with \`pnpm release:verify -- --input-dir ./${metadata.bundle_dir_name}\` or \`pnpm verify:release -- --input-dir ./${metadata.bundle_dir_name}\`.`,
+            `1. Run \`bash -n ./${metadata.helper_file}\` to confirm the helper script is syntactically intact after download.`,
+            `2. Run \`bash ./${metadata.helper_file} --archive ./${assetsByKind.archive}\` to validate the downloaded asset set end-to-end; the helper will check \`${assetsByKind.checksum}\` and \`${assetsByKind.metadata}\`, extract the archive, and run the bundled release verifier.`,
+            `3. Manual fallback: read \`${assetsByKind.metadata}\` to confirm the ${isTagRelease ? 'tag' : 'ref'}, commit SHA, and asset-to-bundle mapping.`,
+            `4. Manual fallback: run \`sha256sum -c ${assetsByKind.checksum}\`, then extract \`${assetsByKind.archive}\` with \`tar -xzf ${assetsByKind.archive}\`.`,
+            `5. Manual fallback: verify the extracted \`${metadata.bundle_dir_name}\` directory with \`pnpm release:verify -- --input-dir ./${metadata.bundle_dir_name}\` or \`pnpm verify:release -- --input-dir ./${metadata.bundle_dir_name}\`.`,
             '',
             isTagRelease
-              ? `Next step: the publish job will attach the same files to the [GitHub Release page](${releasePageUrl}) for \`${process.env.GITHUB_REF_NAME}\`.`
-              : `Next step: download the \`${process.env.ARTIFACT_NAME}\` artifact from this run and verify the files in the order above.`,
+              ? `Next step: the publish job will attach the same files plus \`${metadata.helper_file}\` to the [GitHub Release page](${releasePageUrl}) for \`${process.env.GITHUB_REF_NAME}\`.`
+              : `Next step: download the \`${process.env.ARTIFACT_NAME}\` artifact from this run; it now includes \`${metadata.helper_file}\` alongside the archive and sidecars.`,
           ];
 
           fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines.join('\n')}\n`);
@@ -611,9 +657,11 @@ jobs:
           name: ${{ needs.release-bundle.outputs.artifact_name }}
           path: ${{ runner.temp }}/release-bundle-artifact
 
-      - name: Locate archived release bundle assets
+      - name: Locate release bundle assets
         id: archive
         env:
+          BUNDLE_DIR_NAME: ${{ needs.release-bundle.outputs.bundle_dir_name }}
+          HELPER_FILE: ${{ needs.release-bundle.outputs.helper_file }}
           ARCHIVE_FILE: ${{ needs.release-bundle.outputs.archive_file }}
           CHECKSUM_FILE: ${{ needs.release-bundle.outputs.checksum_file }}
           METADATA_FILE: ${{ needs.release-bundle.outputs.metadata_file }}
@@ -633,26 +681,34 @@ jobs:
             echo "Expected $METADATA_FILE in the downloaded release bundle artifact" >&2
             exit 1
           fi
+          HELPER_PATH="$(find "${RUNNER_TEMP}/release-bundle-artifact" -type f -name "$HELPER_FILE" ! -path "*/${BUNDLE_DIR_NAME}/ops/${HELPER_FILE}" -print -quit)"
+          if [ -z "$HELPER_PATH" ]; then
+            echo "Expected standalone $HELPER_FILE in the downloaded release bundle artifact" >&2
+            exit 1
+          fi
           echo "archive_path=$ARCHIVE_PATH" >> "$GITHUB_OUTPUT"
           echo "checksum_path=$CHECKSUM_PATH" >> "$GITHUB_OUTPUT"
           echo "metadata_path=$METADATA_PATH" >> "$GITHUB_OUTPUT"
+          echo "helper_path=$HELPER_PATH" >> "$GITHUB_OUTPUT"
 
       - name: Generate GitHub Release body
         id: release_body
         env:
+          HELPER_PATH: ${{ steps.archive.outputs.helper_path }}
           ARCHIVE_PATH: ${{ steps.archive.outputs.archive_path }}
           CHECKSUM_PATH: ${{ steps.archive.outputs.checksum_path }}
           METADATA_PATH: ${{ steps.archive.outputs.metadata_path }}
           EXPECTED_ARTIFACT_NAME: ${{ needs.release-bundle.outputs.artifact_name }}
           EXPECTED_ASSET_BASENAME: ${{ needs.release-bundle.outputs.asset_basename }}
           EXPECTED_BUNDLE_DIR_NAME: ${{ needs.release-bundle.outputs.bundle_dir_name }}
+          EXPECTED_HELPER_FILE: ${{ needs.release-bundle.outputs.helper_file }}
           EXPECTED_PRERELEASE: ${{ needs.release-bundle.outputs.prerelease }}
           EXPECTED_TEST_EXECUTION_STATE: ${{ needs.release-bundle.outputs.test_execution_state }}
           EXPECTED_TEST_EXECUTION_MODE: ${{ needs.release-bundle.outputs.test_execution_mode }}
           EXPECTED_TESTS_SUMMARY: ${{ needs.release-bundle.outputs.tests_summary }}
           RELEASE_BODY_PATH: ${{ runner.temp }}/release-body.md
         run: |
-          export ARCHIVE_PATH CHECKSUM_PATH METADATA_PATH EXPECTED_ARTIFACT_NAME EXPECTED_ASSET_BASENAME EXPECTED_BUNDLE_DIR_NAME EXPECTED_PRERELEASE EXPECTED_TEST_EXECUTION_STATE EXPECTED_TEST_EXECUTION_MODE EXPECTED_TESTS_SUMMARY RELEASE_BODY_PATH
+          export HELPER_PATH ARCHIVE_PATH CHECKSUM_PATH METADATA_PATH EXPECTED_ARTIFACT_NAME EXPECTED_ASSET_BASENAME EXPECTED_BUNDLE_DIR_NAME EXPECTED_HELPER_FILE EXPECTED_PRERELEASE EXPECTED_TEST_EXECUTION_STATE EXPECTED_TEST_EXECUTION_MODE EXPECTED_TESTS_SUMMARY RELEASE_BODY_PATH
           node <<'EOF'
           const fs = require('node:fs');
           const path = require('node:path');
@@ -661,6 +717,7 @@ jobs:
           const expectedChecksumAlgorithm = 'sha256';
           const expectedArchiveFormat = 'tar.gz';
           const metadata = JSON.parse(fs.readFileSync(process.env.METADATA_PATH, 'utf8'));
+          const helperFile = path.basename(process.env.HELPER_PATH);
           const archiveFile = path.basename(process.env.ARCHIVE_PATH);
           const checksumFile = path.basename(process.env.CHECKSUM_PATH);
           const metadataFile = path.basename(process.env.METADATA_PATH);
@@ -684,6 +741,14 @@ jobs:
 
           if (metadata.artifact_name !== process.env.EXPECTED_ARTIFACT_NAME) {
             throw new Error(`Unexpected metadata artifact_name: ${metadata.artifact_name} !== ${process.env.EXPECTED_ARTIFACT_NAME}`);
+          }
+
+          if (metadata.helper_file !== process.env.EXPECTED_HELPER_FILE) {
+            throw new Error(`Unexpected metadata helper_file: ${metadata.helper_file} !== ${process.env.EXPECTED_HELPER_FILE}`);
+          }
+
+          if (helperFile !== process.env.EXPECTED_HELPER_FILE) {
+            throw new Error(`Unexpected helper file name: ${helperFile} !== ${process.env.EXPECTED_HELPER_FILE}`);
           }
 
           if (metadata.event_name !== process.env.GITHUB_EVENT_NAME) {
@@ -797,13 +862,13 @@ jobs:
             }
           }
 
-          const downloadLines = metadata.assets.map((asset) => `- \`${asset.name}\``);
           const releaseTypeLabel = metadata.prerelease ? 'Prerelease' : 'Full release';
           const statusTable = [
             '| Field | Value |',
             '| --- | --- |',
             ['Release type', releaseTypeLabel],
             ['Tests summary', metadata.test_execution.summary],
+            ['Verification helper', `\`${helperFile}\``],
           ].map((row) => Array.isArray(row) ? `| ${row[0]} | ${row[1]} |` : row);
 
           const body = [
@@ -812,14 +877,22 @@ jobs:
             'Release status:',
             ...statusTable,
             '',
-            'Download:',
-            ...downloadLines,
+            `Published release asset set: \`${helperFile}\`, \`${assetsByKind.archive}\`, \`${assetsByKind.checksum}\`, \`${assetsByKind.metadata}\`.`,
+            `Metadata asset contract remains the ordered archive/checksum/metadata trio: \`${assetsByKind.archive}\`, \`${assetsByKind.checksum}\`, \`${assetsByKind.metadata}\`.`,
+            `Standalone helper purpose: \`${helperFile}\` verifies the downloaded archive against \`${assetsByKind.checksum}\` and \`${assetsByKind.metadata}\`, extracts \`${assetsByKind.archive}\`, then runs the bundled \`releaseVerify.js\` from \`${bundleDirName}\`.`,
+            '',
+            'Download order:',
+            `1. \`${helperFile}\``,
+            `2. \`${assetsByKind.checksum}\``,
+            `3. \`${assetsByKind.metadata}\``,
+            `4. \`${assetsByKind.archive}\``,
             '',
             'Recommended verification flow:',
-            `1. Run \`sha256sum -c ${assetsByKind.checksum}\` before trusting \`${assetsByKind.archive}\`.`,
-            `2. Read \`${assetsByKind.metadata}\` to confirm the tag, commit SHA, and asset-to-bundle mapping.`,
-            `3. Extract \`${assetsByKind.archive}\` with \`tar -xzf ${assetsByKind.archive}\`.`,
-            `4. Verify the extracted \`${bundleDirName}\` directory with \`pnpm release:verify -- --input-dir ./${bundleDirName}\` or \`pnpm verify:release -- --input-dir ./${bundleDirName}\`.`,
+            `1. Run \`bash -n ./${helperFile}\` to confirm the helper script is syntactically intact after download.`,
+            `2. Run \`bash ./${helperFile} --archive ./${assetsByKind.archive}\` to validate \`${assetsByKind.checksum}\`, \`${assetsByKind.metadata}\`, extract the archive, and run the bundled release verifier in one local step.`,
+            `3. Manual fallback: read \`${assetsByKind.metadata}\` to confirm the tag, commit SHA, and asset-to-bundle mapping.`,
+            `4. Manual fallback: run \`sha256sum -c ${assetsByKind.checksum}\`, then extract \`${assetsByKind.archive}\` with \`tar -xzf ${assetsByKind.archive}\`.`,
+            `5. Manual fallback: verify the extracted \`${bundleDirName}\` directory with \`pnpm release:verify -- --input-dir ./${bundleDirName}\` or \`pnpm verify:release -- --input-dir ./${bundleDirName}\`.`,
             '',
             `The extracted directory name should match \`bundle_dir_name: ${bundleDirName}\` in \`${assetsByKind.metadata}\`.`,
           ].join('\n');
@@ -828,10 +901,11 @@ jobs:
           EOF
           echo "body_path=$RELEASE_BODY_PATH" >> "$GITHUB_OUTPUT"
 
-      - name: Publish archived release bundle assets to GitHub Release
+      - name: Publish release bundle assets to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
+            ${{ steps.archive.outputs.helper_path }}
             ${{ steps.archive.outputs.archive_path }}
             ${{ steps.archive.outputs.checksum_path }}
             ${{ steps.archive.outputs.metadata_path }}
