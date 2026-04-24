@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createSessionRequestArtifact,
   createSessionRequestResultArtifact,
@@ -14,7 +14,9 @@ import {
   parseArchiveBrowserArtifactsArgs,
   runArchiveBrowserArtifactsCli,
 } from '../../src/server/cli/archiveBrowserArtifacts';
-import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
+import { cleanupTestDatabasePath, createTestDatabasePath, isolateProcessCwd } from './testDb';
+
+let restoreCwd: (() => void) | null = null;
 
 function writeJsonArtifact(rootDir: string, relativePath: string, value: Record<string, unknown>) {
   const absolutePath = path.join(rootDir, relativePath);
@@ -61,6 +63,15 @@ function writeBrowserHandoffArtifact(
 }
 
 describe('browser artifact archiver', () => {
+  beforeEach(() => {
+    restoreCwd = isolateProcessCwd();
+  });
+
+  afterEach(() => {
+    restoreCwd?.();
+    restoreCwd = null;
+  });
+
   it('defaults to dry-run and only plans old non-pending request and handoff artifacts', async () => {
     const { rootDir } = createTestDatabasePath();
     const previousHandoffOutputDir = process.env.BROWSER_HANDOFF_OUTPUT_DIR;

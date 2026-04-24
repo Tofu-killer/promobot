@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../../src/server/app';
 import { createSchedulerRuntime } from '../../src/server/runtime/schedulerRuntime';
 import { resetBrowserArtifactHealthSummaryCache } from '../../src/server/services/browser/artifactHealth';
@@ -12,12 +12,13 @@ import {
 } from '../../src/server/services/browser/sessionRequestArtifacts';
 import { createSQLiteDraftStore } from '../../src/server/store/drafts';
 import { createSQLitePublishLogStore } from '../../src/server/store/publishLogs';
-import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
+import { cleanupTestDatabasePath, createTestDatabasePath, isolateProcessCwd } from './testDb';
 
 const defaultStorageState = {
   cookies: [],
   origins: [],
 };
+let restoreCwd: (() => void) | null = null;
 
 async function requestExistingApp(
   app: ReturnType<typeof createApp>,
@@ -229,6 +230,15 @@ describe('bootstrap', () => {
 });
 
 describe('security middleware', () => {
+  beforeEach(() => {
+    restoreCwd = isolateProcessCwd();
+  });
+
+  afterEach(() => {
+    restoreCwd?.();
+    restoreCwd = null;
+  });
+
   it('serves the health endpoint to allowed LAN IPs', async () => {
     const response = await requestApp({ remoteAddress: '127.0.0.1' });
 
@@ -965,6 +975,15 @@ describe('security middleware', () => {
 });
 
 describe('system runtime api', () => {
+  beforeEach(() => {
+    restoreCwd = isolateProcessCwd();
+  });
+
+  afterEach(() => {
+    restoreCwd?.();
+    restoreCwd = null;
+  });
+
   it('includes scheduler health details in the health endpoint when a scheduler runtime is wired in', async () => {
     const schedulerRuntime = {
       getStatus() {
@@ -2333,6 +2352,15 @@ describe('system runtime api', () => {
 });
 
 describe('static client hosting', () => {
+  beforeEach(() => {
+    restoreCwd = isolateProcessCwd();
+  });
+
+  afterEach(() => {
+    restoreCwd?.();
+    restoreCwd = null;
+  });
+
   it('serves built client files when a client dist is available', async () => {
     const clientBuild = createClientBuildFixture();
     activeClientBuildFixtures.add(clientBuild);

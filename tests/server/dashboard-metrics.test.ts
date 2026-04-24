@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/server/app';
 import { createChannelAccountStore } from '../../src/server/store/channelAccounts';
 import { createSQLiteDraftStore } from '../../src/server/store/drafts';
@@ -8,7 +8,9 @@ import { createInboxStore } from '../../src/server/store/inbox';
 import { createJobQueueStore } from '../../src/server/store/jobQueue';
 import { createSourceConfigStore } from '../../src/server/store/sourceConfigs';
 import { createSettingsStore } from '../../src/server/store/settings';
-import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
+import { cleanupTestDatabasePath, createTestDatabasePath, isolateProcessCwd } from './testDb';
+
+let restoreCwd: (() => void) | null = null;
 
 async function requestApp(method: string, url: string) {
   const app = createApp({
@@ -96,6 +98,15 @@ async function requestApp(method: string, url: string) {
 }
 
 describe('dashboard metrics api', () => {
+  beforeEach(() => {
+    restoreCwd = isolateProcessCwd();
+  });
+
+  afterEach(() => {
+    restoreCwd?.();
+    restoreCwd = null;
+  });
+
   it('adds inbox and channel account metrics to the dashboard aggregation', async () => {
     const { rootDir } = createTestDatabasePath();
     try {

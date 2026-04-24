@@ -13,10 +13,11 @@ import type { SessionMetadata } from '../../src/server/services/browser/sessionS
 import * as sessionStoreModule from '../../src/server/services/browser/sessionStore';
 import { createChannelAccountStore } from '../../src/server/store/channelAccounts';
 import { createSQLiteDraftStore } from '../../src/server/store/drafts';
-import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
+import { cleanupTestDatabasePath, createTestDatabasePath, isolateProcessCwd } from './testDb';
 
 let activeTestDbRoot: string | undefined;
 let activeTestDatabasePath: string | undefined;
+let restoreCwd: (() => void) | null = null;
 const originalEnv = {
   BLOG_PUBLISH_OUTPUT_DIR: process.env.BLOG_PUBLISH_OUTPUT_DIR,
   X_ACCESS_TOKEN: process.env.X_ACCESS_TOKEN,
@@ -139,6 +140,7 @@ function createTestApp(
 }
 
 beforeEach(() => {
+  restoreCwd = isolateProcessCwd();
   activeTestDbRoot = undefined;
   activeTestDatabasePath = undefined;
   delete process.env.X_ACCESS_TOKEN;
@@ -151,6 +153,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  restoreCwd?.();
+  restoreCwd = null;
   vi.clearAllMocks();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();

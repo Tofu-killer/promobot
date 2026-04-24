@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/server/app';
 import {
   getBrowserHandoffArtifactByPath,
@@ -16,7 +16,9 @@ import {
 } from '../../src/server/services/publishers/browserHandoffCompletionSubmitter';
 import { createSQLiteDraftStore } from '../../src/server/store/drafts';
 import { createSQLitePublishLogStore } from '../../src/server/store/publishLogs';
-import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
+import { cleanupTestDatabasePath, createTestDatabasePath, isolateProcessCwd } from './testDb';
+
+let restoreCwd: (() => void) | null = null;
 
 async function requestExistingApp(
   app: ReturnType<typeof createApp>,
@@ -198,6 +200,15 @@ function writePendingBrowserHandoffArtifact(rootDir: string) {
 }
 
 describe('browser handoff completion submitter', () => {
+  beforeEach(() => {
+    restoreCwd = isolateProcessCwd();
+  });
+
+  afterEach(() => {
+    restoreCwd?.();
+    restoreCwd = null;
+  });
+
   it('imports a browser handoff completion locally', async () => {
     const { rootDir } = createTestDatabasePath();
 

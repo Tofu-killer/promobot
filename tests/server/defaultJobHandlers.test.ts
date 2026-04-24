@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createJobRecord } from '../../src/server/lib/jobs';
 import { createDefaultJobHandlers } from '../../src/server/runtime/defaultJobHandlers';
@@ -12,13 +12,14 @@ import {
 } from '../../src/server/services/browser/sessionRequestArtifacts';
 import { createSessionStore } from '../../src/server/services/browser/sessionStore';
 import { createChannelAccountStore } from '../../src/server/store/channelAccounts';
-import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
+import { cleanupTestDatabasePath, createTestDatabasePath, isolateProcessCwd } from './testDb';
 
 const defaultStorageState = {
   cookies: [],
   origins: [],
 };
 const channelAccountSessionRequestPollJobType = 'channel_account_session_request_poll';
+let restoreCwd: (() => void) | null = null;
 
 function writeStorageStateFile(rootDir: string, storageStatePath: string) {
   const filePath = path.join(rootDir, storageStatePath);
@@ -27,6 +28,15 @@ function writeStorageStateFile(rootDir: string, storageStatePath: string) {
 }
 
 describe('default job handlers', () => {
+  beforeEach(() => {
+    restoreCwd = isolateProcessCwd();
+  });
+
+  afterEach(() => {
+    restoreCwd?.();
+    restoreCwd = null;
+  });
+
   it('passes projectId through to monitor, inbox, and reputation fetch handlers', async () => {
     const monitorFetchNow = vi.fn().mockResolvedValue({ items: [], inserted: 0 });
     const inboxFetchNow = vi.fn().mockReturnValue({ items: [], inserted: 0 });
