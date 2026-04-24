@@ -287,14 +287,16 @@ jobs:
       - name: Write workflow run summary
         env:
           ARTIFACT_NAME: ${{ steps.asset_names.outputs.artifact_name }}
+          ASSET_BASENAME: ${{ steps.asset_names.outputs.asset_basename }}
           ARCHIVE_FILE: ${{ steps.asset_names.outputs.archive_file }}
           CHECKSUM_FILE: ${{ steps.asset_names.outputs.checksum_file }}
           METADATA_FILE: ${{ steps.asset_names.outputs.metadata_file }}
           BUNDLE_DIR_NAME: ${{ steps.asset_names.outputs.bundle_dir_name }}
           METADATA_PATH: ${{ steps.asset_names.outputs.metadata_path }}
           PRERELEASE: ${{ steps.release_flags.outputs.prerelease }}
+          RAW_ASSET_SUFFIX: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.asset_suffix || '' }}
         run: |
-          export ARTIFACT_NAME ARCHIVE_FILE CHECKSUM_FILE METADATA_FILE BUNDLE_DIR_NAME METADATA_PATH PRERELEASE
+          export ARTIFACT_NAME ASSET_BASENAME ARCHIVE_FILE CHECKSUM_FILE METADATA_FILE BUNDLE_DIR_NAME METADATA_PATH PRERELEASE RAW_ASSET_SUFFIX
           node <<'EOF'
           const fs = require('node:fs');
           const path = require('node:path');
@@ -304,6 +306,10 @@ jobs:
 
           if (metadata.artifact_name !== process.env.ARTIFACT_NAME) {
             throw new Error(`Unexpected metadata artifact_name: ${metadata.artifact_name} !== ${process.env.ARTIFACT_NAME}`);
+          }
+
+          if (metadata.asset_basename !== process.env.ASSET_BASENAME) {
+            throw new Error(`Unexpected metadata asset_basename: ${metadata.asset_basename} !== ${process.env.ASSET_BASENAME}`);
           }
 
           if (metadata.event_name !== process.env.GITHUB_EVENT_NAME) {
@@ -373,15 +379,63 @@ jobs:
           const orderedAssetSet = metadata.assets.map((asset) => `\`${asset.name}\``).join(', ');
 
           const isTagRelease = process.env.GITHUB_REF_TYPE === 'tag';
+          const isManualPreviewRun = process.env.GITHUB_EVENT_NAME === 'workflow_dispatch';
+          const requestedPreviewSuffix = process.env.RAW_ASSET_SUFFIX || '';
+          const derivedPreviewSuffix = metadata.asset_basename === process.env.ASSET_NAME_ROOT
+            ? ''
+            : metadata.asset_basename.startsWith(`${process.env.ASSET_NAME_ROOT}-`)
+              ? metadata.asset_basename.slice(process.env.ASSET_NAME_ROOT.length + 1)
+              : null;
+
+          if (isManualPreviewRun && derivedPreviewSuffix === null) {
+            throw new Error(`Unexpected preview asset_basename: ${metadata.asset_basename}`);
+          }
+
+          const previewSuffixApplied = isManualPreviewRun
+            && requestedPreviewSuffix.length > 0
+            && derivedPreviewSuffix === requestedPreviewSuffix;
+
+          if (isManualPreviewRun && requestedPreviewSuffix.length > 0 && !previewSuffixApplied) {
+            throw new Error(`Preview asset_suffix was not reflected in asset_basename: ${requestedPreviewSuffix} !== ${derivedPreviewSuffix}`);
+          }
+
           const releasePageUrl = isTagRelease
             ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/releases/tag/${process.env.GITHUB_REF_NAME}`
             : null;
+          const summaryRows = isTagRelease
+            ? [
+                ['Run mode', 'Tag release'],
+                ['Release tag', `\`${process.env.GITHUB_REF_NAME}\``],
+                ['Derived `asset_basename`', `\`${metadata.asset_basename}\``],
+                ['`artifact_name`', `\`${metadata.artifact_name}\``],
+                ['`archive`', `\`${assetsByKind.archive}\``],
+                ['Checksum sidecar', `\`${assetsByKind.checksum}\``],
+                ['Metadata sidecar', `\`${assetsByKind.metadata}\``],
+              ]
+            : [
+                ['Run mode', 'Manual preview'],
+                ['Requested `asset_suffix`', requestedPreviewSuffix ? `\`${requestedPreviewSuffix}\`` : '`not set`'],
+                ['`asset_suffix` effective', requestedPreviewSuffix
+                  ? `yes, via \`${metadata.asset_basename}\``
+                  : 'not requested; default basename retained'],
+                ['Derived `asset_basename`', `\`${metadata.asset_basename}\``],
+                ['`artifact_name`', `\`${metadata.artifact_name}\``],
+                ['`archive`', `\`${assetsByKind.archive}\``],
+                ['Checksum sidecar', `\`${assetsByKind.checksum}\``],
+                ['Metadata sidecar', `\`${assetsByKind.metadata}\``],
+              ];
+          const summaryTable = [
+            '| Field | Value |',
+            '| --- | --- |',
+            ...summaryRows.map(([field, value]) => `| ${field} | ${value} |`),
+          ];
 
           const lines = [
             '## Release bundle run summary',
             '',
+            ...summaryTable,
+            '',
             `Generated asset set: ${orderedAssetSet}.`,
-            `Artifact container: \`${process.env.ARTIFACT_NAME}\`.`,
             '',
             'Recommended verification order:',
             `1. Run \`sha256sum -c ${assetsByKind.checksum}\` before trusting \`${assetsByKind.archive}\`.`,
