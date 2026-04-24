@@ -222,6 +222,64 @@ jobs:
           if-no-files-found: error
           compression-level: 0
 
+      - name: Write workflow run summary
+        env:
+          ARTIFACT_NAME: ${{ steps.asset_names.outputs.artifact_name }}
+          ARCHIVE_FILE: ${{ steps.asset_names.outputs.archive_file }}
+          CHECKSUM_FILE: ${{ steps.asset_names.outputs.checksum_file }}
+          METADATA_FILE: ${{ steps.asset_names.outputs.metadata_file }}
+          BUNDLE_DIR_NAME: ${{ steps.asset_names.outputs.bundle_dir_name }}
+          METADATA_PATH: ${{ steps.asset_names.outputs.metadata_path }}
+        run: |
+          export ARTIFACT_NAME ARCHIVE_FILE CHECKSUM_FILE METADATA_FILE BUNDLE_DIR_NAME METADATA_PATH
+          node <<'EOF'
+          const fs = require('node:fs');
+          const path = require('node:path');
+
+          const metadata = JSON.parse(fs.readFileSync(process.env.METADATA_PATH, 'utf8'));
+          const metadataFile = path.basename(process.env.METADATA_PATH);
+
+          if (metadata.archive_file !== process.env.ARCHIVE_FILE) {
+            throw new Error(`Unexpected metadata archive_file: ${metadata.archive_file} !== ${process.env.ARCHIVE_FILE}`);
+          }
+
+          if (metadata.checksum_file !== process.env.CHECKSUM_FILE) {
+            throw new Error(`Unexpected metadata checksum_file: ${metadata.checksum_file} !== ${process.env.CHECKSUM_FILE}`);
+          }
+
+          if (metadata.bundle_dir_name !== process.env.BUNDLE_DIR_NAME) {
+            throw new Error(`Unexpected metadata bundle_dir_name: ${metadata.bundle_dir_name} !== ${process.env.BUNDLE_DIR_NAME}`);
+          }
+
+          if (metadataFile !== process.env.METADATA_FILE) {
+            throw new Error(`Unexpected metadata file name: ${metadataFile} !== ${process.env.METADATA_FILE}`);
+          }
+
+          const isTagRelease = process.env.GITHUB_REF_TYPE === 'tag';
+          const releasePageUrl = isTagRelease
+            ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/releases/tag/${process.env.GITHUB_REF_NAME}`
+            : null;
+
+          const lines = [
+            '## Release bundle run summary',
+            '',
+            `Generated asset set: \`${metadata.archive_file}\`, \`${metadata.checksum_file}\`, \`${metadataFile}\`.`,
+            `Artifact container: \`${process.env.ARTIFACT_NAME}\`.`,
+            '',
+            'Recommended verification order:',
+            `1. Run \`sha256sum -c ${metadata.checksum_file}\` before trusting \`${metadata.archive_file}\`.`,
+            `2. Read \`${metadataFile}\` to confirm the ${isTagRelease ? 'tag' : 'ref'}, commit SHA, and asset-to-bundle mapping.`,
+            `3. Extract \`${metadata.archive_file}\` with \`tar -xzf ${metadata.archive_file}\`.`,
+            `4. Verify the extracted \`${metadata.bundle_dir_name}\` directory with \`pnpm release:verify -- --input-dir ./${metadata.bundle_dir_name}\` or \`pnpm verify:release -- --input-dir ./${metadata.bundle_dir_name}\`.`,
+            '',
+            isTagRelease
+              ? `Next step: the publish job will attach the same files to the [GitHub Release page](${releasePageUrl}) for \`${process.env.GITHUB_REF_NAME}\`.`
+              : `Next step: download the \`${process.env.ARTIFACT_NAME}\` artifact from this run and verify the files in the order above.`,
+          ];
+
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines.join('\n')}\n`);
+          EOF
+
   publish-release-asset:
     name: Publish release bundle release asset
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
@@ -353,3 +411,20 @@ jobs:
           body_path: ${{ steps.release_body.outputs.body_path }}
           fail_on_unmatched_files: true
           overwrite_files: true
+
+      - name: Write GitHub Release summary
+        env:
+          RELEASE_BODY_PATH: ${{ steps.release_body.outputs.body_path }}
+          RELEASE_URL: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ github.ref_name }}
+        run: |
+          {
+            echo "## GitHub Release publication"
+            echo
+            echo "Release page:"
+            echo "- [${GITHUB_REF_NAME}](${RELEASE_URL})"
+            echo
+            echo "Next step: use the Release page above; the notes below are the exact body published for this tag."
+            echo
+            echo "Release page notes:"
+            cat "$RELEASE_BODY_PATH"
+          } >> "$GITHUB_STEP_SUMMARY"

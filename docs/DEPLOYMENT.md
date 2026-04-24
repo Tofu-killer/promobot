@@ -274,6 +274,7 @@ pnpm release:deploy
 - 支持手动触发 `workflow_dispatch`
 - 支持在 `v*` tag push 时自动触发
 - `Actions artifact` 指 workflow run 页面里的下载产物；`GitHub Release asset` 指挂在 GitHub Release 页面下的正式附件，两者不是同一个东西
+- workflow run 页面里的 `summary` 只是 Actions run 页面内的结果摘要，用来帮助定位这次 `Release Bundle` run 产出的 bundle、archive、`.sha256` sidecar、`.metadata.json` metadata sidecar 和解压后 `manifest.json` 的关系；它不是 GitHub Release asset，也不替代 GitHub Release body
 - 正式 `v*` tag push 生成的 GitHub Release 页面会自带 download / verify 说明；这段内容由 `Release Bundle` workflow 写进 `Release body`，会列出该 tag 对应的版本化 archive、`.sha256` sidecar、`.metadata.json` metadata sidecar 和推荐的校验顺序。要注意，`Release body` 只是给人读的页面说明；真正供下载和校验消费的仍是页面下方这些 GitHub Release asset，以及解压后 bundle 里的 `manifest.json`
 - 手动 `workflow_dispatch` 仍主要产出 Actions artifact，里面同时带 bundle 目录、archive、`.sha256` sidecar 和 `.metadata.json` metadata sidecar，适合作为交付件发往目标机；这里不额外承诺发布 GitHub Release asset。手动 run 可选传 `asset_suffix`，只用于区分这次手动预览包命名：会影响 Actions artifact 名称，以及其中 archive、`.sha256` sidecar、`.metadata.json` metadata sidecar 的命名；允许字符为 `1-32` 个小写字母、数字、`.`、`_`、`-`，并且必须以字母或数字开头和结尾，它也不会改变 bundle 内 `manifest.json` 的语义
 - 只有 `v*` tag push 这条正式发版入口，才会在保留 Actions artifact 的同时，把带版本号的 archive、`.sha256` sidecar 和 `.metadata.json` metadata sidecar 附着到 GitHub Release；这个手动 `asset_suffix` 不参与这条正式发版命名。新的 release asset sidecar 只服务这条 tar.gz 下载链路，如果只是临时取包 / 验包，直接下载 Actions artifact 即可
