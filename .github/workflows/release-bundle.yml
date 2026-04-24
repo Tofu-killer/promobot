@@ -399,7 +399,7 @@ jobs:
             --metadata-file "$METADATA_PATH"
 
       - name: Upload release bundle artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: ${{ steps.asset_names.outputs.artifact_name }}
           path: |
@@ -656,7 +656,7 @@ jobs:
 
     steps:
       - name: Download release bundle artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8.0.1
         with:
           name: ${{ needs.release-bundle.outputs.artifact_name }}
           path: ${{ runner.temp }}/release-bundle-artifact
