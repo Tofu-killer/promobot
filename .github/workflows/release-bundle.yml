@@ -2,6 +2,11 @@ name: Release Bundle
 
 on:
   workflow_dispatch:
+    inputs:
+      asset_suffix:
+        description: "Optional preview suffix (1-32 chars: lowercase letters, digits, ., _, -; must start and end with a letter or digit)"
+        required: false
+        type: string
   push:
     tags:
       - 'v*'
@@ -22,7 +27,7 @@ jobs:
       checksum_file: ${{ steps.asset_names.outputs.checksum_file }}
       metadata_file: ${{ steps.asset_names.outputs.metadata_file }}
     env:
-      ARTIFACT_NAME: promobot-release-bundle
+      ASSET_NAME_ROOT: promobot-release-bundle
       BUNDLE_ROOT: ${{ runner.temp }}/release-artifacts
       BUNDLE_DIR_NAME: promobot-release-bundle
 
@@ -55,11 +60,22 @@ jobs:
 
       - name: Derive release bundle asset names
         id: asset_names
+        env:
+          RAW_ASSET_SUFFIX: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.asset_suffix || '' }}
         run: |
-          ASSET_BASENAME="$ARTIFACT_NAME"
+          NAME_SOURCE="$ASSET_NAME_ROOT"
+          ASSET_SUFFIX="${RAW_ASSET_SUFFIX:-}"
           if [ "${GITHUB_REF_TYPE:-}" = "tag" ] && [ -n "${GITHUB_REF_NAME:-}" ]; then
-            ASSET_BASENAME="${ARTIFACT_NAME}-${GITHUB_REF_NAME}"
+            NAME_SOURCE="${ASSET_NAME_ROOT}-${GITHUB_REF_NAME}"
+          elif [ "${GITHUB_EVENT_NAME:-}" = "workflow_dispatch" ] && [ -n "$ASSET_SUFFIX" ]; then
+            if [[ ! "$ASSET_SUFFIX" =~ ^[a-z0-9]([a-z0-9._-]{0,30}[a-z0-9])?$ ]]; then
+              echo "asset_suffix must be 1-32 chars of lowercase letters, digits, '.', '_' or '-', and must start and end with a letter or digit." >&2
+              exit 1
+            fi
+            NAME_SOURCE="${ASSET_NAME_ROOT}-${ASSET_SUFFIX}"
           fi
+          ARTIFACT_NAME="${NAME_SOURCE}-artifact"
+          ASSET_BASENAME="$NAME_SOURCE"
           BUNDLE_DIR="${BUNDLE_ROOT}/${BUNDLE_DIR_NAME}"
           ARCHIVE_FILE="${ASSET_BASENAME}.tar.gz"
           ARCHIVE_PATH="${BUNDLE_ROOT}/${ARCHIVE_FILE}"
