@@ -5,6 +5,7 @@ dist
 .DS_Store
 coverage
 backups/
+release/
 *.log
 data/
 playwright-report/

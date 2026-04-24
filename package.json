@@ -9,6 +9,8 @@
     "browser:artifacts:archive": "tsx src/server/cli/archiveBrowserArtifacts.ts",
     "runtime:backup": "tsx src/server/cli/runtimeBackup.ts",
     "runtime:restore": "tsx src/server/cli/runtimeRestore.ts",
+    "release:bundle": "tsx src/server/cli/releaseBundle.ts",
+    "release:local": "bash ops/release-promobot.sh",
     "deploy:local": "bash ops/deploy-promobot.sh",
     "rollback:local": "bash ops/rollback-promobot.sh",
     "smoke:server": "tsx src/server/cli/deploymentSmoke.ts",

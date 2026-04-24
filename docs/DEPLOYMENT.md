@@ -202,6 +202,31 @@ pnpm preflight:local -- --skip-smoke
 
 脚本位置：`ops/preflight-promobot.sh`
 
+如果你需要一份可分发的目录型发布物，而不是直接拿源码目录上线，可运行：
+
+```bash
+pnpm release:bundle -- --output-dir /tmp/promobot-release
+```
+
+或者让 shell wrapper 先按需 build 再打包：
+
+```bash
+pnpm release:local -- --skip-build --output-dir /tmp/promobot-release
+```
+
+release bundle 当前至少会包含：
+
+- `dist/server/**`
+- `dist/client/**`
+- `package.json`
+- `pnpm-lock.yaml`
+- `pm2.config.js`
+- `ops/*.sh`
+- `docs/DEPLOYMENT.md`
+- `.env.example`
+
+输出目录下会同时生成 `manifest.json`，便于交付前核对缺失项。
+
 如果 `dist/client/index.html` 存在：
 
 - `/` 会返回前端入口
