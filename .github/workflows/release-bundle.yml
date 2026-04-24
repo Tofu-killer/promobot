@@ -235,6 +235,9 @@ jobs:
             bundle_dir_name: process.env.BUNDLE_DIR_NAME,
             generated_at: process.env.GENERATED_AT,
             run_url: process.env.RUN_URL,
+            release_url: process.env.GITHUB_REF_TYPE === 'tag'
+              ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/releases/tag/${process.env.GITHUB_REF_NAME}`
+              : null,
           };
 
           fs.writeFileSync(process.env.METADATA_PATH, `${JSON.stringify(metadata, null, 2)}\n`);
@@ -281,6 +284,9 @@ jobs:
             bundle_dir_name: process.env.BUNDLE_DIR_NAME,
             generated_at: process.env.EXPECTED_GENERATED_AT,
             run_url: process.env.EXPECTED_RUN_URL,
+            release_url: process.env.GITHUB_REF_TYPE === 'tag'
+              ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/releases/tag/${process.env.GITHUB_REF_NAME}`
+              : null,
           };
 
           for (const [key, value] of Object.entries(expected)) {
@@ -345,6 +351,9 @@ jobs:
           const metadataFile = path.basename(process.env.METADATA_PATH);
           const isoUtcPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
           const expectedRunUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+          const expectedReleaseUrl = process.env.GITHUB_REF_TYPE === 'tag'
+            ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/releases/tag/${process.env.GITHUB_REF_NAME}`
+            : null;
 
           if (metadata.artifact_name !== process.env.ARTIFACT_NAME) {
             throw new Error(`Unexpected metadata artifact_name: ${metadata.artifact_name} !== ${process.env.ARTIFACT_NAME}`);
@@ -384,6 +393,10 @@ jobs:
 
           if (metadata.run_url !== expectedRunUrl) {
             throw new Error(`Unexpected metadata run_url: ${metadata.run_url} !== ${expectedRunUrl}`);
+          }
+
+          if (metadata.release_url !== expectedReleaseUrl) {
+            throw new Error(`Unexpected metadata release_url: ${metadata.release_url} !== ${expectedReleaseUrl}`);
           }
 
           if (metadataFile !== process.env.METADATA_FILE) {
@@ -449,9 +462,7 @@ jobs:
             throw new Error(`Preview asset_suffix was not reflected in asset_basename: ${requestedPreviewSuffix} !== ${derivedPreviewSuffix}`);
           }
 
-          const releasePageUrl = isTagRelease
-            ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/releases/tag/${process.env.GITHUB_REF_NAME}`
-            : null;
+          const releasePageUrl = isTagRelease ? metadata.release_url : null;
           const summaryRows = isTagRelease
             ? [
                 ['Run mode', 'Tag release'],
@@ -570,6 +581,7 @@ jobs:
           const assetBasename = metadata.asset_basename;
           const isoUtcPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
           const expectedRunUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+          const expectedReleaseUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/releases/tag/${process.env.GITHUB_REF_NAME}`;
 
           if (assetBasename !== process.env.EXPECTED_ASSET_BASENAME) {
             throw new Error(`Unexpected metadata asset_basename: ${assetBasename} !== ${process.env.EXPECTED_ASSET_BASENAME}`);
@@ -630,6 +642,10 @@ jobs:
 
           if (metadata.run_url !== expectedRunUrl) {
             throw new Error(`Unexpected metadata run_url: ${metadata.run_url} !== ${expectedRunUrl}`);
+          }
+
+          if (metadata.release_url !== expectedReleaseUrl) {
+            throw new Error(`Unexpected metadata release_url: ${metadata.release_url} !== ${expectedReleaseUrl}`);
           }
 
           if (!Array.isArray(metadata.assets) || metadata.assets.length === 0) {
