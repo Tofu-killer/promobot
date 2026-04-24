@@ -798,9 +798,19 @@ jobs:
           }
 
           const downloadLines = metadata.assets.map((asset) => `- \`${asset.name}\``);
+          const releaseTypeLabel = metadata.prerelease ? 'Prerelease' : 'Full release';
+          const statusTable = [
+            '| Field | Value |',
+            '| --- | --- |',
+            ['Release type', releaseTypeLabel],
+            ['Tests summary', metadata.test_execution.summary],
+          ].map((row) => Array.isArray(row) ? `| ${row[0]} | ${row[1]} |` : row);
 
           const body = [
             `Release bundle assets for ${process.env.GITHUB_REF_NAME}.`,
+            '',
+            'Release status:',
+            ...statusTable,
             '',
             'Download:',
             ...downloadLines,
