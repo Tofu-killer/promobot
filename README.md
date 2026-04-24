@@ -82,7 +82,7 @@ pnpm browser:artifacts:archive -- --older-than-hours 72
 - `pnpm start`：启动 `dist/server/index.js`，并在 `dist/client` 存在时直接提供构建后的前端
 - `pnpm preflight:prod -- [options]`：做静态上线前检查，输出 JSON summary，不启动服务
 - `pnpm release:bundle -- --output-dir <path>`：把构建产物、PM2 配置、必要 ops 脚本和部署文档复制到目录型 release bundle，并生成带文件 checksum 信息的 manifest JSON
-- `pnpm release:verify -- --input-dir <path>`：校验目录型 release bundle 的 manifest、关键文件是否完整，并在 manifest 带 checksum 时重算现有文件内容做完整性校验
+- `pnpm release:verify -- --input-dir <path>`：校验目录型 release bundle 的 manifest、关键文件是否完整，并在 manifest 带 checksum 时重算 bundle 内现有文件内容做完整性校验；它不负责 tar.gz 下载文件本身的校验
 - `pnpm runtime:backup`：把当前可定位的 SQLite 文件来源、真实运行时 `browser-sessions/` 根目录和仓库根 `.env` 复制到时间戳备份目录，并生成 manifest JSON；若有缺失项，会在 manifest 里标记并以非零退出码返回
 - `pnpm runtime:restore -- --input-dir <backupDir>`：按 backup manifest 恢复运行时数据，并在覆盖前为已有目标创建 `.pre-restore-<timestamp>` 备份
 - `pnpm release:local -- [options]`：先按需执行 `pnpm build`，再调用 `release:bundle` 生成目录型可交付发布物
@@ -92,7 +92,7 @@ pnpm browser:artifacts:archive -- --older-than-hours 72
 - `pnpm rollback:local -- --backup-dir <path> [options]`：先停 PM2、从已有 runtime backup 恢复数据，再按恢复后的环境重启服务，并按需追加 smoke check
 - `pnpm preflight:local -- [options]`：先跑 `preflight:prod`，再按需追加 `smoke:server`
 - GitHub Actions CI：`main` 的 push / pull_request 会运行 `pnpm test` 和 `pnpm build`，用于提前拦截测试与构建回归
-- GitHub Actions `Release Bundle`：支持手动触发和 `v*` tag push，都会执行 `pnpm test`、`pnpm build`、静态 preflight、release bundle 生成与校验；其中手动 `workflow_dispatch` 主要产出可下载的 Actions artifact，`v*` tag push 会在保留 Actions artifact 的同时追加 GitHub Release asset
+- GitHub Actions `Release Bundle`：支持手动触发和 `v*` tag push，都会执行 `pnpm test`、`pnpm build`、静态 preflight、release bundle 生成与校验；其中手动 `workflow_dispatch` 主要产出可下载的 Actions artifact，`v*` tag push 会在保留 Actions artifact 的同时追加 GitHub Release asset；如果走 GitHub Release asset 下载链路，tar.gz 的 sidecar 只用于下载完整性校验，不替代解压后的 bundle manifest 校验
 - 生产访问时，浏览器可直接走同一个 Node 进程访问页面和 `/api`
 
 更完整的本地开发、构建、LAN 访问、环境变量和限制说明见 `docs/DEPLOYMENT.md`。
@@ -101,9 +101,10 @@ pnpm browser:artifacts:archive -- --older-than-hours 72
 
 - `pnpm deploy:local` / `ops/deploy-promobot.sh` 面向“目标机上已有源码 checkout”的部署：脚本会在源码仓库里执行 install / build / PM2 切换。
 - `pnpm release:deploy` / `ops/deploy-release.sh` 面向“目标机只拿到目录型 release bundle”的部署：bundle 会随产物带上 deploy 脚本，解压后直接在 bundle 根目录执行即可。
-- 新生成的 bundle manifest 会记录文件 checksum；`pnpm release:verify` / `pnpm verify:release` 会在文件存在时重算并比对，不匹配会返回失败。旧 manifest 没有 checksum 时，仍按原来的目录结构校验处理。
+- 新生成的 bundle manifest 会记录 bundle 内文件 checksum；`pnpm release:verify` / `pnpm verify:release` 会在文件存在时重算并比对，不匹配会返回失败。旧 manifest 没有 checksum 时，仍按原来的目录结构校验处理。
+- GitHub Release 上和 `promobot-release-bundle.tar.gz` 配套的 sidecar 只用于 tar.gz 下载完整性校验；这一步发生在解压前，和 bundle 内 `manifest.json` 的文件 checksum 校验不是一回事。
 - 推荐顺序是先在构建机生成并校验 bundle，再把 bundle 目录传到目标机部署。
-- 如果不想在本地手动打包，也可以直接用 GitHub Actions `Release Bundle` workflow 取包：手动 `workflow_dispatch` 下载的是 Actions artifact，里面同时带 bundle 目录和压缩包；正式 `v*` tag push 会在保留 Actions artifact 的同时，把压缩包挂到 GitHub Release asset。两者对应的是同一份已校验的 release bundle 内容，只是挂载位置和消费场景不同；拿到压缩包后先解压，再走后面的 `verify -> deploy -> smoke` 流程。
+- 如果不想在本地手动打包，也可以直接用 GitHub Actions `Release Bundle` workflow 取包：手动 `workflow_dispatch` 下载的是 Actions artifact，里面同时带 bundle 目录和压缩包；正式 `v*` tag push 会在保留 Actions artifact 的同时，把压缩包挂到 GitHub Release asset。两者对应的是同一份已校验的 release bundle 内容，只是挂载位置和消费场景不同；如果拿的是 GitHub Release asset，先用配套 sidecar 校验 `promobot-release-bundle.tar.gz` 的下载完整性，再解压并走后面的 `verify -> deploy -> smoke` 流程。
 
 ```bash
 pnpm release:local -- --output-dir /tmp/promobot-release

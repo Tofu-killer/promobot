@@ -18,6 +18,7 @@ jobs:
       BUNDLE_ROOT: ${{ runner.temp }}/release-artifacts
       BUNDLE_DIR: ${{ runner.temp }}/release-artifacts/promobot-release-bundle
       ARCHIVE_PATH: ${{ runner.temp }}/release-artifacts/promobot-release-bundle.tar.gz
+      CHECKSUM_PATH: ${{ runner.temp }}/release-artifacts/promobot-release-bundle.tar.gz.sha256
 
     steps:
       - name: Checkout
@@ -67,6 +68,21 @@ jobs:
           tar -xzf "$ARCHIVE_PATH" -C "$EXTRACT_ROOT"
           node dist/server/cli/releaseVerify.js --input-dir "$EXTRACT_ROOT/$ARTIFACT_NAME"
 
+      - name: Generate archived release bundle checksum sidecar
+        run: |
+          CHECKSUM_DIR="$(dirname "$CHECKSUM_PATH")"
+          ARCHIVE_FILE="$(basename "$ARCHIVE_PATH")"
+          CHECKSUM_FILE="$(basename "$CHECKSUM_PATH")"
+          cd "$CHECKSUM_DIR"
+          rm -f "$CHECKSUM_FILE"
+          sha256sum "$ARCHIVE_FILE" > "$CHECKSUM_FILE"
+
+      - name: Verify archived release bundle checksum sidecar
+        run: |
+          CHECKSUM_DIR="$(dirname "$CHECKSUM_PATH")"
+          cd "$CHECKSUM_DIR"
+          sha256sum -c "$(basename "$CHECKSUM_PATH")"
+
       - name: Upload release bundle artifact
         uses: actions/upload-artifact@v4
         with:
@@ -74,6 +90,7 @@ jobs:
           path: |
             ${{ env.BUNDLE_DIR }}
             ${{ env.ARCHIVE_PATH }}
+            ${{ env.CHECKSUM_PATH }}
           if-no-files-found: error
           compression-level: 0
 
@@ -93,7 +110,7 @@ jobs:
           name: promobot-release-bundle
           path: ${{ runner.temp }}/release-bundle-artifact
 
-      - name: Locate archived release bundle
+      - name: Locate archived release bundle and checksum sidecar
         id: archive
         run: |
           ARCHIVE_PATH="$(find "${RUNNER_TEMP}/release-bundle-artifact" -type f -name '*.tar.gz' -print -quit)"
@@ -101,11 +118,19 @@ jobs:
             echo "Expected a .tar.gz archive in the downloaded release bundle artifact" >&2
             exit 1
           fi
+          CHECKSUM_PATH="$(find "${RUNNER_TEMP}/release-bundle-artifact" -type f -name "$(basename "$ARCHIVE_PATH").sha256" -print -quit)"
+          if [ -z "$CHECKSUM_PATH" ]; then
+            echo "Expected a .sha256 sidecar next to the archived release bundle" >&2
+            exit 1
+          fi
           echo "archive_path=$ARCHIVE_PATH" >> "$GITHUB_OUTPUT"
+          echo "checksum_path=$CHECKSUM_PATH" >> "$GITHUB_OUTPUT"
 
-      - name: Publish archived release bundle to GitHub Release
+      - name: Publish archived release bundle and checksum sidecar to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ steps.archive.outputs.archive_path }}
+          files: |
+            ${{ steps.archive.outputs.archive_path }}
+            ${{ steps.archive.outputs.checksum_path }}
           fail_on_unmatched_files: true
           overwrite_files: true

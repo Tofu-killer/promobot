@@ -237,7 +237,7 @@ release bundle 当前至少会包含：
 - `docs/DEPLOYMENT.md`
 - `.env.example`
 
-输出目录下会同时生成 `manifest.json`，其中会记录 bundle 文件列表和可用的 checksum，便于交付前核对缺失项和完整性。
+输出目录下会同时生成 `manifest.json`，其中会记录 bundle 文件列表和可用的 checksum，便于交付前核对缺失项和完整性。这份 manifest 只描述解压后的目录型 release bundle 内容，不负责 GitHub Release 上 `.tar.gz` 下载文件本身的完整性校验。
 
 交付前可以再做一次 release 目录校验：
 
@@ -245,7 +245,7 @@ release bundle 当前至少会包含：
 pnpm release:verify -- --input-dir /tmp/promobot-release
 ```
 
-如果 manifest 带 checksum，`release:verify` 会对现存文件重新计算并比对；只要有缺失项或 checksum 不匹配，summary 就会返回失败并带相应 warning。旧 bundle 的 manifest 如果还没有 checksum 字段，则继续按目录结构和 manifest 记录做兼容校验。
+如果 manifest 带 checksum，`release:verify` 会对 bundle 内现存文件重新计算并比对；只要有缺失项或 checksum 不匹配，summary 就会返回失败并带相应 warning。旧 bundle 的 manifest 如果还没有 checksum 字段，则继续按目录结构和 manifest 记录做兼容校验。
 
 如果你更偏向 shell wrapper：
 
@@ -275,9 +275,17 @@ pnpm release:deploy
 - 支持在 `v*` tag push 时自动触发
 - `Actions artifact` 指 workflow run 页面里的下载产物；`GitHub Release asset` 指挂在 GitHub Release 页面下的正式附件，两者不是同一个东西
 - 手动 `workflow_dispatch` 仍主要产出 Actions artifact，里面同时带 bundle 目录和压缩包，适合作为交付件发往目标机
-- 只有 `v*` tag push 这条正式发版入口，才会在保留 Actions artifact 的同时，把 `promobot-release-bundle.tar.gz` 附着到 GitHub Release；如果只是临时取包 / 验包，直接下载 Actions artifact 即可
+- 只有 `v*` tag push 这条正式发版入口，才会在保留 Actions artifact 的同时，把 `promobot-release-bundle.tar.gz` 附着到 GitHub Release；新的 release asset sidecar 只服务这条 tar.gz 下载链路，如果只是临时取包 / 验包，直接下载 Actions artifact 即可
 - 会自动执行 `pnpm test`、`pnpm build`、静态 `preflight`、`release:bundle` 和 `release:verify`
-- Actions artifact 里同时带 bundle 目录和压缩包；GitHub Release asset 只挂压缩包，但内容和已校验 bundle 一致。拿到压缩包后先解压，后续部署步骤一样
+- Actions artifact 里同时带 bundle 目录和压缩包；GitHub Release asset 的 tar.gz 下载应先用配套 sidecar 做下载完整性校验，再解压拿到目录型 bundle。解压后的 `manifest.json` 和 `pnpm release:verify` / `pnpm verify:release` 校验的是 bundle 内文件，不是 tar.gz 下载字节本身
+
+如果你走 GitHub Release asset 下载链路，建议顺序是：
+
+1. 下载 `promobot-release-bundle.tar.gz` 和配套 sidecar
+2. 先用 sidecar 校验 tar.gz 下载完整性
+3. 解压 tar.gz，得到目录型 release bundle 和其中的 `manifest.json`
+4. 对解压后的目录运行 `pnpm release:verify -- --input-dir <path>` 或 `pnpm verify:release -- --input-dir <path>`
+5. 校验通过后，再在 bundle 根目录执行 `pnpm release:deploy`
 
 换句话说：
 
