@@ -11,12 +11,17 @@ on:
     tags:
       - 'v*'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref || github.run_id }}
+  cancel-in-progress: false
+
 permissions: {}
 
 jobs:
   release-bundle:
     name: Build release bundle artifact
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       contents: read
     outputs:
@@ -286,6 +291,7 @@ jobs:
     needs:
       - release-bundle
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: write
 
