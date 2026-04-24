@@ -52,7 +52,7 @@ afterEach(() => {
 });
 
 describe('release bundle cli', () => {
-  it('parses args, exposes help text, and registers the release:bundle script', async () => {
+  it('parses args, exposes help text, and registers the release bundle scripts', async () => {
     const releaseBundle = await loadReleaseBundleModule();
 
     expect(releaseBundle).toBeTruthy();
@@ -80,6 +80,7 @@ describe('release bundle cli', () => {
       scripts?: Record<string, string>;
     };
     expect(packageJson.scripts?.['release:bundle']).toBe('tsx src/server/cli/releaseBundle.ts');
+    expect(packageJson.scripts?.['release:deploy']).toBe('bash ops/deploy-release.sh');
 
     const stdout = createStdoutBuffer();
     const summary = await releaseBundle.runReleaseBundleCli(['--help'], {
@@ -103,6 +104,7 @@ describe('release bundle cli', () => {
     writeFile(repoRoot, 'docs/DEPLOYMENT.md', '# Deploy\n');
     writeFile(repoRoot, '.env.example', 'ADMIN_PASSWORD=change-me\n');
     writeFile(repoRoot, 'dist/server/index.js', 'console.log("server");\n');
+    writeFile(repoRoot, 'ops/deploy-release.sh', '#!/usr/bin/env bash\n');
     writeFile(repoRoot, 'ops/deploy-promobot.sh', '#!/usr/bin/env bash\n');
 
     const outputDir = path.join(repoRoot, 'release');
@@ -128,6 +130,7 @@ describe('release bundle cli', () => {
         'docs/DEPLOYMENT.md',
         'manifest.json',
         'ops/deploy-promobot.sh',
+        'ops/deploy-release.sh',
         'package.json',
       ],
       missing: ['dist/client/**', 'pnpm-lock.yaml', 'pm2.config.js'],
@@ -158,6 +161,7 @@ describe('release bundle cli', () => {
     writeFile(repoRoot, 'dist/server/chunks/app.js', 'export const app = true;\n');
     writeFile(repoRoot, 'dist/client/index.html', '<!doctype html>\n');
     writeFile(repoRoot, 'dist/client/assets/app.js', 'console.log("client");\n');
+    writeFile(repoRoot, 'ops/deploy-release.sh', '#!/usr/bin/env bash\n');
     writeFile(repoRoot, 'ops/deploy-promobot.sh', '#!/usr/bin/env bash\n');
     writeFile(repoRoot, 'ops/preflight-promobot.sh', '#!/usr/bin/env bash\n');
     writeFile(repoRoot, 'ops/rollback-promobot.sh', '#!/usr/bin/env bash\n');
@@ -186,6 +190,7 @@ describe('release bundle cli', () => {
         'docs/DEPLOYMENT.md',
         'manifest.json',
         'ops/deploy-promobot.sh',
+        'ops/deploy-release.sh',
         'ops/preflight-promobot.sh',
         'ops/rollback-promobot.sh',
         'package.json',

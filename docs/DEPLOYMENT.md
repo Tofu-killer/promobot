@@ -154,6 +154,18 @@ node dist/server/index.js
 
 `dist/server/index.js` 启动时同样会尝试读取仓库根目录 `.env`。
 
+## 两种部署入口
+
+当前仓库同时支持两条部署链路，使用前先区分清楚：
+
+- `pnpm deploy:local` / `ops/deploy-promobot.sh`
+  - 面向“目标机上已有源码仓库 checkout”的部署
+  - 脚本会在源码目录里执行 install / build / PM2 reload 或 start / 可选 smoke
+- `pnpm release:deploy` / `ops/deploy-release.sh`
+  - 面向“目标机只拿到目录型 release bundle”的部署
+  - 该入口依赖 `release:bundle` / `release:local` 产出的 bundle 内容；bundle 自带 `package.json`、`dist/**`、`pm2.config.js`、部署文档和 `ops/deploy-release.sh`
+  - bundle 解压后应在 bundle 根目录执行，而不是回到源码仓库里再跑一遍源码部署脚本
+
 如果你要在本机执行一条可重复的部署链路，而不是手动敲 install/build/pm2/smoke，可以直接运行：
 
 ```bash
@@ -221,7 +233,7 @@ release bundle 当前至少会包含：
 - `package.json`
 - `pnpm-lock.yaml`
 - `pm2.config.js`
-- `ops/*.sh`
+- `ops/*.sh`（包括 `ops/deploy-release.sh`）
 - `docs/DEPLOYMENT.md`
 - `.env.example`
 
@@ -240,6 +252,25 @@ pnpm verify:release -- --input-dir /tmp/promobot-release
 ```
 
 `verify:release` 默认只做目录结构和 manifest 校验，不会启动服务；只有显式开启 smoke 时，才会追加 `smoke:server`。
+
+如果目标机不保留源码仓库，而是只接收 bundle 目录，可在 bundle 解压后直接部署：
+
+```bash
+cd /tmp/promobot-release
+pnpm release:deploy
+```
+
+建议流程：
+
+1. 在构建机的源码仓库里运行 `pnpm release:bundle` 或 `pnpm release:local`
+2. 用 `pnpm release:verify` 或 `pnpm verify:release` 校验 bundle
+3. 把 bundle 目录复制到目标机
+4. 在目标机进入 bundle 根目录，执行 `pnpm release:deploy`
+
+换句话说：
+
+- `pnpm deploy:local` 解决的是“拿源码仓库直接上线”
+- `pnpm release:deploy` 解决的是“拿打好的 release bundle 直接上线”
 
 如果 `dist/client/index.html` 存在：
 

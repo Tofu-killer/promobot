@@ -12,6 +12,7 @@
     "release:bundle": "tsx src/server/cli/releaseBundle.ts",
     "release:verify": "tsx src/server/cli/releaseVerify.ts",
     "release:local": "bash ops/release-promobot.sh",
+    "release:deploy": "bash ops/deploy-release.sh",
     "verify:release": "bash ops/verify-release.sh",
     "deploy:local": "bash ops/deploy-promobot.sh",
     "rollback:local": "bash ops/rollback-promobot.sh",

@@ -86,6 +86,7 @@ pnpm browser:artifacts:archive -- --older-than-hours 72
 - `pnpm runtime:backup`：把当前可定位的 SQLite 文件来源、真实运行时 `browser-sessions/` 根目录和仓库根 `.env` 复制到时间戳备份目录，并生成 manifest JSON；若有缺失项，会在 manifest 里标记并以非零退出码返回
 - `pnpm runtime:restore -- --input-dir <backupDir>`：按 backup manifest 恢复运行时数据，并在覆盖前为已有目标创建 `.pre-restore-<timestamp>` 备份
 - `pnpm release:local -- [options]`：先按需执行 `pnpm build`，再调用 `release:bundle` 生成目录型可交付发布物
+- `pnpm release:deploy -- [options]`：调用 `ops/deploy-release.sh`，用于从已打好的 release bundle 根目录直接部署；这和 `deploy:local` 的源码仓库部署不是同一条链路
 - `pnpm verify:release -- --input-dir <path>`：调用 shell wrapper 执行 `release:verify`，用于交付前检查 release bundle
 - `pnpm deploy:local -- [options]`：执行本机部署链路，封装 `pnpm install`、`pnpm build`、PM2 reload/start 和可选 smoke check
 - `pnpm rollback:local -- --backup-dir <path> [options]`：先停 PM2、从已有 runtime backup 恢复数据，再按恢复后的环境重启服务，并按需追加 smoke check
@@ -95,10 +96,26 @@ pnpm browser:artifacts:archive -- --older-than-hours 72
 
 更完整的本地开发、构建、LAN 访问、环境变量和限制说明见 `docs/DEPLOYMENT.md`。
 
+## Release Bundle 直接部署
+
+- `pnpm deploy:local` / `ops/deploy-promobot.sh` 面向“目标机上已有源码 checkout”的部署：脚本会在源码仓库里执行 install / build / PM2 切换。
+- `pnpm release:deploy` / `ops/deploy-release.sh` 面向“目标机只拿到目录型 release bundle”的部署：bundle 会随产物带上 deploy 脚本，解压后直接在 bundle 根目录执行即可。
+- 推荐顺序是先在构建机生成并校验 bundle，再把 bundle 目录传到目标机部署。
+
+```bash
+pnpm release:local -- --output-dir /tmp/promobot-release
+pnpm verify:release -- --input-dir /tmp/promobot-release
+
+# 先把 /tmp/promobot-release 复制到目标机
+cd /tmp/promobot-release
+pnpm release:deploy
+```
+
 ## 生产运维补充
 
 - `pm2.config.js` 现在会把日志落到仓库下的 `logs/`，并带基本重启/退避配置。
 - `ops/release-promobot.sh` 现在提供一条本地 release 打包脚本；它会先按需构建，再调用 `release:bundle` 生成可交付目录。
+- `ops/deploy-release.sh` 现在提供 bundle 内直接部署入口；进入 release bundle 根目录后可直接运行 `pnpm release:deploy`。
 - `ops/verify-release.sh` 现在提供 release 校验脚本；它会先跑 `release:verify`，只在显式开启时才追加 smoke。
 - `ops/preflight-promobot.sh` 现在提供上线前预检脚本；它会先跑 `preflight:prod`，再按需追加 smoke check。
 - `ops/deploy-promobot.sh` 现在提供一条可重复的本机部署脚本；默认会执行 install/build/PM2 切换，并默认启用 smoke check。脚本会优先读取 `--admin-password`，否则回退到 shell 里的 `PROMOBOT_ADMIN_PASSWORD` / `ADMIN_PASSWORD`，以及仓库根 `.env` 里的 `PROMOBOT_ADMIN_PASSWORD` / `ADMIN_PASSWORD`；如不想跑 smoke，可显式传 `--skip-smoke`。
