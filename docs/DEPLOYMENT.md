@@ -271,6 +271,7 @@ pnpm release:deploy
 
 如果你不想自己在构建机跑这几步，也可以直接使用仓库里的 GitHub Actions `Release Bundle` workflow：
 
+- 与之分开的主 GitHub Actions `CI` workflow 会在 `main` 的 push / pull_request 上先跑 `lint` job：通过 `rhysd/actionlint@v1` 校验 workflow，并用 `bash -n ops/*.sh` 检查 ops shell wrapper 语法；随后 `ci` job 再执行 `pnpm test` 和 `pnpm build`
 - 支持手动触发 `workflow_dispatch`
 - 支持在 `v*` tag push 时自动触发
 - `Actions artifact` 指 workflow run 页面里的下载产物；`GitHub Release asset` 指挂在 GitHub Release 页面下的正式附件，两者不是同一个东西

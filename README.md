@@ -91,7 +91,7 @@ pnpm browser:artifacts:archive -- --older-than-hours 72
 - `pnpm deploy:local -- [options]`：执行本机部署链路，封装 `pnpm install`、`pnpm build`、PM2 reload/start 和可选 smoke check
 - `pnpm rollback:local -- --backup-dir <path> [options]`：先停 PM2、从已有 runtime backup 恢复数据，再按恢复后的环境重启服务，并按需追加 smoke check
 - `pnpm preflight:local -- [options]`：先跑 `preflight:prod`，再按需追加 `smoke:server`
-- GitHub Actions CI：`main` 的 push / pull_request 会运行 `pnpm test` 和 `pnpm build`，用于提前拦截测试与构建回归
+- GitHub Actions `CI`：`main` 的 push / pull_request 现在会先跑 `lint` job，通过 `rhysd/actionlint@v1` 校验 workflow，并用 `bash -n ops/*.sh` 检查 ops shell wrapper 语法；随后 `ci` job 继续运行 `pnpm test` 和 `pnpm build`，用于提前拦截 workflow / shell wrapper 语法、测试与构建回归
 - GitHub Actions `Release Bundle`：支持手动触发和 `v*` tag push；默认都会执行 `pnpm test`、`pnpm build`、静态 preflight、release bundle 生成与校验。
 - 手动 preview run（`workflow_dispatch`）主要产出可下载的 Actions artifact，不额外承诺发布 `release asset`，也不会新建或更新 GitHub Release；因此它不会影响 `prerelease` 状态，`.metadata.json` metadata sidecar 里的 `release_url` 也应为 `null`。
 - 手动 preview run（`workflow_dispatch`）可选传 `skip_tests=true`，作为只用于加速手动 preview 包的自担风险选项：默认仍会执行 `pnpm test`；只有这条手动 preview 入口能跳过，`v*` tag push 这条 tag release 入口不受影响，仍会执行测试。它只影响打包前是否执行 `pnpm test`，不会改变已生成 archive、`.sha256` sidecar、`.metadata.json` metadata sidecar、bundle 内 `manifest.json` 和后续校验链语义。
