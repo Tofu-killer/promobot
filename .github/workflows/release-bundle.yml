@@ -43,7 +43,7 @@ jobs:
       tests_summary: ${{ steps.test_policy.outputs.tests_summary }}
     env:
       ASSET_NAME_ROOT: promobot-release-bundle
-      BUNDLE_ROOT: ${{ runner.temp }}/release-artifacts
+      BUNDLE_ROOT: ${{ github.workspace }}/release-artifacts
       BUNDLE_DIR_NAME: promobot-release-bundle
 
     steps:
@@ -83,10 +83,12 @@ jobs:
             tests_summary='executed (default manual behavior)'
           fi
 
-          echo "skip_tests=$skip_tests" >> "$GITHUB_OUTPUT"
-          echo "test_execution_state=$test_execution_state" >> "$GITHUB_OUTPUT"
-          echo "test_execution_mode=$test_execution_mode" >> "$GITHUB_OUTPUT"
-          echo "tests_summary=$tests_summary" >> "$GITHUB_OUTPUT"
+          {
+            echo "skip_tests=$skip_tests"
+            echo "test_execution_state=$test_execution_state"
+            echo "test_execution_mode=$test_execution_mode"
+            echo "tests_summary=$tests_summary"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Run tests
         if: ${{ steps.test_policy.outputs.skip_tests != 'true' }}
@@ -125,18 +127,20 @@ jobs:
           METADATA_PATH="${BUNDLE_ROOT}/${METADATA_FILE}"
           HELPER_FILE="verify-downloaded-release.sh"
           HELPER_PATH="${BUNDLE_ROOT}/${HELPER_FILE}"
-          echo "artifact_name=$ARTIFACT_NAME" >> "$GITHUB_OUTPUT"
-          echo "asset_basename=$ASSET_BASENAME" >> "$GITHUB_OUTPUT"
-          echo "bundle_dir_name=$BUNDLE_DIR_NAME" >> "$GITHUB_OUTPUT"
-          echo "bundle_dir=$BUNDLE_DIR" >> "$GITHUB_OUTPUT"
-          echo "helper_file=$HELPER_FILE" >> "$GITHUB_OUTPUT"
-          echo "helper_path=$HELPER_PATH" >> "$GITHUB_OUTPUT"
-          echo "archive_file=$ARCHIVE_FILE" >> "$GITHUB_OUTPUT"
-          echo "archive_path=$ARCHIVE_PATH" >> "$GITHUB_OUTPUT"
-          echo "checksum_file=$CHECKSUM_FILE" >> "$GITHUB_OUTPUT"
-          echo "checksum_path=$CHECKSUM_PATH" >> "$GITHUB_OUTPUT"
-          echo "metadata_file=$METADATA_FILE" >> "$GITHUB_OUTPUT"
-          echo "metadata_path=$METADATA_PATH" >> "$GITHUB_OUTPUT"
+          {
+            echo "artifact_name=$ARTIFACT_NAME"
+            echo "asset_basename=$ASSET_BASENAME"
+            echo "bundle_dir_name=$BUNDLE_DIR_NAME"
+            echo "bundle_dir=$BUNDLE_DIR"
+            echo "helper_file=$HELPER_FILE"
+            echo "helper_path=$HELPER_PATH"
+            echo "archive_file=$ARCHIVE_FILE"
+            echo "archive_path=$ARCHIVE_PATH"
+            echo "checksum_file=$CHECKSUM_FILE"
+            echo "checksum_path=$CHECKSUM_PATH"
+            echo "metadata_file=$METADATA_FILE"
+            echo "metadata_path=$METADATA_PATH"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Derive release prerelease flag
         id: release_flags
@@ -686,10 +690,12 @@ jobs:
             echo "Expected standalone $HELPER_FILE in the downloaded release bundle artifact" >&2
             exit 1
           fi
-          echo "archive_path=$ARCHIVE_PATH" >> "$GITHUB_OUTPUT"
-          echo "checksum_path=$CHECKSUM_PATH" >> "$GITHUB_OUTPUT"
-          echo "metadata_path=$METADATA_PATH" >> "$GITHUB_OUTPUT"
-          echo "helper_path=$HELPER_PATH" >> "$GITHUB_OUTPUT"
+          {
+            echo "archive_path=$ARCHIVE_PATH"
+            echo "checksum_path=$CHECKSUM_PATH"
+            echo "metadata_path=$METADATA_PATH"
+            echo "helper_path=$HELPER_PATH"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Generate GitHub Release body
         id: release_body
