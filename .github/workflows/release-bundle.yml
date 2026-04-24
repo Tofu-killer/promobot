@@ -181,6 +181,14 @@ jobs:
           export ARTIFACT_NAME ASSET_BASENAME ARCHIVE_FILE CHECKSUM_FILE BUNDLE_DIR_NAME PRERELEASE
           node <<'EOF'
           const fs = require('node:fs');
+          const path = require('node:path');
+
+          const metadataFile = path.basename(process.env.METADATA_PATH);
+          const assets = [
+            { kind: 'archive', name: process.env.ARCHIVE_FILE },
+            { kind: 'checksum', name: process.env.CHECKSUM_FILE },
+            { kind: 'metadata', name: metadataFile },
+          ];
 
           const metadata = {
             artifact_name: process.env.ARTIFACT_NAME,
@@ -194,6 +202,8 @@ jobs:
             commit_sha: process.env.GITHUB_SHA,
             archive_file: process.env.ARCHIVE_FILE,
             checksum_file: process.env.CHECKSUM_FILE,
+            metadata_file: metadataFile,
+            assets,
             bundle_dir_name: process.env.BUNDLE_DIR_NAME,
           };
 
@@ -213,8 +223,15 @@ jobs:
           export ARTIFACT_NAME ASSET_BASENAME ARCHIVE_FILE CHECKSUM_FILE BUNDLE_DIR_NAME PRERELEASE
           node <<'EOF'
           const fs = require('node:fs');
+          const path = require('node:path');
 
           const metadata = JSON.parse(fs.readFileSync(process.env.METADATA_PATH, 'utf8'));
+          const metadataFile = path.basename(process.env.METADATA_PATH);
+          const expectedAssets = [
+            { kind: 'archive', name: process.env.ARCHIVE_FILE },
+            { kind: 'checksum', name: process.env.CHECKSUM_FILE },
+            { kind: 'metadata', name: metadataFile },
+          ];
           const expected = {
             artifact_name: process.env.ARTIFACT_NAME,
             asset_basename: process.env.ASSET_BASENAME,
@@ -227,12 +244,30 @@ jobs:
             commit_sha: process.env.GITHUB_SHA,
             archive_file: process.env.ARCHIVE_FILE,
             checksum_file: process.env.CHECKSUM_FILE,
+            metadata_file: metadataFile,
             bundle_dir_name: process.env.BUNDLE_DIR_NAME,
           };
 
           for (const [key, value] of Object.entries(expected)) {
             if (metadata[key] !== value) {
               throw new Error(`Unexpected metadata field ${key}: ${metadata[key]} !== ${value}`);
+            }
+          }
+
+          if (!Array.isArray(metadata.assets)) {
+            throw new Error('Expected metadata.assets to be an array');
+          }
+
+          if (metadata.assets.length !== expectedAssets.length) {
+            throw new Error(`Unexpected metadata.assets length: ${metadata.assets.length} !== ${expectedAssets.length}`);
+          }
+
+          for (const [index, expectedAsset] of expectedAssets.entries()) {
+            const actualAsset = metadata.assets[index];
+            for (const key of ['kind', 'name']) {
+              if (actualAsset?.[key] !== expectedAsset[key]) {
+                throw new Error(`Unexpected metadata.assets[${index}].${key}: ${actualAsset?.[key]} !== ${expectedAsset[key]}`);
+              }
             }
           }
           EOF
@@ -287,6 +322,10 @@ jobs:
             throw new Error(`Unexpected metadata checksum_file: ${metadata.checksum_file} !== ${process.env.CHECKSUM_FILE}`);
           }
 
+          if (metadata.metadata_file !== process.env.METADATA_FILE) {
+            throw new Error(`Unexpected metadata metadata_file: ${metadata.metadata_file} !== ${process.env.METADATA_FILE}`);
+          }
+
           if (metadata.bundle_dir_name !== process.env.BUNDLE_DIR_NAME) {
             throw new Error(`Unexpected metadata bundle_dir_name: ${metadata.bundle_dir_name} !== ${process.env.BUNDLE_DIR_NAME}`);
           }
@@ -294,6 +333,32 @@ jobs:
           if (metadataFile !== process.env.METADATA_FILE) {
             throw new Error(`Unexpected metadata file name: ${metadataFile} !== ${process.env.METADATA_FILE}`);
           }
+
+          const expectedAssets = [
+            { kind: 'archive', name: process.env.ARCHIVE_FILE },
+            { kind: 'checksum', name: process.env.CHECKSUM_FILE },
+            { kind: 'metadata', name: process.env.METADATA_FILE },
+          ];
+
+          if (!Array.isArray(metadata.assets)) {
+            throw new Error('Expected metadata.assets to be an array');
+          }
+
+          if (metadata.assets.length !== expectedAssets.length) {
+            throw new Error(`Unexpected metadata.assets length: ${metadata.assets.length} !== ${expectedAssets.length}`);
+          }
+
+          for (const [index, expectedAsset] of expectedAssets.entries()) {
+            const actualAsset = metadata.assets[index];
+            for (const key of ['kind', 'name']) {
+              if (actualAsset?.[key] !== expectedAsset[key]) {
+                throw new Error(`Unexpected metadata.assets[${index}].${key}: ${actualAsset?.[key]} !== ${expectedAsset[key]}`);
+              }
+            }
+          }
+
+          const assetsByKind = Object.fromEntries(metadata.assets.map((asset) => [asset.kind, asset.name]));
+          const orderedAssetSet = metadata.assets.map((asset) => `\`${asset.name}\``).join(', ');
 
           const isTagRelease = process.env.GITHUB_REF_TYPE === 'tag';
           const releasePageUrl = isTagRelease
@@ -303,13 +368,13 @@ jobs:
           const lines = [
             '## Release bundle run summary',
             '',
-            `Generated asset set: \`${metadata.archive_file}\`, \`${metadata.checksum_file}\`, \`${metadataFile}\`.`,
+            `Generated asset set: ${orderedAssetSet}.`,
             `Artifact container: \`${process.env.ARTIFACT_NAME}\`.`,
             '',
             'Recommended verification order:',
-            `1. Run \`sha256sum -c ${metadata.checksum_file}\` before trusting \`${metadata.archive_file}\`.`,
-            `2. Read \`${metadataFile}\` to confirm the ${isTagRelease ? 'tag' : 'ref'}, commit SHA, and asset-to-bundle mapping.`,
-            `3. Extract \`${metadata.archive_file}\` with \`tar -xzf ${metadata.archive_file}\`.`,
+            `1. Run \`sha256sum -c ${assetsByKind.checksum}\` before trusting \`${assetsByKind.archive}\`.`,
+            `2. Read \`${assetsByKind.metadata}\` to confirm the ${isTagRelease ? 'tag' : 'ref'}, commit SHA, and asset-to-bundle mapping.`,
+            `3. Extract \`${assetsByKind.archive}\` with \`tar -xzf ${assetsByKind.archive}\`.`,
             `4. Verify the extracted \`${metadata.bundle_dir_name}\` directory with \`pnpm release:verify -- --input-dir ./${metadata.bundle_dir_name}\` or \`pnpm verify:release -- --input-dir ./${metadata.bundle_dir_name}\`.`,
             '',
             isTagRelease
@@ -422,6 +487,10 @@ jobs:
             throw new Error(`Unexpected metadata checksum_file: ${metadata.checksum_file} !== ${checksumFile}`);
           }
 
+          if (metadata.metadata_file !== metadataFile) {
+            throw new Error(`Unexpected metadata metadata_file: ${metadata.metadata_file} !== ${metadataFile}`);
+          }
+
           if (metadataFile !== expectedMetadataFile) {
             throw new Error(`Unexpected metadata file name: ${metadataFile} !== ${expectedMetadataFile}`);
           }
@@ -435,21 +504,45 @@ jobs:
             throw new Error(`Unexpected bundle_dir_name: ${bundleDirName} !== ${process.env.EXPECTED_BUNDLE_DIR_NAME}`);
           }
 
+          const expectedAssets = [
+            { kind: 'archive', name: expectedArchiveFile },
+            { kind: 'checksum', name: expectedChecksumFile },
+            { kind: 'metadata', name: expectedMetadataFile },
+          ];
+
+          if (!Array.isArray(metadata.assets)) {
+            throw new Error('Expected metadata.assets to be an array');
+          }
+
+          if (metadata.assets.length !== expectedAssets.length) {
+            throw new Error(`Unexpected metadata.assets length: ${metadata.assets.length} !== ${expectedAssets.length}`);
+          }
+
+          for (const [index, expectedAsset] of expectedAssets.entries()) {
+            const actualAsset = metadata.assets[index];
+            for (const key of ['kind', 'name']) {
+              if (actualAsset?.[key] !== expectedAsset[key]) {
+                throw new Error(`Unexpected metadata.assets[${index}].${key}: ${actualAsset?.[key]} !== ${expectedAsset[key]}`);
+              }
+            }
+          }
+
+          const assetsByKind = Object.fromEntries(metadata.assets.map((asset) => [asset.kind, asset.name]));
+          const downloadLines = metadata.assets.map((asset) => `- \`${asset.name}\``);
+
           const body = [
             `Release bundle assets for ${process.env.GITHUB_REF_NAME}.`,
             '',
             'Download:',
-            `- \`${expectedArchiveFile}\``,
-            `- \`${expectedChecksumFile}\``,
-            `- \`${expectedMetadataFile}\``,
+            ...downloadLines,
             '',
             'Recommended verification flow:',
-            `1. Run \`sha256sum -c ${expectedChecksumFile}\` before trusting \`${expectedArchiveFile}\`.`,
-            `2. Read \`${expectedMetadataFile}\` to confirm the tag, commit SHA, and asset-to-bundle mapping.`,
-            `3. Extract \`${expectedArchiveFile}\` with \`tar -xzf ${expectedArchiveFile}\`.`,
+            `1. Run \`sha256sum -c ${assetsByKind.checksum}\` before trusting \`${assetsByKind.archive}\`.`,
+            `2. Read \`${assetsByKind.metadata}\` to confirm the tag, commit SHA, and asset-to-bundle mapping.`,
+            `3. Extract \`${assetsByKind.archive}\` with \`tar -xzf ${assetsByKind.archive}\`.`,
             `4. Verify the extracted \`${bundleDirName}\` directory with \`pnpm release:verify -- --input-dir ./${bundleDirName}\` or \`pnpm verify:release -- --input-dir ./${bundleDirName}\`.`,
             '',
-            `The extracted directory name should match \`bundle_dir_name: ${bundleDirName}\` in \`${expectedMetadataFile}\`.`,
+            `The extracted directory name should match \`bundle_dir_name: ${bundleDirName}\` in \`${assetsByKind.metadata}\`.`,
           ].join('\n');
 
           fs.writeFileSync(process.env.RELEASE_BODY_PATH, `${body}\n`);
