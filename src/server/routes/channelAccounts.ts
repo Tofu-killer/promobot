@@ -19,6 +19,7 @@ import {
   resolveSessionRequestArtifacts,
 } from '../services/browser/sessionRequestArtifacts.js';
 import { getLatestBrowserHandoffArtifact } from '../services/publishers/browserHandoffArtifacts.js';
+import { getLatestInboxReplyHandoffArtifact } from '../services/inbox/replyHandoffArtifacts.js';
 
 const channelAccountStore = createChannelAccountStore();
 const jobQueueStore = createJobQueueStore();
@@ -430,6 +431,11 @@ function attachSessionSummary<
     platform: channelAccount.platform,
     accountKey: channelAccount.accountKey,
   });
+  const latestInboxReplyHandoffArtifact = getLatestInboxReplyHandoffArtifact({
+    channelAccountId: channelAccount.id,
+    platform: channelAccount.platform,
+    accountKey: channelAccount.accountKey,
+  });
 
   return {
     ...channelAccount,
@@ -437,6 +443,7 @@ function attachSessionSummary<
     session,
     latestBrowserLaneArtifact,
     latestBrowserHandoffArtifact,
+    latestInboxReplyHandoffArtifact,
     publishReadiness: getChannelAccountPublishReadiness({
       platform: channelAccount.platform,
       accountKey: channelAccount.accountKey,

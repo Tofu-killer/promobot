@@ -2,11 +2,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { getDatabasePath } from '../../lib/persistence.js';
+import { createChannelAccountStore } from '../../store/channelAccounts.js';
 import type { InboxItemRecord } from '../../store/inbox.js';
 import type { SessionSummary } from '../browser/sessionStore.js';
 
 export type InboxReplyHandoffArtifactStatus = 'pending' | 'resolved' | 'obsolete';
 export type InboxReplyHandoffPlatform = 'x' | 'reddit' | 'facebookGroup' | 'xiaohongshu' | 'weibo';
+
+const channelAccountStore = createChannelAccountStore();
 
 interface InboxReplyHandoffArtifactRecord {
   type: 'browser_inbox_reply_handoff';
@@ -251,6 +254,59 @@ export function getInboxReplyHandoffArtifactByPath(artifactPath: string) {
   };
 }
 
+export function getLatestInboxReplyHandoffArtifact(input: {
+  channelAccountId?: number;
+  platform: string;
+  accountKey: string;
+}): InboxReplyHandoffArtifactSummary | null {
+  const normalizedPlatform = normalizeInboxReplyHandoffPlatform(input.platform);
+  const artifacts = listInboxReplyHandoffArtifacts().filter(
+    (artifact) =>
+      normalizeInboxReplyHandoffPlatform(artifact.platform) === normalizedPlatform &&
+      artifact.accountKey === input.accountKey,
+  );
+
+  if (artifacts.length === 0) {
+    return null;
+  }
+
+  if (typeof input.channelAccountId === 'number') {
+    const exactMatch = artifacts.find((artifact) => artifact.channelAccountId === input.channelAccountId);
+    if (exactMatch) {
+      return exactMatch;
+    }
+
+    const matchingChannelAccounts = channelAccountStore
+      .list()
+      .filter(
+        (channelAccount) =>
+          normalizeInboxReplyHandoffPlatform(channelAccount.platform) === normalizedPlatform &&
+          channelAccount.accountKey === input.accountKey,
+      );
+    const knownChannelAccountIds = new Set(matchingChannelAccounts.map((channelAccount) => channelAccount.id));
+    if (
+      artifacts.some(
+        (artifact) =>
+          typeof artifact.channelAccountId === 'number' &&
+          knownChannelAccountIds.has(artifact.channelAccountId),
+      )
+    ) {
+      return null;
+    }
+
+    if (matchingChannelAccounts.length !== 1 || matchingChannelAccounts[0]?.id !== input.channelAccountId) {
+      return null;
+    }
+
+    return {
+      ...artifacts[0],
+      channelAccountId: input.channelAccountId,
+    };
+  }
+
+  return artifacts[0] ?? null;
+}
+
 function buildArtifactPath(
   platform: InboxReplyHandoffPlatform,
   accountKey: string,
@@ -319,6 +375,10 @@ function readInboxReplyHandoffArtifact(absolutePath: string): InboxReplyHandoffA
 function sanitizeSegment(value: string) {
   const sanitized = value.trim().replace(/[^a-zA-Z0-9._-]+/g, '-');
   return sanitized.length > 0 ? sanitized : 'default';
+}
+
+function normalizeInboxReplyHandoffPlatform(platform: string) {
+  return platform === 'facebook-group' ? 'facebookGroup' : platform;
 }
 
 function resolveArtifactRootDir() {

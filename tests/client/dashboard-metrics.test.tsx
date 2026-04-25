@@ -79,6 +79,12 @@ describe('dashboard enhanced metrics page', () => {
             obsolete: 1,
             unmatched: 11,
           },
+          inboxReplyHandoffs: {
+            total: 3,
+            pending: 1,
+            resolved: 1,
+            obsolete: 1,
+          },
           jobQueue: {
             pending: 4,
             running: 1,
@@ -110,7 +116,13 @@ describe('dashboard enhanced metrics page', () => {
     expect(html).toContain('Browser Handoff 已完成');
     expect(html).toContain('Browser Handoff 已作废');
     expect(html).toContain('Browser Handoff 未归属');
+    expect(html).toContain('Inbox Reply Handoff 总工单');
+    expect(html).toContain('Inbox Reply Handoff 待处理');
+    expect(html).toContain('Inbox Reply Handoff 已完成');
+    expect(html).toContain('Inbox Reply Handoff 已作废');
     expect(html).toContain('>11<');
+    expect(html).toContain('>3<');
+    expect(html).toContain('>1<');
     expect(html).toContain('队列待执行');
     expect(html).toContain('队列运行中');
     expect(html).toContain('队列已完成');

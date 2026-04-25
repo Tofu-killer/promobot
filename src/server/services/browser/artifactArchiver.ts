@@ -3,8 +3,16 @@ import path from 'node:path';
 
 import { getDatabasePath } from '../../lib/persistence.js';
 
-type ArchiveCategory = 'browserLaneRequests' | 'browserLaneResults' | 'browserHandoffs';
-type ArchiveKind = 'browser_lane_request' | 'browser_lane_result' | 'browser_handoff';
+type ArchiveCategory =
+  | 'browserLaneRequests'
+  | 'browserLaneResults'
+  | 'browserHandoffs'
+  | 'inboxReplyHandoffs';
+type ArchiveKind =
+  | 'browser_lane_request'
+  | 'browser_lane_result'
+  | 'browser_handoff'
+  | 'inbox_reply_handoff';
 type ArchiveItemStatus = 'would_archive' | 'archived' | 'skipped' | 'error';
 
 interface BrowserLaneRequestArtifactRecord {
@@ -19,6 +27,12 @@ interface BrowserLaneResultArtifactRecord {
 
 interface BrowserHandoffArtifactRecord {
   type: 'browser_manual_handoff';
+  status: string;
+  resolvedAt: string | null;
+}
+
+interface InboxReplyHandoffArtifactRecord {
+  type: 'browser_inbox_reply_handoff';
   status: string;
   resolvedAt: string | null;
 }
@@ -73,6 +87,11 @@ export interface ArchiveBrowserArtifactsSummary {
       included: boolean;
     };
     browserHandoffs: {
+      scanned: number;
+      eligible: number;
+      archived: number;
+    };
+    inboxReplyHandoffs: {
       scanned: number;
       eligible: number;
       archived: number;
@@ -140,6 +159,11 @@ export function archiveBrowserArtifacts(
         eligible: 0,
         archived: 0,
       },
+      inboxReplyHandoffs: {
+        scanned: 0,
+        eligible: 0,
+        archived: 0,
+      },
     },
     items: [],
     errors: [],
@@ -152,6 +176,11 @@ export function archiveBrowserArtifacts(
     summary,
   });
   collectBrowserHandoffArtifacts({
+    cutoffMs,
+    nowMs: now.getTime(),
+    summary,
+  });
+  collectInboxReplyHandoffArtifacts({
     cutoffMs,
     nowMs: now.getTime(),
     summary,
@@ -336,6 +365,72 @@ function collectBrowserHandoffArtifacts(input: {
   }
 }
 
+function collectInboxReplyHandoffArtifacts(input: {
+  cutoffMs: number;
+  nowMs: number;
+  summary: ArchiveBrowserArtifactsSummary;
+}) {
+  const rootDir = resolveBrowserHandoffArtifactRootDir();
+  const handoffDir = path.join(rootDir, 'artifacts', 'inbox-reply-handoffs');
+
+  if (!fs.existsSync(handoffDir)) {
+    return;
+  }
+
+  for (const absolutePath of walkJsonFiles(handoffDir)) {
+    input.summary.totals.scanned += 1;
+    input.summary.categories.inboxReplyHandoffs.scanned += 1;
+
+    const artifact = readJsonArtifact(absolutePath);
+    const sourcePath = toRelativePath(rootDir, absolutePath);
+
+    if (!artifact || artifact.type !== 'browser_inbox_reply_handoff') {
+      input.summary.totals.errors += 1;
+      input.summary.errors.push({
+        category: 'inboxReplyHandoffs',
+        sourcePath,
+        message: 'invalid inbox reply handoff artifact JSON',
+      });
+      continue;
+    }
+
+    if (artifact.status === 'pending') {
+      continue;
+    }
+
+    if (artifact.status !== 'resolved' && artifact.status !== 'obsolete') {
+      input.summary.totals.errors += 1;
+      input.summary.errors.push({
+        category: 'inboxReplyHandoffs',
+        sourcePath,
+        message: `unsupported inbox reply handoff status: ${artifact.status}`,
+      });
+      continue;
+    }
+
+    if (!artifact.resolvedAt) {
+      input.summary.totals.errors += 1;
+      input.summary.errors.push({
+        category: 'inboxReplyHandoffs',
+        sourcePath,
+        message: 'inbox reply handoff artifact is missing resolvedAt',
+      });
+      continue;
+    }
+
+    pushCandidateIfOldEnough({
+      category: 'inboxReplyHandoffs',
+      kind: 'inbox_reply_handoff',
+      rootDir,
+      sourcePath,
+      ageReference: artifact.resolvedAt,
+      cutoffMs: input.cutoffMs,
+      nowMs: input.nowMs,
+      summary: input.summary,
+    });
+  }
+}
+
 function pushCandidateIfOldEnough(input: {
   category: ArchiveCategory;
   kind: ArchiveKind;
@@ -402,6 +497,13 @@ function buildArchivePath(sourcePath: string) {
     );
   }
 
+  if (normalized.startsWith('artifacts/inbox-reply-handoffs/')) {
+    return normalized.replace(
+      'artifacts/inbox-reply-handoffs/',
+      'artifacts/archive/inbox-reply-handoffs/',
+    );
+  }
+
   throw new Error(`unsupported archive source path: ${sourcePath}`);
 }
 
@@ -426,19 +528,25 @@ function walkJsonFiles(rootDir: string): string[] {
 
 function readJsonArtifact(
   absolutePath: string,
-): BrowserLaneRequestArtifactRecord | BrowserLaneResultArtifactRecord | BrowserHandoffArtifactRecord | null {
+):
+  | BrowserLaneRequestArtifactRecord
+  | BrowserLaneResultArtifactRecord
+  | BrowserHandoffArtifactRecord
+  | InboxReplyHandoffArtifactRecord
+  | null {
   try {
     return JSON.parse(fs.readFileSync(absolutePath, 'utf8')) as
       | BrowserLaneRequestArtifactRecord
       | BrowserLaneResultArtifactRecord
-      | BrowserHandoffArtifactRecord;
+      | BrowserHandoffArtifactRecord
+      | InboxReplyHandoffArtifactRecord;
   } catch {
     return null;
   }
 }
 
 function resolveRootDirForCategory(category: ArchiveCategory) {
-  return category === 'browserHandoffs'
+  return category === 'browserHandoffs' || category === 'inboxReplyHandoffs'
     ? resolveBrowserHandoffArtifactRootDir()
     : resolveBrowserLaneArtifactRootDir();
 }
