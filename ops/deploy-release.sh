@@ -150,6 +150,7 @@ main() {
   [ -f "package.json" ] || fail "package.json not found in ${bundle_root}"
   [ -f "pnpm-lock.yaml" ] || fail "pnpm-lock.yaml not found in ${bundle_root}"
   [ -f "pm2.config.js" ] || fail "pm2.config.js not found in ${bundle_root}"
+  [ -f "database/schema.sql" ] || fail "database/schema.sql not found in ${bundle_root}"
   [ -f "dist/server/index.js" ] || fail "dist/server/index.js not found in ${bundle_root}"
   [ -f "dist/client/index.html" ] || fail "dist/client/index.html not found in ${bundle_root}"
   [ -f "dist/server/cli/deploymentSmoke.js" ] || fail "dist/server/cli/deploymentSmoke.js not found in ${bundle_root}"

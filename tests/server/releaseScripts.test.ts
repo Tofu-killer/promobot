@@ -147,6 +147,22 @@ describe('release shell wrappers', () => {
     expect(result.stderr).not.toContain('ADMIN_PASSWORD missing');
   });
 
+  it('fails deploy-release before startup when database schema is missing from the bundle', () => {
+    const fixture = createDeployReleaseFixture();
+    fs.rmSync(path.join(fixture.rootDir, 'database', 'schema.sql'));
+
+    const result = runScript(fixture.scriptPath, ['--skip-install', '--skip-smoke'], {
+      cwd: fixture.rootDir,
+      env: {
+        ...process.env,
+        PATH: `${fixture.binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+      },
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(`database/schema.sql not found in ${fixture.rootDir}`);
+  });
+
   it('shows verify-downloaded-release help for direct and leading dash-dash help paths', () => {
     for (const args of [['--help'], ['--', '--help']]) {
       const result = runRepoScript('ops/verify-downloaded-release.sh', args);
@@ -243,6 +259,7 @@ function createDeployReleaseFixture(options: { requireAdminPasswordForPm2?: bool
   writeFile(rootDir, 'package.json', '{}\n');
   writeFile(rootDir, 'pnpm-lock.yaml', 'lockfileVersion: 9\n');
   writeFile(rootDir, 'pm2.config.js', 'export default {};\n');
+  writeFile(rootDir, 'database/schema.sql', 'create table drafts (id integer primary key);\n');
   writeFile(rootDir, 'dist/server/index.js', 'console.log("server");\n');
   writeFile(rootDir, 'dist/client/index.html', '<!doctype html>\n');
   writeFile(rootDir, 'dist/server/cli/deploymentSmoke.js', 'console.log("smoke");\n');
