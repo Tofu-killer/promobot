@@ -138,8 +138,18 @@ interface BrowserReplyHandoffDetails {
   artifact?: string | BrowserReplyHandoffArtifact | null;
 }
 
+interface ManualReplyAssistantDetails {
+  platform?: string | null;
+  label?: string | null;
+  copyText?: string | null;
+  sourceUrl?: string | null;
+  openUrl?: string | null;
+  title?: string | null;
+}
+
 type SendInboxReplyDetails = Record<string, unknown> & {
   browserReplyHandoff?: BrowserReplyHandoffDetails | null;
+  manualReplyAssistant?: ManualReplyAssistantDetails | null;
 };
 
 export async function suggestInboxReplyRequest(id: number): Promise<InboxReplySuggestionResponse> {
@@ -272,6 +282,10 @@ function formatInboxPlatformFilterLabel(filter: string) {
     return 'Reddit';
   }
 
+  if (filter === 'v2ex') {
+    return 'V2EX';
+  }
+
   if (filter === 'xiaohongshu') {
     return '小红书';
   }
@@ -351,6 +365,33 @@ function readBrowserReplyHandoff(details: SendInboxReplyDetails | undefined) {
   };
 }
 
+function readManualReplyAssistant(details: SendInboxReplyDetails | undefined) {
+  const assistant = asRecord(details?.manualReplyAssistant);
+  if (!assistant) {
+    return null;
+  }
+
+  const label = readString(assistant.label);
+  const copyText = readString(assistant.copyText);
+  const sourceUrl = readString(assistant.sourceUrl);
+  const openUrl = readString(assistant.openUrl) ?? sourceUrl;
+  const title = readString(assistant.title);
+  const platform = readString(assistant.platform);
+
+  if (!copyText && !openUrl && !label && !title && !platform) {
+    return null;
+  }
+
+  return {
+    platform,
+    label,
+    copyText,
+    sourceUrl,
+    openUrl,
+    title,
+  };
+}
+
 function filterInboxItems(items: InboxItem[], activePlatformFilter: string, activeStatusFilter: string) {
   return items.filter((item) => {
     const matchesPlatform =
@@ -403,6 +444,7 @@ export function InboxPage({
   const [replySuggestionItemId, setReplySuggestionItemId] = useState<number | null>(null);
   const [replyDeliveryItemId, setReplyDeliveryItemId] = useState<number | null>(null);
   const [replyDraftByItemId, setReplyDraftByItemId] = useState<Record<number, string>>({});
+  const [manualReplyAssistantFeedback, setManualReplyAssistantFeedback] = useState<string | null>(null);
   const [allowReplySuggestionFallback, setAllowReplySuggestionFallback] = useState(true);
   const [enqueueRunAtDraft, setEnqueueRunAtDraft] = useState('');
   const displayState = stateOverride ?? state;
@@ -513,6 +555,9 @@ export function InboxPage({
         ? `发送回复失败：${displaySendReplyState.error}`
         : null;
   const sendReplyBrowserHandoff = deliveredReplyFeedback ? readBrowserReplyHandoff(deliveredReplyFeedback.details) : null;
+  const sendReplyManualReplyAssistant = deliveredReplyFeedback
+    ? readManualReplyAssistant(deliveredReplyFeedback.details)
+    : null;
   const sendReplyFeedbackTone =
     deliveredReplyFeedback
       ? deliveredReplyFeedback.status === 'sent'
@@ -529,6 +574,10 @@ export function InboxPage({
     displayReplySuggestionState.data
       ? displayReplySuggestionState.data.suggestion.reply
       : null;
+
+  useEffect(() => {
+    setManualReplyAssistantFeedback(null);
+  }, [deliveredReplyFeedbackItemId, sendReplyFeedback]);
 
   async function handleInboxStatus(item: InboxItem, status: 'handled' | 'snoozed') {
     setSelectedItemId(item.id);
@@ -610,6 +659,30 @@ export function InboxPage({
       id: selectedItem.id,
       reply: nextReply,
     }).catch(() => undefined);
+  }
+
+  function handleOpenManualReplyAssistant(url: string) {
+    if (typeof window.open === 'function') {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
+  }
+
+  function handleCopyManualReplyAssistant(copyText: string) {
+    const clipboard = navigator.clipboard;
+
+    if (!clipboard?.writeText) {
+      setManualReplyAssistantFeedback('当前环境不支持自动复制，请手动复制。');
+      return;
+    }
+
+    void clipboard
+      .writeText(copyText)
+      .then(() => {
+        setManualReplyAssistantFeedback('已复制回复内容');
+      })
+      .catch(() => {
+        setManualReplyAssistantFeedback('复制回复内容失败，请手动复制。');
+      });
   }
 
   function handleSelectPlatformFilter(filter: string) {
@@ -728,6 +801,37 @@ export function InboxPage({
           ) : null}
           {sendReplyBrowserHandoff?.artifactPath ? (
             <span style={{ display: 'block', marginTop: '6px' }}>Handoff 路径：{sendReplyBrowserHandoff.artifactPath}</span>
+          ) : null}
+          {sendReplyManualReplyAssistant ? (
+            <span style={{ display: 'block', marginTop: '10px' }}>
+              <span style={{ display: 'block' }}>
+                手工回复辅助：{sendReplyManualReplyAssistant.label ?? sendReplyManualReplyAssistant.platform ?? 'manual'}
+              </span>
+              {(sendReplyManualReplyAssistant.openUrl || sendReplyManualReplyAssistant.copyText) ? (
+                <span style={{ display: 'inline-flex', gap: '8px', flexWrap: 'wrap', marginTop: '8px' }}>
+                  {sendReplyManualReplyAssistant.openUrl ? (
+                    <ActionButton
+                      label="打开原帖"
+                      onClick={() => {
+                        handleOpenManualReplyAssistant(sendReplyManualReplyAssistant.openUrl!);
+                      }}
+                    />
+                  ) : null}
+                  {sendReplyManualReplyAssistant.copyText ? (
+                    <ActionButton
+                      label="复制回复"
+                      tone="primary"
+                      onClick={() => {
+                        handleCopyManualReplyAssistant(sendReplyManualReplyAssistant.copyText!);
+                      }}
+                    />
+                  ) : null}
+                </span>
+              ) : null}
+              {manualReplyAssistantFeedback ? (
+                <span style={{ display: 'block', marginTop: '6px' }}>{manualReplyAssistantFeedback}</span>
+              ) : null}
+            </span>
           ) : null}
         </p>
       ) : null}
