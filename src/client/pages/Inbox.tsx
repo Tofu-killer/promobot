@@ -118,6 +118,30 @@ export interface InboxReplySuggestionResponse {
   };
 }
 
+interface BrowserReplyHandoffArtifact {
+  artifactPath?: string | null;
+  path?: string | null;
+  relativePath?: string | null;
+}
+
+interface BrowserReplyHandoffSessionAction {
+  action?: string | null;
+  type?: string | null;
+  artifactPath?: string | null;
+  path?: string | null;
+}
+
+interface BrowserReplyHandoffDetails {
+  readiness?: string | null;
+  sessionAction?: string | BrowserReplyHandoffSessionAction | null;
+  artifactPath?: string | null;
+  artifact?: string | BrowserReplyHandoffArtifact | null;
+}
+
+type SendInboxReplyDetails = Record<string, unknown> & {
+  browserReplyHandoff?: BrowserReplyHandoffDetails | null;
+};
+
 export async function suggestInboxReplyRequest(id: number): Promise<InboxReplySuggestionResponse> {
   return apiRequest<InboxReplySuggestionResponse>(`/api/inbox/${id}/suggest-reply`, {
     method: 'POST',
@@ -134,7 +158,7 @@ export interface SendInboxReplyResponse {
     reply: string;
     deliveryUrl?: string | null;
     externalId?: string | null;
-    details?: Record<string, unknown>;
+    details?: SendInboxReplyDetails;
   };
 }
 
@@ -281,6 +305,50 @@ function formatInboxStatusFilterLabel(filter: string) {
   }
 
   return filter;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function readString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value : null;
+}
+
+function readBrowserReplyHandoff(details: SendInboxReplyDetails | undefined) {
+  const browserReplyHandoff = asRecord(details?.browserReplyHandoff);
+  if (!browserReplyHandoff) {
+    return null;
+  }
+
+  const artifact = browserReplyHandoff.artifact;
+  const artifactRecord = asRecord(artifact);
+  const sessionActionRecord = asRecord(browserReplyHandoff.sessionAction);
+  const readiness = readString(browserReplyHandoff.readiness);
+  const sessionAction =
+    readString(browserReplyHandoff.sessionAction) ??
+    readString(sessionActionRecord?.action) ??
+    readString(sessionActionRecord?.type);
+  const artifactPath =
+    readString(browserReplyHandoff.artifactPath) ??
+    readString(artifact) ??
+    readString(artifactRecord?.artifactPath) ??
+    readString(artifactRecord?.path) ??
+    readString(artifactRecord?.relativePath) ??
+    readString(sessionActionRecord?.artifactPath) ??
+    readString(sessionActionRecord?.path);
+
+  if (!readiness && !sessionAction && !artifactPath) {
+    return null;
+  }
+
+  return {
+    readiness,
+    sessionAction,
+    artifactPath,
+  };
 }
 
 function filterInboxItems(items: InboxItem[], activePlatformFilter: string, activeStatusFilter: string) {
@@ -431,20 +499,25 @@ export function InboxPage({
     displaySendReplyState.status === 'success' && displaySendReplyState.data
       ? displaySendReplyState.data.item.id
       : null;
-  const sendReplyFeedback =
+  const deliveredReplyFeedback =
     displaySendReplyState.status === 'success' &&
     displaySendReplyState.data &&
     replyDeliveryItemId !== null &&
     deliveredReplyFeedbackItemId === replyDeliveryItemId
-      ? displaySendReplyState.data.delivery.message
+      ? displaySendReplyState.data.delivery
+      : null;
+  const sendReplyFeedback =
+    deliveredReplyFeedback
+      ? deliveredReplyFeedback.message
       : displaySendReplyState.status === 'error' && replyDeliveryItemId !== null
         ? `发送回复失败：${displaySendReplyState.error}`
         : null;
+  const sendReplyBrowserHandoff = deliveredReplyFeedback ? readBrowserReplyHandoff(deliveredReplyFeedback.details) : null;
   const sendReplyFeedbackTone =
-    displaySendReplyState.status === 'success' && displaySendReplyState.data
-      ? displaySendReplyState.data.delivery.status === 'sent'
+    deliveredReplyFeedback
+      ? deliveredReplyFeedback.status === 'sent'
         ? 'success'
-        : displaySendReplyState.data.delivery.status === 'manual_required'
+        : deliveredReplyFeedback.status === 'manual_required'
           ? 'warning'
           : 'error'
       : displaySendReplyState.status === 'error'
@@ -646,7 +719,16 @@ export function InboxPage({
                   : '#166534',
           }}
         >
-          {sendReplyFeedback}
+          <span>{sendReplyFeedback}</span>
+          {sendReplyBrowserHandoff?.readiness ? (
+            <span style={{ display: 'block', marginTop: '6px' }}>Handoff 状态：{sendReplyBrowserHandoff.readiness}</span>
+          ) : null}
+          {sendReplyBrowserHandoff?.sessionAction ? (
+            <span style={{ display: 'block', marginTop: '6px' }}>Handoff 动作：{sendReplyBrowserHandoff.sessionAction}</span>
+          ) : null}
+          {sendReplyBrowserHandoff?.artifactPath ? (
+            <span style={{ display: 'block', marginTop: '6px' }}>Handoff 路径：{sendReplyBrowserHandoff.artifactPath}</span>
+          ) : null}
         </p>
       ) : null}
 

@@ -11,6 +11,11 @@ import {
   importBrowserHandoffResult,
 } from '../services/publishers/browserHandoffResultImporter.js';
 import { listBrowserHandoffArtifacts } from '../services/publishers/browserHandoffArtifacts.js';
+import {
+  InboxReplyHandoffImportError,
+  importInboxReplyHandoffResult,
+} from '../services/inbox/replyHandoffResultImporter.js';
+import { listInboxReplyHandoffArtifacts } from '../services/inbox/replyHandoffArtifacts.js';
 import type { SchedulerRuntime } from '../runtime/schedulerRuntime.js';
 
 export interface SystemRouteDependencies {
@@ -231,6 +236,58 @@ export function createSystemRouter(dependencies: SystemRouteDependencies = {}) {
     }
   });
 
+  systemRouter.get('/inbox-reply-handoffs', (request, response) => {
+    const limit = parseOptionalPositiveInteger(request.query.limit);
+    const handoffs = listInboxReplyHandoffArtifacts(limit);
+
+    response.json({
+      handoffs,
+      total: listInboxReplyHandoffArtifacts().length,
+    });
+  });
+
+  systemRouter.post('/inbox-reply-handoffs/import', async (request, response, next) => {
+    if (request.body !== undefined && !isPlainObject(request.body)) {
+      response.status(400).json({ error: 'invalid inbox reply handoff payload' });
+      return;
+    }
+
+    const artifactPath =
+      typeof request.body?.artifactPath === 'string' ? request.body.artifactPath.trim() : '';
+    const message =
+      typeof request.body?.message === 'string' ? request.body.message.trim() : '';
+
+    if (!artifactPath || !message || !isInboxReplyHandoffReplyStatus(request.body?.replyStatus)) {
+      response.status(400).json({ error: 'invalid inbox reply handoff payload' });
+      return;
+    }
+
+    try {
+      const result = await importInboxReplyHandoffResult({
+        artifactPath,
+        replyStatus: request.body.replyStatus,
+        message,
+        ...(request.body?.deliveryUrl === null || typeof request.body?.deliveryUrl === 'string'
+          ? { deliveryUrl: request.body.deliveryUrl as string | null | undefined }
+          : {}),
+        ...(request.body?.externalId === null || typeof request.body?.externalId === 'string'
+          ? { externalId: request.body.externalId as string | null | undefined }
+          : {}),
+        ...(request.body?.deliveredAt === null || typeof request.body?.deliveredAt === 'string'
+          ? { deliveredAt: request.body.deliveredAt as string | null | undefined }
+          : {}),
+      });
+      response.json(result);
+    } catch (error) {
+      if (error instanceof InboxReplyHandoffImportError) {
+        response.status(error.statusCode).json({ error: error.message });
+        return;
+      }
+
+      next(error);
+    }
+  });
+
   systemRouter.get('/jobs/:jobId', (request, response) => {
     if (!schedulerRuntime) {
       response.status(503).json({ error: 'scheduler runtime unavailable' });
@@ -330,6 +387,10 @@ function isSessionStatusValue(value: unknown): value is 'active' | 'expired' | '
 
 function isBrowserHandoffPublishStatus(value: unknown): value is 'published' | 'failed' {
   return value === 'published' || value === 'failed';
+}
+
+function isInboxReplyHandoffReplyStatus(value: unknown): value is 'sent' | 'failed' {
+  return value === 'sent' || value === 'failed';
 }
 
 function buildSchedulerHealthSnapshot(schedulerRuntime: SchedulerRuntime | undefined) {
