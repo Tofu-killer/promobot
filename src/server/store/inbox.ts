@@ -9,6 +9,7 @@ export interface InboxItemRecord {
   author?: string;
   title: string;
   excerpt: string;
+  metadata?: Record<string, unknown>;
   createdAt: string;
 }
 
@@ -19,6 +20,7 @@ export interface CreateInboxItemInput {
   author?: string;
   title: string;
   excerpt: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface InboxStore {
@@ -31,19 +33,19 @@ export function createInboxStore(): InboxStore {
   return {
     create(input) {
       return withDatabase((database) => {
-        ensureProjectIdColumn(database);
+        ensureInboxItemColumns(database);
         return insertInboxItem(database, input);
       });
     },
     list(projectId) {
       return withDatabase((database) => {
-        ensureProjectIdColumn(database);
+        ensureInboxItemColumns(database);
         return listInboxItems(database, projectId);
       });
     },
     updateStatus(id, status) {
       return withDatabase((database) => {
-        ensureProjectIdColumn(database);
+        ensureInboxItemColumns(database);
         return updateInboxItemStatus(database, id, status);
       });
     },
@@ -56,14 +58,23 @@ function insertInboxItem(
 ): InboxItemRecord {
   const existingRow = findInboxItemByContent(database, input);
   if (existingRow) {
-    return normalizeInboxItem(existingRow);
+    if (input.metadata) {
+      maybeBackfillInboxItemMetadata(database, existingRow, input.metadata);
+    }
+
+    const refreshedRow = selectInboxItemById(database, Number(existingRow.id));
+    if (!refreshedRow) {
+      throw new Error('inbox item refresh failed');
+    }
+
+    return normalizeInboxItem(refreshedRow);
   }
 
   const result = database
     .prepare(
       `
-        INSERT INTO inbox_items (project_id, source, status, author, title, excerpt)
-        VALUES (@project_id, @source, @status, @author, @title, @excerpt)
+        INSERT INTO inbox_items (project_id, source, status, author, title, excerpt, metadata_json)
+        VALUES (@project_id, @source, @status, @author, @title, @excerpt, @metadata_json)
       `,
     )
     .run({
@@ -73,6 +84,7 @@ function insertInboxItem(
       author: input.author ?? null,
       title: input.title,
       excerpt: input.excerpt,
+      metadata_json: stringifyMetadata(input.metadata),
     });
 
   const row = selectInboxItemById(database, result.lastInsertRowid);
@@ -91,7 +103,7 @@ function findInboxItemByContent(
   const row = database
     .prepare(
       `
-        SELECT id, project_id AS projectId, source, status, author, title, excerpt, created_at AS createdAt
+        SELECT id, project_id AS projectId, source, status, author, title, excerpt, metadata_json AS metadataJson, created_at AS createdAt
         FROM inbox_items
         WHERE ((project_id = @project_id) OR (project_id IS NULL AND @project_id IS NULL))
           AND source = @source
@@ -121,7 +133,7 @@ function listInboxItems(database: DatabaseConnection, projectId?: number): Inbox
       ? database
           .prepare(
             `
-              SELECT id, project_id AS projectId, source, status, author, title, excerpt, created_at AS createdAt
+              SELECT id, project_id AS projectId, source, status, author, title, excerpt, metadata_json AS metadataJson, created_at AS createdAt
               FROM inbox_items
               WHERE project_id = ?
               ORDER BY id ASC
@@ -131,7 +143,7 @@ function listInboxItems(database: DatabaseConnection, projectId?: number): Inbox
       : database
           .prepare(
             `
-              SELECT id, project_id AS projectId, source, status, author, title, excerpt, created_at AS createdAt
+              SELECT id, project_id AS projectId, source, status, author, title, excerpt, metadata_json AS metadataJson, created_at AS createdAt
               FROM inbox_items
               ORDER BY id ASC
             `,
@@ -176,7 +188,7 @@ function selectInboxItemById(
   const row = database
     .prepare(
       `
-        SELECT id, project_id AS projectId, source, status, author, title, excerpt, created_at AS createdAt
+        SELECT id, project_id AS projectId, source, status, author, title, excerpt, metadata_json AS metadataJson, created_at AS createdAt
         FROM inbox_items
         WHERE id = ?
       `,
@@ -187,6 +199,8 @@ function selectInboxItemById(
 }
 
 function normalizeInboxItem(row: Record<string, unknown>): InboxItemRecord {
+  const metadata = parseMetadata(row.metadataJson);
+
   return {
     id: Number(row.id),
     projectId: parseOptionalInteger(row.projectId),
@@ -195,17 +209,42 @@ function normalizeInboxItem(row: Record<string, unknown>): InboxItemRecord {
     author: typeof row.author === 'string' ? row.author : undefined,
     title: String(row.title),
     excerpt: String(row.excerpt),
+    ...(metadata ? { metadata } : {}),
     createdAt: String(row.createdAt),
   };
 }
 
-function ensureProjectIdColumn(database: DatabaseConnection) {
+function ensureInboxItemColumns(database: DatabaseConnection) {
   const columns = database.prepare('PRAGMA table_info(inbox_items)').all() as Array<{ name?: unknown }>;
-  if (columns.some((column) => column.name === 'project_id')) {
+
+  if (!columns.some((column) => column.name === 'project_id')) {
+    database.exec('ALTER TABLE inbox_items ADD COLUMN project_id INTEGER');
+  }
+
+  if (!columns.some((column) => column.name === 'metadata_json')) {
+    database.exec("ALTER TABLE inbox_items ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}'");
+  }
+}
+
+function maybeBackfillInboxItemMetadata(
+  database: DatabaseConnection,
+  row: Record<string, unknown>,
+  metadata: Record<string, unknown>,
+) {
+  const existingMetadata = parseMetadata(row.metadataJson);
+  if (hasMetadataValues(existingMetadata)) {
     return;
   }
 
-  database.exec('ALTER TABLE inbox_items ADD COLUMN project_id INTEGER');
+  database
+    .prepare(
+      `
+        UPDATE inbox_items
+        SET metadata_json = ?
+        WHERE id = ?
+      `,
+    )
+    .run([stringifyMetadata(metadata), Number(row.id)]);
 }
 
 function parseOptionalInteger(value: unknown): number | undefined {
@@ -215,4 +254,27 @@ function parseOptionalInteger(value: unknown): number | undefined {
 
   const parsed = Number(value);
   return Number.isInteger(parsed) ? parsed : undefined;
+}
+
+function parseMetadata(value: unknown) {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function stringifyMetadata(value: Record<string, unknown> | undefined) {
+  return JSON.stringify(value ?? {});
+}
+
+function hasMetadataValues(value: Record<string, unknown> | undefined) {
+  return Boolean(value && Object.keys(value).length > 0);
 }
