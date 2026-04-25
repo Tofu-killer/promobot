@@ -359,6 +359,13 @@ describe('Inbox action wiring', () => {
           mode: 'manual',
           message: 'Reply requires manual delivery.',
           reply: 'Manual follow-up reply.',
+          details: {
+            browserReplyHandoff: {
+              readiness: 'blocked',
+              sessionAction: 'request_session',
+              artifact: 'artifacts/browser-handoffs/reddit/acct-reddit/inbox-reply-7.json',
+            },
+          },
         },
       }),
     );
@@ -1304,7 +1311,7 @@ describe('Inbox action wiring', () => {
     expect(html).toMatch(/<button(?![^>]*disabled="")[^>]*>应用建议（人工复制）<\/button>/);
   });
 
-  it('submits the current reply draft and keeps the inbox item pending when manual delivery is required', async () => {
+  it('shows browser handoff details and keeps the inbox item pending when browser delivery still needs manual follow-up', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
     const { InboxPage } = await import('../../src/client/pages/Inbox');
@@ -1322,9 +1329,16 @@ describe('Inbox action wiring', () => {
       delivery: {
         success: false,
         status: 'manual_required',
-        mode: 'manual',
-        message: 'Reply requires manual delivery.',
+        mode: 'browser',
+        message: 'Weibo reply requires the browser session to be refreshed before delivery.',
         reply: 'Manual follow-up reply.',
+        details: {
+          browserReplyHandoff: {
+            readiness: 'blocked',
+            sessionAction: 'relogin',
+            artifact: 'artifacts/browser-handoffs/weibo/acct-ops/inbox-reply-7.json',
+          },
+        },
       },
     });
 
@@ -1376,9 +1390,20 @@ describe('Inbox action wiring', () => {
     });
 
     expect(sendReplyAction).toHaveBeenCalledWith(7, 'Manual follow-up reply.');
-    expect(collectText(container)).toContain('Reply requires manual delivery.');
+    expect(collectText(container)).toContain('Weibo reply requires the browser session to be refreshed before delivery.');
+    expect(collectText(container)).toContain('Handoff 状态：blocked');
+    expect(collectText(container)).toContain('Handoff 动作：relogin');
+    expect(collectText(container)).toContain('Handoff 路径：artifacts/browser-handoffs/weibo/acct-ops/inbox-reply-7.json');
     expect(collectText(container)).toContain('needs_reply');
     expect(collectText(container)).not.toContain('已将“Need lower latency in APAC”回写为 handled');
+    const manualRequiredFeedback = findElement(
+      container,
+      (element) =>
+        element.tagName === 'P' &&
+        collectText(element).includes('Weibo reply requires the browser session to be refreshed before delivery.'),
+    );
+    expect(manualRequiredFeedback?.style.background).toBe('#fffbeb');
+    expect(manualRequiredFeedback?.style.color).toBe('#92400e');
 
     await act(async () => {
       root.unmount();
@@ -1463,6 +1488,14 @@ describe('Inbox action wiring', () => {
     );
     expect(collectText(container)).toContain('needs_reply');
     expect(collectText(container)).not.toContain('已将“Need lower latency in APAC”回写为 handled');
+    const failedFeedback = findElement(
+      container,
+      (element) =>
+        element.tagName === 'P' &&
+        collectText(element).includes('missing reddit credentials: configure REDDIT_CLIENT_ID'),
+    );
+    expect(failedFeedback?.style.background).toBe('#fef2f2');
+    expect(failedFeedback?.style.color).toBe('#b91c1c');
 
     await act(async () => {
       root.unmount();
@@ -1560,6 +1593,14 @@ describe('Inbox action wiring', () => {
     );
     expect(collectText(container)).toContain('已将“Need lower latency in APAC”回写为 handled');
     expect(collectText(container)).toContain('当前筛选下暂无命中内容');
+    const sentFeedback = findElement(
+      container,
+      (element) =>
+        element.tagName === 'P' &&
+        collectText(element).includes('Reddit reply sent to https://www.reddit.com/r/promobot/comments/abc123/need_lower_latency_in_apac/.'),
+    );
+    expect(sentFeedback?.style.background).toBe('#ecfdf5');
+    expect(sentFeedback?.style.color).toBe('#166534');
 
     await act(async () => {
       root.unmount();

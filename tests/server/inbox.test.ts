@@ -1,5 +1,8 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../../src/server/app';
+import { createSessionStore } from '../../src/server/services/browser/sessionStore';
 import { createChannelAccountStore } from '../../src/server/store/channelAccounts';
 import { createInboxStore } from '../../src/server/store/inbox';
 import { createMonitorStore } from '../../src/server/store/monitor';
@@ -16,6 +19,7 @@ const originalEnv = {
   REDDIT_PASSWORD: process.env.REDDIT_PASSWORD,
   REDDIT_USER_AGENT: process.env.REDDIT_USER_AGENT,
   MONITOR_X_SEARCH_SEEDS: process.env.MONITOR_X_SEARCH_SEEDS,
+  BROWSER_HANDOFF_OUTPUT_DIR: process.env.BROWSER_HANDOFF_OUTPUT_DIR,
   X_ACCESS_TOKEN: process.env.X_ACCESS_TOKEN,
   X_BEARER_TOKEN: process.env.X_BEARER_TOKEN,
 };
@@ -121,6 +125,7 @@ afterEach(() => {
   restoreEnv('REDDIT_PASSWORD', originalEnv.REDDIT_PASSWORD);
   restoreEnv('REDDIT_USER_AGENT', originalEnv.REDDIT_USER_AGENT);
   restoreEnv('MONITOR_X_SEARCH_SEEDS', originalEnv.MONITOR_X_SEARCH_SEEDS);
+  restoreEnv('BROWSER_HANDOFF_OUTPUT_DIR', originalEnv.BROWSER_HANDOFF_OUTPUT_DIR);
   restoreEnv('X_ACCESS_TOKEN', originalEnv.X_ACCESS_TOKEN);
   restoreEnv('X_BEARER_TOKEN', originalEnv.X_BEARER_TOKEN);
 });
@@ -1431,11 +1436,18 @@ describe('inbox api', () => {
           success: false,
           status: 'manual_required',
           mode: 'browser',
-          message: 'X reply requires a saved browser session before delivery.',
+          message: 'X reply requires a saved browser session before manual handoff.',
           reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
           deliveryUrl: null,
           externalId: null,
           details: expect.objectContaining({
+            browserReplyHandoff: expect.objectContaining({
+              platform: 'x',
+              channelAccountId: channelAccount.id,
+              accountKey: 'x-browser-main',
+              readiness: 'blocked',
+              sessionAction: 'request_session',
+            }),
             context: {
               selection: 'channelAccountId',
               channelAccount: {
@@ -1458,6 +1470,373 @@ describe('inbox api', () => {
           }),
         }),
       });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('returns a ready browser reply handoff with an artifact path when a saved session exists', async () => {
+    const { rootDir } = createTestDatabasePath();
+    process.env.BROWSER_HANDOFF_OUTPUT_DIR = rootDir;
+
+    try {
+      const channelAccountStore = createChannelAccountStore();
+      const channelAccount = channelAccountStore.create({
+        projectId: 1,
+        platform: 'weibo',
+        accountKey: 'weibo-browser-main',
+        displayName: 'Weibo Browser Main',
+        authType: 'browser',
+        status: 'healthy',
+      });
+      createSessionStore().saveSession({
+        platform: 'weibo',
+        accountKey: 'weibo-browser-main',
+        storageState: {
+          cookies: [],
+          origins: [],
+        },
+        status: 'active',
+        lastValidatedAt: '2026-04-25T10:00:00.000Z',
+      });
+
+      const inboxStore = createInboxStore();
+      inboxStore.create({
+        projectId: 1,
+        source: 'weibo',
+        status: 'needs_review',
+        author: 'ops-user',
+        title: 'Need lower latency in APAC',
+        excerpt: 'Can you share current response times?',
+        metadata: {
+          channelAccountId: channelAccount.id,
+          accountKey: 'weibo-browser-main',
+          sourceUrl: 'https://weibo.test/post/1',
+        },
+      });
+
+      const response = await requestApp('POST', '/api/inbox/1/send-reply', {
+        reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+      });
+
+      const body = JSON.parse(response.body) as {
+        item: { status: string };
+        delivery: {
+          status: string;
+          mode: string;
+          details?: {
+            browserReplyHandoff?: {
+              artifactPath?: string;
+              readiness: string;
+              sessionAction: string | null;
+              accountKey: string;
+            };
+          };
+        };
+      };
+      const artifactPath = body.delivery.details?.browserReplyHandoff?.artifactPath;
+
+      expect(response.status).toBe(200);
+      expect(body).toEqual({
+        item: expect.objectContaining({
+          id: 1,
+          status: 'needs_review',
+        }),
+        delivery: expect.objectContaining({
+          success: false,
+          status: 'manual_required',
+          mode: 'browser',
+          message: '微博 reply is ready for manual browser handoff with the saved session.',
+          reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+          deliveryUrl: null,
+          externalId: null,
+          details: expect.objectContaining({
+            browserReplyHandoff: expect.objectContaining({
+              platform: 'weibo',
+              channelAccountId: channelAccount.id,
+              accountKey: 'weibo-browser-main',
+              readiness: 'ready',
+              sessionAction: null,
+              artifactPath:
+                'artifacts/inbox-reply-handoffs/weibo/weibo-browser-main/weibo-inbox-item-1.json',
+            }),
+            context: expect.objectContaining({
+              selection: 'channelAccountId',
+              readiness: expect.objectContaining({
+                platform: 'weibo',
+                ready: true,
+                mode: 'browser',
+                status: 'ready',
+              }),
+            }),
+          }),
+        }),
+      });
+      expect(artifactPath).toBeTruthy();
+      expect(
+        JSON.parse(fs.readFileSync(path.join(rootDir, artifactPath as string), 'utf8')),
+      ).toEqual(
+        expect.objectContaining({
+          type: 'browser_inbox_reply_handoff',
+          status: 'pending',
+          platform: 'weibo',
+          itemId: '1',
+          accountKey: 'weibo-browser-main',
+          reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+        }),
+      );
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('keeps a browser inbox item pending when a browser reply handoff import reports failure', async () => {
+    const { rootDir } = createTestDatabasePath();
+    process.env.BROWSER_HANDOFF_OUTPUT_DIR = rootDir;
+
+    try {
+      const channelAccountStore = createChannelAccountStore();
+      const channelAccount = channelAccountStore.create({
+        projectId: 1,
+        platform: 'weibo',
+        accountKey: 'weibo-browser-main',
+        displayName: 'Weibo Browser Main',
+        authType: 'browser',
+        status: 'healthy',
+      });
+      createSessionStore().saveSession({
+        platform: 'weibo',
+        accountKey: 'weibo-browser-main',
+        storageState: {
+          cookies: [],
+          origins: [],
+        },
+        status: 'active',
+        lastValidatedAt: '2026-04-25T10:00:00.000Z',
+      });
+
+      const inboxStore = createInboxStore();
+      inboxStore.create({
+        projectId: 1,
+        source: 'weibo',
+        status: 'needs_review',
+        author: 'ops-user',
+        title: 'Need lower latency in APAC',
+        excerpt: 'Can you share current response times?',
+        metadata: {
+          channelAccountId: channelAccount.id,
+          accountKey: 'weibo-browser-main',
+        },
+      });
+
+      const sendReplyResponse = await requestApp('POST', '/api/inbox/1/send-reply', {
+        reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+      });
+      const artifactPath = (
+        JSON.parse(sendReplyResponse.body) as {
+          delivery: { details?: { browserReplyHandoff?: { artifactPath?: string } } };
+        }
+      ).delivery.details?.browserReplyHandoff?.artifactPath;
+
+      const importResponse = await requestApp('POST', '/api/system/inbox-reply-handoffs/import', {
+        artifactPath,
+        replyStatus: 'failed',
+        message: 'manual reply failed',
+      });
+
+      expect(importResponse.status).toBe(200);
+      expect(JSON.parse(importResponse.body)).toEqual({
+        ok: true,
+        imported: true,
+        artifactPath:
+          'artifacts/inbox-reply-handoffs/weibo/weibo-browser-main/weibo-inbox-item-1.json',
+        itemId: 1,
+        itemStatus: 'needs_review',
+        platform: 'weibo',
+        mode: 'browser',
+        status: 'failed',
+        success: false,
+        deliveryUrl: null,
+        externalId: null,
+        message: 'manual reply failed',
+        deliveredAt: null,
+      });
+      expect(inboxStore.list()).toEqual([
+        expect.objectContaining({
+          id: 1,
+          status: 'needs_review',
+        }),
+      ]);
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('marks the inbox item handled after a browser reply handoff import reports sent', async () => {
+    const { rootDir } = createTestDatabasePath();
+    process.env.BROWSER_HANDOFF_OUTPUT_DIR = rootDir;
+
+    try {
+      const channelAccountStore = createChannelAccountStore();
+      const channelAccount = channelAccountStore.create({
+        projectId: 1,
+        platform: 'weibo',
+        accountKey: 'weibo-browser-main',
+        displayName: 'Weibo Browser Main',
+        authType: 'browser',
+        status: 'healthy',
+      });
+      createSessionStore().saveSession({
+        platform: 'weibo',
+        accountKey: 'weibo-browser-main',
+        storageState: {
+          cookies: [],
+          origins: [],
+        },
+        status: 'active',
+        lastValidatedAt: '2026-04-25T10:00:00.000Z',
+      });
+
+      const inboxStore = createInboxStore();
+      inboxStore.create({
+        projectId: 1,
+        source: 'weibo',
+        status: 'needs_review',
+        author: 'ops-user',
+        title: 'Need lower latency in APAC',
+        excerpt: 'Can you share current response times?',
+        metadata: {
+          channelAccountId: channelAccount.id,
+          accountKey: 'weibo-browser-main',
+        },
+      });
+
+      const sendReplyResponse = await requestApp('POST', '/api/inbox/1/send-reply', {
+        reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+      });
+      const artifactPath = (
+        JSON.parse(sendReplyResponse.body) as {
+          delivery: { details?: { browserReplyHandoff?: { artifactPath?: string } } };
+        }
+      ).delivery.details?.browserReplyHandoff?.artifactPath;
+
+      const importResponse = await requestApp('POST', '/api/system/inbox-reply-handoffs/import', {
+        artifactPath,
+        replyStatus: 'sent',
+        message: 'manual browser reply sent',
+        deliveryUrl: 'https://weibo.test/post/1#reply-9',
+        externalId: 'reply-9',
+        deliveredAt: '2026-04-25T10:05:00.000Z',
+      });
+
+      expect(importResponse.status).toBe(200);
+      expect(JSON.parse(importResponse.body)).toEqual({
+        ok: true,
+        imported: true,
+        artifactPath:
+          'artifacts/inbox-reply-handoffs/weibo/weibo-browser-main/weibo-inbox-item-1.json',
+        itemId: 1,
+        itemStatus: 'handled',
+        platform: 'weibo',
+        mode: 'browser',
+        status: 'sent',
+        success: true,
+        deliveryUrl: 'https://weibo.test/post/1#reply-9',
+        externalId: 'reply-9',
+        message: 'manual browser reply sent',
+        deliveredAt: '2026-04-25T10:05:00.000Z',
+      });
+      expect(inboxStore.list()).toEqual([
+        expect.objectContaining({
+          id: 1,
+          status: 'handled',
+        }),
+      ]);
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('does not create a ready browser reply handoff artifact when the saved session requires relogin', async () => {
+    const { rootDir } = createTestDatabasePath();
+    process.env.BROWSER_HANDOFF_OUTPUT_DIR = rootDir;
+
+    try {
+      const channelAccountStore = createChannelAccountStore();
+      const channelAccount = channelAccountStore.create({
+        projectId: 1,
+        platform: 'weibo',
+        accountKey: 'weibo-browser-main',
+        displayName: 'Weibo Browser Main',
+        authType: 'browser',
+        status: 'healthy',
+      });
+      createSessionStore().saveSession({
+        platform: 'weibo',
+        accountKey: 'weibo-browser-main',
+        storageState: {
+          cookies: [],
+          origins: [],
+        },
+        status: 'expired',
+        lastValidatedAt: '2026-04-25T10:00:00.000Z',
+      });
+
+      const inboxStore = createInboxStore();
+      inboxStore.create({
+        projectId: 1,
+        source: 'weibo',
+        status: 'needs_review',
+        author: 'ops-user',
+        title: 'Need lower latency in APAC',
+        excerpt: 'Can you share current response times?',
+        metadata: {
+          channelAccountId: channelAccount.id,
+          accountKey: 'weibo-browser-main',
+        },
+      });
+
+      const response = await requestApp('POST', '/api/inbox/1/send-reply', {
+        reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+      });
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        item: expect.objectContaining({
+          id: 1,
+          status: 'needs_review',
+        }),
+        delivery: expect.objectContaining({
+          success: false,
+          status: 'manual_required',
+          mode: 'browser',
+          message: '微博 reply requires the browser session to be refreshed before manual handoff.',
+          reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+          deliveryUrl: null,
+          externalId: null,
+          details: expect.objectContaining({
+            browserReplyHandoff: expect.objectContaining({
+              platform: 'weibo',
+              channelAccountId: channelAccount.id,
+              accountKey: 'weibo-browser-main',
+              readiness: 'blocked',
+              sessionAction: 'relogin',
+            }),
+          }),
+        }),
+      });
+      expect(
+        fs.existsSync(
+          path.join(
+            rootDir,
+            'artifacts',
+            'inbox-reply-handoffs',
+            'weibo',
+            'weibo-browser-main',
+            'weibo-inbox-item-1.json',
+          ),
+        ),
+      ).toBe(false);
     } finally {
       cleanupTestDatabasePath(rootDir);
     }

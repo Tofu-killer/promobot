@@ -23,6 +23,8 @@ PromoBot 现在不是“只有 spec 的空仓库”了。
 
 对于 `facebook-group / 小红书 / 微博`，当 session 已就绪时，发布请求现在会额外生成本地 handoff artifact 文件，包含草稿内容、目标、accountKey 和 session 摘要，便于人工接管或外部 browser lane 消费。artifact 会显式维护 `pending / resolved / obsolete` 状态：后续 publish 成功会结单成 `resolved`，session 缺失或过期则会把旧 handoff 标成 `obsolete`。
 
+`Social Inbox` 的 reply handoff 也沿用同一套 browser/manual 合同：`POST /api/inbox/:id/send-reply` 现在会明确区分 `sent / manual_required / failed`。其中 `manual_required` 不会把会话误记为 `handled`；如果后端返回 `details.browserReplyHandoff`，前端会直接展示 `readiness`、`sessionAction` 和 handoff artifact 路径，便于人工接管或外部 browser lane 继续消费。缺 session 时会看到 `request_session`，session 过期时会看到 `relogin`，而且只有真正 `sent` 的 reply 才会回写 `handled`。
+
 这意味着当前“成功发布”语义已经比之前更可靠：未配凭证的 `x` / `reddit` 会直接失败；`blog` 会真正落地成可交付的本地文件；`facebook-group`、`weibo`、`xiaohongshu` 也不再是无状态 stub，而是带 session 诊断的 browser handoff 路径。当前可落地发布范围应理解为：`X + Reddit + Blog（本地文件） + Facebook Group / 小红书 / 微博（人工接管）`。
 
 ## 数据与运行时

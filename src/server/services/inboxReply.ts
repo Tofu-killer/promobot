@@ -11,6 +11,17 @@ import {
   readResponseSnippet,
   sanitizeSnippet,
 } from './publishers/http.js';
+import {
+  buildBrowserSessionResolution,
+  createSessionStore,
+  type BrowserSessionAction,
+  type SessionSummary,
+} from './browser/sessionStore.js';
+import {
+  markInboxReplyHandoffArtifactsObsoleteForAccount,
+  writeInboxReplyHandoffArtifact,
+  type InboxReplyHandoffPlatform,
+} from './inbox/replyHandoffArtifacts.js';
 import { getChannelAccountPublishReadiness, type PlatformReadiness } from './platformReadiness.js';
 
 const X_REPLY_ENDPOINT = 'https://api.twitter.com/2/tweets';
@@ -41,6 +52,16 @@ interface ReplyExecutionContext {
   selection: ReplySelectionSource;
   channelAccount?: ChannelAccountRecord;
   readiness?: PlatformReadiness;
+}
+
+interface BrowserReplyHandoffDetails {
+  platform: InboxReplyHandoffPlatform;
+  channelAccountId?: number;
+  accountKey: string;
+  readiness: 'ready' | 'blocked';
+  session: SessionSummary;
+  sessionAction: BrowserSessionAction | null;
+  artifactPath?: string;
 }
 
 interface ReplyContextFailure {
@@ -130,12 +151,20 @@ export function createInboxReplyService(): InboxReplyService {
       }
 
       if (context?.readiness && context.readiness.mode !== 'api') {
+        const browserReplyHandoff = buildBrowserReplyHandoff({
+          item,
+          reply,
+          platform,
+          context,
+        });
+
         return createManualRequiredDelivery({
           reply,
           mode: context.readiness.mode,
-          message: buildManualRequiredMessage(platform, context),
+          message: browserReplyHandoff?.message ?? buildManualRequiredMessage(platform, context),
           details: buildReplyDetails({
             context,
+            browserReplyHandoff: browserReplyHandoff?.details,
           }),
         });
       }
@@ -752,6 +781,7 @@ function buildReplyDetails(input: {
   retry?: Record<string, unknown>;
   context?: ReplyExecutionContext;
   error?: PublisherErrorDetails;
+  browserReplyHandoff?: BrowserReplyHandoffDetails;
 }): Record<string, unknown> | undefined {
   const details: Record<string, unknown> = {};
 
@@ -770,6 +800,10 @@ function buildReplyDetails(input: {
 
   if (input.error) {
     details.error = input.error;
+  }
+
+  if (input.browserReplyHandoff) {
+    details.browserReplyHandoff = input.browserReplyHandoff;
   }
 
   return Object.keys(details).length > 0 ? details : undefined;
@@ -898,6 +932,89 @@ function buildManualRequiredMessage(platform: ReplyPlatform, context: ReplyExecu
   }
 
   return `${label} reply requires manual delivery.`;
+}
+
+function buildBrowserReplyHandoff(input: {
+  item: InboxItemRecord;
+  reply: string;
+  platform: ReplyPlatform;
+  context: ReplyExecutionContext;
+}): { message: string; details: BrowserReplyHandoffDetails } | null {
+  if (input.context.readiness?.mode !== 'browser') {
+    return null;
+  }
+
+  const handoffPlatform = toInboxReplyHandoffPlatform(input.platform);
+  if (!handoffPlatform) {
+    return null;
+  }
+
+  const metadata = readInboxMetadata(input.item);
+  const accountKey =
+    input.context.channelAccount?.accountKey ??
+    readInboxAccountKey(metadata);
+  if (!accountKey) {
+    return null;
+  }
+
+  const sessionResolution = buildBrowserSessionResolution(
+    createSessionStore().getSession(handoffPlatform, accountKey),
+  );
+
+  if (sessionResolution.sessionAction) {
+    markInboxReplyHandoffArtifactsObsoleteForAccount({
+      platform: handoffPlatform,
+      accountKey,
+      reason: sessionResolution.sessionAction,
+    });
+  }
+
+  const readyArtifact =
+    sessionResolution.sessionAction === null
+      ? writeInboxReplyHandoffArtifact({
+          ...(typeof input.context.channelAccount?.id === 'number'
+            ? { channelAccountId: input.context.channelAccount.id }
+            : {}),
+          platform: handoffPlatform,
+          accountKey,
+          item: input.item,
+          reply: input.reply,
+          sourceUrl: resolveSourceUrl(input.item),
+          session: sessionResolution.session,
+        })
+      : null;
+
+  return {
+    message: buildBrowserReplyHandoffMessage(input.platform, sessionResolution.sessionAction),
+    details: {
+      platform: handoffPlatform,
+      ...(typeof input.context.channelAccount?.id === 'number'
+        ? { channelAccountId: input.context.channelAccount.id }
+        : {}),
+      accountKey,
+      readiness: sessionResolution.sessionAction ? 'blocked' : 'ready',
+      session: sessionResolution.session,
+      sessionAction: sessionResolution.sessionAction,
+      ...(readyArtifact ? { artifactPath: readyArtifact.artifactPath } : {}),
+    },
+  };
+}
+
+function buildBrowserReplyHandoffMessage(
+  platform: ReplyPlatform,
+  sessionAction: BrowserSessionAction | null,
+) {
+  const label = formatReplyPlatformLabel(platform);
+
+  if (sessionAction === 'request_session') {
+    return `${label} reply requires a saved browser session before manual handoff.`;
+  }
+
+  if (sessionAction === 'relogin') {
+    return `${label} reply requires the browser session to be refreshed before manual handoff.`;
+  }
+
+  return `${label} reply is ready for manual browser handoff with the saved session.`;
 }
 
 function resolveXReplyTargetId(item: InboxItemRecord) {
@@ -1102,6 +1219,10 @@ function normalizeReplyPlatform(platform: string): ReplyPlatform {
   }
 
   return 'manual';
+}
+
+function toInboxReplyHandoffPlatform(platform: ReplyPlatform): InboxReplyHandoffPlatform | null {
+  return platform === 'manual' ? null : platform;
 }
 
 function formatReplyPlatformLabel(platform: ReplyPlatform) {
