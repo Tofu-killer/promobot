@@ -346,24 +346,27 @@ describe('Inbox action wiring', () => {
       jsonResponse({
         item: {
           id: 7,
-          source: 'reddit',
+          source: 'v2ex',
           status: 'needs_reply',
-          author: 'user123',
-          title: 'Need lower latency in APAC',
-          excerpt: 'Can you share current response times?',
+          author: 'alice',
+          title: 'Cursor API follow-up',
+          excerpt: 'Can you share current response times?\n\nhttps://www.v2ex.com/t/888888',
           createdAt: '2026-04-19T10:00:00.000Z',
         },
         delivery: {
           success: false,
           status: 'manual_required',
           mode: 'manual',
-          message: 'Reply requires manual delivery.',
+          message: 'V2EX reply is ready for assisted manual delivery. Copy the reply and open the topic.',
           reply: 'Manual follow-up reply.',
           details: {
-            browserReplyHandoff: {
-              readiness: 'blocked',
-              sessionAction: 'request_session',
-              artifact: 'artifacts/browser-handoffs/reddit/acct-reddit/inbox-reply-7.json',
+            manualReplyAssistant: {
+              platform: 'v2ex',
+              label: 'V2EX',
+              copyText: 'Manual follow-up reply.',
+              sourceUrl: 'https://www.v2ex.com/t/888888',
+              openUrl: 'https://www.v2ex.com/t/888888',
+              title: 'Cursor API follow-up',
             },
           },
         },
@@ -385,7 +388,16 @@ describe('Inbox action wiring', () => {
         status: 'sent' | 'manual_required' | 'failed';
         mode: 'api' | 'browser' | 'manual';
         message: string;
-        details?: Record<string, unknown>;
+        details?: {
+          manualReplyAssistant?: {
+            platform?: string;
+            label?: string;
+            copyText?: string;
+            sourceUrl?: string;
+            openUrl?: string;
+            title?: string;
+          };
+        };
       };
     }>;
 
@@ -403,7 +415,15 @@ describe('Inbox action wiring', () => {
     expect(result.delivery.success).toBe(false);
     expect(result.delivery.status).toBe('manual_required');
     expect(result.delivery.mode).toBe('manual');
-    expect(result.delivery.message).toBe('Reply requires manual delivery.');
+    expect(result.delivery.message).toBe('V2EX reply is ready for assisted manual delivery. Copy the reply and open the topic.');
+    expect(result.delivery.details?.manualReplyAssistant).toEqual({
+      platform: 'v2ex',
+      label: 'V2EX',
+      copyText: 'Manual follow-up reply.',
+      sourceUrl: 'https://www.v2ex.com/t/888888',
+      openUrl: 'https://www.v2ex.com/t/888888',
+      title: 'Cursor API follow-up',
+    });
   });
 
   it('renders inbox action success and error feedback', async () => {
@@ -1404,6 +1424,217 @@ describe('Inbox action wiring', () => {
     );
     expect(manualRequiredFeedback?.style.background).toBe('#fffbeb');
     expect(manualRequiredFeedback?.style.color).toBe('#92400e');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('shows manual reply assistant actions for v2ex manual delivery follow-up', async () => {
+    const { container, window } = installMinimalDom();
+    const openWindow = vi.fn();
+    window.open = openWindow as never;
+    const { createRoot } = await import('react-dom/client');
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    const sendReplyAction = vi.fn().mockResolvedValue({
+      item: {
+        id: 7,
+        source: 'v2ex',
+        status: 'needs_reply',
+        author: 'alice',
+        title: 'Cursor API follow-up',
+        excerpt: 'Can you share current response times?\n\nhttps://www.v2ex.com/t/888888',
+        createdAt: '2026-04-19T10:00:00.000Z',
+      },
+      delivery: {
+        success: false,
+        status: 'manual_required',
+        mode: 'manual',
+        message: 'V2EX reply is ready for assisted manual delivery. Copy the reply and open the topic.',
+        reply: 'Manual follow-up reply.',
+        details: {
+          manualReplyAssistant: {
+            platform: 'v2ex',
+            label: 'V2EX',
+            copyText: 'Manual follow-up reply.',
+            sourceUrl: 'https://www.v2ex.com/t/888888',
+            openUrl: 'https://www.v2ex.com/t/888888',
+            title: 'Cursor API follow-up',
+          },
+        },
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(InboxPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              items: [
+                {
+                  id: 7,
+                  source: 'v2ex',
+                  status: 'needs_reply',
+                  author: 'alice',
+                  title: 'Cursor API follow-up',
+                  excerpt: 'Can you share current response times?\n\nhttps://www.v2ex.com/t/888888',
+                  createdAt: '2026-04-19T10:00:00.000Z',
+                },
+              ],
+              total: 1,
+              unread: 1,
+            },
+          } satisfies ApiState<unknown>,
+          sendReplyAction,
+        }),
+      );
+      await flush();
+    });
+
+    const replyDraftField = findElement(container, (element) => element.tagName === 'TEXTAREA');
+    expect(replyDraftField).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(replyDraftField, 'Manual follow-up reply.', window);
+      await flush();
+    });
+
+    const sendReplyButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('发送回复'),
+    );
+    expect(sendReplyButton).not.toBeNull();
+
+    await act(async () => {
+      sendReplyButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(sendReplyAction).toHaveBeenCalledWith(7, 'Manual follow-up reply.');
+    expect(collectText(container)).toContain('V2EX reply is ready for assisted manual delivery. Copy the reply and open the topic.');
+    expect(collectText(container)).toContain('手工回复辅助：V2EX');
+    expect(collectText(container)).toContain('复制回复');
+    expect(collectText(container)).toContain('打开原帖');
+    expect(collectText(container)).toContain('needs_reply');
+    expect(collectText(container)).not.toContain('已将“Cursor API follow-up”回写为 handled');
+
+    const openPostButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('打开原帖'),
+    );
+    expect(openPostButton).not.toBeNull();
+
+    await act(async () => {
+      openPostButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(openWindow).toHaveBeenCalledWith('https://www.v2ex.com/t/888888', '_blank', 'noopener,noreferrer');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('copies the manual reply assistant text when the operator requests it', async () => {
+    const { container, window } = installMinimalDom();
+    const clipboardWriteText = vi.fn().mockResolvedValue(undefined);
+    window.navigator.clipboard = { writeText: clipboardWriteText } as never;
+    const { createRoot } = await import('react-dom/client');
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    const sendReplyAction = vi.fn().mockResolvedValue({
+      item: {
+        id: 7,
+        source: 'v2ex',
+        status: 'needs_reply',
+        author: 'alice',
+        title: 'Cursor API follow-up',
+        excerpt: 'Can you share current response times?\n\nhttps://www.v2ex.com/t/888888',
+        createdAt: '2026-04-19T10:00:00.000Z',
+      },
+      delivery: {
+        success: false,
+        status: 'manual_required',
+        mode: 'manual',
+        message: 'V2EX reply is ready for assisted manual delivery. Copy the reply and open the topic.',
+        reply: 'Manual follow-up reply.',
+        details: {
+          manualReplyAssistant: {
+            platform: 'v2ex',
+            label: 'V2EX',
+            copyText: 'Manual follow-up reply.',
+            openUrl: 'https://www.v2ex.com/t/888888',
+          },
+        },
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(InboxPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              items: [
+                {
+                  id: 7,
+                  source: 'v2ex',
+                  status: 'needs_reply',
+                  author: 'alice',
+                  title: 'Cursor API follow-up',
+                  excerpt: 'Can you share current response times?\n\nhttps://www.v2ex.com/t/888888',
+                  createdAt: '2026-04-19T10:00:00.000Z',
+                },
+              ],
+              total: 1,
+              unread: 1,
+            },
+          } satisfies ApiState<unknown>,
+          sendReplyAction,
+        }),
+      );
+      await flush();
+    });
+
+    const replyDraftField = findElement(container, (element) => element.tagName === 'TEXTAREA');
+    expect(replyDraftField).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(replyDraftField, 'Manual follow-up reply.', window);
+      await flush();
+    });
+
+    const sendReplyButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('发送回复'),
+    );
+    expect(sendReplyButton).not.toBeNull();
+
+    await act(async () => {
+      sendReplyButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    const copyReplyButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('复制回复'),
+    );
+    expect(copyReplyButton).not.toBeNull();
+
+    await act(async () => {
+      copyReplyButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(clipboardWriteText).toHaveBeenCalledWith('Manual follow-up reply.');
+    expect(collectText(container)).toContain('已复制回复内容');
 
     await act(async () => {
       root.unmount();

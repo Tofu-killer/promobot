@@ -30,7 +30,7 @@ const REDDIT_COMMENT_ENDPOINT = 'https://oauth.reddit.com/api/comment';
 
 type InboxReplyMode = 'api' | 'browser' | 'manual';
 type InboxReplyStatus = 'sent' | 'manual_required' | 'failed';
-type ReplyPlatform = 'x' | 'reddit' | 'facebookGroup' | 'xiaohongshu' | 'weibo' | 'manual';
+type ReplyPlatform = 'x' | 'reddit' | 'facebookGroup' | 'xiaohongshu' | 'weibo' | 'v2ex' | 'manual';
 type ReplySelectionSource = 'channelAccountId' | 'accountKey' | 'projectPlatform' | 'environment';
 
 export interface InboxReplyDelivery {
@@ -62,6 +62,15 @@ interface BrowserReplyHandoffDetails {
   session: SessionSummary;
   sessionAction: BrowserSessionAction | null;
   artifactPath?: string;
+}
+
+interface ManualReplyAssistantDetails {
+  platform: 'v2ex';
+  label: string;
+  copyText: string;
+  sourceUrl?: string;
+  openUrl?: string;
+  title?: string;
 }
 
 interface ReplyContextFailure {
@@ -133,6 +142,7 @@ export function createInboxReplyService(): InboxReplyService {
     async deliver({ item, reply }) {
       const platform = normalizeReplyPlatform(item.source);
       const resolution = resolveReplyContext(channelAccountStore.list(), item, platform);
+      const manualReplyAssistant = buildManualReplyAssistant({ item, reply, platform });
 
       if ('failure' in resolution) {
         return createAccountResolutionFailure(reply, resolution.failure);
@@ -161,10 +171,14 @@ export function createInboxReplyService(): InboxReplyService {
         return createManualRequiredDelivery({
           reply,
           mode: context.readiness.mode,
-          message: browserReplyHandoff?.message ?? buildManualRequiredMessage(platform, context),
+          message:
+            browserReplyHandoff?.message ??
+            buildManualReplyAssistantMessage(manualReplyAssistant) ??
+            buildManualRequiredMessage(platform, context),
           details: buildReplyDetails({
             context,
             browserReplyHandoff: browserReplyHandoff?.details,
+            manualReplyAssistant,
           }),
         });
       }
@@ -180,9 +194,10 @@ export function createInboxReplyService(): InboxReplyService {
       return createManualRequiredDelivery({
         reply,
         mode: 'manual',
-        message: 'Reply requires manual delivery.',
+        message: buildManualReplyAssistantMessage(manualReplyAssistant) ?? 'Reply requires manual delivery.',
         details: buildReplyDetails({
           context,
+          manualReplyAssistant,
         }),
       });
     },
@@ -782,6 +797,7 @@ function buildReplyDetails(input: {
   context?: ReplyExecutionContext;
   error?: PublisherErrorDetails;
   browserReplyHandoff?: BrowserReplyHandoffDetails;
+  manualReplyAssistant?: ManualReplyAssistantDetails | null;
 }): Record<string, unknown> | undefined {
   const details: Record<string, unknown> = {};
 
@@ -804,6 +820,10 @@ function buildReplyDetails(input: {
 
   if (input.browserReplyHandoff) {
     details.browserReplyHandoff = input.browserReplyHandoff;
+  }
+
+  if (input.manualReplyAssistant) {
+    details.manualReplyAssistant = input.manualReplyAssistant;
   }
 
   return Object.keys(details).length > 0 ? details : undefined;
@@ -932,6 +952,34 @@ function buildManualRequiredMessage(platform: ReplyPlatform, context: ReplyExecu
   }
 
   return `${label} reply requires manual delivery.`;
+}
+
+function buildManualReplyAssistant(input: {
+  item: InboxItemRecord;
+  reply: string;
+  platform: ReplyPlatform;
+}): ManualReplyAssistantDetails | null {
+  if (input.platform !== 'v2ex') {
+    return null;
+  }
+
+  const sourceUrl = resolveSourceUrl(input.item);
+
+  return {
+    platform: 'v2ex',
+    label: 'V2EX',
+    copyText: input.reply,
+    ...(sourceUrl ? { sourceUrl, openUrl: sourceUrl } : {}),
+    ...(input.item.title.trim().length > 0 ? { title: input.item.title } : {}),
+  };
+}
+
+function buildManualReplyAssistantMessage(assistant: ManualReplyAssistantDetails | null) {
+  if (!assistant) {
+    return null;
+  }
+
+  return `${assistant.label} reply is ready for assisted manual delivery. Copy the reply and open the topic.`;
 }
 
 function buildBrowserReplyHandoff(input: {
@@ -1218,11 +1266,15 @@ function normalizeReplyPlatform(platform: string): ReplyPlatform {
     return 'weibo';
   }
 
+  if (normalized === 'v2ex') {
+    return 'v2ex';
+  }
+
   return 'manual';
 }
 
 function toInboxReplyHandoffPlatform(platform: ReplyPlatform): InboxReplyHandoffPlatform | null {
-  return platform === 'manual' ? null : platform;
+  return platform === 'manual' || platform === 'v2ex' ? null : platform;
 }
 
 function formatReplyPlatformLabel(platform: ReplyPlatform) {
@@ -1246,6 +1298,10 @@ function formatReplyPlatformLabel(platform: ReplyPlatform) {
     return '微博';
   }
 
+  if (platform === 'v2ex') {
+    return 'V2EX';
+  }
+
   return 'Reply';
 }
 
@@ -1254,11 +1310,25 @@ function describeScope(projectId: number | undefined) {
 }
 
 function defaultReplyMode(platform: ReplyPlatform): InboxReplyMode {
-  return isApiReplyPlatform(platform) ? 'api' : 'manual';
+  if (isApiReplyPlatform(platform)) {
+    return 'api';
+  }
+
+  if (isBrowserReplyPlatform(platform)) {
+    return 'browser';
+  }
+
+  return 'manual';
 }
 
 function isApiReplyPlatform(platform: ReplyPlatform): platform is Extract<ReplyPlatform, 'x' | 'reddit'> {
   return platform === 'x' || platform === 'reddit';
+}
+
+function isBrowserReplyPlatform(
+  platform: ReplyPlatform,
+): platform is Extract<ReplyPlatform, 'facebookGroup' | 'xiaohongshu' | 'weibo'> {
+  return platform === 'facebookGroup' || platform === 'xiaohongshu' || platform === 'weibo';
 }
 
 function createValidationError(stage: string): PublisherErrorDetails {

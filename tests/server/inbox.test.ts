@@ -1392,6 +1392,56 @@ describe('inbox api', () => {
     }
   });
 
+  it('returns manual reply assistance for v2ex items and keeps the inbox item pending', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const inboxStore = createInboxStore();
+      inboxStore.create({
+        source: 'v2ex',
+        status: 'needs_review',
+        author: 'alice',
+        title: 'Cursor API follow-up',
+        excerpt: 'Can you share current response times?\n\nhttps://www.v2ex.com/t/888888',
+        metadata: {
+          sourceUrl: 'https://www.v2ex.com/t/888888',
+        },
+      });
+
+      const response = await requestApp('POST', '/api/inbox/1/send-reply', {
+        reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+      });
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        item: expect.objectContaining({
+          id: 1,
+          status: 'needs_review',
+        }),
+        delivery: expect.objectContaining({
+          success: false,
+          status: 'manual_required',
+          mode: 'manual',
+          message: 'V2EX reply is ready for assisted manual delivery. Copy the reply and open the topic.',
+          reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+          deliveryUrl: null,
+          externalId: null,
+          details: expect.objectContaining({
+            manualReplyAssistant: {
+              platform: 'v2ex',
+              label: 'V2EX',
+              copyText: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+              sourceUrl: 'https://www.v2ex.com/t/888888',
+              openUrl: 'https://www.v2ex.com/t/888888',
+              title: 'Cursor API follow-up',
+            },
+          }),
+        }),
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('returns manual_required for browser-auth channel accounts and keeps the inbox item pending', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
@@ -1960,6 +2010,60 @@ describe('inbox api', () => {
               accountKey: 'x-missing',
               projectId: 1,
               platform: 'x',
+            },
+            error: {
+              category: 'validation',
+              retriable: false,
+              stage: 'account_resolution',
+            },
+          },
+        }),
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('keeps browser-only platforms in browser mode when account resolution fails', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const inboxStore = createInboxStore();
+      inboxStore.create({
+        projectId: 1,
+        source: 'weibo',
+        status: 'needs_review',
+        author: 'ops-user',
+        title: 'Need lower latency in APAC',
+        excerpt: 'Can you share current response times?\n\nhttps://weibo.test/post/1',
+        metadata: {
+          accountKey: 'weibo-missing',
+          sourceUrl: 'https://weibo.test/post/1',
+        },
+      });
+
+      const response = await requestApp('POST', '/api/inbox/1/send-reply', {
+        reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+      });
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        item: expect.objectContaining({
+          id: 1,
+          status: 'needs_review',
+        }),
+        delivery: expect.objectContaining({
+          success: false,
+          status: 'failed',
+          mode: 'browser',
+          message: 'No 微博 channel account matched accountKey "weibo-missing" in project 1.',
+          reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+          deliveryUrl: null,
+          externalId: null,
+          details: {
+            lookup: {
+              accountKey: 'weibo-missing',
+              projectId: 1,
+              platform: 'weibo',
             },
             error: {
               category: 'validation',
