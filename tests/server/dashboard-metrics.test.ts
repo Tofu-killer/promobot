@@ -209,6 +209,104 @@ describe('dashboard metrics api', () => {
           },
         }),
       );
+      const inboxReplyHandoffDir = path.join(
+        rootDir,
+        'artifacts',
+        'inbox-reply-handoffs',
+        'x',
+        '-promobot',
+      );
+      mkdirSync(inboxReplyHandoffDir, { recursive: true });
+      writeFileSync(
+        path.join(inboxReplyHandoffDir, 'x-inbox-item-17.json'),
+        JSON.stringify({
+          type: 'browser_inbox_reply_handoff',
+          channelAccountId: 1,
+          status: 'pending',
+          platform: 'x',
+          itemId: '17',
+          source: 'x',
+          title: 'Need pricing help',
+          excerpt: 'Can you share the enterprise tier details?',
+          reply: 'Thanks for reaching out.',
+          author: 'Alice',
+          sourceUrl: 'https://x.example.com/post/17',
+          accountKey: '@promobot',
+          session: {
+            hasSession: true,
+            id: 'x:@promobot',
+            status: 'active',
+            validatedAt: '2026-04-21T09:00:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/x-promobot.json',
+          },
+          createdAt: '2026-04-21T09:00:00.000Z',
+          updatedAt: '2026-04-21T09:00:00.000Z',
+          resolvedAt: null,
+          resolution: null,
+        }),
+      );
+      writeFileSync(
+        path.join(inboxReplyHandoffDir, 'x-inbox-item-18.json'),
+        JSON.stringify({
+          type: 'browser_inbox_reply_handoff',
+          channelAccountId: 1,
+          status: 'resolved',
+          platform: 'x',
+          itemId: '18',
+          source: 'x',
+          title: 'Resolved follow-up',
+          excerpt: 'Thanks for the response.',
+          reply: 'Happy to help.',
+          author: 'Bob',
+          sourceUrl: 'https://x.example.com/post/18',
+          accountKey: '@promobot',
+          session: {
+            hasSession: true,
+            id: 'x:@promobot',
+            status: 'active',
+            validatedAt: '2026-04-21T09:05:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/x-promobot.json',
+          },
+          createdAt: '2026-04-21T09:10:00.000Z',
+          updatedAt: '2026-04-21T09:20:00.000Z',
+          resolvedAt: '2026-04-21T09:20:00.000Z',
+          resolution: {
+            status: 'resolved',
+            replyStatus: 'sent',
+          },
+        }),
+      );
+      writeFileSync(
+        path.join(inboxReplyHandoffDir, 'x-inbox-item-19.json'),
+        JSON.stringify({
+          type: 'browser_inbox_reply_handoff',
+          channelAccountId: 1,
+          status: 'obsolete',
+          platform: 'x',
+          itemId: '19',
+          source: 'x',
+          title: 'Stale follow-up',
+          excerpt: 'Need relogin',
+          reply: 'Please retry.',
+          author: 'Cara',
+          sourceUrl: 'https://x.example.com/post/19',
+          accountKey: '@promobot',
+          session: {
+            hasSession: true,
+            id: 'x:@promobot',
+            status: 'expired',
+            validatedAt: '2026-04-21T09:25:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/x-promobot.json',
+          },
+          createdAt: '2026-04-21T09:30:00.000Z',
+          updatedAt: '2026-04-21T09:40:00.000Z',
+          resolvedAt: '2026-04-21T09:40:00.000Z',
+          resolution: {
+            status: 'obsolete',
+            reason: 'relogin',
+          },
+        }),
+      );
 
       inboxStore.create({
         source: 'x',
@@ -282,6 +380,12 @@ describe('dashboard metrics api', () => {
           resolved: 0,
           obsolete: 1,
           unmatched: 2,
+        },
+        inboxReplyHandoffs: {
+          total: 3,
+          pending: 1,
+          resolved: 1,
+          obsolete: 1,
         },
         monitorConfig: {
           directFeeds: 1,
@@ -665,6 +769,12 @@ describe('dashboard metrics api', () => {
           resolved: 0,
           obsolete: 0,
           unmatched: 0,
+        },
+        inboxReplyHandoffs: {
+          total: 0,
+          pending: 0,
+          resolved: 0,
+          obsolete: 0,
         },
         jobQueue: {
           pending: 1,
@@ -1158,6 +1268,220 @@ describe('dashboard metrics api', () => {
       expect(response.status).toBe(200);
       expect(JSON.parse(response.body)).toMatchObject({
         browserHandoffs: {
+          total: 0,
+          pending: 0,
+          resolved: 0,
+          obsolete: 0,
+        },
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('normalizes facebook-group channel accounts when scoping inbox reply handoff metrics by projectId', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const channelAccountStore = createChannelAccountStore();
+
+      channelAccountStore.create({
+        projectId: 11,
+        platform: 'facebook-group',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB 11',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      const handoffDir = path.join(
+        rootDir,
+        'artifacts',
+        'inbox-reply-handoffs',
+        'facebookGroup',
+        'launch-campaign',
+      );
+      mkdirSync(handoffDir, { recursive: true });
+      writeFileSync(
+        path.join(handoffDir, 'facebookGroup-inbox-item-61.json'),
+        JSON.stringify({
+          type: 'browser_inbox_reply_handoff',
+          status: 'pending',
+          platform: 'facebookGroup',
+          itemId: '61',
+          source: 'facebook-group',
+          title: 'Community question',
+          excerpt: 'Need a reply',
+          reply: 'Thanks for reaching out.',
+          author: 'Alice',
+          sourceUrl: 'https://facebook.test/groups/launch-campaign/posts/61',
+          accountKey: 'launch-campaign',
+          session: {
+            hasSession: true,
+            id: 'facebookGroup:launch-campaign',
+            status: 'active',
+            validatedAt: '2026-04-21T12:00:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
+          },
+          createdAt: '2026-04-21T12:00:00.000Z',
+          updatedAt: '2026-04-21T12:00:00.000Z',
+          resolvedAt: null,
+          resolution: null,
+        }),
+      );
+
+      const response = await requestApp('GET', '/api/monitor/dashboard?projectId=11');
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toMatchObject({
+        inboxReplyHandoffs: {
+          total: 1,
+          pending: 1,
+          resolved: 0,
+          obsolete: 0,
+        },
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('scopes inbox reply handoff metrics by normalized platform and accountKey when artifact channelAccountId is stale', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const channelAccountStore = createChannelAccountStore();
+
+      channelAccountStore.create({
+        projectId: 11,
+        platform: 'facebookGroup',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB 11',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      const handoffDir = path.join(
+        rootDir,
+        'artifacts',
+        'inbox-reply-handoffs',
+        'facebookGroup',
+        'launch-campaign',
+      );
+      mkdirSync(handoffDir, { recursive: true });
+      writeFileSync(
+        path.join(handoffDir, 'facebookGroup-inbox-item-62.json'),
+        JSON.stringify({
+          type: 'browser_inbox_reply_handoff',
+          channelAccountId: 999,
+          status: 'resolved',
+          platform: 'facebookGroup',
+          itemId: '62',
+          source: 'facebook-group',
+          title: 'Scoped reply',
+          excerpt: 'Need a reply',
+          reply: 'Thanks for reaching out.',
+          author: 'Bob',
+          sourceUrl: 'https://facebook.test/groups/launch-campaign/posts/62',
+          accountKey: 'launch-campaign',
+          session: {
+            hasSession: true,
+            id: 'facebookGroup:launch-campaign',
+            status: 'active',
+            validatedAt: '2026-04-21T12:10:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
+          },
+          createdAt: '2026-04-21T12:10:00.000Z',
+          updatedAt: '2026-04-21T12:20:00.000Z',
+          resolvedAt: '2026-04-21T12:20:00.000Z',
+          resolution: {
+            status: 'resolved',
+            replyStatus: 'sent',
+          },
+        }),
+      );
+
+      const response = await requestApp('GET', '/api/monitor/dashboard?projectId=11');
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toMatchObject({
+        inboxReplyHandoffs: {
+          total: 1,
+          pending: 0,
+          resolved: 1,
+          obsolete: 0,
+        },
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('prefers channelAccountId when project-scoping inbox reply handoff metrics for shared account keys', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const channelAccountStore = createChannelAccountStore();
+
+      channelAccountStore.create({
+        projectId: 11,
+        platform: 'facebookGroup',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB 11',
+        authType: 'browser',
+        status: 'healthy',
+      });
+      channelAccountStore.create({
+        projectId: 22,
+        platform: 'facebookGroup',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB 22',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      const handoffDir = path.join(
+        rootDir,
+        'artifacts',
+        'inbox-reply-handoffs',
+        'facebookGroup',
+        'launch-campaign',
+      );
+      mkdirSync(handoffDir, { recursive: true });
+      writeFileSync(
+        path.join(handoffDir, 'facebookGroup-inbox-item-63.json'),
+        JSON.stringify({
+          type: 'browser_inbox_reply_handoff',
+          channelAccountId: 2,
+          status: 'obsolete',
+          platform: 'facebookGroup',
+          itemId: '63',
+          source: 'facebook-group',
+          title: 'Scoped reply',
+          excerpt: 'Need a reply',
+          reply: 'Please retry.',
+          author: 'Cara',
+          sourceUrl: 'https://facebook.test/groups/launch-campaign/posts/63',
+          accountKey: 'launch-campaign',
+          session: {
+            hasSession: true,
+            id: 'facebookGroup:launch-campaign',
+            status: 'expired',
+            validatedAt: '2026-04-21T12:30:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
+          },
+          createdAt: '2026-04-21T12:30:00.000Z',
+          updatedAt: '2026-04-21T12:40:00.000Z',
+          resolvedAt: '2026-04-21T12:40:00.000Z',
+          resolution: {
+            status: 'obsolete',
+            reason: 'relogin',
+          },
+        }),
+      );
+
+      const response = await requestApp('GET', '/api/monitor/dashboard?projectId=11');
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toMatchObject({
+        inboxReplyHandoffs: {
           total: 0,
           pending: 0,
           resolved: 0,

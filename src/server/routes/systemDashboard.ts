@@ -8,6 +8,7 @@ import { createSettingsStore } from '../store/settings.js';
 import { createSourceConfigStore } from '../store/sourceConfigs.js';
 import { listSessionRequestArtifacts } from '../services/browser/sessionRequestArtifacts.js';
 import { listBrowserHandoffArtifacts } from '../services/publishers/browserHandoffArtifacts.js';
+import { listInboxReplyHandoffArtifacts } from '../services/inbox/replyHandoffArtifacts.js';
 import { resolveSourceConfigInputs } from '../services/monitorFetch.js';
 import { withDatabase } from '../lib/persistence.js';
 
@@ -93,6 +94,32 @@ systemDashboardRouter.get('/dashboard', (request, response) => {
   const resolvedBrowserHandoffs = browserHandoffs.filter((handoff) => handoff.status === 'resolved').length;
   const obsoleteBrowserHandoffs = browserHandoffs.filter((handoff) => handoff.status === 'obsolete').length;
   const unmatchedBrowserHandoffs = browserHandoffs.filter((handoff) => handoff.ownership === 'unmatched').length;
+  const inboxReplyHandoffs = listInboxReplyHandoffArtifacts().filter((handoff) =>
+    projectId === undefined
+      ? true
+      : typeof handoff.channelAccountId === 'number'
+        ? scopedChannelAccountIds.has(handoff.channelAccountId)
+          ? true
+          : allChannelAccountIds.has(handoff.channelAccountId)
+            ? false
+            : (() => {
+                const handoffKey = `${normalizeDashboardPlatform(handoff.platform)}:${handoff.accountKey}`;
+                return (
+                  scopedChannelAccountKeys.has(handoffKey) &&
+                  (channelAccountKeyCounts.get(handoffKey) ?? 0) === 1
+                );
+              })()
+        : (() => {
+            const handoffKey = `${normalizeDashboardPlatform(handoff.platform)}:${handoff.accountKey}`;
+            return (
+              scopedChannelAccountKeys.has(handoffKey) &&
+              (channelAccountKeyCounts.get(handoffKey) ?? 0) === 1
+            );
+          })(),
+  );
+  const pendingInboxReplyHandoffs = inboxReplyHandoffs.filter((handoff) => handoff.status === 'pending').length;
+  const resolvedInboxReplyHandoffs = inboxReplyHandoffs.filter((handoff) => handoff.status === 'resolved').length;
+  const obsoleteInboxReplyHandoffs = inboxReplyHandoffs.filter((handoff) => handoff.status === 'obsolete').length;
 
   response.json({
     monitor: {
@@ -145,6 +172,12 @@ systemDashboardRouter.get('/dashboard', (request, response) => {
       resolved: resolvedBrowserHandoffs,
       obsolete: obsoleteBrowserHandoffs,
       unmatched: unmatchedBrowserHandoffs,
+    },
+    inboxReplyHandoffs: {
+      total: inboxReplyHandoffs.length,
+      pending: pendingInboxReplyHandoffs,
+      resolved: resolvedInboxReplyHandoffs,
+      obsolete: obsoleteInboxReplyHandoffs,
     },
     jobQueue: jobQueueStats,
   });

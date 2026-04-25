@@ -175,6 +175,12 @@ describe('dashboard lifecycle metrics api', () => {
           obsolete: 0,
           unmatched: 0,
         },
+        inboxReplyHandoffs: {
+          total: 0,
+          pending: 0,
+          resolved: 0,
+          obsolete: 0,
+        },
         publishLogs: {
           failedCount: 2,
         },
@@ -237,6 +243,12 @@ describe('dashboard lifecycle metrics api', () => {
           resolved: 0,
           obsolete: 0,
           unmatched: 0,
+        },
+        inboxReplyHandoffs: {
+          total: 0,
+          pending: 0,
+          resolved: 0,
+          obsolete: 0,
         },
         jobQueue: {
           pending: 0,
@@ -340,6 +352,12 @@ describe('dashboard lifecycle metrics api', () => {
           resolved: 0,
           obsolete: 0,
           unmatched: 0,
+        },
+        inboxReplyHandoffs: {
+          total: 0,
+          pending: 0,
+          resolved: 0,
+          obsolete: 0,
         },
         publishLogs: {
           failedCount: 1,

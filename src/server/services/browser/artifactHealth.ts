@@ -22,9 +22,17 @@ export interface BrowserHandoffHealthSummary {
   unmatched: number;
 }
 
+export interface InboxReplyHandoffHealthSummary {
+  total: number;
+  pending: number;
+  resolved: number;
+  obsolete: number;
+}
+
 export interface BrowserArtifactHealthSummary {
   laneRequests: BrowserLaneRequestHealthSummary;
   handoffs: BrowserHandoffHealthSummary;
+  inboxReplyHandoffs: InboxReplyHandoffHealthSummary;
 }
 
 interface BrowserLaneRequestArtifactRecord {
@@ -38,6 +46,11 @@ interface BrowserHandoffArtifactRecord {
   platform?: string;
   draftId?: string;
   accountKey?: string;
+  status?: string;
+}
+
+interface InboxReplyHandoffArtifactRecord {
+  type: string;
   status?: string;
 }
 
@@ -97,6 +110,7 @@ function buildBrowserArtifactHealthSummary(
     return {
       laneRequests: readBrowserLaneRequestHealthSummary(laneRootDir),
       handoffs: readBrowserHandoffHealthSummary(handoffRootDir),
+      inboxReplyHandoffs: readInboxReplyHandoffHealthSummary(handoffRootDir),
     };
   } catch {
     return createEmptyBrowserArtifactHealthSummary();
@@ -190,6 +204,39 @@ function readBrowserHandoffHealthSummary(rootDir: string): BrowserHandoffHealthS
 
     if (isUnmatchedBrowserHandoffArtifact(normalizedArtifact, channelAccounts, draftProjectIds)) {
       summary.unmatched += 1;
+    }
+  }
+
+  return summary;
+}
+
+function readInboxReplyHandoffHealthSummary(rootDir: string): InboxReplyHandoffHealthSummary {
+  const summary: InboxReplyHandoffHealthSummary = {
+    total: 0,
+    pending: 0,
+    resolved: 0,
+    obsolete: 0,
+  };
+  const handoffDir = path.join(rootDir, 'artifacts', 'inbox-reply-handoffs');
+
+  if (!fs.existsSync(handoffDir)) {
+    return summary;
+  }
+
+  for (const absolutePath of walkJsonFiles(handoffDir)) {
+    const artifact = readJsonFile<InboxReplyHandoffArtifactRecord>(absolutePath);
+    if (!artifact || artifact.type !== 'browser_inbox_reply_handoff') {
+      continue;
+    }
+
+    summary.total += 1;
+
+    if (artifact.status === 'pending') {
+      summary.pending += 1;
+    } else if (artifact.status === 'resolved') {
+      summary.resolved += 1;
+    } else if (artifact.status === 'obsolete') {
+      summary.obsolete += 1;
     }
   }
 
@@ -319,6 +366,12 @@ function createEmptyBrowserArtifactHealthSummary(): BrowserArtifactHealthSummary
       resolved: 0,
       obsolete: 0,
       unmatched: 0,
+    },
+    inboxReplyHandoffs: {
+      total: 0,
+      pending: 0,
+      resolved: 0,
+      obsolete: 0,
     },
   };
 }
