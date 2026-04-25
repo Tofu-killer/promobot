@@ -125,6 +125,28 @@ describe('release shell wrappers', () => {
     );
   });
 
+  it('maps PROMOBOT_ADMIN_PASSWORD into ADMIN_PASSWORD before PM2 startup', () => {
+    const fixture = createDeployReleaseFixture({ requireAdminPasswordForPm2: true });
+    const env = {
+      ...process.env,
+      PATH: `${fixture.binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+      PROMOBOT_ADMIN_PASSWORD: 'secret',
+    };
+
+    delete env.ADMIN_PASSWORD;
+    delete env.PROMOBOT_BASE_URL;
+
+    const result = runScript(fixture.scriptPath, ['--skip-install'], {
+      cwd: fixture.rootDir,
+      env,
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Starting PM2 app from pm2.config.js');
+    expect(result.stdout).toContain('Release deployment completed');
+    expect(result.stderr).not.toContain('ADMIN_PASSWORD missing');
+  });
+
   it('shows verify-downloaded-release help for direct and leading dash-dash help paths', () => {
     for (const args of [['--help'], ['--', '--help']]) {
       const result = runRepoScript('ops/verify-downloaded-release.sh', args);
@@ -210,7 +232,7 @@ function runScript(scriptPath: string, args: string[], options: SpawnSyncOptions
   });
 }
 
-function createDeployReleaseFixture() {
+function createDeployReleaseFixture(options: { requireAdminPasswordForPm2?: boolean } = {}) {
   const rootDir = createTempDir('promobot-deploy-release-script-');
   const binDir = path.join(rootDir, 'bin');
   const scriptPath = path.join(rootDir, 'ops/deploy-release.sh');
@@ -227,11 +249,10 @@ function createDeployReleaseFixture() {
   writeFile(rootDir, 'dist/server/cli/releaseVerify.js', 'console.log("verify");\n');
 
   writeExecutable(binDir, 'pnpm', '#!/usr/bin/env bash\nexit 0\n');
-  writeExecutable(
-    binDir,
-    'pm2',
-    '#!/usr/bin/env bash\ncase "${1:-}" in\n  jlist)\n    printf \'[]\\n\'\n    ;;\nesac\nexit 0\n',
-  );
+  const pm2Script = options.requireAdminPasswordForPm2
+    ? '#!/usr/bin/env bash\ncase "${1:-}" in\n  jlist)\n    printf \'[]\\n\'\n    exit 0\n    ;;\nesac\nif [ -z "${ADMIN_PASSWORD:-}" ]; then\n  printf \'ADMIN_PASSWORD missing\\n\' >&2\n  exit 1\nfi\nexit 0\n'
+    : '#!/usr/bin/env bash\ncase "${1:-}" in\n  jlist)\n    printf \'[]\\n\'\n    ;;\nesac\nexit 0\n';
+  writeExecutable(binDir, 'pm2', pm2Script);
   writeExecutable(binDir, 'node', '#!/usr/bin/env bash\nexit 0\n');
 
   return {

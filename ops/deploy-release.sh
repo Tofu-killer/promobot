@@ -169,6 +169,22 @@ main() {
     log "Skipping pnpm install"
   fi
 
+  if [ -z "${admin_password}" ]; then
+    admin_password="${PROMOBOT_ADMIN_PASSWORD:-${ADMIN_PASSWORD:-}}"
+  fi
+
+  if [ -z "${admin_password}" ]; then
+    admin_password="$(read_env_file_value "${env_file}" PROMOBOT_ADMIN_PASSWORD 2>/dev/null || true)"
+  fi
+
+  if [ -z "${admin_password}" ]; then
+    admin_password="$(read_env_file_value "${env_file}" ADMIN_PASSWORD 2>/dev/null || true)"
+  fi
+
+  if [ -n "${admin_password}" ] && [ -z "${ADMIN_PASSWORD:-}" ]; then
+    export ADMIN_PASSWORD="${admin_password}"
+  fi
+
   if pm2_process_exists; then
     log "Reloading PM2 app from pm2.config.js"
     if ! pm2 reload pm2.config.js --update-env; then
@@ -192,18 +208,6 @@ main() {
       resolved_port="${resolved_port:-3001}"
       base_url="http://127.0.0.1:${resolved_port}"
     fi
-  fi
-
-  if [ -z "${admin_password}" ]; then
-    admin_password="${PROMOBOT_ADMIN_PASSWORD:-${ADMIN_PASSWORD:-}}"
-  fi
-
-  if [ -z "${admin_password}" ]; then
-    admin_password="$(read_env_file_value "${env_file}" PROMOBOT_ADMIN_PASSWORD 2>/dev/null || true)"
-  fi
-
-  if [ -z "${admin_password}" ]; then
-    admin_password="$(read_env_file_value "${env_file}" ADMIN_PASSWORD 2>/dev/null || true)"
   fi
 
   if [ -z "${admin_password}" ]; then
