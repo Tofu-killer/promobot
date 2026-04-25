@@ -17,6 +17,7 @@ export interface InboxFetchResult {
 
 interface InboxSearchRecord {
   projectId?: number;
+  externalId?: string;
   source: string;
   author?: string;
   title: string;
@@ -24,11 +25,13 @@ interface InboxSearchRecord {
   content: string;
   summary: string;
   url: string;
+  metadata?: Record<string, unknown>;
 }
 
 interface ScopedQuery {
   projectId?: number;
   value: string;
+  metadata?: Record<string, unknown>;
 }
 
 export function createInboxFetchService() {
@@ -170,6 +173,7 @@ async function collectLiveInboxSignals(queries: {
     author?: string;
     title: string;
     excerpt: string;
+    metadata?: Record<string, unknown>;
   }> = [];
 
   for (const query of queries.xQueries) {
@@ -181,12 +185,14 @@ async function collectLiveInboxSignals(queries: {
             {
               ...(query.projectId !== undefined ? { projectId: query.projectId } : {}),
               source: item.source,
+              externalId: item.externalId,
               author: item.author,
               title: item.title,
               detail: item.detail,
               content: item.content,
               summary: item.summary,
               url: item.url,
+              metadata: mergeInboxQueryMetadata(item.metadata, query.metadata),
             },
           ),
         ),
@@ -205,12 +211,14 @@ async function collectLiveInboxSignals(queries: {
             {
               ...(query.projectId !== undefined ? { projectId: query.projectId } : {}),
               source: item.source,
+              externalId: item.externalId,
               author: item.author,
               title: item.title,
               detail: item.detail,
               content: item.content,
               summary: item.summary,
               url: item.url,
+              metadata: mergeInboxQueryMetadata(item.metadata, query.metadata),
             },
           ),
         ),
@@ -229,12 +237,14 @@ async function collectLiveInboxSignals(queries: {
             {
               ...(query.projectId !== undefined ? { projectId: query.projectId } : {}),
               source: item.source,
+              externalId: item.externalId,
               author: item.author,
               title: item.title,
               detail: item.detail,
               content: item.content,
               summary: item.summary,
               url: item.url,
+              metadata: mergeInboxQueryMetadata(item.metadata, query.metadata),
             },
           ),
         ),
@@ -249,6 +259,7 @@ async function collectLiveInboxSignals(queries: {
 
 function createInboxSignalFromSearchRecord(record: InboxSearchRecord) {
   const excerpt = buildExcerpt(record);
+  const metadata = buildInboxMetadata(record);
 
   return {
     ...(record.projectId !== undefined ? { projectId: record.projectId } : {}),
@@ -257,7 +268,36 @@ function createInboxSignalFromSearchRecord(record: InboxSearchRecord) {
     ...(record.author ? { author: record.author } : {}),
     title: record.title,
     excerpt,
+    ...(metadata ? { metadata } : {}),
   };
+}
+
+function buildInboxMetadata(record: Pick<InboxSearchRecord, 'externalId' | 'metadata' | 'source' | 'url'>) {
+  const source = normalizeInboxSource(record.source);
+  const baseMetadata: Record<string, unknown> = {
+    ...(record.metadata ?? {}),
+    ...(record.url ? { sourceUrl: record.url } : {}),
+    ...(record.externalId ? { externalId: record.externalId } : {}),
+  };
+
+  if (source === 'x') {
+    const replyTargetId = readString(record.externalId) ?? parseXStatusId(record.url);
+    if (replyTargetId) {
+      baseMetadata.replyTargetId = replyTargetId;
+      baseMetadata.replyTargetType = 'tweet';
+    }
+  }
+
+  if (source === 'reddit') {
+    const submissionId = readString(record.externalId) ?? parseRedditSubmissionId(record.url);
+    if (submissionId) {
+      baseMetadata.replyTargetId = submissionId;
+      baseMetadata.replyTargetType = 'reddit_submission';
+      baseMetadata.replyThingFullname = `t3_${submissionId}`;
+    }
+  }
+
+  return Object.keys(baseMetadata).length > 0 ? baseMetadata : undefined;
 }
 
 function buildExcerpt(record: Pick<InboxSearchRecord, 'detail' | 'content' | 'summary' | 'url'>) {
@@ -277,6 +317,21 @@ function buildExcerpt(record: Pick<InboxSearchRecord, 'detail' | 'content' | 'su
 
 function shouldDisableSeedDataInProduction() {
   return process.env.NODE_ENV === 'production';
+}
+
+function normalizeInboxSource(source: string) {
+  const normalized = source.trim().toLowerCase();
+  return normalized === 'twitter' || normalized === 'x / twitter' ? 'x' : normalized;
+}
+
+function parseXStatusId(url: string) {
+  const match = url.match(/\/status\/([A-Za-z0-9_-]+)/i);
+  return match?.[1]?.trim() || null;
+}
+
+function parseRedditSubmissionId(url: string) {
+  const match = url.match(/\/comments\/([A-Za-z0-9_]+)\//i);
+  return match?.[1]?.trim() || null;
 }
 
 function emptyInboxSettings() {
@@ -312,6 +367,8 @@ function resolveInboxSourceConfigQueries(sourceConfigs: SourceConfigRecord[]) {
   const v2exQueries: ScopedQuery[] = [];
 
   for (const sourceConfig of sourceConfigs) {
+    const queryMetadata = readInboxQueryMetadata(sourceConfig.configJson);
+
     if (
       (sourceConfig.sourceType === 'keyword' || sourceConfig.sourceType === 'keyword+reddit') &&
       sourceConfig.platform === 'reddit'
@@ -320,6 +377,7 @@ function resolveInboxSourceConfigQueries(sourceConfigs: SourceConfigRecord[]) {
         redditQueries.push({
           projectId: sourceConfig.projectId,
           value: query,
+          ...(queryMetadata ? { metadata: queryMetadata } : {}),
         });
       }
     }
@@ -332,6 +390,7 @@ function resolveInboxSourceConfigQueries(sourceConfigs: SourceConfigRecord[]) {
         xQueries.push({
           projectId: sourceConfig.projectId,
           value: query,
+          ...(queryMetadata ? { metadata: queryMetadata } : {}),
         });
       }
     }
@@ -341,6 +400,7 @@ function resolveInboxSourceConfigQueries(sourceConfigs: SourceConfigRecord[]) {
         v2exQueries.push({
           projectId: sourceConfig.projectId,
           value: query,
+          ...(queryMetadata ? { metadata: queryMetadata } : {}),
         });
       }
     }
@@ -384,7 +444,7 @@ function dedupeScopedQueries(values: ScopedQuery[]) {
   const seen = new Set<string>();
 
   return values.filter((value) => {
-    const key = `${value.projectId ?? 'global'}:${value.value}`;
+    const key = `${value.projectId ?? 'global'}:${value.value}:${JSON.stringify(value.metadata ?? {})}`;
     if (seen.has(key)) {
       return false;
     }
@@ -398,4 +458,44 @@ function parseList(value: string | undefined) {
     .split(',')
     .map((entry) => entry.trim())
     .filter((entry) => entry.length > 0);
+}
+
+function mergeInboxQueryMetadata(
+  itemMetadata: Record<string, unknown> | undefined,
+  queryMetadata: Record<string, unknown> | undefined,
+) {
+  if (!itemMetadata && !queryMetadata) {
+    return undefined;
+  }
+
+  return {
+    ...(itemMetadata ?? {}),
+    ...(queryMetadata ?? {}),
+  };
+}
+
+function readInboxQueryMetadata(configJson: Record<string, unknown>) {
+  const metadata: Record<string, unknown> = {};
+  const channelAccountId = readPositiveInteger(configJson.channelAccountId);
+  const accountKey =
+    readString(configJson.accountKey) ??
+    readString(configJson.channelAccountKey);
+
+  if (channelAccountId !== undefined) {
+    metadata.channelAccountId = channelAccountId;
+  }
+
+  if (accountKey) {
+    metadata.accountKey = accountKey;
+  }
+
+  return Object.keys(metadata).length > 0 ? metadata : undefined;
+}
+
+function readPositiveInteger(value: unknown) {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
+    return undefined;
+  }
+
+  return value;
 }

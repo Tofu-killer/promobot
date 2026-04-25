@@ -40,6 +40,21 @@ export interface ChannelAccountRecord {
     resolvedAt: string | null;
     resolution?: unknown;
   };
+  latestInboxReplyHandoffArtifact?: {
+    channelAccountId?: number;
+    platform: string;
+    itemId: string;
+    source: string;
+    title: string | null;
+    author: string | null;
+    accountKey: string;
+    status: string;
+    artifactPath: string;
+    createdAt: string;
+    updatedAt: string;
+    resolvedAt: string | null;
+    resolution?: unknown;
+  };
   readiness?: Record<string, unknown>;
   publishReadiness?: Record<string, unknown>;
   createdAt: string;
@@ -1221,6 +1236,57 @@ export function ChannelAccountsPage({
                               </div>
                             </>
                           ) : null}
+                          {account.latestInboxReplyHandoffArtifact ? (
+                            <>
+                              <div>
+                                最近 Inbox Reply Handoff：item #{account.latestInboxReplyHandoffArtifact.itemId} ·{' '}
+                                {account.latestInboxReplyHandoffArtifact.status}
+                              </div>
+                              <div>
+                                Inbox 来源：{account.latestInboxReplyHandoffArtifact.source}
+                              </div>
+                              <div>
+                                Inbox 作者：{account.latestInboxReplyHandoffArtifact.author ?? '未提供'}
+                              </div>
+                              <div>
+                                Inbox 标题：{account.latestInboxReplyHandoffArtifact.title ?? '未提供'}
+                              </div>
+                              <div>
+                                Inbox Handoff 时间：{account.latestInboxReplyHandoffArtifact.updatedAt}
+                              </div>
+                              <div>
+                                Inbox Handoff 结单：
+                                {account.latestInboxReplyHandoffArtifact.resolvedAt ?? '未结单'}
+                              </div>
+                              {readStatusValue(account.latestInboxReplyHandoffArtifact.resolution) ? (
+                                <div>
+                                  Inbox Handoff 结果：
+                                  {readStatusValue(account.latestInboxReplyHandoffArtifact.resolution)}
+                                </div>
+                              ) : null}
+                              {readResolutionDetail(account.latestInboxReplyHandoffArtifact.resolution) ? (
+                                <div>
+                                  Inbox Handoff 详情：
+                                  {readResolutionDetail(account.latestInboxReplyHandoffArtifact.resolution)}
+                                </div>
+                              ) : null}
+                              {readTextValue(
+                                readObjectValue(account.latestInboxReplyHandoffArtifact.resolution)?.deliveryUrl,
+                              ) ? (
+                                <div>
+                                  Inbox Delivery URL：
+                                  {
+                                    readTextValue(
+                                      readObjectValue(account.latestInboxReplyHandoffArtifact.resolution)?.deliveryUrl,
+                                    )
+                                  }
+                                </div>
+                              ) : null}
+                              <div>
+                                Inbox Handoff 路径：{account.latestInboxReplyHandoffArtifact.artifactPath}
+                              </div>
+                            </>
+                          ) : null}
                           <div>
                             发布就绪：{formatReadinessStatus(account.publishReadiness?.status)}
                           </div>
@@ -1893,7 +1959,9 @@ function readResolutionDetail(value: unknown): string | undefined {
   return (
     readTextValue(record?.reason) ??
     readTextValue(record?.publishStatus) ??
+    readTextValue(record?.replyStatus) ??
     readTextValue(record?.draftStatus) ??
+    readTextValue(record?.itemStatus) ??
     undefined
   );
 }

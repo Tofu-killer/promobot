@@ -73,6 +73,27 @@ export interface BrowserHandoffsResponse {
   total: number;
 }
 
+export interface InboxReplyHandoffRecord {
+  channelAccountId?: number;
+  platform: string;
+  itemId: string;
+  source: string;
+  title: string | null;
+  author: string | null;
+  accountKey: string;
+  status: string;
+  artifactPath: string;
+  createdAt: string;
+  updatedAt: string;
+  resolvedAt: string | null;
+  resolution?: unknown;
+}
+
+export interface InboxReplyHandoffsResponse {
+  handoffs: InboxReplyHandoffRecord[];
+  total: number;
+}
+
 export interface BrowserHandoffCompletionResponse {
   ok: boolean;
   imported: boolean;
@@ -89,6 +110,22 @@ export interface BrowserHandoffCompletionResponse {
   publishedAt: string | null;
 }
 
+export interface InboxReplyHandoffCompletionResponse {
+  ok: boolean;
+  imported: boolean;
+  artifactPath: string;
+  itemId: number;
+  itemStatus: string;
+  platform: string;
+  mode: string;
+  status: string;
+  success: boolean;
+  deliveryUrl: string | null;
+  externalId: string | null;
+  message: string;
+  deliveredAt: string | null;
+}
+
 export async function loadSystemQueueRequest(limit = 50): Promise<SystemQueueResponse> {
   return apiRequest<SystemQueueResponse>(`/api/system/jobs?limit=${limit}`);
 }
@@ -99,6 +136,10 @@ export async function loadBrowserLaneRequestsRequest(limit = 20): Promise<Browse
 
 export async function loadBrowserHandoffsRequest(limit = 20): Promise<BrowserHandoffsResponse> {
   return apiRequest<BrowserHandoffsResponse>(`/api/system/browser-handoffs?limit=${limit}`);
+}
+
+export async function loadInboxReplyHandoffsRequest(limit = 20): Promise<InboxReplyHandoffsResponse> {
+  return apiRequest<InboxReplyHandoffsResponse>(`/api/system/inbox-reply-handoffs?limit=${limit}`);
 }
 
 export async function completeBrowserHandoffRequest(input: {
@@ -122,6 +163,32 @@ export async function completeBrowserHandoffRequest(input: {
           : 'browser handoff marked failed'),
       ...(input.publishUrl !== undefined && input.publishUrl.trim().length > 0
         ? { publishUrl: input.publishUrl.trim() }
+        : {}),
+    }),
+  });
+}
+
+export async function completeInboxReplyHandoffRequest(input: {
+  artifactPath: string;
+  replyStatus: 'sent' | 'failed';
+  message?: string;
+  deliveryUrl?: string;
+}): Promise<InboxReplyHandoffCompletionResponse> {
+  return apiRequest<InboxReplyHandoffCompletionResponse>('/api/system/inbox-reply-handoffs/import', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      artifactPath: input.artifactPath,
+      replyStatus: input.replyStatus,
+      message:
+        input.message ??
+        (input.replyStatus === 'sent'
+          ? 'inbox reply handoff marked sent'
+          : 'inbox reply handoff marked failed'),
+      ...(input.deliveryUrl !== undefined && input.deliveryUrl.trim().length > 0
+        ? { deliveryUrl: input.deliveryUrl.trim() }
         : {}),
     }),
   });
@@ -164,6 +231,7 @@ interface SystemQueuePageProps {
   loadSystemQueueAction?: () => Promise<SystemQueueResponse>;
   loadBrowserLaneRequestsAction?: () => Promise<BrowserLaneRequestsResponse>;
   loadBrowserHandoffsAction?: () => Promise<BrowserHandoffsResponse>;
+  loadInboxReplyHandoffsAction?: () => Promise<InboxReplyHandoffsResponse>;
   retrySystemQueueJobAction?: (jobId: number, runAt?: string) => Promise<SystemQueueMutationResponse>;
   cancelSystemQueueJobAction?: (jobId: number) => Promise<SystemQueueMutationResponse>;
   enqueueSystemQueueJobAction?: (input: {
@@ -177,9 +245,16 @@ interface SystemQueuePageProps {
     message?: string;
     publishUrl?: string;
   }) => Promise<BrowserHandoffCompletionResponse>;
+  completeInboxReplyHandoffAction?: (input: {
+    artifactPath: string;
+    replyStatus: 'sent' | 'failed';
+    message?: string;
+    deliveryUrl?: string;
+  }) => Promise<InboxReplyHandoffCompletionResponse>;
   stateOverride?: AsyncState<SystemQueueResponse>;
   browserLaneStateOverride?: AsyncState<BrowserLaneRequestsResponse>;
   browserHandoffStateOverride?: AsyncState<BrowserHandoffsResponse>;
+  inboxReplyHandoffStateOverride?: AsyncState<InboxReplyHandoffsResponse>;
   mutationStateOverride?: AsyncState<SystemQueueMutationResponse>;
 }
 
@@ -204,17 +279,24 @@ function defaultLoadBrowserHandoffsAction() {
   return loadBrowserHandoffsRequest(20);
 }
 
+function defaultLoadInboxReplyHandoffsAction() {
+  return loadInboxReplyHandoffsRequest(20);
+}
+
 export function SystemQueuePage({
   loadSystemQueueAction = defaultLoadSystemQueueAction,
   loadBrowserLaneRequestsAction = defaultLoadBrowserLaneRequestsAction,
   loadBrowserHandoffsAction = defaultLoadBrowserHandoffsAction,
+  loadInboxReplyHandoffsAction = defaultLoadInboxReplyHandoffsAction,
   retrySystemQueueJobAction = retrySystemQueueJobRequest,
   cancelSystemQueueJobAction = cancelSystemQueueJobRequest,
   enqueueSystemQueueJobAction = enqueueSystemQueueJobRequest,
   completeBrowserHandoffAction = completeBrowserHandoffRequest,
+  completeInboxReplyHandoffAction = completeInboxReplyHandoffRequest,
   stateOverride,
   browserLaneStateOverride,
   browserHandoffStateOverride,
+  inboxReplyHandoffStateOverride,
   mutationStateOverride,
 }: SystemQueuePageProps) {
   type QueueMutationInput =
@@ -229,6 +311,10 @@ export function SystemQueuePage({
   const { state: browserHandoffState, reload: reloadBrowserHandoffs } = useAsyncQuery(
     loadBrowserHandoffsAction,
     [loadBrowserHandoffsAction],
+  );
+  const { state: inboxReplyHandoffState, reload: reloadInboxReplyHandoffs } = useAsyncQuery(
+    loadInboxReplyHandoffsAction,
+    [loadInboxReplyHandoffsAction],
   );
   const { state: mutationState, run: mutateQueue } = useAsyncAction(
     (input: QueueMutationInput) => {
@@ -257,14 +343,27 @@ export function SystemQueuePage({
       publishUrl?: string;
     }) => completeBrowserHandoffAction(input),
   );
+  const { state: inboxReplyHandoffMutationState, run: runInboxReplyHandoffCompletion } = useAsyncAction(
+    (input: {
+      artifactPath: string;
+      replyStatus: 'sent' | 'failed';
+      message?: string;
+      deliveryUrl?: string;
+    }) => completeInboxReplyHandoffAction(input),
+  );
   const displayState = stateOverride ?? state;
   const displayBrowserLaneState = browserLaneStateOverride ?? browserLaneState;
   const displayBrowserHandoffState = browserHandoffStateOverride ?? browserHandoffState;
+  const displayInboxReplyHandoffState = inboxReplyHandoffStateOverride ?? inboxReplyHandoffState;
   const displayMutationState = mutationStateOverride ?? mutationState;
   const [activeMutation, setActiveMutation] = useState<QueueMutationInput | null>(null);
   const [activeBrowserHandoffArtifactPath, setActiveBrowserHandoffArtifactPath] = useState<string | null>(null);
+  const [activeInboxReplyHandoffArtifactPath, setActiveInboxReplyHandoffArtifactPath] = useState<string | null>(null);
   const [browserHandoffDraftByArtifactPath, setBrowserHandoffDraftByArtifactPath] = useState<
     Record<string, { publishUrl: string; message: string }>
+  >({});
+  const [inboxReplyHandoffDraftByArtifactPath, setInboxReplyHandoffDraftByArtifactPath] = useState<
+    Record<string, { deliveryUrl: string; message: string }>
   >({});
   const [enqueueType, setEnqueueType] = useState('monitor_fetch');
   const [enqueuePayloadJson, setEnqueuePayloadJson] = useState('');
@@ -308,6 +407,13 @@ export function SystemQueuePage({
     displayBrowserHandoffState.data !== null &&
     Array.isArray(displayBrowserHandoffState.data.handoffs);
   const visibleBrowserHandoffs = hasLiveBrowserHandoffData ? displayBrowserHandoffState.data.handoffs : [];
+  const hasLiveInboxReplyHandoffData =
+    typeof displayInboxReplyHandoffState.data === 'object' &&
+    displayInboxReplyHandoffState.data !== null &&
+    Array.isArray(displayInboxReplyHandoffState.data.handoffs);
+  const visibleInboxReplyHandoffs = hasLiveInboxReplyHandoffData
+    ? displayInboxReplyHandoffState.data.handoffs
+    : [];
 
   const mutationFeedback =
     displayMutationState.status === 'success' && displayMutationState.data
@@ -321,8 +427,15 @@ export function SystemQueuePage({
       : handoffMutationState.status === 'error'
         ? `browser handoff 结单失败：${handoffMutationState.error}`
         : null;
+  const inboxReplyHandoffFeedback =
+    inboxReplyHandoffMutationState.status === 'success' && inboxReplyHandoffMutationState.data
+      ? `已结单 inbox reply item #${inboxReplyHandoffMutationState.data.itemId} (${inboxReplyHandoffMutationState.data.status})`
+      : inboxReplyHandoffMutationState.status === 'error'
+        ? `inbox reply handoff 结单失败：${inboxReplyHandoffMutationState.error}`
+        : null;
   const isQueueMutationPending = queueMutationPendingRef.current || displayMutationState.status === 'loading';
   const isBrowserHandoffMutationPending = handoffMutationState.status === 'loading';
+  const isInboxReplyHandoffMutationPending = inboxReplyHandoffMutationState.status === 'loading';
 
   function startQueueMutation(input: QueueMutationInput, onSuccess?: () => void) {
     if (queueMutationPendingRef.current) {
@@ -351,6 +464,7 @@ export function SystemQueuePage({
         reload();
         reloadBrowserLane();
         reloadBrowserHandoffs();
+        reloadInboxReplyHandoffs();
       },
     );
   }
@@ -365,6 +479,7 @@ export function SystemQueuePage({
         reload();
         reloadBrowserLane();
         reloadBrowserHandoffs();
+        reloadInboxReplyHandoffs();
       },
     );
   }
@@ -381,6 +496,7 @@ export function SystemQueuePage({
         reload();
         reloadBrowserLane();
         reloadBrowserHandoffs();
+        reloadInboxReplyHandoffs();
       },
     );
   }
@@ -427,6 +543,39 @@ export function SystemQueuePage({
       });
   }
 
+  function handleCompleteInboxReplyHandoff(
+    handoff: InboxReplyHandoffRecord,
+    replyStatus: 'sent' | 'failed',
+  ) {
+    if (isInboxReplyHandoffMutationPending) {
+      return;
+    }
+
+    const handoffDraft = inboxReplyHandoffDraftByArtifactPath[handoff.artifactPath];
+    const message = handoffDraft?.message.trim().length ? handoffDraft.message.trim() : undefined;
+    const deliveryUrl =
+      handoffDraft?.deliveryUrl.trim().length ? handoffDraft.deliveryUrl.trim() : undefined;
+
+    setActiveInboxReplyHandoffArtifactPath(handoff.artifactPath);
+    void runInboxReplyHandoffCompletion({
+      artifactPath: handoff.artifactPath,
+      replyStatus,
+      ...(message ? { message } : {}),
+      ...(deliveryUrl ? { deliveryUrl } : {}),
+    })
+      .then(() => {
+        setInboxReplyHandoffDraftByArtifactPath((current) => {
+          const { [handoff.artifactPath]: _ignored, ...rest } = current;
+          return rest;
+        });
+        reloadInboxReplyHandoffs();
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        setActiveInboxReplyHandoffArtifactPath(null);
+      });
+  }
+
   return (
     <section>
       <PageHeader
@@ -441,6 +590,7 @@ export function SystemQueuePage({
                 reload();
                 reloadBrowserLane();
                 reloadBrowserHandoffs();
+                reloadInboxReplyHandoffs();
               }}
             />
             <ActionButton label="前往创建表单" tone="primary" onClick={handleFocusEnqueueForm} />
@@ -458,6 +608,16 @@ export function SystemQueuePage({
       {browserHandoffFeedback ? (
         <p style={{ color: handoffMutationState.status === 'error' ? '#b91c1c' : '#166534', fontWeight: 700 }}>
           {browserHandoffFeedback}
+        </p>
+      ) : null}
+      {inboxReplyHandoffFeedback ? (
+        <p
+          style={{
+            color: inboxReplyHandoffMutationState.status === 'error' ? '#b91c1c' : '#166534',
+            fontWeight: 700,
+          }}
+        >
+          {inboxReplyHandoffFeedback}
         </p>
       ) : null}
 
@@ -760,6 +920,142 @@ export function SystemQueuePage({
             ) : null}
           </SectionCard>
 
+          <SectionCard
+            title="Inbox Reply Handoff 工单"
+            description="集中展示 inbox reply browser/manual handoff artifact 的最新状态，便于人工回复后回写 sent 或 failed。"
+          >
+            {displayInboxReplyHandoffState.status === 'loading' ? (
+              <p style={{ margin: 0, color: '#475569' }}>正在加载 inbox reply handoffs...</p>
+            ) : null}
+            {displayInboxReplyHandoffState.status === 'error' ? (
+              <p style={{ margin: 0, color: '#b91c1c' }}>
+                inbox reply handoffs 加载失败：{displayInboxReplyHandoffState.error}
+              </p>
+            ) : null}
+            {hasLiveInboxReplyHandoffData && visibleInboxReplyHandoffs.length === 0 ? (
+              <p style={{ margin: 0, color: '#475569' }}>当前没有 inbox reply handoffs。</p>
+            ) : null}
+            {hasLiveInboxReplyHandoffData && visibleInboxReplyHandoffs.length > 0 ? (
+              <div style={{ display: 'grid', gap: '12px' }}>
+                {visibleInboxReplyHandoffs.map((handoff) => (
+                  <article
+                    key={`${handoff.artifactPath}-${handoff.updatedAt}`}
+                    style={{
+                      borderRadius: '16px',
+                      border: '1px solid #dbe4f0',
+                      background: '#f8fafc',
+                      padding: '18px',
+                      display: 'grid',
+                      gap: '8px',
+                    }}
+                  >
+                    <div style={{ fontWeight: 700 }}>
+                      {handoff.platform} · item #{handoff.itemId} · {handoff.status}
+                    </div>
+                    {typeof handoff.channelAccountId === 'number' ? (
+                      <div style={{ color: '#475569' }}>account #{handoff.channelAccountId}</div>
+                    ) : null}
+                    <div style={{ color: '#475569' }}>source: {handoff.source}</div>
+                    <div style={{ color: '#475569' }}>title: {handoff.title ?? '未提供'}</div>
+                    <div style={{ color: '#475569' }}>author: {handoff.author ?? '未提供'}</div>
+                    <div style={{ color: '#475569' }}>accountKey: {handoff.accountKey}</div>
+                    <div style={{ color: '#475569' }}>artifactPath: {handoff.artifactPath}</div>
+                    <div style={{ color: '#475569' }}>updatedAt: {handoff.updatedAt}</div>
+                    <div style={{ color: '#475569' }}>resolvedAt: {handoff.resolvedAt ?? '未结单'}</div>
+                    {readResolutionStatus(handoff.resolution) ? (
+                      <div style={{ color: '#475569' }}>
+                        resolution: {readResolutionStatus(handoff.resolution)}
+                      </div>
+                    ) : null}
+                    {readResolutionDetail(handoff.resolution) ? (
+                      <div style={{ color: '#475569' }}>
+                        resolution detail: {readResolutionDetail(handoff.resolution)}
+                      </div>
+                    ) : null}
+                    {readResolutionDeliveryUrl(handoff.resolution) ? (
+                      <div style={{ color: '#475569' }}>
+                        deliveryUrl: {readResolutionDeliveryUrl(handoff.resolution)}
+                      </div>
+                    ) : null}
+                    {readResolutionMessage(handoff.resolution) ? (
+                      <div style={{ color: '#475569' }}>
+                        message: {readResolutionMessage(handoff.resolution)}
+                      </div>
+                    ) : null}
+                    {readResolutionDeliveredAt(handoff.resolution) ? (
+                      <div style={{ color: '#475569' }}>
+                        deliveredAt: {readResolutionDeliveredAt(handoff.resolution)}
+                      </div>
+                    ) : null}
+                    {handoff.status === 'pending' ? (
+                      <div style={{ display: 'grid', gap: '10px' }}>
+                        <label style={{ display: 'grid', gap: '6px' }}>
+                          <span style={{ fontWeight: 700, color: '#334155' }}>回复链接</span>
+                          <input
+                            data-inbox-reply-handoff-field="deliveryUrl"
+                            value={inboxReplyHandoffDraftByArtifactPath[handoff.artifactPath]?.deliveryUrl ?? ''}
+                            onChange={(event) =>
+                              setInboxReplyHandoffDraftByArtifactPath((current) => ({
+                                ...current,
+                                [handoff.artifactPath]: {
+                                  deliveryUrl: event.target.value,
+                                  message: current[handoff.artifactPath]?.message ?? '',
+                                },
+                              }))
+                            }
+                            placeholder="可选：回复后链接"
+                            style={fieldStyle}
+                          />
+                        </label>
+                        <label style={{ display: 'grid', gap: '6px' }}>
+                          <span style={{ fontWeight: 700, color: '#334155' }}>结单备注</span>
+                          <input
+                            data-inbox-reply-handoff-field="message"
+                            value={inboxReplyHandoffDraftByArtifactPath[handoff.artifactPath]?.message ?? ''}
+                            onChange={(event) =>
+                              setInboxReplyHandoffDraftByArtifactPath((current) => ({
+                                ...current,
+                                [handoff.artifactPath]: {
+                                  deliveryUrl: current[handoff.artifactPath]?.deliveryUrl ?? '',
+                                  message: event.target.value,
+                                },
+                              }))
+                            }
+                            placeholder="可选：覆盖默认结单消息"
+                            style={fieldStyle}
+                          />
+                        </label>
+                        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                          <ActionButton
+                            label={
+                              isInboxReplyHandoffMutationPending &&
+                              activeInboxReplyHandoffArtifactPath === handoff.artifactPath
+                                ? '正在标记已发送...'
+                                : '标记已发送'
+                            }
+                            tone="primary"
+                            disabled={isInboxReplyHandoffMutationPending}
+                            onClick={() => handleCompleteInboxReplyHandoff(handoff, 'sent')}
+                          />
+                          <ActionButton
+                            label={
+                              isInboxReplyHandoffMutationPending &&
+                              activeInboxReplyHandoffArtifactPath === handoff.artifactPath
+                                ? '正在标记失败...'
+                                : '标记失败'
+                            }
+                            disabled={isInboxReplyHandoffMutationPending}
+                            onClick={() => handleCompleteInboxReplyHandoff(handoff, 'failed')}
+                          />
+                        </div>
+                      </div>
+                    ) : null}
+                  </article>
+                ))}
+              </div>
+            ) : null}
+          </SectionCard>
+
           <SectionCard title="最近作业" description="这里单独展示 `/api/system/jobs` 返回的 recentJobs，避免与当前作业列表混淆。">
             {viewData.recentJobs.length === 0 ? (
               <p style={{ margin: 0, color: '#475569' }}>当前没有 recent jobs。</p>
@@ -808,8 +1104,12 @@ function readResolutionDetail(value: unknown) {
     ? record.reason
     : typeof record?.publishStatus === 'string'
       ? record.publishStatus
-      : typeof record?.draftStatus === 'string'
-        ? record.draftStatus
+      : typeof record?.replyStatus === 'string'
+        ? record.replyStatus
+        : typeof record?.draftStatus === 'string'
+          ? record.draftStatus
+          : typeof record?.itemStatus === 'string'
+            ? record.itemStatus
         : null;
 }
 
@@ -825,9 +1125,21 @@ function readResolutionMessage(value: unknown) {
     : null;
 }
 
+function readResolutionDeliveryUrl(value: unknown) {
+  return typeof (value as { deliveryUrl?: unknown } | null)?.deliveryUrl === 'string'
+    ? ((value as { deliveryUrl: string }).deliveryUrl)
+    : null;
+}
+
 function readResolutionPublishedAt(value: unknown) {
   return typeof (value as { publishedAt?: unknown } | null)?.publishedAt === 'string'
     ? ((value as { publishedAt: string }).publishedAt)
+    : null;
+}
+
+function readResolutionDeliveredAt(value: unknown) {
+  return typeof (value as { deliveredAt?: unknown } | null)?.deliveredAt === 'string'
+    ? ((value as { deliveredAt: string }).deliveredAt)
     : null;
 }
 

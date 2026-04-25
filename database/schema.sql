@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS inbox_items (
   author TEXT,
   title TEXT NOT NULL,
   excerpt TEXT NOT NULL,
+  metadata_json TEXT NOT NULL DEFAULT '{}',
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 

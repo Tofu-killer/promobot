@@ -20,6 +20,49 @@ function writeStorageStateFile(rootDir: string, storageStatePath: string) {
   return filePath;
 }
 
+function writeInboxReplyHandoffArtifact(
+  rootDir: string,
+  artifactPath: string,
+  overrides: Record<string, unknown> = {},
+) {
+  const absolutePath = path.join(rootDir, artifactPath);
+  const itemIdMatch = artifactPath.match(/inbox-item-(\d+)\.json$/);
+  const itemId = itemIdMatch?.[1] ?? '1';
+  mkdirSync(path.dirname(absolutePath), { recursive: true });
+  writeFileSync(
+    absolutePath,
+    JSON.stringify(
+      {
+        type: 'browser_inbox_reply_handoff',
+        status: 'pending',
+        platform: 'weibo',
+        itemId,
+        source: 'weibo',
+        title: 'Community question',
+        excerpt: 'Can you share current response times?',
+        reply: 'Thanks for reaching out.',
+        author: 'ops-user',
+        sourceUrl: `https://example.test/posts/${itemId}`,
+        accountKey: 'weibo-browser-main',
+        session: {
+          hasSession: true,
+          id: 'weibo:weibo-browser-main',
+          status: 'active',
+          validatedAt: '2026-04-21T10:00:00.000Z',
+          storageStatePath: 'artifacts/browser-sessions/weibo-browser-main.json',
+        },
+        createdAt: '2026-04-21T10:00:00.000Z',
+        updatedAt: '2026-04-21T10:00:00.000Z',
+        resolvedAt: null,
+        resolution: null,
+        ...overrides,
+      },
+      null,
+      2,
+    ),
+  );
+}
+
 async function requestApp(method: string, url: string, body?: unknown) {
   const app = express();
   app.use(express.json());
@@ -2791,6 +2834,224 @@ describe('channel accounts api', () => {
               ownership: 'unmatched',
               platform: 'facebookGroup',
               draftId: '1',
+            }),
+          }),
+        ],
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('returns the latest inbox reply handoff artifact for a channel account', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'weibo',
+        accountKey: 'weibo-browser-main',
+        displayName: 'PromoBot Weibo',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      writeInboxReplyHandoffArtifact(
+        rootDir,
+        'artifacts/inbox-reply-handoffs/weibo/weibo-browser-main/weibo-inbox-item-12.json',
+        {
+          channelAccountId: 1,
+          updatedAt: '2026-04-21T10:00:00.000Z',
+        },
+      );
+      writeInboxReplyHandoffArtifact(
+        rootDir,
+        'artifacts/inbox-reply-handoffs/weibo/weibo-browser-main/weibo-inbox-item-13.json',
+        {
+          channelAccountId: 1,
+          status: 'resolved',
+          updatedAt: '2026-04-21T10:20:00.000Z',
+          resolvedAt: '2026-04-21T10:20:00.000Z',
+          resolution: {
+            status: 'resolved',
+            replyStatus: 'sent',
+          },
+        },
+      );
+
+      const listedResponse = await requestApp('GET', '/api/channel-accounts');
+      expect(listedResponse.status).toBe(200);
+      expect(JSON.parse(listedResponse.body)).toEqual({
+        channelAccounts: [
+          expect.objectContaining({
+            id: 1,
+            latestInboxReplyHandoffArtifact: expect.objectContaining({
+              channelAccountId: 1,
+              platform: 'weibo',
+              itemId: '13',
+              accountKey: 'weibo-browser-main',
+              status: 'resolved',
+              artifactPath:
+                'artifacts/inbox-reply-handoffs/weibo/weibo-browser-main/weibo-inbox-item-13.json',
+            }),
+          }),
+        ],
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('normalizes facebook-group channel accounts when resolving latest inbox reply handoff artifacts', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'facebook-group',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB Group',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      writeInboxReplyHandoffArtifact(
+        rootDir,
+        'artifacts/inbox-reply-handoffs/facebookGroup/launch-campaign/facebookGroup-inbox-item-14.json',
+        {
+          platform: 'facebookGroup',
+          source: 'facebookGroup',
+          accountKey: 'launch-campaign',
+          session: {
+            hasSession: true,
+            id: 'facebookGroup:launch-campaign',
+            status: 'active',
+            validatedAt: '2026-04-21T10:00:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
+          },
+        },
+      );
+
+      const listedResponse = await requestApp('GET', '/api/channel-accounts');
+      expect(listedResponse.status).toBe(200);
+      expect(JSON.parse(listedResponse.body)).toEqual({
+        channelAccounts: [
+          expect.objectContaining({
+            id: 1,
+            platform: 'facebook-group',
+            latestInboxReplyHandoffArtifact: expect.objectContaining({
+              channelAccountId: 1,
+              platform: 'facebookGroup',
+              itemId: '14',
+              artifactPath:
+                'artifacts/inbox-reply-handoffs/facebookGroup/launch-campaign/facebookGroup-inbox-item-14.json',
+            }),
+          }),
+        ],
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('falls back to the matching account key when a latest inbox reply handoff artifact channelAccountId is stale', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        projectId: 11,
+        platform: 'facebookGroup',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB Group 11',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      writeInboxReplyHandoffArtifact(
+        rootDir,
+        'artifacts/inbox-reply-handoffs/facebookGroup/launch-campaign/facebookGroup-inbox-item-15.json',
+        {
+          channelAccountId: 999,
+          platform: 'facebookGroup',
+          source: 'facebookGroup',
+          accountKey: 'launch-campaign',
+          session: {
+            hasSession: true,
+            id: 'facebookGroup:launch-campaign',
+            status: 'active',
+            validatedAt: '2026-04-21T10:30:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
+          },
+        },
+      );
+
+      const listedResponse = await requestApp('GET', '/api/channel-accounts');
+      expect(listedResponse.status).toBe(200);
+      expect(JSON.parse(listedResponse.body)).toEqual({
+        channelAccounts: [
+          expect.objectContaining({
+            id: 1,
+            latestInboxReplyHandoffArtifact: expect.objectContaining({
+              channelAccountId: 1,
+              platform: 'facebookGroup',
+              itemId: '15',
+              status: 'pending',
+            }),
+          }),
+        ],
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('prefers channelAccountId when multiple channel accounts share the same inbox reply handoff key', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        projectId: 11,
+        platform: 'facebookGroup',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB Group 11',
+        authType: 'browser',
+        status: 'healthy',
+      });
+      await requestApp('POST', '/api/channel-accounts', {
+        projectId: 22,
+        platform: 'facebookGroup',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB Group 22',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      writeInboxReplyHandoffArtifact(
+        rootDir,
+        'artifacts/inbox-reply-handoffs/facebookGroup/launch-campaign/facebookGroup-inbox-item-16.json',
+        {
+          channelAccountId: 2,
+          platform: 'facebookGroup',
+          source: 'facebookGroup',
+          accountKey: 'launch-campaign',
+          session: {
+            hasSession: true,
+            id: 'facebookGroup:launch-campaign',
+            status: 'active',
+            validatedAt: '2026-04-21T10:30:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
+          },
+        },
+      );
+
+      const listedResponse = await requestApp('GET', '/api/channel-accounts');
+      expect(listedResponse.status).toBe(200);
+      expect(JSON.parse(listedResponse.body)).toEqual({
+        channelAccounts: [
+          expect.objectContaining({
+            id: 1,
+            latestInboxReplyHandoffArtifact: null,
+          }),
+          expect.objectContaining({
+            id: 2,
+            latestInboxReplyHandoffArtifact: expect.objectContaining({
+              channelAccountId: 2,
+              platform: 'facebookGroup',
+              itemId: '16',
             }),
           }),
         ],

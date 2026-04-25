@@ -1,5 +1,9 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../../src/server/app';
+import { createSessionStore } from '../../src/server/services/browser/sessionStore';
+import { createChannelAccountStore } from '../../src/server/store/channelAccounts';
 import { createInboxStore } from '../../src/server/store/inbox';
 import { createMonitorStore } from '../../src/server/store/monitor';
 import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
@@ -15,6 +19,7 @@ const originalEnv = {
   REDDIT_PASSWORD: process.env.REDDIT_PASSWORD,
   REDDIT_USER_AGENT: process.env.REDDIT_USER_AGENT,
   MONITOR_X_SEARCH_SEEDS: process.env.MONITOR_X_SEARCH_SEEDS,
+  BROWSER_HANDOFF_OUTPUT_DIR: process.env.BROWSER_HANDOFF_OUTPUT_DIR,
   X_ACCESS_TOKEN: process.env.X_ACCESS_TOKEN,
   X_BEARER_TOKEN: process.env.X_BEARER_TOKEN,
 };
@@ -120,6 +125,7 @@ afterEach(() => {
   restoreEnv('REDDIT_PASSWORD', originalEnv.REDDIT_PASSWORD);
   restoreEnv('REDDIT_USER_AGENT', originalEnv.REDDIT_USER_AGENT);
   restoreEnv('MONITOR_X_SEARCH_SEEDS', originalEnv.MONITOR_X_SEARCH_SEEDS);
+  restoreEnv('BROWSER_HANDOFF_OUTPUT_DIR', originalEnv.BROWSER_HANDOFF_OUTPUT_DIR);
   restoreEnv('X_ACCESS_TOKEN', originalEnv.X_ACCESS_TOKEN);
   restoreEnv('X_BEARER_TOKEN', originalEnv.X_BEARER_TOKEN);
 });
@@ -152,6 +158,103 @@ function installFetchStub(replyText: string) {
           choices: [{ message: { content: JSON.stringify({ reply: replyText }) } }],
         }),
       };
+    }),
+  );
+}
+
+function installXReplyFetchStub() {
+  process.env.X_ACCESS_TOKEN = 'x-access-token';
+  vi.stubGlobal(
+    'fetch',
+    vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+      expect(String(url)).toBe('https://api.twitter.com/2/tweets');
+      expect(init?.method).toBe('POST');
+      expect(init?.headers).toEqual(
+        expect.objectContaining({
+          authorization: 'Bearer x-access-token',
+          'content-type': 'application/json',
+        }),
+      );
+      expect(JSON.parse(String(init?.body))).toEqual({
+        text: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+        reply: {
+          in_reply_to_tweet_id: 'tweet-1',
+        },
+      });
+
+      return new Response(JSON.stringify({ data: { id: 'tweet-reply-1' } }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+    }),
+  );
+}
+
+function installRedditReplyFetchStub(expectedThingId = 't3_abc123') {
+  process.env.REDDIT_CLIENT_ID = 'reddit-id';
+  process.env.REDDIT_CLIENT_SECRET = 'reddit-secret';
+  process.env.REDDIT_USERNAME = 'reddit-user';
+  process.env.REDDIT_PASSWORD = 'reddit-pass';
+  process.env.REDDIT_USER_AGENT = 'promobot/test';
+
+  vi.stubGlobal(
+    'fetch',
+    vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+      const requestUrl = String(url);
+
+      if (requestUrl === 'https://www.reddit.com/api/v1/access_token') {
+        expect(init?.method).toBe('POST');
+        return new Response(JSON.stringify({ access_token: 'reddit-access-token' }), {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+      }
+
+      if (requestUrl === 'https://oauth.reddit.com/api/comment') {
+        expect(init?.method).toBe('POST');
+        expect(init?.headers).toEqual(
+          expect.objectContaining({
+            authorization: 'Bearer reddit-access-token',
+            'content-type': 'application/x-www-form-urlencoded',
+            'user-agent': 'promobot/test',
+          }),
+        );
+        expect(String(init?.body)).toBe([
+          'api_type=json',
+          `thing_id=${expectedThingId}`,
+          'text=Thanks+for+reaching+out.+We+can+share+current+APAC+latency+benchmarks.',
+        ].join('&'));
+
+        return new Response(
+          JSON.stringify({
+            json: {
+              data: {
+                things: [
+                  {
+                    data: {
+                      id: 'reply123',
+                      name: 't1_reply123',
+                      permalink: '/r/LocalLLaMA/comments/abc123/claude_latency_in_australia/reply123/',
+                    },
+                  },
+                ],
+              },
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          },
+        );
+      }
+
+      throw new Error(`unexpected fetch request in inbox reply test: ${requestUrl}`);
     }),
   );
 }
@@ -320,6 +423,12 @@ describe('inbox api', () => {
             title: 'OpenRouter failover thread',
             excerpt:
               '@routerwatch · matched x search seed for openrouter failover\n\nRoute around outages faster.\n\nhttps://x.com/routerwatch/status/tweet-1',
+            metadata: expect.objectContaining({
+              sourceUrl: 'https://x.com/routerwatch/status/tweet-1',
+              externalId: 'tweet-1',
+              replyTargetId: 'tweet-1',
+              replyTargetType: 'tweet',
+            }),
           }),
           expect.objectContaining({
             id: 2,
@@ -329,6 +438,14 @@ describe('inbox api', () => {
             title: 'Claude latency in Australia',
             excerpt:
               'r/LocalLLaMA · latencywatch\n\nOperators comparing AU routing for Claude requests.\n\nhttps://www.reddit.com/r/LocalLLaMA/comments/abc123/claude_latency_in_australia/',
+            metadata: expect.objectContaining({
+              sourceUrl: 'https://www.reddit.com/r/LocalLLaMA/comments/abc123/claude_latency_in_australia/',
+              externalId: 'abc123',
+              replyTargetId: 'abc123',
+              replyTargetType: 'reddit_submission',
+              replyThingFullname: 't3_abc123',
+              permalink: '/r/LocalLLaMA/comments/abc123/claude_latency_in_australia/',
+            }),
           }),
           expect.objectContaining({
             id: 3,
@@ -451,6 +568,8 @@ describe('inbox api', () => {
           label: 'Reddit mentions',
           configJson: {
             keywords: ['claude latency australia'],
+            channelAccountId: 7,
+            accountKey: 'reddit-main',
           },
           enabled: true,
           pollIntervalMinutes: 30,
@@ -506,6 +625,14 @@ describe('inbox api', () => {
             author: 'latencywatch',
             status: 'needs_reply',
             title: 'Claude latency in Australia',
+            metadata: expect.objectContaining({
+              channelAccountId: 7,
+              accountKey: 'reddit-main',
+              sourceUrl: 'https://www.reddit.com/r/LocalLLaMA/comments/abc123/claude_latency_in_australia/',
+              replyTargetId: 'abc123',
+              replyTargetType: 'reddit_submission',
+              replyThingFullname: 't3_abc123',
+            }),
           }),
           expect.objectContaining({
             id: 3,
@@ -784,6 +911,53 @@ describe('inbox api', () => {
     }
   });
 
+  it('backfills metadata when a duplicate inbox item is written later with routing context', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const inboxStore = createInboxStore();
+      const firstItem = inboxStore.create({
+        projectId: 1,
+        source: 'reddit',
+        status: 'needs_reply',
+        author: 'duplicate-user',
+        title: 'Duplicate inbox item',
+        excerpt: 'Same source payload should not be inserted twice.',
+      });
+      const secondItem = inboxStore.create({
+        projectId: 1,
+        source: 'reddit',
+        status: 'needs_reply',
+        author: 'duplicate-user',
+        title: 'Duplicate inbox item',
+        excerpt: 'Same source payload should not be inserted twice.',
+        metadata: {
+          sourceUrl: 'https://www.reddit.com/r/Promobot/comments/dup123/duplicate_inbox_item/',
+          channelAccountId: 9,
+          accountKey: 'reddit-main',
+        },
+      });
+
+      expect(secondItem.id).toBe(firstItem.id);
+      expect(secondItem.metadata).toEqual({
+        sourceUrl: 'https://www.reddit.com/r/Promobot/comments/dup123/duplicate_inbox_item/',
+        channelAccountId: 9,
+        accountKey: 'reddit-main',
+      });
+      expect(inboxStore.list(1)).toEqual([
+        expect.objectContaining({
+          id: firstItem.id,
+          metadata: {
+            sourceUrl: 'https://www.reddit.com/r/Promobot/comments/dup123/duplicate_inbox_item/',
+            channelAccountId: 9,
+            accountKey: 'reddit-main',
+          },
+        }),
+      ]);
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('does not dedupe inbox items when status differs', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
@@ -1042,16 +1216,24 @@ describe('inbox api', () => {
     }
   });
 
-  it('records a manual reply delivery and marks the inbox item handled', async () => {
+  it('sends an x reply through the api and marks the inbox item handled', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
+      installXReplyFetchStub();
+
       const inboxStore = createInboxStore();
       inboxStore.create({
-        source: 'reddit',
-        status: 'needs_reply',
-        author: 'user123',
+        source: 'x',
+        status: 'needs_review',
+        author: 'routerwatch',
         title: 'Need lower latency in APAC',
-        excerpt: 'Can you share current response times?',
+        excerpt:
+          '@routerwatch · matched x search seed for openrouter failover\n\nRoute around outages faster.\n\nhttps://x.com/routerwatch/status/tweet-1',
+        metadata: {
+          sourceUrl: 'https://x.com/routerwatch/status/tweet-1',
+          replyTargetId: 'tweet-1',
+          replyTargetType: 'tweet',
+        },
       });
 
       const response = await requestApp('POST', '/api/inbox/1/send-reply', {
@@ -1065,11 +1247,1006 @@ describe('inbox api', () => {
           status: 'handled',
         }),
         delivery: {
-          status: 'recorded',
-          mode: 'manual',
-          message: 'Reply recorded for manual delivery.',
+          success: true,
+          status: 'sent',
+          mode: 'api',
+          message: 'X reply sent to https://x.com/routerwatch/status/tweet-1.',
           reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+          deliveryUrl: 'https://x.com/i/web/status/tweet-reply-1',
+          externalId: 'tweet-reply-1',
+          details: expect.objectContaining({
+            replyTo: 'tweet-1',
+            retry: {
+              publish: {
+                attempts: 1,
+                maxAttempts: 3,
+                stage: 'publish',
+                lastHttpStatus: 200,
+              },
+            },
+            context: expect.objectContaining({
+              selection: 'environment',
+              readiness: expect.objectContaining({
+                platform: 'x',
+                ready: true,
+                mode: 'api',
+                status: 'ready',
+              }),
+            }),
+          }),
         },
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('sends a reddit reply through the api and marks the inbox item handled', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      installRedditReplyFetchStub();
+
+      const inboxStore = createInboxStore();
+      inboxStore.create({
+        source: 'reddit',
+        status: 'needs_reply',
+        author: 'latencywatch',
+        title: 'Claude latency in Australia',
+        excerpt:
+          'r/LocalLLaMA · latencywatch\n\nOperators comparing AU routing for Claude requests.\n\nhttps://www.reddit.com/r/LocalLLaMA/comments/abc123/claude_latency_in_australia/',
+        metadata: {
+          sourceUrl: 'https://www.reddit.com/r/LocalLLaMA/comments/abc123/claude_latency_in_australia/',
+          replyTargetId: 'abc123',
+          replyTargetType: 'reddit_submission',
+          replyThingFullname: 't3_abc123',
+        },
+      });
+
+      const response = await requestApp('POST', '/api/inbox/1/send-reply', {
+        reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+      });
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        item: expect.objectContaining({
+          id: 1,
+          status: 'handled',
+        }),
+        delivery: {
+          success: true,
+          status: 'sent',
+          mode: 'api',
+          message:
+            'Reddit reply sent to https://www.reddit.com/r/LocalLLaMA/comments/abc123/claude_latency_in_australia/.',
+          reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+          deliveryUrl:
+            'https://www.reddit.com/r/LocalLLaMA/comments/abc123/claude_latency_in_australia/reply123/',
+          externalId: 'reply123',
+          details: expect.objectContaining({
+            replyTo: 't3_abc123',
+            retry: {
+              oauth: {
+                attempts: 1,
+                maxAttempts: 3,
+                stage: 'oauth',
+                lastHttpStatus: 200,
+              },
+              submit: {
+                attempts: 1,
+                maxAttempts: 3,
+                stage: 'submit',
+                lastHttpStatus: 200,
+              },
+            },
+            context: expect.objectContaining({
+              selection: 'environment',
+              readiness: expect.objectContaining({
+                platform: 'reddit',
+                ready: true,
+                mode: 'api',
+                status: 'ready',
+              }),
+            }),
+          }),
+        },
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('returns manual_required for unsupported platforms and keeps the inbox item pending', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const inboxStore = createInboxStore();
+      inboxStore.create({
+        source: 'weibo',
+        status: 'needs_review',
+        author: 'ops-user',
+        title: 'Need lower latency in APAC',
+        excerpt: 'Can you share current response times?',
+      });
+
+      const response = await requestApp('POST', '/api/inbox/1/send-reply', {
+        reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+      });
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        item: expect.objectContaining({
+          id: 1,
+          status: 'needs_review',
+        }),
+        delivery: expect.objectContaining({
+          success: false,
+          status: 'manual_required',
+          mode: 'manual',
+          message: 'Reply requires manual delivery.',
+          reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+          deliveryUrl: null,
+          externalId: null,
+        }),
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('returns manual reply assistance for v2ex items and keeps the inbox item pending', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const inboxStore = createInboxStore();
+      inboxStore.create({
+        source: 'v2ex',
+        status: 'needs_review',
+        author: 'alice',
+        title: 'Cursor API follow-up',
+        excerpt: 'Can you share current response times?\n\nhttps://www.v2ex.com/t/888888',
+        metadata: {
+          sourceUrl: 'https://www.v2ex.com/t/888888',
+        },
+      });
+
+      const response = await requestApp('POST', '/api/inbox/1/send-reply', {
+        reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+      });
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        item: expect.objectContaining({
+          id: 1,
+          status: 'needs_review',
+        }),
+        delivery: expect.objectContaining({
+          success: false,
+          status: 'manual_required',
+          mode: 'manual',
+          message: 'V2EX reply is ready for assisted manual delivery. Copy the reply and open the topic.',
+          reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+          deliveryUrl: null,
+          externalId: null,
+          details: expect.objectContaining({
+            manualReplyAssistant: {
+              platform: 'v2ex',
+              label: 'V2EX',
+              copyText: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+              sourceUrl: 'https://www.v2ex.com/t/888888',
+              openUrl: 'https://www.v2ex.com/t/888888',
+              title: 'Cursor API follow-up',
+            },
+          }),
+        }),
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('returns manual_required for browser-auth channel accounts and keeps the inbox item pending', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const channelAccountStore = createChannelAccountStore();
+      const channelAccount = channelAccountStore.create({
+        projectId: 1,
+        platform: 'x',
+        accountKey: 'x-browser-main',
+        displayName: 'X Browser Main',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      const inboxStore = createInboxStore();
+      inboxStore.create({
+        projectId: 1,
+        source: 'x',
+        status: 'needs_review',
+        author: 'routerwatch',
+        title: 'Need lower latency in APAC',
+        excerpt:
+          '@routerwatch · matched x search seed for openrouter failover\n\nRoute around outages faster.\n\nhttps://x.com/routerwatch/status/tweet-1',
+        metadata: {
+          channelAccountId: channelAccount.id,
+          sourceUrl: 'https://x.com/routerwatch/status/tweet-1',
+          replyTargetId: 'tweet-1',
+          replyTargetType: 'tweet',
+        },
+      });
+
+      const response = await requestApp('POST', '/api/inbox/1/send-reply', {
+        reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+      });
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        item: expect.objectContaining({
+          id: 1,
+          status: 'needs_review',
+        }),
+        delivery: expect.objectContaining({
+          success: false,
+          status: 'manual_required',
+          mode: 'browser',
+          message: 'X reply requires a saved browser session before manual handoff.',
+          reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+          deliveryUrl: null,
+          externalId: null,
+          details: expect.objectContaining({
+            browserReplyHandoff: expect.objectContaining({
+              platform: 'x',
+              channelAccountId: channelAccount.id,
+              accountKey: 'x-browser-main',
+              readiness: 'blocked',
+              sessionAction: 'request_session',
+            }),
+            context: {
+              selection: 'channelAccountId',
+              channelAccount: {
+                id: channelAccount.id,
+                projectId: 1,
+                platform: 'x',
+                accountKey: 'x-browser-main',
+                displayName: 'X Browser Main',
+                authType: 'browser',
+                status: 'healthy',
+              },
+              readiness: expect.objectContaining({
+                platform: 'x',
+                ready: false,
+                mode: 'browser',
+                status: 'needs_session',
+                action: 'request_session',
+              }),
+            },
+          }),
+        }),
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('returns a ready browser reply handoff with an artifact path when a saved session exists', async () => {
+    const { rootDir } = createTestDatabasePath();
+    process.env.BROWSER_HANDOFF_OUTPUT_DIR = rootDir;
+
+    try {
+      const channelAccountStore = createChannelAccountStore();
+      const channelAccount = channelAccountStore.create({
+        projectId: 1,
+        platform: 'weibo',
+        accountKey: 'weibo-browser-main',
+        displayName: 'Weibo Browser Main',
+        authType: 'browser',
+        status: 'healthy',
+      });
+      createSessionStore().saveSession({
+        platform: 'weibo',
+        accountKey: 'weibo-browser-main',
+        storageState: {
+          cookies: [],
+          origins: [],
+        },
+        status: 'active',
+        lastValidatedAt: '2026-04-25T10:00:00.000Z',
+      });
+
+      const inboxStore = createInboxStore();
+      inboxStore.create({
+        projectId: 1,
+        source: 'weibo',
+        status: 'needs_review',
+        author: 'ops-user',
+        title: 'Need lower latency in APAC',
+        excerpt: 'Can you share current response times?',
+        metadata: {
+          channelAccountId: channelAccount.id,
+          accountKey: 'weibo-browser-main',
+          sourceUrl: 'https://weibo.test/post/1',
+        },
+      });
+
+      const response = await requestApp('POST', '/api/inbox/1/send-reply', {
+        reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+      });
+
+      const body = JSON.parse(response.body) as {
+        item: { status: string };
+        delivery: {
+          status: string;
+          mode: string;
+          details?: {
+            browserReplyHandoff?: {
+              artifactPath?: string;
+              readiness: string;
+              sessionAction: string | null;
+              accountKey: string;
+            };
+          };
+        };
+      };
+      const artifactPath = body.delivery.details?.browserReplyHandoff?.artifactPath;
+
+      expect(response.status).toBe(200);
+      expect(body).toEqual({
+        item: expect.objectContaining({
+          id: 1,
+          status: 'needs_review',
+        }),
+        delivery: expect.objectContaining({
+          success: false,
+          status: 'manual_required',
+          mode: 'browser',
+          message: '微博 reply is ready for manual browser handoff with the saved session.',
+          reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+          deliveryUrl: null,
+          externalId: null,
+          details: expect.objectContaining({
+            browserReplyHandoff: expect.objectContaining({
+              platform: 'weibo',
+              channelAccountId: channelAccount.id,
+              accountKey: 'weibo-browser-main',
+              readiness: 'ready',
+              sessionAction: null,
+              artifactPath:
+                'artifacts/inbox-reply-handoffs/weibo/weibo-browser-main/weibo-inbox-item-1.json',
+            }),
+            context: expect.objectContaining({
+              selection: 'channelAccountId',
+              readiness: expect.objectContaining({
+                platform: 'weibo',
+                ready: true,
+                mode: 'browser',
+                status: 'ready',
+              }),
+            }),
+          }),
+        }),
+      });
+      expect(artifactPath).toBeTruthy();
+      expect(
+        JSON.parse(fs.readFileSync(path.join(rootDir, artifactPath as string), 'utf8')),
+      ).toEqual(
+        expect.objectContaining({
+          type: 'browser_inbox_reply_handoff',
+          status: 'pending',
+          platform: 'weibo',
+          itemId: '1',
+          accountKey: 'weibo-browser-main',
+          reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+        }),
+      );
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('keeps a browser inbox item pending when a browser reply handoff import reports failure', async () => {
+    const { rootDir } = createTestDatabasePath();
+    process.env.BROWSER_HANDOFF_OUTPUT_DIR = rootDir;
+
+    try {
+      const channelAccountStore = createChannelAccountStore();
+      const channelAccount = channelAccountStore.create({
+        projectId: 1,
+        platform: 'weibo',
+        accountKey: 'weibo-browser-main',
+        displayName: 'Weibo Browser Main',
+        authType: 'browser',
+        status: 'healthy',
+      });
+      createSessionStore().saveSession({
+        platform: 'weibo',
+        accountKey: 'weibo-browser-main',
+        storageState: {
+          cookies: [],
+          origins: [],
+        },
+        status: 'active',
+        lastValidatedAt: '2026-04-25T10:00:00.000Z',
+      });
+
+      const inboxStore = createInboxStore();
+      inboxStore.create({
+        projectId: 1,
+        source: 'weibo',
+        status: 'needs_review',
+        author: 'ops-user',
+        title: 'Need lower latency in APAC',
+        excerpt: 'Can you share current response times?',
+        metadata: {
+          channelAccountId: channelAccount.id,
+          accountKey: 'weibo-browser-main',
+        },
+      });
+
+      const sendReplyResponse = await requestApp('POST', '/api/inbox/1/send-reply', {
+        reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+      });
+      const artifactPath = (
+        JSON.parse(sendReplyResponse.body) as {
+          delivery: { details?: { browserReplyHandoff?: { artifactPath?: string } } };
+        }
+      ).delivery.details?.browserReplyHandoff?.artifactPath;
+
+      const importResponse = await requestApp('POST', '/api/system/inbox-reply-handoffs/import', {
+        artifactPath,
+        replyStatus: 'failed',
+        message: 'manual reply failed',
+      });
+
+      expect(importResponse.status).toBe(200);
+      expect(JSON.parse(importResponse.body)).toEqual({
+        ok: true,
+        imported: true,
+        artifactPath:
+          'artifacts/inbox-reply-handoffs/weibo/weibo-browser-main/weibo-inbox-item-1.json',
+        itemId: 1,
+        itemStatus: 'needs_review',
+        platform: 'weibo',
+        mode: 'browser',
+        status: 'failed',
+        success: false,
+        deliveryUrl: null,
+        externalId: null,
+        message: 'manual reply failed',
+        deliveredAt: null,
+      });
+      expect(inboxStore.list()).toEqual([
+        expect.objectContaining({
+          id: 1,
+          status: 'needs_review',
+        }),
+      ]);
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('marks the inbox item handled after a browser reply handoff import reports sent', async () => {
+    const { rootDir } = createTestDatabasePath();
+    process.env.BROWSER_HANDOFF_OUTPUT_DIR = rootDir;
+
+    try {
+      const channelAccountStore = createChannelAccountStore();
+      const channelAccount = channelAccountStore.create({
+        projectId: 1,
+        platform: 'weibo',
+        accountKey: 'weibo-browser-main',
+        displayName: 'Weibo Browser Main',
+        authType: 'browser',
+        status: 'healthy',
+      });
+      createSessionStore().saveSession({
+        platform: 'weibo',
+        accountKey: 'weibo-browser-main',
+        storageState: {
+          cookies: [],
+          origins: [],
+        },
+        status: 'active',
+        lastValidatedAt: '2026-04-25T10:00:00.000Z',
+      });
+
+      const inboxStore = createInboxStore();
+      inboxStore.create({
+        projectId: 1,
+        source: 'weibo',
+        status: 'needs_review',
+        author: 'ops-user',
+        title: 'Need lower latency in APAC',
+        excerpt: 'Can you share current response times?',
+        metadata: {
+          channelAccountId: channelAccount.id,
+          accountKey: 'weibo-browser-main',
+        },
+      });
+
+      const sendReplyResponse = await requestApp('POST', '/api/inbox/1/send-reply', {
+        reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+      });
+      const artifactPath = (
+        JSON.parse(sendReplyResponse.body) as {
+          delivery: { details?: { browserReplyHandoff?: { artifactPath?: string } } };
+        }
+      ).delivery.details?.browserReplyHandoff?.artifactPath;
+
+      const importResponse = await requestApp('POST', '/api/system/inbox-reply-handoffs/import', {
+        artifactPath,
+        replyStatus: 'sent',
+        message: 'manual browser reply sent',
+        deliveryUrl: 'https://weibo.test/post/1#reply-9',
+        externalId: 'reply-9',
+        deliveredAt: '2026-04-25T10:05:00.000Z',
+      });
+
+      expect(importResponse.status).toBe(200);
+      expect(JSON.parse(importResponse.body)).toEqual({
+        ok: true,
+        imported: true,
+        artifactPath:
+          'artifacts/inbox-reply-handoffs/weibo/weibo-browser-main/weibo-inbox-item-1.json',
+        itemId: 1,
+        itemStatus: 'handled',
+        platform: 'weibo',
+        mode: 'browser',
+        status: 'sent',
+        success: true,
+        deliveryUrl: 'https://weibo.test/post/1#reply-9',
+        externalId: 'reply-9',
+        message: 'manual browser reply sent',
+        deliveredAt: '2026-04-25T10:05:00.000Z',
+      });
+      expect(inboxStore.list()).toEqual([
+        expect.objectContaining({
+          id: 1,
+          status: 'handled',
+        }),
+      ]);
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('does not create a ready browser reply handoff artifact when the saved session requires relogin', async () => {
+    const { rootDir } = createTestDatabasePath();
+    process.env.BROWSER_HANDOFF_OUTPUT_DIR = rootDir;
+
+    try {
+      const channelAccountStore = createChannelAccountStore();
+      const channelAccount = channelAccountStore.create({
+        projectId: 1,
+        platform: 'weibo',
+        accountKey: 'weibo-browser-main',
+        displayName: 'Weibo Browser Main',
+        authType: 'browser',
+        status: 'healthy',
+      });
+      createSessionStore().saveSession({
+        platform: 'weibo',
+        accountKey: 'weibo-browser-main',
+        storageState: {
+          cookies: [],
+          origins: [],
+        },
+        status: 'expired',
+        lastValidatedAt: '2026-04-25T10:00:00.000Z',
+      });
+
+      const inboxStore = createInboxStore();
+      inboxStore.create({
+        projectId: 1,
+        source: 'weibo',
+        status: 'needs_review',
+        author: 'ops-user',
+        title: 'Need lower latency in APAC',
+        excerpt: 'Can you share current response times?',
+        metadata: {
+          channelAccountId: channelAccount.id,
+          accountKey: 'weibo-browser-main',
+        },
+      });
+
+      const response = await requestApp('POST', '/api/inbox/1/send-reply', {
+        reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+      });
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        item: expect.objectContaining({
+          id: 1,
+          status: 'needs_review',
+        }),
+        delivery: expect.objectContaining({
+          success: false,
+          status: 'manual_required',
+          mode: 'browser',
+          message: '微博 reply requires the browser session to be refreshed before manual handoff.',
+          reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+          deliveryUrl: null,
+          externalId: null,
+          details: expect.objectContaining({
+            browserReplyHandoff: expect.objectContaining({
+              platform: 'weibo',
+              channelAccountId: channelAccount.id,
+              accountKey: 'weibo-browser-main',
+              readiness: 'blocked',
+              sessionAction: 'relogin',
+            }),
+          }),
+        }),
+      });
+      expect(
+        fs.existsSync(
+          path.join(
+            rootDir,
+            'artifacts',
+            'inbox-reply-handoffs',
+            'weibo',
+            'weibo-browser-main',
+            'weibo-inbox-item-1.json',
+          ),
+        ),
+      ).toBe(false);
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('fails reply delivery when multiple channel accounts match the same project and platform', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const channelAccountStore = createChannelAccountStore();
+      channelAccountStore.create({
+        projectId: 1,
+        platform: 'x',
+        accountKey: 'x-main-a',
+        displayName: 'X Main A',
+        authType: 'api',
+        status: 'healthy',
+      });
+      channelAccountStore.create({
+        projectId: 1,
+        platform: 'x',
+        accountKey: 'x-main-b',
+        displayName: 'X Main B',
+        authType: 'api',
+        status: 'healthy',
+      });
+
+      const inboxStore = createInboxStore();
+      inboxStore.create({
+        projectId: 1,
+        source: 'x',
+        status: 'needs_review',
+        author: 'routerwatch',
+        title: 'Need lower latency in APAC',
+        excerpt:
+          '@routerwatch · matched x search seed for openrouter failover\n\nRoute around outages faster.\n\nhttps://x.com/routerwatch/status/tweet-1',
+        metadata: {
+          sourceUrl: 'https://x.com/routerwatch/status/tweet-1',
+          replyTargetId: 'tweet-1',
+          replyTargetType: 'tweet',
+        },
+      });
+
+      const response = await requestApp('POST', '/api/inbox/1/send-reply', {
+        reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+      });
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        item: expect.objectContaining({
+          id: 1,
+          status: 'needs_review',
+        }),
+        delivery: expect.objectContaining({
+          success: false,
+          status: 'failed',
+          mode: 'api',
+          message: 'Multiple X channel accounts matched project 1. Add channelAccountId or accountKey to inbox metadata.',
+          reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+          deliveryUrl: null,
+          externalId: null,
+          details: {
+            lookup: {
+              projectId: 1,
+              platform: 'x',
+            },
+            error: {
+              category: 'validation',
+              retriable: false,
+              stage: 'account_resolution',
+            },
+          },
+        }),
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('fails reply delivery when an explicit accountKey has no matching channel account', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      installXReplyFetchStub();
+
+      const inboxStore = createInboxStore();
+      inboxStore.create({
+        projectId: 1,
+        source: 'x',
+        status: 'needs_review',
+        author: 'routerwatch',
+        title: 'Need lower latency in APAC',
+        excerpt:
+          '@routerwatch · matched x search seed for openrouter failover\n\nRoute around outages faster.\n\nhttps://x.com/routerwatch/status/tweet-1',
+        metadata: {
+          accountKey: 'x-missing',
+          sourceUrl: 'https://x.com/routerwatch/status/tweet-1',
+          replyTargetId: 'tweet-1',
+          replyTargetType: 'tweet',
+        },
+      });
+
+      const response = await requestApp('POST', '/api/inbox/1/send-reply', {
+        reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+      });
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        item: expect.objectContaining({
+          id: 1,
+          status: 'needs_review',
+        }),
+        delivery: expect.objectContaining({
+          success: false,
+          status: 'failed',
+          mode: 'api',
+          message: 'No X channel account matched accountKey "x-missing" in project 1.',
+          reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+          deliveryUrl: null,
+          externalId: null,
+          details: {
+            lookup: {
+              accountKey: 'x-missing',
+              projectId: 1,
+              platform: 'x',
+            },
+            error: {
+              category: 'validation',
+              retriable: false,
+              stage: 'account_resolution',
+            },
+          },
+        }),
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('keeps browser-only platforms in browser mode when account resolution fails', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const inboxStore = createInboxStore();
+      inboxStore.create({
+        projectId: 1,
+        source: 'weibo',
+        status: 'needs_review',
+        author: 'ops-user',
+        title: 'Need lower latency in APAC',
+        excerpt: 'Can you share current response times?\n\nhttps://weibo.test/post/1',
+        metadata: {
+          accountKey: 'weibo-missing',
+          sourceUrl: 'https://weibo.test/post/1',
+        },
+      });
+
+      const response = await requestApp('POST', '/api/inbox/1/send-reply', {
+        reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+      });
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        item: expect.objectContaining({
+          id: 1,
+          status: 'needs_review',
+        }),
+        delivery: expect.objectContaining({
+          success: false,
+          status: 'failed',
+          mode: 'browser',
+          message: 'No 微博 channel account matched accountKey "weibo-missing" in project 1.',
+          reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+          deliveryUrl: null,
+          externalId: null,
+          details: {
+            lookup: {
+              accountKey: 'weibo-missing',
+              projectId: 1,
+              platform: 'weibo',
+            },
+            error: {
+              category: 'validation',
+              retriable: false,
+              stage: 'account_resolution',
+            },
+          },
+        }),
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('preserves reddit comment reply targets instead of collapsing them to the submission id', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      installRedditReplyFetchStub('t1_comment123');
+
+      const inboxStore = createInboxStore();
+      inboxStore.create({
+        source: 'reddit',
+        status: 'needs_reply',
+        author: 'latencywatch',
+        title: 'Claude latency in Australia',
+        excerpt:
+          'r/LocalLLaMA · latencywatch\n\nOperators comparing AU routing for Claude requests.\n\nhttps://www.reddit.com/r/LocalLLaMA/comments/abc123/claude_latency_in_australia/comment123/',
+        metadata: {
+          sourceUrl: 'https://www.reddit.com/r/LocalLLaMA/comments/abc123/claude_latency_in_australia/comment123/',
+          replyTargetId: 'abc123',
+          replyTargetType: 'reddit_comment',
+          replyThingFullname: 't1_comment123',
+        },
+      });
+
+      const response = await requestApp('POST', '/api/inbox/1/send-reply', {
+        reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+      });
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        item: expect.objectContaining({
+          id: 1,
+          status: 'handled',
+        }),
+        delivery: expect.objectContaining({
+          success: true,
+          status: 'sent',
+          mode: 'api',
+          message:
+            'Reddit reply sent to https://www.reddit.com/r/LocalLLaMA/comments/abc123/claude_latency_in_australia/comment123/.',
+          reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+          deliveryUrl:
+            'https://www.reddit.com/r/LocalLLaMA/comments/abc123/claude_latency_in_australia/reply123/',
+          externalId: 'reply123',
+          details: expect.objectContaining({
+            replyTo: 't1_comment123',
+            context: expect.objectContaining({
+              selection: 'environment',
+            }),
+          }),
+        }),
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('uses reddit comment target ids when replyThingFullname is absent', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      installRedditReplyFetchStub('t1_comment123');
+
+      const inboxStore = createInboxStore();
+      inboxStore.create({
+        source: 'reddit',
+        status: 'needs_reply',
+        author: 'latencywatch',
+        title: 'Claude latency in Australia',
+        excerpt:
+          'r/LocalLLaMA · latencywatch\n\nOperators comparing AU routing for Claude requests.\n\nhttps://www.reddit.com/r/LocalLLaMA/comments/abc123/claude_latency_in_australia/comment123/',
+        metadata: {
+          sourceUrl: 'https://www.reddit.com/r/LocalLLaMA/comments/abc123/claude_latency_in_australia/comment123/',
+          replyTargetId: 'comment123',
+          replyTargetType: 'reddit_comment',
+        },
+      });
+
+      const response = await requestApp('POST', '/api/inbox/1/send-reply', {
+        reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+      });
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        item: expect.objectContaining({
+          id: 1,
+          status: 'handled',
+        }),
+        delivery: expect.objectContaining({
+          success: true,
+          status: 'sent',
+          mode: 'api',
+          message:
+            'Reddit reply sent to https://www.reddit.com/r/LocalLLaMA/comments/abc123/claude_latency_in_australia/comment123/.',
+          reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+          deliveryUrl:
+            'https://www.reddit.com/r/LocalLLaMA/comments/abc123/claude_latency_in_australia/reply123/',
+          externalId: 'reply123',
+          details: expect.objectContaining({
+            replyTo: 't1_comment123',
+            context: expect.objectContaining({
+              selection: 'environment',
+            }),
+          }),
+        }),
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('returns a failed reddit delivery and keeps the inbox item pending when credentials are missing', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const inboxStore = createInboxStore();
+      inboxStore.create({
+        source: 'reddit',
+        status: 'needs_reply',
+        author: 'latencywatch',
+        title: 'Claude latency in Australia',
+        excerpt:
+          'r/LocalLLaMA · latencywatch\n\nOperators comparing AU routing for Claude requests.\n\nhttps://www.reddit.com/r/LocalLLaMA/comments/abc123/claude_latency_in_australia/',
+        metadata: {
+          sourceUrl: 'https://www.reddit.com/r/LocalLLaMA/comments/abc123/claude_latency_in_australia/',
+          replyTargetId: 'abc123',
+          replyTargetType: 'reddit_submission',
+        },
+      });
+
+      const response = await requestApp('POST', '/api/inbox/1/send-reply', {
+        reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+      });
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        item: expect.objectContaining({
+          id: 1,
+          status: 'needs_reply',
+        }),
+        delivery: expect.objectContaining({
+          success: false,
+          status: 'failed',
+          mode: 'api',
+          message:
+            'missing reddit credentials: configure REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USERNAME, and REDDIT_PASSWORD',
+          reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+          deliveryUrl: null,
+          externalId: null,
+          details: expect.objectContaining({
+            replyTo: 't3_abc123',
+            retry: {
+              oauth: {
+                attempts: 0,
+                maxAttempts: 0,
+                stage: 'oauth',
+              },
+            },
+            context: expect.objectContaining({
+              selection: 'environment',
+              readiness: expect.objectContaining({
+                platform: 'reddit',
+                ready: false,
+                mode: 'api',
+                status: 'needs_config',
+              }),
+            }),
+            error: {
+              category: 'auth',
+              retriable: false,
+              stage: 'oauth',
+            },
+          }),
+        }),
       });
     } finally {
       cleanupTestDatabasePath(rootDir);

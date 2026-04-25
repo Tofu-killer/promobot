@@ -1,6 +1,6 @@
 import { act, createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { collectText, findElement, flush, installMinimalDom } from './settings-test-helpers';
 
 function jsonResponse(body: unknown, status = 200) {
@@ -74,6 +74,20 @@ function hasAncestorWithText(element: { parentNode: unknown } | null, text: stri
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+beforeEach(() => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/api/system/inbox-reply-handoffs')) {
+        return Promise.resolve(jsonResponse({ handoffs: [], total: 0 }));
+      }
+
+      return Promise.reject(new Error(`unexpected fetch: ${url}`));
+    }),
+  );
 });
 
 describe('System Queue actions', () => {
@@ -196,6 +210,50 @@ describe('System Queue actions', () => {
     );
   });
 
+  it('loads inbox reply handoffs through the shared API helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        handoffs: [
+          {
+            channelAccountId: 12,
+            platform: 'reddit',
+            itemId: '88',
+            source: 'reddit',
+            title: 'Need help with latency',
+            author: 'user123',
+            accountKey: 'reddit-main',
+            status: 'pending',
+            artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88.json',
+            createdAt: '2026-04-23T09:10:00.000Z',
+            updatedAt: '2026-04-23T09:10:00.000Z',
+            resolvedAt: null,
+          },
+        ],
+        total: 1,
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const queueModule = (await import('../../src/client/pages/SystemQueue')) as Record<string, unknown>;
+
+    expect(typeof queueModule.loadInboxReplyHandoffsRequest).toBe('function');
+
+    const loadInboxReplyHandoffsRequest = queueModule.loadInboxReplyHandoffsRequest as (
+      limit?: number,
+    ) => Promise<{ handoffs: Array<{ platform: string; itemId: string }>; total: number }>;
+
+    const result = await loadInboxReplyHandoffsRequest(10);
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/system/inbox-reply-handoffs?limit=10', undefined);
+    expect(result.total).toBe(1);
+    expect(result.handoffs[0]).toEqual(
+      expect.objectContaining({
+        platform: 'reddit',
+        itemId: '88',
+      }),
+    );
+  });
+
   it('posts browser handoff completion through the shared API helper', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({
@@ -246,6 +304,59 @@ describe('System Queue actions', () => {
           publishStatus: 'published',
           message: 'browser lane completed publish',
           publishUrl: 'https://facebook.com/groups/group-123/posts/42',
+        }),
+      }),
+    );
+  });
+
+  it('posts inbox reply handoff completion through the shared API helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        imported: true,
+        artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88.json',
+        itemId: 88,
+        itemStatus: 'handled',
+        platform: 'reddit',
+        mode: 'browser',
+        status: 'sent',
+        success: true,
+        deliveryUrl: 'https://reddit.com/message/messages/abc123',
+        externalId: 'msg-88',
+        message: 'inbox reply handoff marked sent',
+        deliveredAt: '2026-04-23T11:15:00.000Z',
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const queueModule = (await import('../../src/client/pages/SystemQueue')) as Record<string, unknown>;
+
+    expect(typeof queueModule.completeInboxReplyHandoffRequest).toBe('function');
+
+    const completeInboxReplyHandoffRequest = queueModule.completeInboxReplyHandoffRequest as (input: {
+      artifactPath: string;
+      replyStatus: 'sent' | 'failed';
+      message?: string;
+      deliveryUrl?: string;
+    }) => Promise<unknown>;
+
+    await completeInboxReplyHandoffRequest({
+      artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88.json',
+      replyStatus: 'sent',
+      deliveryUrl: 'https://reddit.com/message/messages/abc123',
+      message: 'inbox reply handoff marked sent',
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/system/inbox-reply-handoffs/import',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88.json',
+          replyStatus: 'sent',
+          message: 'inbox reply handoff marked sent',
+          deliveryUrl: 'https://reddit.com/message/messages/abc123',
         }),
       }),
     );
@@ -489,6 +600,51 @@ describe('System Queue actions', () => {
           total: 2,
         },
       },
+      inboxReplyHandoffStateOverride: {
+        status: 'success',
+        data: {
+          handoffs: [
+            {
+              channelAccountId: 12,
+              platform: 'reddit',
+              itemId: '88',
+              source: 'reddit',
+              title: 'Need lower latency in APAC',
+              author: 'user123',
+              accountKey: 'reddit-main',
+              status: 'resolved',
+              artifactPath:
+                'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88.json',
+              createdAt: '2026-04-23T09:10:00.000Z',
+              updatedAt: '2026-04-23T11:15:00.000Z',
+              resolvedAt: '2026-04-23T11:15:00.000Z',
+              resolution: {
+                status: 'resolved',
+                replyStatus: 'sent',
+                deliveryUrl: 'https://reddit.com/message/messages/abc123',
+                message: 'reply sent manually',
+                deliveredAt: '2026-04-23T11:15:00.000Z',
+              },
+            },
+            {
+              channelAccountId: 13,
+              platform: 'x',
+              itemId: '91',
+              source: 'x',
+              title: 'Need pricing help',
+              author: 'prospect-91',
+              accountKey: 'x-main',
+              status: 'pending',
+              artifactPath: 'artifacts/inbox-reply-handoffs/x/x-main/x-item-91.json',
+              createdAt: '2026-04-23T12:10:00.000Z',
+              updatedAt: '2026-04-23T12:10:00.000Z',
+              resolvedAt: null,
+              resolution: null,
+            },
+          ],
+          total: 2,
+        },
+      },
       mutationStateOverride: {
         status: 'success',
         data: {
@@ -515,6 +671,7 @@ describe('System Queue actions', () => {
     expect(html).toContain('队列作业');
     expect(html).toContain('Browser Lane 工单');
     expect(html).toContain('Browser Handoff 工单');
+    expect(html).toContain('Inbox Reply Handoff 工单');
     expect(html).toContain('最近作业');
     expect(html).toContain('request_session');
     expect(html).toContain('accountKey: acct-browser');
@@ -530,6 +687,13 @@ describe('System Queue actions', () => {
     expect(html).toContain('publishedAt: 2026-04-23T10:10:00.000Z');
     expect(html).toContain('标记已发布');
     expect(html).toContain('标记失败');
+    expect(html).toContain('source: reddit');
+    expect(html).toContain('author: user123');
+    expect(html).toContain('artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88.json');
+    expect(html).toContain('resolution detail: sent');
+    expect(html).toContain('deliveryUrl: https://reddit.com/message/messages/abc123');
+    expect(html).toContain('deliveredAt: 2026-04-23T11:15:00.000Z');
+    expect(html).toContain('标记已发送');
     expect(html).toContain('#11 · publish');
     expect(html).toContain('#17 · monitor_fetch · done');
     expect(html).toContain('lastError: boom');
@@ -576,6 +740,10 @@ describe('System Queue actions', () => {
       ],
       total: 1,
     });
+    const loadInboxReplyHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
     const completeBrowserHandoffAction = vi.fn().mockResolvedValue({
       ok: true,
       imported: true,
@@ -600,6 +768,7 @@ describe('System Queue actions', () => {
           loadSystemQueueAction,
           loadBrowserLaneRequestsAction,
           loadBrowserHandoffsAction,
+          loadInboxReplyHandoffsAction,
           completeBrowserHandoffAction,
         }),
       );
@@ -660,6 +829,133 @@ describe('System Queue actions', () => {
     });
     expect(loadBrowserHandoffsAction).toHaveBeenCalledTimes(2);
     expect(collectText(container)).toContain('已结单 handoff draft #13 (published)');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('marks a pending inbox reply handoff as sent from the System Queue page and reloads handoffs', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { SystemQueuePage } = await import('../../src/client/pages/SystemQueue');
+
+    const loadSystemQueueAction = vi.fn().mockResolvedValue({
+      jobs: [],
+      queue: {
+        pending: 0,
+        running: 0,
+        failed: 0,
+        duePending: 0,
+      },
+      recentJobs: [],
+    });
+    const loadBrowserLaneRequestsAction = vi.fn().mockResolvedValue({
+      requests: [],
+      total: 0,
+    });
+    const loadBrowserHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+    const loadInboxReplyHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [
+        {
+          channelAccountId: 12,
+          platform: 'reddit',
+          itemId: '88',
+          source: 'reddit',
+          title: 'Need lower latency in APAC',
+          author: 'user123',
+          accountKey: 'reddit-main',
+          status: 'pending',
+          artifactPath:
+            'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88.json',
+          createdAt: '2026-04-23T09:10:00.000Z',
+          updatedAt: '2026-04-23T09:10:00.000Z',
+          resolvedAt: null,
+          resolution: null,
+        },
+      ],
+      total: 1,
+    });
+    const completeInboxReplyHandoffAction = vi.fn().mockResolvedValue({
+      ok: true,
+      imported: true,
+      artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88.json',
+      itemId: 88,
+      replyStatus: 'sent',
+      status: 'handled',
+      success: true,
+      deliveryUrl: 'https://reddit.com/message/messages/abc123',
+      message: 'inbox reply handoff marked sent',
+      deliveredAt: '2026-04-23T11:15:00.000Z',
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(SystemQueuePage as never, {
+          loadSystemQueueAction,
+          loadBrowserLaneRequestsAction,
+          loadBrowserHandoffsAction,
+          loadInboxReplyHandoffsAction,
+          completeInboxReplyHandoffAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const markSentButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        collectText(element).includes('标记已发送') &&
+        hasAncestorWithText(element, 'reddit · item #88 · pending'),
+    );
+    const deliveryUrlInput = findElement(
+      container,
+      (element) =>
+        element.getAttribute('data-inbox-reply-handoff-field') === 'deliveryUrl' &&
+        hasAncestorWithText(element, 'reddit · item #88 · pending'),
+    );
+    const messageInput = findElement(
+      container,
+      (element) =>
+        element.getAttribute('data-inbox-reply-handoff-field') === 'message' &&
+        hasAncestorWithText(element, 'reddit · item #88 · pending'),
+    );
+
+    expect(markSentButton).not.toBeNull();
+    expect(deliveryUrlInput).not.toBeNull();
+    expect(messageInput).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(
+        deliveryUrlInput as never,
+        'https://reddit.com/message/messages/abc123',
+        window as never,
+      );
+      updateFieldValue(messageInput as never, 'reply sent manually', window as never);
+      await flush();
+    });
+
+    await act(async () => {
+      markSentButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(completeInboxReplyHandoffAction).toHaveBeenCalledWith({
+      artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88.json',
+      replyStatus: 'sent',
+      deliveryUrl: 'https://reddit.com/message/messages/abc123',
+      message: 'reply sent manually',
+    });
+    expect(loadInboxReplyHandoffsAction).toHaveBeenCalledTimes(2);
+    expect(collectText(container)).toContain('已结单 inbox reply item #88 (handled)');
 
     await act(async () => {
       root.unmount();
@@ -1238,7 +1534,7 @@ describe('System Queue actions', () => {
     });
   });
 
-  it('refreshes browser lane and browser handoff queries together with the main queue refresh action', async () => {
+  it('refreshes browser lane, browser handoff, and inbox reply handoff queries together with the main queue refresh action', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
     const { SystemQueuePage } = await import('../../src/client/pages/SystemQueue');
@@ -1261,6 +1557,10 @@ describe('System Queue actions', () => {
       handoffs: [],
       total: 0,
     });
+    const loadInboxReplyHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
 
     const root = createRoot(container as never);
     await act(async () => {
@@ -1269,6 +1569,7 @@ describe('System Queue actions', () => {
           loadSystemQueueAction,
           loadBrowserLaneRequestsAction,
           loadBrowserHandoffsAction,
+          loadInboxReplyHandoffsAction,
         }),
       );
       await flush();
@@ -1278,6 +1579,7 @@ describe('System Queue actions', () => {
     expect(loadSystemQueueAction).toHaveBeenCalledTimes(1);
     expect(loadBrowserLaneRequestsAction).toHaveBeenCalledTimes(1);
     expect(loadBrowserHandoffsAction).toHaveBeenCalledTimes(1);
+    expect(loadInboxReplyHandoffsAction).toHaveBeenCalledTimes(1);
 
     const refreshButton = findElement(
       container,
@@ -1293,6 +1595,7 @@ describe('System Queue actions', () => {
     expect(loadSystemQueueAction).toHaveBeenCalledTimes(2);
     expect(loadBrowserLaneRequestsAction).toHaveBeenCalledTimes(2);
     expect(loadBrowserHandoffsAction).toHaveBeenCalledTimes(2);
+    expect(loadInboxReplyHandoffsAction).toHaveBeenCalledTimes(2);
 
     await act(async () => {
       root.unmount();
@@ -1422,7 +1725,7 @@ describe('System Queue actions', () => {
     });
   });
 
-  it('keeps live browser lane and handoff entries visible while their reloads are pending', async () => {
+  it('keeps live browser lane, browser handoff, and inbox reply handoff entries visible while their reloads are pending', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
     const { SystemQueuePage } = await import('../../src/client/pages/SystemQueue');
@@ -1448,6 +1751,24 @@ describe('System Queue actions', () => {
         platform: string;
         draftId: string;
         title: string | null;
+        accountKey: string;
+        status: string;
+        artifactPath: string;
+        createdAt: string;
+        updatedAt: string;
+        resolvedAt: string | null;
+        resolution?: unknown;
+      }>;
+      total: number;
+    }>();
+    const pendingInboxReplyHandoffReload = createDeferredPromise<{
+      handoffs: Array<{
+        channelAccountId?: number;
+        platform: string;
+        itemId: string;
+        source: string;
+        title?: string | null;
+        author?: string | null;
         accountKey: string;
         status: string;
         artifactPath: string;
@@ -1511,6 +1832,33 @@ describe('System Queue actions', () => {
         total: 1,
       })
       .mockImplementationOnce(() => pendingBrowserHandoffReload.promise);
+    const loadInboxReplyHandoffsAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        handoffs: [
+          {
+            channelAccountId: 12,
+            platform: 'reddit',
+            itemId: '88',
+            source: 'reddit',
+            title: 'Need lower latency in APAC',
+            author: 'user123',
+            accountKey: 'reddit-main',
+            status: 'resolved',
+            artifactPath:
+              'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88.json',
+            createdAt: '2026-04-23T09:10:00.000Z',
+            updatedAt: '2026-04-23T11:15:00.000Z',
+            resolvedAt: '2026-04-23T11:15:00.000Z',
+            resolution: {
+              status: 'resolved',
+              replyStatus: 'sent',
+            },
+          },
+        ],
+        total: 1,
+      })
+      .mockImplementationOnce(() => pendingInboxReplyHandoffReload.promise);
 
     const root = createRoot(container as never);
     await act(async () => {
@@ -1519,6 +1867,7 @@ describe('System Queue actions', () => {
           loadSystemQueueAction,
           loadBrowserLaneRequestsAction,
           loadBrowserHandoffsAction,
+          loadInboxReplyHandoffsAction,
         }),
       );
       await flush();
@@ -1533,6 +1882,7 @@ describe('System Queue actions', () => {
     expect(refreshButton).not.toBeNull();
     expect(collectText(container)).toContain('acct-browser');
     expect(collectText(container)).toContain('FB Group Manual');
+    expect(collectText(container)).toContain('Need lower latency in APAC');
 
     await act(async () => {
       refreshButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
@@ -1541,10 +1891,13 @@ describe('System Queue actions', () => {
 
     expect(loadBrowserLaneRequestsAction).toHaveBeenCalledTimes(2);
     expect(loadBrowserHandoffsAction).toHaveBeenCalledTimes(2);
+    expect(loadInboxReplyHandoffsAction).toHaveBeenCalledTimes(2);
     expect(collectText(container)).toContain('正在加载 browser lane requests...');
     expect(collectText(container)).toContain('正在加载 browser handoffs...');
+    expect(collectText(container)).toContain('正在加载 inbox reply handoffs...');
     expect(collectText(container)).toContain('acct-browser');
     expect(collectText(container)).toContain('FB Group Manual');
+    expect(collectText(container)).toContain('Need lower latency in APAC');
 
     await act(async () => {
       pendingBrowserLaneReload.resolve({
@@ -1552,6 +1905,10 @@ describe('System Queue actions', () => {
         total: 0,
       });
       pendingBrowserHandoffReload.resolve({
+        handoffs: [],
+        total: 0,
+      });
+      pendingInboxReplyHandoffReload.resolve({
         handoffs: [],
         total: 0,
       });

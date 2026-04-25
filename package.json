@@ -6,6 +6,7 @@
   "scripts": {
     "browser:lane:submit": "tsx src/server/cli/browserLaneSubmit.ts",
     "browser:handoff:complete": "tsx src/server/cli/browserHandoffComplete.ts",
+    "inbox:reply:handoff:complete": "tsx src/server/cli/inboxReplyHandoffComplete.ts",
     "browser:artifacts:archive": "tsx src/server/cli/archiveBrowserArtifacts.ts",
     "runtime:backup": "tsx src/server/cli/runtimeBackup.ts",
     "runtime:restore": "tsx src/server/cli/runtimeRestore.ts",

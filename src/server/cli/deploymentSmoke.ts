@@ -87,6 +87,17 @@ export async function runDeploymentSmokeCheck(
     throw new Error(`browser handoff probe failed: ${browserHandoffResponse.status}`);
   }
 
+  const inboxReplyHandoffResponse = await fetchImpl(
+    `${baseUrl}/api/system/inbox-reply-handoffs?limit=1`,
+    {
+      headers: authHeaders,
+    },
+  );
+  const inboxReplyHandoffBody = await inboxReplyHandoffResponse.json();
+  if (!inboxReplyHandoffResponse.ok) {
+    throw new Error(`inbox reply handoff probe failed: ${inboxReplyHandoffResponse.status}`);
+  }
+
   const logoutResponse = await fetchImpl(`${baseUrl}/api/auth/logout`, {
     method: 'POST',
     headers: authHeaders,
@@ -103,6 +114,7 @@ export async function runDeploymentSmokeCheck(
       settings: settingsBody,
       browserLaneRequests: browserLaneBody,
       browserHandoffs: browserHandoffBody,
+      inboxReplyHandoffs: inboxReplyHandoffBody,
     },
   };
 }
@@ -155,7 +167,8 @@ export function getDeploymentSmokeHelpText() {
     '  3. GET /api/settings with the returned cookie session',
     '  4. GET /api/system/browser-lane-requests?limit=1',
     '  5. GET /api/system/browser-handoffs?limit=1',
-    '  6. POST /api/auth/logout',
+    '  6. GET /api/system/inbox-reply-handoffs?limit=1',
+    '  7. POST /api/auth/logout',
   ].join('\n');
 }
 

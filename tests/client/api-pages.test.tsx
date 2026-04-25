@@ -477,6 +477,12 @@ describe('client API page wiring', () => {
             new: 2,
             followUpDrafts: 1,
           },
+          monitorConfig: {
+            directFeeds: 1,
+            directQueries: 3,
+            enabledSourceConfigs: 2,
+            totalInputs: 6,
+          },
           drafts: {
             total: 5,
             review: 2,
@@ -484,6 +490,32 @@ describe('client API page wiring', () => {
           totals: {
             items: 8,
             followUps: 1,
+          },
+          inbox: {
+            total: 4,
+            unread: 3,
+          },
+          channelAccounts: {
+            total: 2,
+            connected: 1,
+          },
+          browserLaneRequests: {
+            total: 2,
+            pending: 1,
+            resolved: 1,
+          },
+          browserHandoffs: {
+            total: 2,
+            pending: 1,
+            resolved: 0,
+            obsolete: 1,
+            unmatched: 11,
+          },
+          inboxReplyHandoffs: {
+            total: 3,
+            pending: 1,
+            resolved: 1,
+            obsolete: 1,
           },
           jobQueue: {
             pending: 4,
@@ -510,6 +542,15 @@ describe('client API page wiring', () => {
     expect(html).toContain('账号总数');
     expect(html).toContain('status=healthy 账号');
     expect(html).toContain('Browser Lane 总工单');
+    expect(html).toContain('Browser Handoff 总工单');
+    expect(html).toContain('Browser Handoff 待处理');
+    expect(html).toContain('Browser Handoff 已完成');
+    expect(html).toContain('Browser Handoff 已作废');
+    expect(html).toContain('Browser Handoff 未归属');
+    expect(html).toContain('Inbox Reply Handoff 总工单');
+    expect(html).toContain('Inbox Reply Handoff 待处理');
+    expect(html).toContain('Inbox Reply Handoff 已完成');
+    expect(html).toContain('Inbox Reply Handoff 已作废');
     expect(html).toContain('首发运营范围');
     expect(html).toContain('X、Reddit');
     expect(html).toContain('人工接管：Facebook Group、小红书、微博');
@@ -1771,6 +1812,25 @@ describe('client API page wiring', () => {
                   reason: 'relogin',
                 },
               },
+              latestInboxReplyHandoffArtifact: {
+                platform: 'reddit',
+                itemId: '88',
+                source: 'reddit',
+                title: 'Need lower latency in APAC',
+                author: 'user123',
+                accountKey: 'acct-reddit',
+                status: 'resolved',
+                artifactPath:
+                  'artifacts/inbox-reply-handoffs/reddit/acct-reddit/reddit-item-88.json',
+                createdAt: '2026-04-19T00:40:00.000Z',
+                updatedAt: '2026-04-19T00:45:00.000Z',
+                resolvedAt: '2026-04-19T00:45:00.000Z',
+                resolution: {
+                  status: 'resolved',
+                  replyStatus: 'sent',
+                  deliveryUrl: 'https://reddit.com/message/messages/abc123',
+                },
+              },
             },
           ],
         },
@@ -1798,6 +1858,16 @@ describe('client API page wiring', () => {
     expect(html).toContain('Handoff 详情：relogin');
     expect(html).toContain(
       'Handoff 路径：artifacts/browser-handoffs/reddit/acct-reddit/reddit-draft-31.json',
+    );
+    expect(html).toContain('最近 Inbox Reply Handoff：item #88 · resolved');
+    expect(html).toContain('Inbox 来源：reddit');
+    expect(html).toContain('Inbox 作者：user123');
+    expect(html).toContain('Inbox 标题：Need lower latency in APAC');
+    expect(html).toContain('Inbox Handoff 结果：resolved');
+    expect(html).toContain('Inbox Handoff 详情：sent');
+    expect(html).toContain('Inbox Delivery URL：https://reddit.com/message/messages/abc123');
+    expect(html).toContain(
+      'Inbox Handoff 路径：artifacts/inbox-reply-handoffs/reddit/acct-reddit/reddit-item-88.json',
     );
     expect(html).toContain('请求登录');
     expect(html).toContain('当前目标账号：X / Twitter');
@@ -2595,6 +2665,50 @@ describe('client API page wiring', () => {
     );
   });
 
+  it('loads inbox reply handoffs through the settings shared API helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        handoffs: [
+          {
+            platform: 'reddit',
+            itemId: '88',
+            source: 'reddit',
+            title: 'Need lower latency in APAC',
+            author: 'user123',
+            accountKey: 'reddit-main',
+            status: 'pending',
+            artifactPath:
+              'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88.json',
+            createdAt: '2026-04-23T09:10:00.000Z',
+            updatedAt: '2026-04-23T09:10:00.000Z',
+            resolvedAt: null,
+          },
+        ],
+        total: 1,
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const settingsModule = (await import('../../src/client/pages/Settings')) as Record<string, unknown>;
+
+    expect(typeof settingsModule.loadInboxReplyHandoffsRequest).toBe('function');
+
+    const loadInboxReplyHandoffsRequest = settingsModule.loadInboxReplyHandoffsRequest as (
+      limit?: number,
+    ) => Promise<{ handoffs: Array<{ platform: string; itemId: string }>; total: number }>;
+
+    const result = await loadInboxReplyHandoffsRequest(10);
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/system/inbox-reply-handoffs?limit=10', undefined);
+    expect(result.total).toBe(1);
+    expect(result.handoffs[0]).toEqual(
+      expect.objectContaining({
+        platform: 'reddit',
+        itemId: '88',
+      }),
+    );
+  });
+
   it('posts new system jobs through the shared API helper', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({
@@ -2809,6 +2923,34 @@ describe('client API page wiring', () => {
           total: 1,
         },
       },
+      inboxReplyHandoffStateOverride: {
+        status: 'success',
+        data: {
+          handoffs: [
+            {
+              platform: 'reddit',
+              itemId: '88',
+              source: 'reddit',
+              title: 'Need lower latency in APAC',
+              author: 'user123',
+              accountKey: 'reddit-main',
+              status: 'resolved',
+              artifactPath:
+                'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88.json',
+              createdAt: '2026-04-23T09:10:00.000Z',
+              updatedAt: '2026-04-23T11:15:00.000Z',
+              resolvedAt: '2026-04-23T11:15:00.000Z',
+              resolution: {
+                status: 'resolved',
+                replyStatus: 'sent',
+                deliveryUrl: 'https://reddit.com/message/messages/abc123',
+                deliveredAt: '2026-04-23T11:15:00.000Z',
+              },
+            },
+          ],
+          total: 1,
+        },
+      },
     });
 
     expect(html).toContain('当前加载值');
@@ -2836,11 +2978,21 @@ describe('client API page wiring', () => {
     expect(html).toContain('#19 · monitor_fetch · done');
     expect(html).toContain('Browser Lane 工单');
     expect(html).toContain('Browser Handoff 工单');
+    expect(html).toContain('Inbox Reply Handoff 工单');
     expect(html).toContain('request_session');
     expect(html).toContain('artifacts/browser-lane-requests/x/acct-browser/request-session-job-17.json');
     expect(html).toContain(
       'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-33.json',
     );
+    expect(html).toContain('item #88');
+    expect(html).toContain('source: reddit');
+    expect(html).toContain('author: user123');
+    expect(html).toContain(
+      'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88.json',
+    );
+    expect(html).toContain('resolution detail: sent');
+    expect(html).toContain('deliveryUrl: https://reddit.com/message/messages/abc123');
+    expect(html).toContain('deliveredAt: 2026-04-23T11:15:00.000Z');
     expect(html).toContain('重载 Scheduler');
     expect(html).toContain('抓取 Monitor');
     expect(html).toContain('作业控制');
