@@ -147,6 +147,50 @@ describe('release shell wrappers', () => {
     expect(result.stderr).not.toContain('ADMIN_PASSWORD missing');
   });
 
+  it('uses bundle-local pm2 when no global pm2 binary is available', () => {
+    const fixture = createDeployReleaseFixture({ installLocalPm2: true });
+    const env = {
+      ...process.env,
+      PATH: `${fixture.binDir}${path.delimiter}/usr/bin${path.delimiter}/bin`,
+    };
+
+    delete env.PROMOBOT_ADMIN_PASSWORD;
+    delete env.ADMIN_PASSWORD;
+    delete env.PROMOBOT_BASE_URL;
+
+    const result = runScript(fixture.scriptPath, ['--skip-smoke'], {
+      cwd: fixture.rootDir,
+      env,
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Running pnpm install --frozen-lockfile');
+    expect(result.stdout).toContain('Starting PM2 app from pm2.config.js');
+    expect(result.stdout).toContain('Skipping smoke check');
+    expect(fs.readFileSync(fixture.pm2MarkerPath, 'utf8')).toContain('start pm2.config.js --update-env');
+    expect(result.stderr).not.toContain('Missing required command: pm2');
+  });
+
+  it('rebuilds better-sqlite3 before using bundle-local pm2', () => {
+    const fixture = createDeployReleaseFixture({
+      installLocalPm2: true,
+      requireNativeRebuild: true,
+    });
+    const env = {
+      ...process.env,
+      PATH: `${fixture.binDir}${path.delimiter}/usr/bin${path.delimiter}/bin`,
+    };
+
+    const result = runScript(fixture.scriptPath, ['--skip-smoke'], {
+      cwd: fixture.rootDir,
+      env,
+    });
+
+    expect(result.status).toBe(0);
+    expect(fs.readFileSync(fixture.pnpmMarkerPath, 'utf8')).toContain('rebuild better-sqlite3');
+    expect(result.stderr).not.toContain('native dependency not rebuilt');
+  });
+
   it('fails deploy-release before startup when database schema is missing from the bundle', () => {
     const fixture = createDeployReleaseFixture();
     fs.rmSync(path.join(fixture.rootDir, 'database', 'schema.sql'));
@@ -248,9 +292,18 @@ function runScript(scriptPath: string, args: string[], options: SpawnSyncOptions
   });
 }
 
-function createDeployReleaseFixture(options: { requireAdminPasswordForPm2?: boolean } = {}) {
+function createDeployReleaseFixture(
+  options: {
+    installLocalPm2?: boolean;
+    requireAdminPasswordForPm2?: boolean;
+    requireNativeRebuild?: boolean;
+  } = {},
+) {
   const rootDir = createTempDir('promobot-deploy-release-script-');
   const binDir = path.join(rootDir, 'bin');
+  const pm2MarkerPath = path.join(rootDir, 'pm2-invocations.log');
+  const pnpmMarkerPath = path.join(rootDir, 'pnpm-invocations.log');
+  const nativeRebuildMarkerPath = path.join(rootDir, 'native-rebuild.done');
   const scriptPath = path.join(rootDir, 'ops/deploy-release.sh');
 
   fs.mkdirSync(path.dirname(scriptPath), { recursive: true });
@@ -265,16 +318,75 @@ function createDeployReleaseFixture(options: { requireAdminPasswordForPm2?: bool
   writeFile(rootDir, 'dist/server/cli/deploymentSmoke.js', 'console.log("smoke");\n');
   writeFile(rootDir, 'dist/server/cli/releaseVerify.js', 'console.log("verify");\n');
 
-  writeExecutable(binDir, 'pnpm', '#!/usr/bin/env bash\nexit 0\n');
+  const localPm2Script = options.requireAdminPasswordForPm2
+    ? `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${pm2MarkerPath}"
+case "\${1:-}" in
+  jlist)
+    printf '[]\\n'
+    exit 0
+    ;;
+esac
+if [ -z "\${ADMIN_PASSWORD:-}" ]; then
+  printf 'ADMIN_PASSWORD missing\\n' >&2
+  exit 1
+fi
+if [ ! -f "${nativeRebuildMarkerPath}" ] && [ "${options.requireNativeRebuild ? '1' : '0'}" = "1" ]; then
+  printf 'native dependency not rebuilt\\n' >&2
+  exit 1
+fi
+exit 0
+`
+    : `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${pm2MarkerPath}"
+case "\${1:-}" in
+  jlist)
+    printf '[]\\n'
+    ;;
+esac
+if [ ! -f "${nativeRebuildMarkerPath}" ] && [ "${options.requireNativeRebuild ? '1' : '0'}" = "1" ]; then
+  printf 'native dependency not rebuilt\\n' >&2
+  exit 1
+fi
+exit 0
+`;
+  const pnpmScript = options.installLocalPm2
+    ? `#!/usr/bin/env bash
+set -e
+printf '%s\\n' "$*" >> "${pnpmMarkerPath}"
+if [ "$#" -ge 1 ] && [ "$1" = "install" ]; then
+  mkdir -p node_modules/.bin
+  cat > node_modules/.bin/pm2 <<'EOF'
+${localPm2Script}
+EOF
+  chmod +x node_modules/.bin/pm2
+  exit 0
+fi
+if [ "$#" -ge 2 ] && [ "$1" = "rebuild" ] && [ "$2" = "better-sqlite3" ]; then
+  : > "${nativeRebuildMarkerPath}"
+  exit 0
+fi
+if [ "$#" -ge 2 ] && [ "$1" = "exec" ] && [ "$2" = "pm2" ]; then
+  shift 2
+  exec "$PWD/node_modules/.bin/pm2" "$@"
+fi
+exit 0
+`
+    : '#!/usr/bin/env bash\nexit 0\n';
+  writeExecutable(binDir, 'pnpm', pnpmScript);
   const pm2Script = options.requireAdminPasswordForPm2
     ? '#!/usr/bin/env bash\ncase "${1:-}" in\n  jlist)\n    printf \'[]\\n\'\n    exit 0\n    ;;\nesac\nif [ -z "${ADMIN_PASSWORD:-}" ]; then\n  printf \'ADMIN_PASSWORD missing\\n\' >&2\n  exit 1\nfi\nexit 0\n'
     : '#!/usr/bin/env bash\ncase "${1:-}" in\n  jlist)\n    printf \'[]\\n\'\n    ;;\nesac\nexit 0\n';
-  writeExecutable(binDir, 'pm2', pm2Script);
+  if (!options.installLocalPm2) {
+    writeExecutable(binDir, 'pm2', pm2Script);
+  }
   writeExecutable(binDir, 'node', '#!/usr/bin/env bash\nexit 0\n');
 
   return {
     rootDir,
     binDir,
+    pm2MarkerPath,
+    pnpmMarkerPath,
     scriptPath,
   };
 }

@@ -43,8 +43,14 @@ require_command() {
   fi
 }
 
+run_pm2() {
+  if ! pnpm exec pm2 "$@"; then
+    fail "Local pm2 is unavailable; run pnpm install --frozen-lockfile before starting the release bundle"
+  fi
+}
+
 pm2_process_exists() {
-  pm2 jlist | grep -q '"name":"promobot"'
+  run_pm2 jlist | grep -q '"name":"promobot"'
 }
 
 read_env_file_value() {
@@ -157,7 +163,6 @@ main() {
   [ -f "dist/server/cli/releaseVerify.js" ] || fail "dist/server/cli/releaseVerify.js not found in ${bundle_root}"
 
   require_command pnpm
-  require_command pm2
   require_command node
 
   log "Verifying release bundle integrity"
@@ -166,6 +171,8 @@ main() {
   if [ "${skip_install}" -eq 0 ]; then
     log "Running pnpm install --frozen-lockfile"
     pnpm install --frozen-lockfile
+    log "Rebuilding native dependencies"
+    pnpm rebuild better-sqlite3
   else
     log "Skipping pnpm install"
   fi
@@ -188,13 +195,13 @@ main() {
 
   if pm2_process_exists; then
     log "Reloading PM2 app from pm2.config.js"
-    if ! pm2 reload pm2.config.js --update-env; then
+    if ! run_pm2 reload pm2.config.js --update-env; then
       log "PM2 reload failed, trying a fresh start"
-      pm2 start pm2.config.js --update-env
+      run_pm2 start pm2.config.js --update-env
     fi
   else
     log "Starting PM2 app from pm2.config.js"
-    pm2 start pm2.config.js --update-env
+    run_pm2 start pm2.config.js --update-env
   fi
 
   if [ "${skip_smoke}" -eq 1 ]; then
