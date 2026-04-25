@@ -127,10 +127,14 @@ export async function suggestInboxReplyRequest(id: number): Promise<InboxReplySu
 export interface SendInboxReplyResponse {
   item: InboxItem;
   delivery: {
-    status: string;
-    mode: string;
+    success: boolean;
+    status: 'sent' | 'manual_required' | 'failed';
+    mode: 'api' | 'browser' | 'manual';
     message: string;
     reply: string;
+    deliveryUrl?: string | null;
+    externalId?: string | null;
+    details?: Record<string, unknown>;
   };
 }
 
@@ -409,6 +413,8 @@ export function InboxPage({
     displayInboxUpdateState.status === 'success' && displayInboxUpdateState.data
       ? `已将“${displayInboxUpdateState.data.item.title}”回写为 ${displayInboxUpdateState.data.item.status}`
       : displaySendReplyState.status === 'success' && displaySendReplyState.data
+          && displaySendReplyState.data.delivery.status === 'sent'
+          && displaySendReplyState.data.item.status === 'handled'
         ? `已将“${displaySendReplyState.data.item.title}”回写为 ${displaySendReplyState.data.item.status}`
       : displayInboxUpdateState.status === 'error'
         ? `收件箱状态更新失败：${displayInboxUpdateState.error}`
@@ -421,16 +427,28 @@ export function InboxPage({
       : showReplySuggestionForSelectedItem && displayReplySuggestionState.status === 'error'
         ? `生成回复失败：${displayReplySuggestionState.error}`
         : null;
+  const deliveredReplyFeedbackItemId =
+    displaySendReplyState.status === 'success' && displaySendReplyState.data
+      ? displaySendReplyState.data.item.id
+      : null;
   const sendReplyFeedback =
     displaySendReplyState.status === 'success' &&
     displaySendReplyState.data &&
-    selectedItem !== null &&
-    replyDeliveryItemId === selectedItem.id
+    replyDeliveryItemId !== null &&
+    deliveredReplyFeedbackItemId === replyDeliveryItemId
       ? displaySendReplyState.data.delivery.message
-      : displaySendReplyState.status === 'error' &&
-          selectedItem !== null &&
-          replyDeliveryItemId === selectedItem.id
+      : displaySendReplyState.status === 'error' && replyDeliveryItemId !== null
         ? `发送回复失败：${displaySendReplyState.error}`
+        : null;
+  const sendReplyFeedbackTone =
+    displaySendReplyState.status === 'success' && displaySendReplyState.data
+      ? displaySendReplyState.data.delivery.status === 'sent'
+        ? 'success'
+        : displaySendReplyState.data.delivery.status === 'manual_required'
+          ? 'warning'
+          : 'error'
+      : displaySendReplyState.status === 'error'
+        ? 'error'
         : null;
   const suggestedReply =
     showReplySuggestionForSelectedItem &&
@@ -614,8 +632,18 @@ export function InboxPage({
           style={{
             ...feedbackStyle,
             margin: '0 0 16px',
-            background: displaySendReplyState.status === 'error' ? '#fef2f2' : '#ecfdf5',
-            color: displaySendReplyState.status === 'error' ? '#b91c1c' : '#166534',
+            background:
+              sendReplyFeedbackTone === 'error'
+                ? '#fef2f2'
+                : sendReplyFeedbackTone === 'warning'
+                  ? '#fffbeb'
+                  : '#ecfdf5',
+            color:
+              sendReplyFeedbackTone === 'error'
+                ? '#b91c1c'
+                : sendReplyFeedbackTone === 'warning'
+                  ? '#92400e'
+                  : '#166534',
           }}
         >
           {sendReplyFeedback}

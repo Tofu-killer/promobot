@@ -7,6 +7,7 @@ export interface InboxSignal {
   author?: string;
   title: string;
   excerpt: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface InboxFetcherSettings {
