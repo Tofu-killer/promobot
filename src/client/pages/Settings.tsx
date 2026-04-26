@@ -391,6 +391,31 @@ function readResolutionDeliveredAt(value: unknown) {
   return readString(record?.deliveredAt);
 }
 
+function readBrowserLaneSession(value: unknown) {
+  const record = asRecord(value);
+  return asRecord(record?.session);
+}
+
+function readBrowserLaneSessionStatus(value: unknown) {
+  const session = readBrowserLaneSession(value);
+  return readString(session?.status);
+}
+
+function readBrowserLaneSessionValidatedAt(value: unknown) {
+  const session = readBrowserLaneSession(value);
+  return readString(session?.validatedAt);
+}
+
+function readBrowserLaneSessionStorageStatePath(value: unknown) {
+  const session = readBrowserLaneSession(value);
+  return readString(session?.storageStatePath);
+}
+
+function readBrowserLaneSessionNotes(value: unknown) {
+  const session = readBrowserLaneSession(value);
+  return readString(session?.notes);
+}
+
 function readNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
@@ -1205,6 +1230,21 @@ export function SettingsPage({
                     <div style={{ color: '#475569' }}>artifactPath: {request.artifactPath}</div>
                     <div style={{ color: '#475569' }}>
                       resolvedAt: {request.resolvedAt ?? '未结单'}
+                    </div>
+                    <div style={{ color: '#475569' }}>
+                      resolution: {formatContractValue(readStatusValue(request.resolution))}
+                    </div>
+                    <div style={{ color: '#475569' }}>
+                      session status: {formatContractValue(readBrowserLaneSessionStatus(request.resolution))}
+                    </div>
+                    <div style={{ color: '#475569' }}>
+                      validatedAt: {formatContractValue(readBrowserLaneSessionValidatedAt(request.resolution))}
+                    </div>
+                    <div style={{ color: '#475569' }}>
+                      storageStatePath: {formatContractValue(readBrowserLaneSessionStorageStatePath(request.resolution))}
+                    </div>
+                    <div style={{ color: '#475569' }}>
+                      notes: {formatContractValue(readBrowserLaneSessionNotes(request.resolution))}
                     </div>
                   </div>
                 ))

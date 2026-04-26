@@ -47,14 +47,14 @@ PromoBot 现在不是“只有 spec 的空仓库”了。
 - 手填 `storageStatePath` 时，路径现在必须落在允许的 session 根目录内，并且指向真实存在、结构合法的 Playwright storage state 文件；否则保存会直接失败，不再先写 metadata 再在读取阶段降级。
 - 直接导入 `storageState` JSON 时，顶层至少要包含合法的 `cookies` / `origins` 数组；同时传 `storageStatePath` 和 `storageState` 会被拒绝。
 - 如果 session metadata 仍在，但底层 storage state 文件已经消失，系统现在会自动把它降级成 `missing / needs_session`，不会继续误报可用。
-- 请求登录 / 重新登录现在会额外生成 `artifacts/browser-lane-requests/` 下的接管工单文件，便于外部 browser lane 消费；保存 session 成功后，对应工单也会回写为 `resolved`，并附上 session 摘要。但真正的自动登录流程仍未接入。
+- 请求登录 / 重新登录现在会额外生成 `artifacts/browser-lane-requests/` 下的接管工单文件，便于外部 browser lane 消费；保存 session 成功后，对应工单也会回写为 `resolved`，并附上 session 摘要。`System Queue` 里的 Browser Lane 工单区也支持直接粘贴 `storageState` JSON 并调用 importer API 结单，但真正的自动登录流程仍未接入。
 - 外部 browser lane 现在也可以把结果写成 `browser_lane_result` artifact，然后调用 `POST /api/system/browser-lane-requests/import` 让服务端自动导入 `storageState`、更新渠道账号 session 元数据，并结掉对应 request artifact。这样第一刀无需内置 Playwright，也不用再手工回填 session 表单。
 - 仓库同时提供了 `pnpm browser:lane:submit -- --request-artifact <path> --storage-state-file <path>`，用于从本地 Playwright storage state JSON 生成 `browser_lane_result` artifact；如果再附带 `--base-url` 和 `--admin-password`，会直接把 `requestArtifactPath + storageState` 提交给 importer API，因此 browser lane 不必和服务端共享同一份 result artifact 目录。
 - `facebook-group`、`weibo`、`xiaohongshu` 的 browser handoff 现在也有正式完成入口：外部 lane 或人工接管完成后，可调用 `POST /api/system/browser-handoffs/import` 回写 `published/failed` 结果，系统会同步更新草稿状态、publish log 和 handoff artifact。
 - 仓库同时提供了 `pnpm browser:handoff:complete -- --artifact-path <path> --status <published|failed>`，用于在本机直接结单 handoff；如果再附带 `--base-url` 和 `--admin-password`，则会走远程 API 导入。
 - `Social Inbox` 的 reply handoff 也有同级完成入口：外部 lane 或人工接管完成回复后，可调用 `POST /api/system/inbox-reply-handoffs/import` 回写 `sent/failed` 结果，系统会同步更新 inbox item 状态和 handoff artifact；源码 checkout 场景可用 `pnpm inbox:reply:handoff:complete -- --artifact-path <path> --status <sent|failed>` 直接结单，bundle-only 场景则用 `node dist/server/cli/inboxReplyHandoffComplete.js --artifact-path <path> --status <sent|failed>`，两者都支持附带 `--message`、`--delivery-url`、`--external-id`、`--delivered-at`，再加 `--base-url` 和 `--admin-password` 时会改走远程 API。
 - 仓库同时提供了 `pnpm browser:artifacts:archive -- [--older-than-hours <n>] [--include-results]`，用于把足够旧的已结单 browser artifacts 归档到 `artifacts/archive/`；当前归档范围同时覆盖 browser lane request/result、browser handoff 和 inbox reply handoff。默认是 dry-run，只有加 `--apply` 才会真正移动文件。
-- `System Queue`、`Dashboard`、`Settings`、`Channel Accounts` 现在都能直接看到 browser lane / browser handoff / inbox reply handoff 的最新状态；系统 API 也提供了 `/api/system/browser-handoffs` 与 `/api/system/inbox-reply-handoffs` 只读汇总入口，`/api/system/health` 里的 `browserArtifacts` 还会额外带上 `inboxReplyHandoffs(total/pending/resolved/obsolete)`。
+- `System Queue` 与 `Settings` 现在会直接展示 browser lane / browser handoff / inbox reply handoff 的最新工单状态与 resolution 摘要；`Dashboard` 提供总量与 pending 汇总，`Channel Accounts` 则展示当前渠道账号上的 session 元数据。其中 `System Queue` 还能直接导入 browser lane request 的 `storageState` JSON 并结掉工单。系统 API 也提供了 `/api/system/browser-lane-requests`、`/api/system/browser-handoffs` 与 `/api/system/inbox-reply-handoffs` 只读汇总入口，`/api/system/health` 里的 `browserArtifacts` 还会额外带上 `inboxReplyHandoffs(total/pending/resolved/obsolete)`。
 - `Drafts` 和 `Review Queue` 在 `manual_required` 时会直接显示 handoff 回执里的 `browserHandoff` 细节，不再只剩一条泛化成功消息。
 
 ## 开发与验证

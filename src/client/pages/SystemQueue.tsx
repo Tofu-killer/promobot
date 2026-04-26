@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { apiRequest } from '../lib/api';
 import type { AsyncState } from '../hooks/useAsyncRequest';
 import { useAsyncAction, useAsyncQuery } from '../hooks/useAsyncRequest';
@@ -45,11 +45,34 @@ export interface BrowserLaneRequestRecord {
   requestedAt: string;
   artifactPath: string;
   resolvedAt: string | null;
+  resolution?: unknown;
 }
 
 export interface BrowserLaneRequestsResponse {
   requests: BrowserLaneRequestRecord[];
   total: number;
+}
+
+export interface BrowserLaneSessionSummary {
+  hasSession: boolean;
+  status: 'active' | 'expired' | 'missing' | string;
+  validatedAt: string | null;
+  storageStatePath: string | null;
+  id?: string;
+  notes?: string;
+}
+
+export interface BrowserLaneRequestImportResponse {
+  ok: boolean;
+  imported: boolean;
+  artifactPath: string;
+  session: BrowserLaneSessionSummary | null;
+  channelAccount: {
+    id: number;
+    metadata?: Record<string, unknown>;
+    session?: BrowserLaneSessionSummary;
+    [key: string]: unknown;
+  };
 }
 
 export interface BrowserHandoffRecord {
@@ -136,6 +159,24 @@ export async function loadBrowserLaneRequestsRequest(limit = 20): Promise<Browse
 
 export async function loadBrowserHandoffsRequest(limit = 20): Promise<BrowserHandoffsResponse> {
   return apiRequest<BrowserHandoffsResponse>(`/api/system/browser-handoffs?limit=${limit}`);
+}
+
+export async function importBrowserLaneRequestResultRequest(input: {
+  requestArtifactPath: string;
+  storageState: Record<string, unknown>;
+  notes?: string;
+}): Promise<BrowserLaneRequestImportResponse> {
+  return apiRequest<BrowserLaneRequestImportResponse>('/api/system/browser-lane-requests/import', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      requestArtifactPath: input.requestArtifactPath,
+      storageState: input.storageState,
+      ...(input.notes !== undefined && input.notes.trim().length > 0 ? { notes: input.notes.trim() } : {}),
+    }),
+  });
 }
 
 export async function loadInboxReplyHandoffsRequest(limit = 20): Promise<InboxReplyHandoffsResponse> {
@@ -239,6 +280,11 @@ interface SystemQueuePageProps {
     payload?: Record<string, unknown>;
     runAt?: string;
   }) => Promise<SystemQueueMutationResponse>;
+  importBrowserLaneRequestResultAction?: (input: {
+    requestArtifactPath: string;
+    storageState: Record<string, unknown>;
+    notes?: string;
+  }) => Promise<BrowserLaneRequestImportResponse>;
   completeBrowserHandoffAction?: (input: {
     artifactPath: string;
     publishStatus: 'published' | 'failed';
@@ -291,6 +337,7 @@ export function SystemQueuePage({
   retrySystemQueueJobAction = retrySystemQueueJobRequest,
   cancelSystemQueueJobAction = cancelSystemQueueJobRequest,
   enqueueSystemQueueJobAction = enqueueSystemQueueJobRequest,
+  importBrowserLaneRequestResultAction = importBrowserLaneRequestResultRequest,
   completeBrowserHandoffAction = completeBrowserHandoffRequest,
   completeInboxReplyHandoffAction = completeInboxReplyHandoffRequest,
   stateOverride,
@@ -335,6 +382,18 @@ export function SystemQueuePage({
       });
     },
   );
+  const { state: browserLaneRequestMutationState, run: runBrowserLaneRequestImport } = useAsyncAction(
+    (input: {
+      requestArtifactPath: string;
+      storageStateJson: string;
+      notes?: string;
+    }) =>
+      importBrowserLaneRequestResultAction({
+        requestArtifactPath: input.requestArtifactPath,
+        storageState: parseStorageStateJson(input.storageStateJson),
+        ...(input.notes ? { notes: input.notes } : {}),
+      }),
+  );
   const { state: handoffMutationState, run: runBrowserHandoffCompletion } = useAsyncAction(
     (input: {
       artifactPath: string;
@@ -357,8 +416,15 @@ export function SystemQueuePage({
   const displayInboxReplyHandoffState = inboxReplyHandoffStateOverride ?? inboxReplyHandoffState;
   const displayMutationState = mutationStateOverride ?? mutationState;
   const [activeMutation, setActiveMutation] = useState<QueueMutationInput | null>(null);
+  const [activeBrowserLaneArtifactPath, setActiveBrowserLaneArtifactPath] = useState<string | null>(null);
   const [activeBrowserHandoffArtifactPath, setActiveBrowserHandoffArtifactPath] = useState<string | null>(null);
   const [activeInboxReplyHandoffArtifactPath, setActiveInboxReplyHandoffArtifactPath] = useState<string | null>(null);
+  const [resolvedBrowserLaneRequestsByArtifactPath, setResolvedBrowserLaneRequestsByArtifactPath] = useState<
+    Record<string, { resolvedAt: string; jobStatus: string; resolution?: unknown }>
+  >({});
+  const [browserLaneDraftByArtifactPath, setBrowserLaneDraftByArtifactPath] = useState<
+    Record<string, { storageState: string; notes: string }>
+  >({});
   const [browserHandoffDraftByArtifactPath, setBrowserHandoffDraftByArtifactPath] = useState<
     Record<string, { publishUrl: string; message: string }>
   >({});
@@ -401,7 +467,29 @@ export function SystemQueuePage({
     typeof displayBrowserLaneState.data === 'object' &&
     displayBrowserLaneState.data !== null &&
     Array.isArray(displayBrowserLaneState.data.requests);
-  const visibleBrowserLaneRequests = hasLiveBrowserLaneData ? displayBrowserLaneState.data.requests : [];
+  const visibleBrowserLaneRequests = hasLiveBrowserLaneData
+    ? displayBrowserLaneState.data.requests.map((request) => {
+        const resolvedRequest = resolvedBrowserLaneRequestsByArtifactPath[request.artifactPath];
+        const hasLiveResolution =
+          request.resolvedAt !== null ||
+          readResolutionStatus(request.resolution) !== null ||
+          request.jobStatus === 'resolved';
+        if (!resolvedRequest || hasLiveResolution) {
+          return request;
+        }
+
+        return {
+          ...request,
+          resolvedAt: resolvedRequest.resolvedAt,
+          jobStatus: resolvedRequest.jobStatus,
+          ...(resolvedRequest.resolution !== undefined
+            ? { resolution: resolvedRequest.resolution }
+            : request.resolution !== undefined
+              ? { resolution: request.resolution }
+              : {}),
+        };
+      })
+    : [];
   const hasLiveBrowserHandoffData =
     typeof displayBrowserHandoffState.data === 'object' &&
     displayBrowserHandoffState.data !== null &&
@@ -421,6 +509,12 @@ export function SystemQueuePage({
       : displayMutationState.status === 'error'
         ? `队列动作失败：${displayMutationState.error}`
         : null;
+  const browserLaneRequestFeedback =
+    browserLaneRequestMutationState.status === 'success' && browserLaneRequestMutationState.data
+      ? `已导入 browser lane session #${browserLaneRequestMutationState.data.channelAccount.id} (${readBrowserLaneImportSession(browserLaneRequestMutationState.data)?.status ?? 'unknown'})`
+      : browserLaneRequestMutationState.status === 'error'
+        ? `browser lane session 导入失败：${browserLaneRequestMutationState.error}`
+        : null;
   const browserHandoffFeedback =
     handoffMutationState.status === 'success' && handoffMutationState.data
       ? `已结单 handoff draft #${handoffMutationState.data.draftId} (${handoffMutationState.data.status})`
@@ -434,8 +528,37 @@ export function SystemQueuePage({
         ? `inbox reply handoff 结单失败：${inboxReplyHandoffMutationState.error}`
         : null;
   const isQueueMutationPending = queueMutationPendingRef.current || displayMutationState.status === 'loading';
+  const isBrowserLaneRequestMutationPending = browserLaneRequestMutationState.status === 'loading';
   const isBrowserHandoffMutationPending = handoffMutationState.status === 'loading';
   const isInboxReplyHandoffMutationPending = inboxReplyHandoffMutationState.status === 'loading';
+
+  useEffect(() => {
+    if (!hasLiveBrowserLaneData) {
+      return;
+    }
+
+    setResolvedBrowserLaneRequestsByArtifactPath((current) => {
+      let changed = false;
+      const next = { ...current };
+
+      for (const request of displayBrowserLaneState.data.requests) {
+        if (!(request.artifactPath in next)) {
+          continue;
+        }
+
+        if (
+          request.resolvedAt !== null ||
+          readResolutionStatus(request.resolution) !== null ||
+          request.jobStatus === 'resolved'
+        ) {
+          delete next[request.artifactPath];
+          changed = true;
+        }
+      }
+
+      return changed ? next : current;
+    });
+  }, [displayBrowserLaneState.data, hasLiveBrowserLaneData]);
 
   function startQueueMutation(input: QueueMutationInput, onSuccess?: () => void) {
     if (queueMutationPendingRef.current) {
@@ -503,6 +626,37 @@ export function SystemQueuePage({
 
   function handleFocusEnqueueForm() {
     enqueueTypeFieldRef.current?.focus();
+  }
+
+  function handleImportBrowserLaneRequest(request: BrowserLaneRequestRecord) {
+    if (isBrowserLaneRequestMutationPending) {
+      return;
+    }
+
+    const requestDraft = browserLaneDraftByArtifactPath[request.artifactPath];
+    const notes = requestDraft?.notes.trim().length ? requestDraft.notes.trim() : undefined;
+
+    setActiveBrowserLaneArtifactPath(request.artifactPath);
+    void runBrowserLaneRequestImport({
+      requestArtifactPath: request.artifactPath,
+      storageStateJson: requestDraft?.storageState ?? '',
+      ...(notes ? { notes } : {}),
+    })
+      .then((response) => {
+        setResolvedBrowserLaneRequestsByArtifactPath((current) => ({
+          ...current,
+          [request.artifactPath]: buildOptimisticBrowserLaneRequestResolution(response),
+        }));
+        setBrowserLaneDraftByArtifactPath((current) => {
+          const { [request.artifactPath]: _ignored, ...rest } = current;
+          return rest;
+        });
+        reloadBrowserLane();
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        setActiveBrowserLaneArtifactPath(null);
+      });
   }
 
   function handleCompleteBrowserHandoff(
@@ -603,6 +757,16 @@ export function SystemQueuePage({
       {mutationFeedback ? (
         <p style={{ color: displayMutationState.status === 'error' ? '#b91c1c' : '#166534', fontWeight: 700 }}>
           {mutationFeedback}
+        </p>
+      ) : null}
+      {browserLaneRequestFeedback ? (
+        <p
+          style={{
+            color: browserLaneRequestMutationState.status === 'error' ? '#b91c1c' : '#166534',
+            fontWeight: 700,
+          }}
+        >
+          {browserLaneRequestFeedback}
         </p>
       ) : null}
       {browserHandoffFeedback ? (
@@ -777,6 +941,86 @@ export function SystemQueuePage({
                     <div style={{ color: '#475569' }}>
                       resolvedAt: {request.resolvedAt ?? '未结单'}
                     </div>
+                    {readResolutionStatus(request.resolution) ? (
+                      <div style={{ color: '#475569' }}>
+                        resolution: {readResolutionStatus(request.resolution)}
+                      </div>
+                    ) : null}
+                    {readBrowserLaneSessionStatus(request.resolution) ? (
+                      <div style={{ color: '#475569' }}>
+                        session status: {readBrowserLaneSessionStatus(request.resolution)}
+                      </div>
+                    ) : null}
+                    {readBrowserLaneSessionValidatedAt(request.resolution) ? (
+                      <div style={{ color: '#475569' }}>
+                        validatedAt: {readBrowserLaneSessionValidatedAt(request.resolution)}
+                      </div>
+                    ) : null}
+                    {readBrowserLaneSessionStorageStatePath(request.resolution) ? (
+                      <div style={{ color: '#475569' }}>
+                        storageStatePath: {readBrowserLaneSessionStorageStatePath(request.resolution)}
+                      </div>
+                    ) : null}
+                    {readBrowserLaneSessionNotes(request.resolution) ? (
+                      <div style={{ color: '#475569' }}>
+                        notes: {readBrowserLaneSessionNotes(request.resolution)}
+                      </div>
+                    ) : null}
+                    {request.resolvedAt === null ? (
+                      <div style={{ display: 'grid', gap: '10px' }}>
+                        <label style={{ display: 'grid', gap: '6px' }}>
+                          <span style={{ fontWeight: 700, color: '#334155' }}>storageState JSON</span>
+                          <textarea
+                            data-browser-lane-field="storageState"
+                            value={browserLaneDraftByArtifactPath[request.artifactPath]?.storageState ?? ''}
+                            onChange={(event) =>
+                              setBrowserLaneDraftByArtifactPath((current) => ({
+                                ...current,
+                                [request.artifactPath]: {
+                                  storageState: event.target.value,
+                                  notes: current[request.artifactPath]?.notes ?? '',
+                                },
+                              }))
+                            }
+                            placeholder='例如 {"cookies":[],"origins":[]}'
+                            style={{
+                              ...fieldStyle,
+                              minHeight: '120px',
+                              resize: 'vertical',
+                            }}
+                          />
+                        </label>
+                        <label style={{ display: 'grid', gap: '6px' }}>
+                          <span style={{ fontWeight: 700, color: '#334155' }}>导入备注</span>
+                          <input
+                            data-browser-lane-field="notes"
+                            value={browserLaneDraftByArtifactPath[request.artifactPath]?.notes ?? ''}
+                            onChange={(event) =>
+                              setBrowserLaneDraftByArtifactPath((current) => ({
+                                ...current,
+                                [request.artifactPath]: {
+                                  storageState: current[request.artifactPath]?.storageState ?? '',
+                                  notes: event.target.value,
+                                },
+                              }))
+                            }
+                            placeholder="可选：记录导入备注"
+                            style={fieldStyle}
+                          />
+                        </label>
+                        <ActionButton
+                          label={
+                            isBrowserLaneRequestMutationPending &&
+                            activeBrowserLaneArtifactPath === request.artifactPath
+                              ? '正在导入 storageState...'
+                              : '导入 storageState'
+                          }
+                          tone="primary"
+                          disabled={isBrowserLaneRequestMutationPending}
+                          onClick={() => handleImportBrowserLaneRequest(request)}
+                        />
+                      </div>
+                    ) : null}
                   </article>
                 ))}
               </div>
@@ -1089,10 +1333,70 @@ export function SystemQueuePage({
   );
 }
 
+function buildOptimisticBrowserLaneRequestResolution(response: BrowserLaneRequestImportResponse) {
+  const session = readBrowserLaneImportSession(response);
+
+  return {
+    resolvedAt: session?.validatedAt ?? new Date().toISOString(),
+    jobStatus: 'resolved',
+    resolution: {
+      status: 'resolved',
+      session,
+    },
+  };
+}
+
+function readChannelAccountMetadataSession(value: unknown) {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return null;
+  }
+
+  const session = (value as { session?: unknown }).session;
+  return typeof session === 'object' && session !== null && !Array.isArray(session)
+    ? (session as BrowserLaneSessionSummary)
+    : null;
+}
+
+function readBrowserLaneImportSession(response: BrowserLaneRequestImportResponse) {
+  return (
+    response.session ??
+    response.channelAccount.session ??
+    readChannelAccountMetadataSession(response.channelAccount.metadata) ??
+    null
+  );
+}
+
 function readResolutionStatus(value: unknown) {
   return typeof (value as { status?: unknown } | null)?.status === 'string'
     ? ((value as { status: string }).status)
     : null;
+}
+
+function readBrowserLaneSession(value: unknown) {
+  const session = (value as { session?: unknown } | null)?.session;
+  return typeof session === 'object' && session !== null && !Array.isArray(session)
+    ? (session as Record<string, unknown>)
+    : null;
+}
+
+function readBrowserLaneSessionStatus(value: unknown) {
+  const session = readBrowserLaneSession(value);
+  return typeof session?.status === 'string' ? session.status : null;
+}
+
+function readBrowserLaneSessionValidatedAt(value: unknown) {
+  const session = readBrowserLaneSession(value);
+  return typeof session?.validatedAt === 'string' ? session.validatedAt : null;
+}
+
+function readBrowserLaneSessionStorageStatePath(value: unknown) {
+  const session = readBrowserLaneSession(value);
+  return typeof session?.storageStatePath === 'string' ? session.storageStatePath : null;
+}
+
+function readBrowserLaneSessionNotes(value: unknown) {
+  const session = readBrowserLaneSession(value);
+  return typeof session?.notes === 'string' ? session.notes : null;
 }
 
 function readResolutionDetail(value: unknown) {
@@ -1158,6 +1462,33 @@ function parseEnqueuePayload(value: string | undefined) {
 
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
     throw new Error('payload JSON 必须是 JSON 对象');
+  }
+
+  return parsed as Record<string, unknown>;
+}
+
+function parseStorageStateJson(value: string | undefined) {
+  const normalizedValue = value?.trim() ?? '';
+  if (normalizedValue.length === 0) {
+    throw new Error('storageState JSON 不能为空');
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(normalizedValue);
+  } catch {
+    throw new Error('storageState JSON 必须是合法的 JSON 对象');
+  }
+
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new Error('storageState JSON 必须是 JSON 对象');
+  }
+
+  if (
+    !Array.isArray((parsed as { cookies?: unknown }).cookies) ||
+    !Array.isArray((parsed as { origins?: unknown }).origins)
+  ) {
+    throw new Error('storageState JSON 必须包含 cookies 和 origins 数组');
   }
 
   return parsed as Record<string, unknown>;

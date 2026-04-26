@@ -529,6 +529,46 @@ describe('settings save validation and feedback', () => {
           ],
         },
       } satisfies ApiState,
+      browserLaneStateOverride: {
+        status: 'success',
+        data: {
+          requests: [
+            {
+              channelAccountId: 7,
+              platform: 'x',
+              accountKey: 'acct-browser',
+              action: 'request_session',
+              jobStatus: 'pending',
+              requestedAt: '2026-04-21T09:00:00.000Z',
+              artifactPath:
+                'artifacts/browser-lane-requests/x/acct-browser/request-session-job-17.json',
+              resolvedAt: null,
+              resolution: null,
+            },
+            {
+              channelAccountId: 8,
+              platform: 'facebookGroup',
+              accountKey: 'fb-browser',
+              action: 'relogin',
+              jobStatus: 'resolved',
+              requestedAt: '2026-04-22T09:00:00.000Z',
+              artifactPath:
+                'artifacts/browser-lane-requests/facebookGroup/fb-browser/relogin-job-18.json',
+              resolvedAt: '2026-04-22T09:20:00.000Z',
+              resolution: {
+                status: 'resolved',
+                session: {
+                  status: 'active',
+                  validatedAt: '2026-04-22T09:20:00.000Z',
+                  storageStatePath: 'browser-sessions/managed/facebookGroup/fb-browser.json',
+                  notes: 'browser lane imported',
+                },
+              },
+            },
+          ],
+          total: 2,
+        },
+      } satisfies ApiState,
       browserHandoffStateOverride: {
         status: 'success',
         data: {
@@ -631,6 +671,12 @@ describe('settings save validation and feedback', () => {
     expect(successHtml).toContain('最近作业');
     expect(successHtml).toContain('#19 · monitor_fetch · done');
     expect(successHtml).toContain('作业控制');
+    expect(successHtml).toContain('Browser Lane 工单');
+    expect(successHtml).toContain('artifacts/browser-lane-requests/x/acct-browser/request-session-job-17.json');
+    expect(successHtml).toContain('resolution: resolved');
+    expect(successHtml).toContain('session status: active');
+    expect(successHtml).toContain('storageStatePath: browser-sessions/managed/facebookGroup/fb-browser.json');
+    expect(successHtml).toContain('notes: browser lane imported');
     expect(successHtml).toContain('Browser Handoff 工单');
     expect(successHtml).toContain('Inbox Reply Handoff 工单');
     expect(successHtml).toContain('account #9');
