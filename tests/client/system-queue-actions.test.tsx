@@ -210,6 +210,76 @@ describe('System Queue actions', () => {
     );
   });
 
+  it('posts browser lane request completion through the shared API helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        imported: true,
+        artifactPath:
+          'artifacts/browser-lane-requests/x/acct-browser/request-session-job-17.result.json',
+        session: {
+          hasSession: true,
+          id: 'x:acct-browser',
+          status: 'active',
+          validatedAt: '2026-04-24T08:15:00.000Z',
+          storageStatePath: 'browser-sessions/managed/x/acct-browser.json',
+          notes: 'browser lane imported',
+        },
+        channelAccount: {
+          id: 7,
+          metadata: {
+            session: {
+              hasSession: true,
+              id: 'x:acct-browser',
+              status: 'active',
+              validatedAt: '2026-04-24T08:15:00.000Z',
+              storageStatePath: 'browser-sessions/managed/x/acct-browser.json',
+              notes: 'browser lane imported',
+            },
+          },
+        },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const queueModule = (await import('../../src/client/pages/SystemQueue')) as Record<string, unknown>;
+
+    expect(typeof queueModule.importBrowserLaneRequestResultRequest).toBe('function');
+
+    const importBrowserLaneRequestResultRequest = queueModule.importBrowserLaneRequestResultRequest as (input: {
+      requestArtifactPath: string;
+      storageState: Record<string, unknown>;
+      notes?: string;
+    }) => Promise<unknown>;
+
+    await importBrowserLaneRequestResultRequest({
+      requestArtifactPath:
+        'artifacts/browser-lane-requests/x/acct-browser/request-session-job-17.json',
+      storageState: {
+        cookies: [],
+        origins: [],
+      },
+      notes: 'browser lane imported',
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/system/browser-lane-requests/import',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          requestArtifactPath:
+            'artifacts/browser-lane-requests/x/acct-browser/request-session-job-17.json',
+          storageState: {
+            cookies: [],
+            origins: [],
+          },
+          notes: 'browser lane imported',
+        }),
+      }),
+    );
+  });
+
   it('loads inbox reply handoffs through the shared API helper', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({
@@ -550,8 +620,28 @@ describe('System Queue actions', () => {
                 'artifacts/browser-lane-requests/x/acct-browser/request-session-job-17.json',
               resolvedAt: null,
             },
+            {
+              channelAccountId: 8,
+              platform: 'facebookGroup',
+              accountKey: 'fb-browser',
+              action: 'relogin',
+              jobStatus: 'resolved',
+              requestedAt: '2026-04-22T09:00:00.000Z',
+              artifactPath:
+                'artifacts/browser-lane-requests/facebookGroup/fb-browser/relogin-job-18.json',
+              resolvedAt: '2026-04-22T09:20:00.000Z',
+              resolution: {
+                status: 'resolved',
+                session: {
+                  status: 'active',
+                  validatedAt: '2026-04-22T09:20:00.000Z',
+                  storageStatePath: 'browser-sessions/managed/facebookGroup/fb-browser.json',
+                  notes: 'browser lane imported',
+                },
+              },
+            },
           ],
-          total: 1,
+          total: 2,
         },
       },
       browserHandoffStateOverride: {
@@ -676,6 +766,10 @@ describe('System Queue actions', () => {
     expect(html).toContain('request_session');
     expect(html).toContain('accountKey: acct-browser');
     expect(html).toContain('artifacts/browser-lane-requests/x/acct-browser/request-session-job-17.json');
+    expect(html).toContain('resolution: resolved');
+    expect(html).toContain('session status: active');
+    expect(html).toContain('storageStatePath: browser-sessions/managed/facebookGroup/fb-browser.json');
+    expect(html).toContain('notes: browser lane imported');
     expect(html).toContain('account #7');
     expect(html).toContain('account: FB Group Manual');
     expect(html).toContain('ownership: direct');
@@ -829,6 +923,545 @@ describe('System Queue actions', () => {
     });
     expect(loadBrowserHandoffsAction).toHaveBeenCalledTimes(2);
     expect(collectText(container)).toContain('已结单 handoff draft #13 (published)');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('imports a pending browser lane request from the System Queue page, keeps it locally resolved until refresh catches up, then yields to server truth', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { SystemQueuePage } = await import('../../src/client/pages/SystemQueue');
+
+    const loadSystemQueueAction = vi.fn().mockResolvedValue({
+      jobs: [],
+      queue: {
+        pending: 0,
+        running: 0,
+        failed: 0,
+        duePending: 0,
+      },
+      recentJobs: [],
+    });
+    const pendingRequest = {
+      channelAccountId: 7,
+      platform: 'x',
+      accountKey: 'acct-browser',
+      action: 'request_session',
+      jobStatus: 'pending',
+      requestedAt: '2026-04-21T09:00:00.000Z',
+      artifactPath:
+        'artifacts/browser-lane-requests/x/acct-browser/request-session-job-17.json',
+      resolvedAt: null,
+      resolution: null,
+    };
+    const resolvedRequest = {
+      ...pendingRequest,
+      jobStatus: 'resolved',
+      resolvedAt: '2026-04-24T08:16:00.000Z',
+      resolution: {
+        status: 'resolved',
+        session: {
+          hasSession: true,
+          id: 'x:acct-browser',
+          status: 'active',
+          validatedAt: '2026-04-24T08:16:00.000Z',
+          storageStatePath: 'browser-sessions/managed/x/acct-browser.json',
+          notes: 'server refresh caught up',
+        },
+      },
+    };
+    const loadBrowserLaneRequestsAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        requests: [pendingRequest],
+        total: 1,
+      })
+      .mockResolvedValueOnce({
+        requests: [pendingRequest],
+        total: 1,
+      })
+      .mockResolvedValueOnce({
+        requests: [resolvedRequest],
+        total: 1,
+      });
+    const loadBrowserHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+    const loadInboxReplyHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+    const importBrowserLaneRequestResultAction = vi.fn().mockResolvedValue({
+      ok: true,
+      imported: true,
+      artifactPath:
+        'artifacts/browser-lane-requests/x/acct-browser/request-session-job-17.result.json',
+      channelAccount: {
+        id: 7,
+        metadata: {
+          session: {
+            hasSession: true,
+            id: 'x:acct-browser',
+            status: 'active',
+            validatedAt: '2026-04-24T08:15:00.000Z',
+            storageStatePath: 'browser-sessions/managed/x/acct-browser.json',
+            notes: 'browser lane imported',
+          },
+        },
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(SystemQueuePage as never, {
+          loadSystemQueueAction,
+          loadBrowserLaneRequestsAction,
+          loadBrowserHandoffsAction,
+          loadInboxReplyHandoffsAction,
+          importBrowserLaneRequestResultAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const storageStateField = findElement(
+      container,
+      (element) =>
+        element.getAttribute('data-browser-lane-field') === 'storageState' &&
+        hasAncestorWithText(element, '#7 · x · request_session · pending'),
+    );
+    const notesField = findElement(
+      container,
+      (element) =>
+        element.getAttribute('data-browser-lane-field') === 'notes' &&
+        hasAncestorWithText(element, '#7 · x · request_session · pending'),
+    );
+    const importButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        collectText(element).includes('导入 storageState') &&
+        hasAncestorWithText(element, '#7 · x · request_session · pending'),
+    );
+
+    expect(storageStateField).not.toBeNull();
+    expect(notesField).not.toBeNull();
+    expect(importButton).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(
+        storageStateField as never,
+        '{"cookies":[],"origins":[]}',
+        window as never,
+      );
+      updateFieldValue(notesField as never, 'browser lane imported', window as never);
+      await flush();
+    });
+
+    await act(async () => {
+      importButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(importBrowserLaneRequestResultAction).toHaveBeenCalledWith({
+      requestArtifactPath:
+        'artifacts/browser-lane-requests/x/acct-browser/request-session-job-17.json',
+      storageState: {
+        cookies: [],
+        origins: [],
+      },
+      notes: 'browser lane imported',
+    });
+    expect(loadBrowserLaneRequestsAction).toHaveBeenCalledTimes(2);
+    expect(collectText(container)).toContain('已导入 browser lane session #7 (active)');
+
+    const storageStateFieldAfterSuccess = findElement(
+      container,
+      (element) =>
+        element.getAttribute('data-browser-lane-field') === 'storageState' &&
+        hasAncestorWithText(element, '#7 · x · request_session · resolved'),
+    );
+    const notesFieldAfterSuccess = findElement(
+      container,
+      (element) =>
+        element.getAttribute('data-browser-lane-field') === 'notes' &&
+        hasAncestorWithText(element, '#7 · x · request_session · resolved'),
+    );
+
+    const importButtonAfterSuccess = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        collectText(element).includes('导入 storageState') &&
+        hasAncestorWithText(element, '#7 · x · request_session · resolved'),
+    );
+
+    expect(storageStateFieldAfterSuccess).toBeNull();
+    expect(notesFieldAfterSuccess).toBeNull();
+    expect(importButtonAfterSuccess).toBeNull();
+    expect(collectText(container)).toContain('#7 · x · request_session · resolved');
+    expect(collectText(container)).not.toContain('#7 · x · request_session · pending');
+    expect(collectText(container)).toContain('resolvedAt: 2026-04-24T08:15:00.000Z');
+    expect(collectText(container)).toContain('resolution: resolved');
+    expect(collectText(container)).toContain('session status: active');
+    expect(collectText(container)).toContain(
+      'storageStatePath: browser-sessions/managed/x/acct-browser.json',
+    );
+    expect(collectText(container)).toContain('notes: browser lane imported');
+
+    const refreshButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('刷新队列'),
+    );
+
+    expect(refreshButton).not.toBeNull();
+
+    await act(async () => {
+      refreshButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(loadBrowserLaneRequestsAction).toHaveBeenCalledTimes(3);
+    expect(collectText(container)).toContain('resolvedAt: 2026-04-24T08:16:00.000Z');
+    expect(collectText(container)).toContain('notes: server refresh caught up');
+    expect(collectText(container)).not.toContain('notes: browser lane imported');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('shows a client-side error for invalid browser lane storageState JSON without posting', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { SystemQueuePage } = await import('../../src/client/pages/SystemQueue');
+
+    const loadSystemQueueAction = vi.fn().mockResolvedValue({
+      jobs: [],
+      queue: {
+        pending: 0,
+        running: 0,
+        failed: 0,
+        duePending: 0,
+      },
+      recentJobs: [],
+    });
+    const loadBrowserLaneRequestsAction = vi.fn().mockResolvedValue({
+      requests: [
+        {
+          channelAccountId: 7,
+          platform: 'x',
+          accountKey: 'acct-browser',
+          action: 'request_session',
+          jobStatus: 'pending',
+          requestedAt: '2026-04-21T09:00:00.000Z',
+          artifactPath:
+            'artifacts/browser-lane-requests/x/acct-browser/request-session-job-17.json',
+          resolvedAt: null,
+        },
+      ],
+      total: 1,
+    });
+    const loadBrowserHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+    const loadInboxReplyHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+    const importBrowserLaneRequestResultAction = vi.fn();
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(SystemQueuePage as never, {
+          loadSystemQueueAction,
+          loadBrowserLaneRequestsAction,
+          loadBrowserHandoffsAction,
+          loadInboxReplyHandoffsAction,
+          importBrowserLaneRequestResultAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const storageStateField = findElement(
+      container,
+      (element) =>
+        element.getAttribute('data-browser-lane-field') === 'storageState' &&
+        hasAncestorWithText(element, '#7 · x · request_session · pending'),
+    );
+    const importButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        collectText(element).includes('导入 storageState') &&
+        hasAncestorWithText(element, '#7 · x · request_session · pending'),
+    );
+
+    expect(storageStateField).not.toBeNull();
+    expect(importButton).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(storageStateField as never, '{"cookies":[]', window as never);
+      await flush();
+    });
+
+    await act(async () => {
+      importButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(importBrowserLaneRequestResultAction).not.toHaveBeenCalled();
+    expect(loadBrowserLaneRequestsAction).toHaveBeenCalledTimes(1);
+    expect(collectText(container)).toContain(
+      'browser lane session 导入失败：storageState JSON 必须是合法的 JSON 对象',
+    );
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('shows a client-side error when browser lane storageState JSON omits cookies or origins arrays', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { SystemQueuePage } = await import('../../src/client/pages/SystemQueue');
+
+    const loadSystemQueueAction = vi.fn().mockResolvedValue({
+      jobs: [],
+      queue: {
+        pending: 0,
+        running: 0,
+        failed: 0,
+        duePending: 0,
+      },
+      recentJobs: [],
+    });
+    const loadBrowserLaneRequestsAction = vi.fn().mockResolvedValue({
+      requests: [
+        {
+          channelAccountId: 7,
+          platform: 'x',
+          accountKey: 'acct-browser',
+          action: 'request_session',
+          jobStatus: 'pending',
+          requestedAt: '2026-04-21T09:00:00.000Z',
+          artifactPath:
+            'artifacts/browser-lane-requests/x/acct-browser/request-session-job-17.json',
+          resolvedAt: null,
+        },
+      ],
+      total: 1,
+    });
+    const loadBrowserHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+    const loadInboxReplyHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+    const importBrowserLaneRequestResultAction = vi.fn();
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(SystemQueuePage as never, {
+          loadSystemQueueAction,
+          loadBrowserLaneRequestsAction,
+          loadBrowserHandoffsAction,
+          loadInboxReplyHandoffsAction,
+          importBrowserLaneRequestResultAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const storageStateField = findElement(
+      container,
+      (element) =>
+        element.getAttribute('data-browser-lane-field') === 'storageState' &&
+        hasAncestorWithText(element, '#7 · x · request_session · pending'),
+    );
+    const importButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        collectText(element).includes('导入 storageState') &&
+        hasAncestorWithText(element, '#7 · x · request_session · pending'),
+    );
+
+    expect(storageStateField).not.toBeNull();
+    expect(importButton).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(storageStateField as never, '{}', window as never);
+      await flush();
+    });
+
+    await act(async () => {
+      importButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(importBrowserLaneRequestResultAction).not.toHaveBeenCalled();
+    expect(loadBrowserLaneRequestsAction).toHaveBeenCalledTimes(1);
+    expect(collectText(container)).toContain(
+      'browser lane session 导入失败：storageState JSON 必须包含 cookies 和 origins 数组',
+    );
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('keeps the browser lane draft visible when the importer rejects the storageState payload', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { SystemQueuePage } = await import('../../src/client/pages/SystemQueue');
+
+    const loadSystemQueueAction = vi.fn().mockResolvedValue({
+      jobs: [],
+      queue: {
+        pending: 0,
+        running: 0,
+        failed: 0,
+        duePending: 0,
+      },
+      recentJobs: [],
+    });
+    const loadBrowserLaneRequestsAction = vi.fn().mockResolvedValue({
+      requests: [
+        {
+          channelAccountId: 7,
+          platform: 'x',
+          accountKey: 'acct-browser',
+          action: 'request_session',
+          jobStatus: 'pending',
+          requestedAt: '2026-04-21T09:00:00.000Z',
+          artifactPath:
+            'artifacts/browser-lane-requests/x/acct-browser/request-session-job-17.json',
+          resolvedAt: null,
+        },
+      ],
+      total: 1,
+    });
+    const loadBrowserHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+    const loadInboxReplyHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+    const importBrowserLaneRequestResultAction = vi
+      .fn()
+      .mockRejectedValue(new Error('downstream browser lane importer rejected the payload'));
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(SystemQueuePage as never, {
+          loadSystemQueueAction,
+          loadBrowserLaneRequestsAction,
+          loadBrowserHandoffsAction,
+          loadInboxReplyHandoffsAction,
+          importBrowserLaneRequestResultAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const storageStateField = findElement(
+      container,
+      (element) =>
+        element.getAttribute('data-browser-lane-field') === 'storageState' &&
+        hasAncestorWithText(element, '#7 · x · request_session · pending'),
+    );
+    const notesField = findElement(
+      container,
+      (element) =>
+        element.getAttribute('data-browser-lane-field') === 'notes' &&
+        hasAncestorWithText(element, '#7 · x · request_session · pending'),
+    );
+    const importButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        collectText(element).includes('导入 storageState') &&
+        hasAncestorWithText(element, '#7 · x · request_session · pending'),
+    );
+
+    expect(storageStateField).not.toBeNull();
+    expect(notesField).not.toBeNull();
+    expect(importButton).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(
+        storageStateField as never,
+        '{"cookies":[],"origins":[],"_mock":"semantic-reject"}',
+        window as never,
+      );
+      updateFieldValue(notesField as never, 'needs repair', window as never);
+      await flush();
+    });
+
+    await act(async () => {
+      importButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(importBrowserLaneRequestResultAction).toHaveBeenCalledWith({
+      requestArtifactPath:
+        'artifacts/browser-lane-requests/x/acct-browser/request-session-job-17.json',
+      storageState: {
+        cookies: [],
+        origins: [],
+        _mock: 'semantic-reject',
+      },
+      notes: 'needs repair',
+    });
+    expect(loadBrowserLaneRequestsAction).toHaveBeenCalledTimes(1);
+    expect(collectText(container)).toContain(
+      'browser lane session 导入失败：downstream browser lane importer rejected the payload',
+    );
+
+    const storageStateFieldAfterError = findElement(
+      container,
+      (element) =>
+        element.getAttribute('data-browser-lane-field') === 'storageState' &&
+        hasAncestorWithText(element, '#7 · x · request_session · pending'),
+    );
+    const notesFieldAfterError = findElement(
+      container,
+      (element) =>
+        element.getAttribute('data-browser-lane-field') === 'notes' &&
+        hasAncestorWithText(element, '#7 · x · request_session · pending'),
+    );
+
+    expect(storageStateFieldAfterError?.getAttribute('value') ?? storageStateFieldAfterError?.value).toBe(
+      '{"cookies":[],"origins":[],"_mock":"semantic-reject"}',
+    );
+    expect(notesFieldAfterError?.getAttribute('value') ?? notesFieldAfterError?.value).toBe('needs repair');
 
     await act(async () => {
       root.unmount();
