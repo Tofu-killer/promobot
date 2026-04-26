@@ -1703,6 +1703,9 @@ describe('inbox api', () => {
       ).toEqual(
         expect.objectContaining({
           type: 'browser_inbox_reply_handoff',
+          ownership: 'direct',
+          channelAccountId: channelAccount.id,
+          projectId: 1,
           status: 'pending',
           platform: 'weibo',
           itemId: '1',

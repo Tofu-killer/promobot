@@ -336,11 +336,63 @@ function resolveInboxReplyHandoffOwnership(
     accountKey: string;
   }>,
   inboxProjectIdByItemId: Map<string, number>,
-) {
+): {
+  channelAccountId?: number;
+  ownership: InboxReplyHandoffOwnership;
+  projectId?: number;
+} {
   const projectId = readInboxReplyHandoffProjectId(artifact, inboxProjectIdByItemId);
+  const directMatch =
+    typeof artifact.channelAccountId === 'number'
+      ? channelAccounts.find((channelAccount) => channelAccount.id === artifact.channelAccountId)
+      : undefined;
+  const matchingChannelAccounts = channelAccounts.filter(
+    (channelAccount) =>
+      normalizeInboxReplyHandoffPlatform(channelAccount.platform) ===
+        normalizeInboxReplyHandoffPlatform(artifact.platform) &&
+      channelAccount.accountKey === artifact.accountKey,
+  );
+
+  if (artifact.ownership === 'direct') {
+    const projectMatches =
+      typeof projectId === 'number'
+        ? matchingChannelAccounts.filter((channelAccount) => channelAccount.projectId === projectId)
+        : [];
+
+    return {
+      ...(directMatch
+        ? { channelAccountId: directMatch.id }
+        : projectMatches.length === 1
+          ? { channelAccountId: projectMatches[0]?.id }
+          : typeof projectId !== 'number' && matchingChannelAccounts.length === 1
+            ? { channelAccountId: matchingChannelAccounts[0]?.id }
+            : {}),
+      ownership: 'direct' as const,
+      ...(typeof projectId === 'number' ? { projectId } : {}),
+    };
+  }
+
+  if (artifact.ownership === 'item_project') {
+    const projectMatches =
+      typeof projectId === 'number'
+        ? matchingChannelAccounts.filter((channelAccount) => channelAccount.projectId === projectId)
+        : [];
+
+    return {
+      ...(projectMatches.length === 1 ? { channelAccountId: projectMatches[0]?.id } : {}),
+      ownership: 'item_project' as const,
+      ...(typeof projectId === 'number' ? { projectId } : {}),
+    };
+  }
+
+  if (artifact.ownership === 'unmatched') {
+    return {
+      ownership: 'unmatched' as const,
+      ...(typeof projectId === 'number' ? { projectId } : {}),
+    };
+  }
 
   if (typeof artifact.channelAccountId === 'number') {
-    const directMatch = channelAccounts.find((channelAccount) => channelAccount.id === artifact.channelAccountId);
     if (directMatch) {
       return {
         channelAccountId: artifact.channelAccountId,
@@ -349,13 +401,6 @@ function resolveInboxReplyHandoffOwnership(
       };
     }
   }
-
-  const matchingChannelAccounts = channelAccounts.filter(
-    (channelAccount) =>
-      normalizeInboxReplyHandoffPlatform(channelAccount.platform) ===
-        normalizeInboxReplyHandoffPlatform(artifact.platform) &&
-      channelAccount.accountKey === artifact.accountKey,
-  );
 
   if (typeof projectId === 'number') {
     const projectMatches = matchingChannelAccounts.filter(
