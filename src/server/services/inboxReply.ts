@@ -30,7 +30,16 @@ const REDDIT_COMMENT_ENDPOINT = 'https://oauth.reddit.com/api/comment';
 
 type InboxReplyMode = 'api' | 'browser' | 'manual';
 type InboxReplyStatus = 'sent' | 'manual_required' | 'failed';
-type ReplyPlatform = 'x' | 'reddit' | 'facebookGroup' | 'xiaohongshu' | 'weibo' | 'v2ex' | 'manual';
+type ReplyPlatform =
+  | 'x'
+  | 'reddit'
+  | 'facebookGroup'
+  | 'instagram'
+  | 'tiktok'
+  | 'xiaohongshu'
+  | 'weibo'
+  | 'v2ex'
+  | 'manual';
 type ReplySelectionSource = 'channelAccountId' | 'accountKey' | 'projectPlatform' | 'environment';
 
 export interface InboxReplyDelivery {
@@ -1258,6 +1267,14 @@ function normalizeReplyPlatform(platform: string): ReplyPlatform {
     return 'facebookGroup';
   }
 
+  if (normalized === 'instagram') {
+    return 'instagram';
+  }
+
+  if (normalized === 'tiktok') {
+    return 'tiktok';
+  }
+
   if (normalized === 'xiaohongshu') {
     return 'xiaohongshu';
   }
@@ -1288,6 +1305,14 @@ function formatReplyPlatformLabel(platform: ReplyPlatform) {
 
   if (platform === 'facebookGroup') {
     return 'Facebook Group';
+  }
+
+  if (platform === 'instagram') {
+    return 'Instagram';
+  }
+
+  if (platform === 'tiktok') {
+    return 'TikTok';
   }
 
   if (platform === 'xiaohongshu') {
@@ -1327,8 +1352,14 @@ function isApiReplyPlatform(platform: ReplyPlatform): platform is Extract<ReplyP
 
 function isBrowserReplyPlatform(
   platform: ReplyPlatform,
-): platform is Extract<ReplyPlatform, 'facebookGroup' | 'xiaohongshu' | 'weibo'> {
-  return platform === 'facebookGroup' || platform === 'xiaohongshu' || platform === 'weibo';
+): platform is Extract<ReplyPlatform, 'facebookGroup' | 'instagram' | 'tiktok' | 'xiaohongshu' | 'weibo'> {
+  return (
+    platform === 'facebookGroup' ||
+    platform === 'instagram' ||
+    platform === 'tiktok' ||
+    platform === 'xiaohongshu' ||
+    platform === 'weibo'
+  );
 }
 
 function createValidationError(stage: string): PublisherErrorDetails {

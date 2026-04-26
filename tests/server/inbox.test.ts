@@ -653,19 +653,31 @@ describe('inbox api', () => {
     }
   });
 
-  it('promotes xiaohongshu and weibo monitor signals into inbox fetch results', async () => {
+  it('promotes instagram, tiktok, xiaohongshu, and weibo monitor signals into inbox fetch results', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
       const monitorStore = createMonitorStore();
 
       monitorStore.create({
         projectId: 1,
+        source: 'instagram',
+        title: 'Instagram 评论跟进',
+        detail: 'instagram comment · creator_ops\n需要人工确认评论语气。',
+      });
+      monitorStore.create({
+        projectId: 2,
+        source: 'tiktok',
+        title: 'TikTok 提及跟进',
+        detail: 'tiktok mention · short_video_ops\n需要尽快回复该提及。',
+      });
+      monitorStore.create({
+        projectId: 3,
         source: 'xiaohongshu',
         title: '小红书评论跟进',
         detail: 'xhs note · note_author\n需要人工确认评论语气。',
       });
       monitorStore.create({
-        projectId: 2,
+        projectId: 4,
         source: 'weibo',
         title: '微博提及跟进',
         detail: 'weibo mention · brand_ops\n需要尽快回复该提及。',
@@ -679,23 +691,39 @@ describe('inbox api', () => {
           expect.objectContaining({
             id: 1,
             projectId: 1,
+            source: 'instagram',
+            author: 'creator_ops',
+            status: 'needs_review',
+            title: 'Instagram 评论跟进',
+          }),
+          expect.objectContaining({
+            id: 2,
+            projectId: 2,
+            source: 'tiktok',
+            author: 'short_video_ops',
+            status: 'needs_review',
+            title: 'TikTok 提及跟进',
+          }),
+          expect.objectContaining({
+            id: 3,
+            projectId: 3,
             source: 'xiaohongshu',
             author: 'note_author',
             status: 'needs_review',
             title: '小红书评论跟进',
           }),
           expect.objectContaining({
-            id: 2,
-            projectId: 2,
+            id: 4,
+            projectId: 4,
             source: 'weibo',
             author: 'brand_ops',
             status: 'needs_review',
             title: '微博提及跟进',
           }),
         ],
-        inserted: 2,
-        total: 2,
-        unread: 2,
+        inserted: 4,
+        total: 4,
+        unread: 4,
       });
     } finally {
       cleanupTestDatabasePath(rootDir);
@@ -709,13 +737,27 @@ describe('inbox api', () => {
 
       monitorStore.create({
         projectId: 1,
+        source: 'instagram',
+        status: 'ignored',
+        title: 'Instagram 评论跟进',
+        detail: 'instagram comment · creator_ops\n这个信号已被忽略。',
+      });
+      monitorStore.create({
+        projectId: 2,
+        source: 'tiktok',
+        status: 'saved',
+        title: 'TikTok 提及跟进',
+        detail: 'tiktok mention · short_video_ops\n这个信号仍应进入 inbox。',
+      });
+      monitorStore.create({
+        projectId: 3,
         source: 'xiaohongshu',
         status: 'ignored',
         title: '小红书评论跟进',
         detail: 'xhs note · note_author\n这个信号已被忽略。',
       });
       monitorStore.create({
-        projectId: 2,
+        projectId: 4,
         source: 'weibo',
         status: 'saved',
         title: '微博提及跟进',
@@ -730,15 +772,23 @@ describe('inbox api', () => {
           expect.objectContaining({
             id: 1,
             projectId: 2,
+            source: 'tiktok',
+            author: 'short_video_ops',
+            status: 'needs_review',
+            title: 'TikTok 提及跟进',
+          }),
+          expect.objectContaining({
+            id: 2,
+            projectId: 4,
             source: 'weibo',
             author: 'brand_ops',
             status: 'needs_review',
             title: '微博提及跟进',
           }),
         ],
-        inserted: 1,
-        total: 1,
-        unread: 1,
+        inserted: 2,
+        total: 2,
+        unread: 2,
       });
     } finally {
       cleanupTestDatabasePath(rootDir);
@@ -1718,6 +1768,136 @@ describe('inbox api', () => {
     }
   });
 
+  it('returns a ready browser reply handoff with an artifact path for instagram when a saved session exists', async () => {
+    const { rootDir } = createTestDatabasePath();
+    process.env.BROWSER_HANDOFF_OUTPUT_DIR = rootDir;
+
+    try {
+      const channelAccountStore = createChannelAccountStore();
+      const channelAccount = channelAccountStore.create({
+        projectId: 1,
+        platform: 'instagram',
+        accountKey: 'instagram-browser-main',
+        displayName: 'Instagram Browser Main',
+        authType: 'browser',
+        status: 'healthy',
+      });
+      createSessionStore().saveSession({
+        platform: 'instagram',
+        accountKey: 'instagram-browser-main',
+        storageState: {
+          cookies: [],
+          origins: [],
+        },
+        status: 'active',
+        lastValidatedAt: '2026-04-25T10:00:00.000Z',
+      });
+
+      const inboxStore = createInboxStore();
+      inboxStore.create({
+        projectId: 1,
+        source: 'instagram',
+        status: 'needs_review',
+        author: 'ops-user',
+        title: 'Need lower latency in APAC',
+        excerpt: 'Can you share current response times?',
+        metadata: {
+          channelAccountId: channelAccount.id,
+          accountKey: 'instagram-browser-main',
+          sourceUrl: 'https://www.instagram.com/p/post-1/',
+        },
+      });
+
+      const response = await requestApp('POST', '/api/inbox/1/send-reply', {
+        reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+      });
+
+      const body = JSON.parse(response.body) as {
+        item: { status: string };
+        delivery: {
+          status: string;
+          mode: string;
+          details?: {
+            browserReplyHandoff?: {
+              artifactPath?: string;
+              readiness: string;
+              sessionAction: string | null;
+              accountKey: string;
+            };
+          };
+        };
+      };
+      const artifactPath = body.delivery.details?.browserReplyHandoff?.artifactPath;
+
+      expect(response.status).toBe(200);
+      expect(body).toEqual({
+        item: expect.objectContaining({
+          id: 1,
+          status: 'needs_review',
+        }),
+        delivery: expect.objectContaining({
+          success: false,
+          status: 'manual_required',
+          mode: 'browser',
+          message: 'Instagram reply is ready for manual browser handoff with the saved session.',
+          reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+          deliveryUrl: null,
+          externalId: null,
+          details: expect.objectContaining({
+            browserReplyHandoff: expect.objectContaining({
+              platform: 'instagram',
+              channelAccountId: channelAccount.id,
+              accountKey: 'instagram-browser-main',
+              readiness: 'ready',
+              sessionAction: null,
+              artifactPath:
+                'artifacts/inbox-reply-handoffs/instagram/instagram-browser-main/instagram-inbox-item-1.json',
+            }),
+            context: expect.objectContaining({
+              selection: 'channelAccountId',
+              readiness: expect.objectContaining({
+                platform: 'instagram',
+                ready: true,
+                mode: 'browser',
+                status: 'ready',
+              }),
+            }),
+          }),
+        }),
+      });
+      expect(artifactPath).toBeTruthy();
+      expect(
+        JSON.parse(fs.readFileSync(path.join(rootDir, artifactPath as string), 'utf8')),
+      ).toEqual(
+        expect.objectContaining({
+          type: 'browser_inbox_reply_handoff',
+          channelAccountId: channelAccount.id,
+          ownership: 'direct',
+          projectId: 1,
+          status: 'pending',
+          platform: 'instagram',
+          itemId: '1',
+          source: 'instagram',
+          title: 'Need lower latency in APAC',
+          excerpt: 'Can you share current response times?',
+          reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+          author: 'ops-user',
+          sourceUrl: 'https://www.instagram.com/p/post-1/',
+          accountKey: 'instagram-browser-main',
+          session: expect.objectContaining({
+            hasSession: true,
+            id: 'instagram:instagram-browser-main',
+            status: 'active',
+          }),
+          resolvedAt: null,
+          resolution: null,
+        }),
+      );
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('keeps a browser inbox item pending when a browser reply handoff import reports failure', async () => {
     const { rootDir } = createTestDatabasePath();
     process.env.BROWSER_HANDOFF_OUTPUT_DIR = rootDir;
@@ -2053,6 +2233,91 @@ describe('inbox api', () => {
             'weibo',
             'weibo-browser-main',
             'weibo-inbox-item-1.json',
+          ),
+        ),
+      ).toBe(false);
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('does not create a ready browser reply handoff artifact for tiktok when the saved session requires relogin', async () => {
+    const { rootDir } = createTestDatabasePath();
+    process.env.BROWSER_HANDOFF_OUTPUT_DIR = rootDir;
+
+    try {
+      const channelAccountStore = createChannelAccountStore();
+      const channelAccount = channelAccountStore.create({
+        projectId: 1,
+        platform: 'tiktok',
+        accountKey: 'tiktok-browser-main',
+        displayName: 'TikTok Browser Main',
+        authType: 'browser',
+        status: 'healthy',
+      });
+      createSessionStore().saveSession({
+        platform: 'tiktok',
+        accountKey: 'tiktok-browser-main',
+        storageState: {
+          cookies: [],
+          origins: [],
+        },
+        status: 'expired',
+        lastValidatedAt: '2026-04-25T10:00:00.000Z',
+      });
+
+      const inboxStore = createInboxStore();
+      inboxStore.create({
+        projectId: 1,
+        source: 'tiktok',
+        status: 'needs_review',
+        author: 'ops-user',
+        title: 'Need lower latency in APAC',
+        excerpt: 'Can you share current response times?',
+        metadata: {
+          channelAccountId: channelAccount.id,
+          accountKey: 'tiktok-browser-main',
+        },
+      });
+
+      const response = await requestApp('POST', '/api/inbox/1/send-reply', {
+        reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+      });
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        item: expect.objectContaining({
+          id: 1,
+          status: 'needs_review',
+        }),
+        delivery: expect.objectContaining({
+          success: false,
+          status: 'manual_required',
+          mode: 'browser',
+          message: 'TikTok reply requires the browser session to be refreshed before manual handoff.',
+          reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+          deliveryUrl: null,
+          externalId: null,
+          details: expect.objectContaining({
+            browserReplyHandoff: expect.objectContaining({
+              platform: 'tiktok',
+              channelAccountId: channelAccount.id,
+              accountKey: 'tiktok-browser-main',
+              readiness: 'blocked',
+              sessionAction: 'relogin',
+            }),
+          }),
+        }),
+      });
+      expect(
+        fs.existsSync(
+          path.join(
+            rootDir,
+            'artifacts',
+            'inbox-reply-handoffs',
+            'tiktok',
+            'tiktok-browser-main',
+            'tiktok-inbox-item-1.json',
           ),
         ),
       ).toBe(false);

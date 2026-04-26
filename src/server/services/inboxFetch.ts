@@ -3,6 +3,8 @@ import { createInboxStore } from '../store/inbox.js';
 import { createMonitorStore } from '../store/monitor.js';
 import { createSettingsStore } from '../store/settings.js';
 import { createSourceConfigStore, type SourceConfigRecord } from '../store/sourceConfigs.js';
+import { collectInstagramInboxSignals } from './inbox/fetchers/instagram.js';
+import { collectTiktokInboxSignals } from './inbox/fetchers/tiktok.js';
 import { collectWeiboInboxSignals } from './inbox/fetchers/weibo.js';
 import { collectXiaohongshuInboxSignals } from './inbox/fetchers/xiaohongshu.js';
 import { searchReddit } from './monitor/redditSearch.js';
@@ -100,6 +102,8 @@ function collectBrowserPlatformInboxSignals(
   };
 
   return [
+    ...collectInstagramInboxSignals(context),
+    ...collectTiktokInboxSignals(context),
     ...collectXiaohongshuInboxSignals(context),
     ...collectWeiboInboxSignals(context),
   ];

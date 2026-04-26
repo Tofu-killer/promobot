@@ -7,7 +7,14 @@ import { createInboxStore, type InboxItemRecord } from '../../store/inbox.js';
 import type { SessionSummary } from '../browser/sessionStore.js';
 
 export type InboxReplyHandoffArtifactStatus = 'pending' | 'resolved' | 'obsolete';
-export type InboxReplyHandoffPlatform = 'x' | 'reddit' | 'facebookGroup' | 'xiaohongshu' | 'weibo';
+export type InboxReplyHandoffPlatform =
+  | 'x'
+  | 'reddit'
+  | 'facebookGroup'
+  | 'instagram'
+  | 'tiktok'
+  | 'xiaohongshu'
+  | 'weibo';
 export type InboxReplyHandoffOwnership = 'direct' | 'item_project' | 'unmatched';
 
 const channelAccountStore = createChannelAccountStore();
