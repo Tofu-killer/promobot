@@ -119,6 +119,7 @@ describe('dashboard enhanced metrics page', () => {
     expect(html).toContain('Inbox Reply Handoff 总工单');
     expect(html).toContain('Inbox Reply Handoff 待处理');
     expect(html).toContain('Inbox Reply Handoff 已完成');
+    expect(html).toContain('已导入 sent 或 failed 结果、artifact 已结单的 inbox reply handoff 数量');
     expect(html).toContain('Inbox Reply Handoff 已作废');
     expect(html).toContain('>11<');
     expect(html).toContain('>3<');

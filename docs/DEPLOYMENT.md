@@ -71,7 +71,7 @@ cp .env.example .env
   - 仓库内置 `pnpm browser:handoff:complete -- --artifact-path <path> --status <published|failed>`；默认直接在本机导入 handoff 完成结果，若同时提供 `--base-url` 和 `--admin-password`，则会走远程 API
   - inbox reply handoff artifact 会落在 `artifacts/inbox-reply-handoffs/<platform>/<account>/`，并维护 `pending / resolved / obsolete` 状态
   - 外部 browser lane 或人工接管完成回复后，可调用 `POST /api/system/inbox-reply-handoffs/import` 回写 `sent/failed` 结果；只有 `sent` 会把 inbox item 回写为 `handled`
-  - 仓库内置 `pnpm inbox:reply:handoff:complete -- --artifact-path <path> --status <sent|failed>`；默认直接在本机导入 inbox reply handoff 完成结果，若同时提供 `--base-url` 和 `--admin-password`，则会走远程 API
+  - 仓库内置 `pnpm inbox:reply:handoff:complete -- --artifact-path <path> --status <sent|failed>`；默认直接在源码仓库内导入 inbox reply handoff 完成结果。若只拿 release bundle，则改用 `node dist/server/cli/inboxReplyHandoffComplete.js --artifact-path <path> --status <sent|failed>`；两条入口都支持 `--message`、`--delivery-url`、`--external-id`、`--delivered-at`，同时提供 `--base-url` 和 `--admin-password` 时会走远程 API
   - 仓库内置 `pnpm browser:artifacts:archive -- [--older-than-hours <n>] [--include-results]`；默认只做 dry-run，输出机器可读 JSON summary；加 `--apply` 后会把足够旧的已结单 artifact 移到 `artifacts/archive/browser-lane-requests/`、`artifacts/archive/browser-handoffs/` 或 `artifacts/archive/inbox-reply-handoffs/`
   - `/api/system/health` 会汇总 `browserArtifacts.laneRequests`、`browserArtifacts.handoffs` 和 `browserArtifacts.inboxReplyHandoffs`
   - 控制台中的 `System Queue` / `Settings` / `Dashboard` / `Channel Accounts` 都会直接消费这些工单与 handoff 状态；`Channel Accounts` 还会返回 `latestInboxReplyHandoffArtifact`
@@ -388,6 +388,7 @@ pnpm verify:release -- --input-dir /tmp/promobot-release
 cd /tmp/promobot-release
 pnpm release:deploy -- --skip-smoke
 node dist/server/cli/deploymentSmoke.js --base-url http://127.0.0.1:3001
+node dist/server/cli/inboxReplyHandoffComplete.js --help
 ```
 
 这条链路建议在构建机先做一次 `verify:release`，再把 bundle 目录发往目标机。目标机上的独立 smoke 继续沿用 bundle 自带的 compiled CLI，与 `ops/deploy-release.sh` 内部的检查方式保持一致。

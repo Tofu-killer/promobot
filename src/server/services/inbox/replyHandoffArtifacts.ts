@@ -3,17 +3,21 @@ import path from 'node:path';
 
 import { getDatabasePath } from '../../lib/persistence.js';
 import { createChannelAccountStore } from '../../store/channelAccounts.js';
-import type { InboxItemRecord } from '../../store/inbox.js';
+import { createInboxStore, type InboxItemRecord } from '../../store/inbox.js';
 import type { SessionSummary } from '../browser/sessionStore.js';
 
 export type InboxReplyHandoffArtifactStatus = 'pending' | 'resolved' | 'obsolete';
 export type InboxReplyHandoffPlatform = 'x' | 'reddit' | 'facebookGroup' | 'xiaohongshu' | 'weibo';
+export type InboxReplyHandoffOwnership = 'direct' | 'item_project' | 'unmatched';
 
 const channelAccountStore = createChannelAccountStore();
+const inboxStore = createInboxStore();
 
 interface InboxReplyHandoffArtifactRecord {
   type: 'browser_inbox_reply_handoff';
   channelAccountId?: number;
+  ownership?: InboxReplyHandoffOwnership;
+  projectId?: number;
   status: InboxReplyHandoffArtifactStatus;
   platform: InboxReplyHandoffPlatform;
   itemId: string;
@@ -33,6 +37,8 @@ interface InboxReplyHandoffArtifactRecord {
 
 export interface InboxReplyHandoffArtifactSummary {
   channelAccountId?: number;
+  ownership: InboxReplyHandoffOwnership;
+  projectId?: number;
   platform: InboxReplyHandoffPlatform;
   itemId: string;
   source: string;
@@ -60,9 +66,17 @@ export function writeInboxReplyHandoffArtifact(input: {
   const absolutePath = path.join(resolveArtifactRootDir(), artifactPath);
   const now = new Date().toISOString();
   const existingArtifact = readInboxReplyHandoffArtifact(absolutePath);
+  const ownership: InboxReplyHandoffOwnership =
+    typeof input.channelAccountId === 'number'
+      ? 'direct'
+      : typeof input.item.projectId === 'number'
+        ? 'item_project'
+        : 'unmatched';
   const artifactRecord: InboxReplyHandoffArtifactRecord = {
     type: 'browser_inbox_reply_handoff',
     ...(typeof input.channelAccountId === 'number' ? { channelAccountId: input.channelAccountId } : {}),
+    ownership,
+    ...(typeof input.item.projectId === 'number' ? { projectId: input.item.projectId } : {}),
     status: 'pending',
     platform: input.platform,
     itemId: String(input.item.id),
@@ -173,6 +187,8 @@ export function listInboxReplyHandoffArtifacts(limit?: number): InboxReplyHandof
     return [];
   }
 
+  const channelAccounts = channelAccountStore.list();
+  const inboxProjectIdByItemId = buildInboxProjectIdByItemIdMap();
   const artifacts: InboxReplyHandoffArtifactSummary[] = [];
 
   for (const platformEntry of fs.readdirSync(handoffDir, { withFileTypes: true })) {
@@ -198,10 +214,18 @@ export function listInboxReplyHandoffArtifacts(limit?: number): InboxReplyHandof
           continue;
         }
 
+        const ownership = resolveInboxReplyHandoffOwnership(
+          artifact,
+          channelAccounts,
+          inboxProjectIdByItemId,
+        );
+
         artifacts.push({
-          ...(typeof artifact.channelAccountId === 'number'
-            ? { channelAccountId: artifact.channelAccountId }
+          ...(typeof ownership.channelAccountId === 'number'
+            ? { channelAccountId: ownership.channelAccountId }
             : {}),
+          ownership: ownership.ownership,
+          ...(typeof ownership.projectId === 'number' ? { projectId: ownership.projectId } : {}),
           platform: artifact.platform,
           itemId: artifact.itemId,
           source: artifact.source,
@@ -248,8 +272,34 @@ export function getInboxReplyHandoffArtifactByPath(artifactPath: string) {
     return null;
   }
 
+  const ownership = resolveInboxReplyHandoffOwnership(
+    artifact,
+    channelAccountStore.list(),
+    buildInboxProjectIdByItemIdMap(),
+  );
+
   return {
-    ...artifact,
+    type: artifact.type,
+    ...(typeof ownership.channelAccountId === 'number'
+      ? { channelAccountId: ownership.channelAccountId }
+      : {}),
+    ownership: ownership.ownership,
+    ...(typeof ownership.projectId === 'number' ? { projectId: ownership.projectId } : {}),
+    status: artifact.status,
+    platform: artifact.platform,
+    itemId: artifact.itemId,
+    source: artifact.source,
+    title: artifact.title,
+    excerpt: artifact.excerpt,
+    reply: artifact.reply,
+    author: artifact.author,
+    sourceUrl: artifact.sourceUrl,
+    accountKey: artifact.accountKey,
+    session: artifact.session,
+    createdAt: artifact.createdAt,
+    updatedAt: artifact.updatedAt,
+    resolvedAt: artifact.resolvedAt,
+    resolution: artifact.resolution,
     artifactPath: portablePath,
   };
 }
@@ -271,40 +321,71 @@ export function getLatestInboxReplyHandoffArtifact(input: {
   }
 
   if (typeof input.channelAccountId === 'number') {
-    const exactMatch = artifacts.find((artifact) => artifact.channelAccountId === input.channelAccountId);
-    if (exactMatch) {
-      return exactMatch;
-    }
-
-    const matchingChannelAccounts = channelAccountStore
-      .list()
-      .filter(
-        (channelAccount) =>
-          normalizeInboxReplyHandoffPlatform(channelAccount.platform) === normalizedPlatform &&
-          channelAccount.accountKey === input.accountKey,
-      );
-    const knownChannelAccountIds = new Set(matchingChannelAccounts.map((channelAccount) => channelAccount.id));
-    if (
-      artifacts.some(
-        (artifact) =>
-          typeof artifact.channelAccountId === 'number' &&
-          knownChannelAccountIds.has(artifact.channelAccountId),
-      )
-    ) {
-      return null;
-    }
-
-    if (matchingChannelAccounts.length !== 1 || matchingChannelAccounts[0]?.id !== input.channelAccountId) {
-      return null;
-    }
-
-    return {
-      ...artifacts[0],
-      channelAccountId: input.channelAccountId,
-    };
+    return artifacts.find((artifact) => artifact.channelAccountId === input.channelAccountId) ?? null;
   }
 
   return artifacts[0] ?? null;
+}
+
+function resolveInboxReplyHandoffOwnership(
+  artifact: InboxReplyHandoffArtifactRecord,
+  channelAccounts: Array<{
+    id: number;
+    projectId: number | null;
+    platform: string;
+    accountKey: string;
+  }>,
+  inboxProjectIdByItemId: Map<string, number>,
+) {
+  const projectId = readInboxReplyHandoffProjectId(artifact, inboxProjectIdByItemId);
+
+  if (typeof artifact.channelAccountId === 'number') {
+    const directMatch = channelAccounts.find((channelAccount) => channelAccount.id === artifact.channelAccountId);
+    if (directMatch) {
+      return {
+        channelAccountId: artifact.channelAccountId,
+        ownership: 'direct' as const,
+        ...(typeof projectId === 'number' ? { projectId } : {}),
+      };
+    }
+  }
+
+  const matchingChannelAccounts = channelAccounts.filter(
+    (channelAccount) =>
+      normalizeInboxReplyHandoffPlatform(channelAccount.platform) ===
+        normalizeInboxReplyHandoffPlatform(artifact.platform) &&
+      channelAccount.accountKey === artifact.accountKey,
+  );
+
+  if (typeof projectId === 'number') {
+    const projectMatches = matchingChannelAccounts.filter(
+      (channelAccount) => channelAccount.projectId === projectId,
+    );
+
+    if (projectMatches.length === 1) {
+      return {
+        channelAccountId: projectMatches[0]?.id,
+        ownership: 'item_project' as const,
+        projectId,
+      };
+    }
+
+    return {
+      ownership: 'unmatched' as const,
+      projectId,
+    };
+  }
+
+  if (matchingChannelAccounts.length === 1) {
+    return {
+      channelAccountId: matchingChannelAccounts[0]?.id,
+      ownership: 'direct' as const,
+    };
+  }
+
+  return {
+    ownership: 'unmatched' as const,
+  };
 }
 
 function buildArtifactPath(
@@ -370,6 +451,39 @@ function readInboxReplyHandoffArtifact(absolutePath: string): InboxReplyHandoffA
   } catch {
     return null;
   }
+}
+
+function readInboxReplyHandoffProjectId(
+  artifact: InboxReplyHandoffArtifactRecord,
+  inboxProjectIdByItemId: Map<string, number>,
+) {
+  const artifactProjectId = parsePositiveInteger(artifact.projectId);
+  if (artifactProjectId !== undefined) {
+    return artifactProjectId;
+  }
+
+  return inboxProjectIdByItemId.get(artifact.itemId);
+}
+
+function buildInboxProjectIdByItemIdMap() {
+  const projectIdByItemId = new Map<string, number>();
+
+  for (const item of inboxStore.list()) {
+    if (typeof item.projectId === 'number') {
+      projectIdByItemId.set(String(item.id), item.projectId);
+    }
+  }
+
+  return projectIdByItemId;
+}
+
+function parsePositiveInteger(value: unknown) {
+  if (value === null || value === undefined || value === '') {
+    return undefined;
+  }
+
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 function sanitizeSegment(value: string) {

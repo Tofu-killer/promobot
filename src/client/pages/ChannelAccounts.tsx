@@ -42,6 +42,8 @@ export interface ChannelAccountRecord {
   };
   latestInboxReplyHandoffArtifact?: {
     channelAccountId?: number;
+    ownership?: string;
+    projectId?: number | null;
     platform: string;
     itemId: string;
     source: string;
@@ -1258,6 +1260,17 @@ export function ChannelAccountsPage({
                                 Inbox Handoff 结单：
                                 {account.latestInboxReplyHandoffArtifact.resolvedAt ?? '未结单'}
                               </div>
+                              {account.latestInboxReplyHandoffArtifact.ownership ? (
+                                <div>
+                                  Inbox Handoff 归属：
+                                  {formatHandoffOwnership(account.latestInboxReplyHandoffArtifact.ownership)}
+                                </div>
+                              ) : null}
+                              {typeof account.latestInboxReplyHandoffArtifact.projectId === 'number' ? (
+                                <div>
+                                  Inbox Handoff 项目：{account.latestInboxReplyHandoffArtifact.projectId}
+                                </div>
+                              ) : null}
                               {readStatusValue(account.latestInboxReplyHandoffArtifact.resolution) ? (
                                 <div>
                                   Inbox Handoff 结果：
@@ -1973,6 +1986,10 @@ function formatHandoffOwnership(value: string) {
 
   if (value === 'draft_project') {
     return '按草稿项目推断';
+  }
+
+  if (value === 'item_project') {
+    return '按 Inbox 项目推断';
   }
 
   if (value === 'unmatched') {

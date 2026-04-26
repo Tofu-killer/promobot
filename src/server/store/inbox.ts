@@ -209,7 +209,7 @@ function normalizeInboxItem(row: Record<string, unknown>): InboxItemRecord {
     author: typeof row.author === 'string' ? row.author : undefined,
     title: String(row.title),
     excerpt: String(row.excerpt),
-    ...(metadata ? { metadata } : {}),
+    ...(hasMetadataValues(metadata) ? { metadata } : {}),
     createdAt: String(row.createdAt),
   };
 }
@@ -232,7 +232,8 @@ function maybeBackfillInboxItemMetadata(
   metadata: Record<string, unknown>,
 ) {
   const existingMetadata = parseMetadata(row.metadataJson);
-  if (hasMetadataValues(existingMetadata)) {
+  const mergedMetadata = mergeInboxMetadata(existingMetadata, metadata);
+  if (mergedMetadata === existingMetadata) {
     return;
   }
 
@@ -244,7 +245,33 @@ function maybeBackfillInboxItemMetadata(
         WHERE id = ?
       `,
     )
-    .run([stringifyMetadata(metadata), Number(row.id)]);
+    .run([stringifyMetadata(mergedMetadata), Number(row.id)]);
+}
+
+function mergeInboxMetadata(
+  existingMetadata: Record<string, unknown> | undefined,
+  incomingMetadata: Record<string, unknown> | undefined,
+) {
+  if (!hasMetadataValues(incomingMetadata)) {
+    return existingMetadata;
+  }
+
+  const nextMetadata = incomingMetadata ?? {};
+  const mergedMetadata = { ...(existingMetadata ?? {}) };
+  let changed = !hasMetadataValues(existingMetadata);
+
+  for (const [key, value] of Object.entries(nextMetadata)) {
+    if (value === undefined) {
+      continue;
+    }
+
+    if (!(key in mergedMetadata) || mergedMetadata[key] === undefined) {
+      mergedMetadata[key] = value;
+      changed = true;
+    }
+  }
+
+  return changed ? mergedMetadata : existingMetadata;
 }
 
 function parseOptionalInteger(value: unknown): number | undefined {

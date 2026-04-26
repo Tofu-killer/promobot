@@ -10,6 +10,7 @@ const inboxFetchService = createInboxFetchService();
 const inboxReplyService = createInboxReplyService();
 
 const allowedStatuses = new Set(['handled', 'snoozed', 'needs_reply', 'needs_review']);
+const sendableStatuses = new Set(['needs_reply', 'needs_review']);
 
 function isAllowedStatus(value: string): boolean {
   return allowedStatuses.has(value);
@@ -113,6 +114,11 @@ inboxRouter.post('/:id/send-reply', async (request, response, next) => {
   const item = items.find((entry) => entry.id === id);
   if (!item) {
     response.status(404).json({ error: 'inbox item not found' });
+    return;
+  }
+
+  if (!sendableStatuses.has(item.status)) {
+    response.status(409).json({ error: 'inbox item cannot be replied to' });
     return;
   }
 

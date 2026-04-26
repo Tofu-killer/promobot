@@ -302,7 +302,7 @@ export function DashboardPage({
             <StatCard
               label="Inbox Reply Handoff 已完成"
               value={formatOptionalMetricValue(inboxReplyHandoffMetrics?.resolved)}
-              detail="已导入 sent 结果、artifact 已结单的 inbox reply handoff 数量"
+              detail="已导入 sent 或 failed 结果、artifact 已结单的 inbox reply handoff 数量"
             />
             <StatCard
               label="Inbox Reply Handoff 已作废"

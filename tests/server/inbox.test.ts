@@ -958,6 +958,79 @@ describe('inbox api', () => {
     }
   });
 
+  it('merges duplicate inbox item metadata when later writes add missing routing fields', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const inboxStore = createInboxStore();
+      const firstItem = inboxStore.create({
+        projectId: 1,
+        source: 'reddit',
+        status: 'needs_reply',
+        author: 'duplicate-user',
+        title: 'Duplicate inbox item',
+        excerpt: 'Same source payload should not be inserted twice.',
+        metadata: {
+          sourceUrl: 'https://www.reddit.com/r/Promobot/comments/dup123/duplicate_inbox_item/',
+        },
+      });
+      const secondItem = inboxStore.create({
+        projectId: 1,
+        source: 'reddit',
+        status: 'needs_reply',
+        author: 'duplicate-user',
+        title: 'Duplicate inbox item',
+        excerpt: 'Same source payload should not be inserted twice.',
+        metadata: {
+          channelAccountId: 9,
+          accountKey: 'reddit-main',
+        },
+      });
+
+      expect(secondItem.id).toBe(firstItem.id);
+      expect(secondItem.metadata).toEqual({
+        sourceUrl: 'https://www.reddit.com/r/Promobot/comments/dup123/duplicate_inbox_item/',
+        channelAccountId: 9,
+        accountKey: 'reddit-main',
+      });
+      expect(inboxStore.list(1)).toEqual([
+        expect.objectContaining({
+          id: firstItem.id,
+          metadata: {
+            sourceUrl: 'https://www.reddit.com/r/Promobot/comments/dup123/duplicate_inbox_item/',
+            channelAccountId: 9,
+            accountKey: 'reddit-main',
+          },
+        }),
+      ]);
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('omits empty metadata when an inbox item was stored without routing context', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const inboxStore = createInboxStore();
+      const item = inboxStore.create({
+        projectId: 1,
+        source: 'reddit',
+        status: 'needs_reply',
+        author: 'no-metadata-user',
+        title: 'Inbox item without routing metadata',
+        excerpt: 'Default metadata should stay hidden from the API contract.',
+      });
+
+      expect(item).not.toHaveProperty('metadata');
+      expect(inboxStore.list(1)).toEqual([
+        expect.not.objectContaining({
+          metadata: expect.anything(),
+        }),
+      ]);
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('does not dedupe inbox items when status differs', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
@@ -2277,6 +2350,48 @@ describe('inbox api', () => {
       cleanupTestDatabasePath(rootDir);
     }
   });
+
+  it.each(['handled', 'snoozed'] as const)(
+    'rejects send-reply requests for %s inbox items',
+    async (status) => {
+      const { rootDir } = createTestDatabasePath();
+      try {
+        installXReplyFetchStub();
+
+        const inboxStore = createInboxStore();
+        inboxStore.create({
+          source: 'x',
+          status,
+          author: 'routerwatch',
+          title: 'Need lower latency in APAC',
+          excerpt:
+            '@routerwatch · matched x search seed for openrouter failover\n\nRoute around outages faster.\n\nhttps://x.com/routerwatch/status/tweet-1',
+          metadata: {
+            sourceUrl: 'https://x.com/routerwatch/status/tweet-1',
+            replyTargetId: 'tweet-1',
+            replyTargetType: 'tweet',
+          },
+        });
+
+        const response = await requestApp('POST', '/api/inbox/1/send-reply', {
+          reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+        });
+
+        expect(response.status).toBe(409);
+        expect(JSON.parse(response.body)).toEqual({
+          error: 'inbox item cannot be replied to',
+        });
+        expect(inboxStore.list()).toEqual([
+          expect.objectContaining({
+            id: 1,
+            status,
+          }),
+        ]);
+      } finally {
+        cleanupTestDatabasePath(rootDir);
+      }
+    },
+  );
 
   it('returns an AI reply suggestion for an inbox item', async () => {
     const { rootDir } = createTestDatabasePath();

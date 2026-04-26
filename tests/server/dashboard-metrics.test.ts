@@ -1492,4 +1492,181 @@ describe('dashboard metrics api', () => {
       cleanupTestDatabasePath(rootDir);
     }
   });
+
+  it('scopes inbox reply handoff metrics by inbox item project ownership when shared account keys have no direct channelAccountId', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const channelAccountStore = createChannelAccountStore();
+      const inboxStore = createInboxStore();
+
+      channelAccountStore.create({
+        projectId: 11,
+        platform: 'facebookGroup',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB 11',
+        authType: 'browser',
+        status: 'healthy',
+      });
+      channelAccountStore.create({
+        projectId: 22,
+        platform: 'facebookGroup',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB 22',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      const item = inboxStore.create({
+        projectId: 22,
+        source: 'facebook-group',
+        status: 'needs_reply',
+        author: 'Alice',
+        title: 'Scoped reply',
+        excerpt: 'Need a reply',
+      });
+
+      const handoffDir = path.join(
+        rootDir,
+        'artifacts',
+        'inbox-reply-handoffs',
+        'facebookGroup',
+        'launch-campaign',
+      );
+      mkdirSync(handoffDir, { recursive: true });
+      writeFileSync(
+        path.join(handoffDir, `facebookGroup-inbox-item-${item.id}.json`),
+        JSON.stringify({
+          type: 'browser_inbox_reply_handoff',
+          status: 'pending',
+          platform: 'facebookGroup',
+          itemId: String(item.id),
+          source: 'facebook-group',
+          title: 'Scoped reply',
+          excerpt: 'Need a reply',
+          reply: 'Thanks for reaching out.',
+          author: 'Alice',
+          sourceUrl: 'https://facebook.test/groups/launch-campaign/posts/64',
+          accountKey: 'launch-campaign',
+          session: {
+            hasSession: true,
+            id: 'facebookGroup:launch-campaign',
+            status: 'active',
+            validatedAt: '2026-04-21T12:30:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
+          },
+          createdAt: '2026-04-21T12:30:00.000Z',
+          updatedAt: '2026-04-21T12:40:00.000Z',
+          resolvedAt: null,
+          resolution: null,
+        }),
+      );
+
+      const wrongProjectResponse = await requestApp('GET', '/api/monitor/dashboard?projectId=11');
+      expect(wrongProjectResponse.status).toBe(200);
+      expect(JSON.parse(wrongProjectResponse.body)).toMatchObject({
+        inboxReplyHandoffs: {
+          total: 0,
+          pending: 0,
+          resolved: 0,
+          obsolete: 0,
+        },
+      });
+
+      const ownedProjectResponse = await requestApp('GET', '/api/monitor/dashboard?projectId=22');
+      expect(ownedProjectResponse.status).toBe(200);
+      expect(JSON.parse(ownedProjectResponse.body)).toMatchObject({
+        inboxReplyHandoffs: {
+          total: 1,
+          pending: 1,
+          resolved: 0,
+          obsolete: 0,
+        },
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('excludes unmatched inbox reply handoffs from project-scoped metrics when shared account keys cannot resolve a unique owner', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const channelAccountStore = createChannelAccountStore();
+      const inboxStore = createInboxStore();
+
+      channelAccountStore.create({
+        projectId: 11,
+        platform: 'facebookGroup',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB 11',
+        authType: 'browser',
+        status: 'healthy',
+      });
+      channelAccountStore.create({
+        projectId: 22,
+        platform: 'facebookGroup',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB 22',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      const item = inboxStore.create({
+        projectId: 33,
+        source: 'facebook-group',
+        status: 'needs_reply',
+        author: 'Alice',
+        title: 'Scoped reply',
+        excerpt: 'Need a reply',
+      });
+
+      const handoffDir = path.join(
+        rootDir,
+        'artifacts',
+        'inbox-reply-handoffs',
+        'facebookGroup',
+        'launch-campaign',
+      );
+      mkdirSync(handoffDir, { recursive: true });
+      writeFileSync(
+        path.join(handoffDir, `facebookGroup-inbox-item-${item.id}.json`),
+        JSON.stringify({
+          type: 'browser_inbox_reply_handoff',
+          status: 'pending',
+          platform: 'facebookGroup',
+          itemId: String(item.id),
+          source: 'facebook-group',
+          title: 'Scoped reply',
+          excerpt: 'Need a reply',
+          reply: 'Thanks for reaching out.',
+          author: 'Alice',
+          sourceUrl: 'https://facebook.test/groups/launch-campaign/posts/65',
+          accountKey: 'launch-campaign',
+          session: {
+            hasSession: true,
+            id: 'facebookGroup:launch-campaign',
+            status: 'active',
+            validatedAt: '2026-04-21T12:30:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
+          },
+          createdAt: '2026-04-21T12:30:00.000Z',
+          updatedAt: '2026-04-21T12:40:00.000Z',
+          resolvedAt: null,
+          resolution: null,
+        }),
+      );
+
+      const unmatchedProjectResponse = await requestApp('GET', '/api/monitor/dashboard?projectId=33');
+      expect(unmatchedProjectResponse.status).toBe(200);
+      expect(JSON.parse(unmatchedProjectResponse.body)).toMatchObject({
+        inboxReplyHandoffs: {
+          total: 0,
+          pending: 0,
+          resolved: 0,
+          obsolete: 0,
+        },
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
 });

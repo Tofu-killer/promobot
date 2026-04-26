@@ -425,5 +425,11 @@ describe('inbox reply handoff completion submitter', () => {
       adminPassword: 'secret',
     });
     expect(getInboxReplyHandoffCompleteHelpText()).toContain('--artifact-path <path>');
+    expect(getInboxReplyHandoffCompleteHelpText()).toContain(
+      'pnpm inbox:reply:handoff:complete -- --artifact-path <path> [options]',
+    );
+    expect(getInboxReplyHandoffCompleteHelpText()).toContain(
+      'node dist/server/cli/inboxReplyHandoffComplete.js --artifact-path <path> [options]',
+    );
   });
 });

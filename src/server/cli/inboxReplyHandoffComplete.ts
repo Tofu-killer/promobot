@@ -77,7 +77,9 @@ export function parseInboxReplyHandoffCompleteArgs(
 
 export function getInboxReplyHandoffCompleteHelpText() {
   return [
-    'Usage: tsx src/server/cli/inboxReplyHandoffComplete.ts --artifact-path <path> [options]',
+    'Usage:',
+    '  pnpm inbox:reply:handoff:complete -- --artifact-path <path> [options]',
+    '  node dist/server/cli/inboxReplyHandoffComplete.js --artifact-path <path> [options]',
     '',
     'Required:',
     '  --artifact-path <path>       Existing inbox reply handoff artifact path',

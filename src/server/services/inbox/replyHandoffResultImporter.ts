@@ -56,11 +56,20 @@ export async function importInboxReplyHandoffResult(input: {
         : new Date().toISOString()
       : null;
 
-  const nextItem =
-    input.replyStatus === 'sent' ? inboxStore.updateStatus(itemId, 'handled') ?? item : item;
-  const itemStatus = nextItem.status;
+  let itemStatus = item.status;
+  if (input.replyStatus === 'sent') {
+    const handledItem = inboxStore.updateStatus(itemId, 'handled');
+    if (!handledItem) {
+      throw new InboxReplyHandoffImportError(
+        'inbox item status update failed after handoff import',
+        500,
+      );
+    }
 
-  resolveInboxReplyHandoffArtifact({
+    itemStatus = handledItem.status;
+  }
+
+  const resolvedArtifact = resolveInboxReplyHandoffArtifact({
     platform: artifact.platform,
     accountKey: artifact.accountKey,
     itemId: artifact.itemId,
@@ -71,6 +80,9 @@ export async function importInboxReplyHandoffResult(input: {
     message: input.message,
     deliveredAt,
   });
+  if (!resolvedArtifact) {
+    throw new InboxReplyHandoffImportError('inbox reply handoff artifact update failed', 500);
+  }
 
   return {
     ok: true,

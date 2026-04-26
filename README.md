@@ -52,7 +52,7 @@ PromoBot 现在不是“只有 spec 的空仓库”了。
 - 仓库同时提供了 `pnpm browser:lane:submit -- --request-artifact <path> --storage-state-file <path>`，用于从本地 Playwright storage state JSON 生成 `browser_lane_result` artifact；如果再附带 `--base-url` 和 `--admin-password`，会直接把 `requestArtifactPath + storageState` 提交给 importer API，因此 browser lane 不必和服务端共享同一份 result artifact 目录。
 - `facebook-group`、`weibo`、`xiaohongshu` 的 browser handoff 现在也有正式完成入口：外部 lane 或人工接管完成后，可调用 `POST /api/system/browser-handoffs/import` 回写 `published/failed` 结果，系统会同步更新草稿状态、publish log 和 handoff artifact。
 - 仓库同时提供了 `pnpm browser:handoff:complete -- --artifact-path <path> --status <published|failed>`，用于在本机直接结单 handoff；如果再附带 `--base-url` 和 `--admin-password`，则会走远程 API 导入。
-- `Social Inbox` 的 reply handoff 也有同级完成入口：外部 lane 或人工接管完成回复后，可调用 `POST /api/system/inbox-reply-handoffs/import` 回写 `sent/failed` 结果，系统会同步更新 inbox item 状态和 handoff artifact；本机也可通过 `pnpm inbox:reply:handoff:complete -- --artifact-path <path> --status <sent|failed>` 直接结单，附带 `--base-url` 和 `--admin-password` 时会改走远程 API。
+- `Social Inbox` 的 reply handoff 也有同级完成入口：外部 lane 或人工接管完成回复后，可调用 `POST /api/system/inbox-reply-handoffs/import` 回写 `sent/failed` 结果，系统会同步更新 inbox item 状态和 handoff artifact；源码 checkout 场景可用 `pnpm inbox:reply:handoff:complete -- --artifact-path <path> --status <sent|failed>` 直接结单，bundle-only 场景则用 `node dist/server/cli/inboxReplyHandoffComplete.js --artifact-path <path> --status <sent|failed>`，两者都支持附带 `--message`、`--delivery-url`、`--external-id`、`--delivered-at`，再加 `--base-url` 和 `--admin-password` 时会改走远程 API。
 - 仓库同时提供了 `pnpm browser:artifacts:archive -- [--older-than-hours <n>] [--include-results]`，用于把足够旧的已结单 browser artifacts 归档到 `artifacts/archive/`；当前归档范围同时覆盖 browser lane request/result、browser handoff 和 inbox reply handoff。默认是 dry-run，只有加 `--apply` 才会真正移动文件。
 - `System Queue`、`Dashboard`、`Settings`、`Channel Accounts` 现在都能直接看到 browser lane / browser handoff / inbox reply handoff 的最新状态；系统 API 也提供了 `/api/system/browser-handoffs` 与 `/api/system/inbox-reply-handoffs` 只读汇总入口，`/api/system/health` 里的 `browserArtifacts` 还会额外带上 `inboxReplyHandoffs(total/pending/resolved/obsolete)`。
 - `Drafts` 和 `Review Queue` 在 `manual_required` 时会直接显示 handoff 回执里的 `browserHandoff` 细节，不再只剩一条泛化成功消息。
@@ -77,6 +77,7 @@ pnpm deploy:local -- --skip-smoke
 pnpm rollback:local -- --backup-dir /tmp/promobot-backup --skip-smoke
 pnpm preflight:local -- --skip-smoke
 pnpm inbox:reply:handoff:complete -- --help
+node dist/server/cli/inboxReplyHandoffComplete.js --help
 pnpm browser:artifacts:archive -- --older-than-hours 72
 ```
 

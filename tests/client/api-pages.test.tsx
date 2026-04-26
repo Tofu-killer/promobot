@@ -550,6 +550,7 @@ describe('client API page wiring', () => {
     expect(html).toContain('Inbox Reply Handoff 总工单');
     expect(html).toContain('Inbox Reply Handoff 待处理');
     expect(html).toContain('Inbox Reply Handoff 已完成');
+    expect(html).toContain('已导入 sent 或 failed 结果、artifact 已结单的 inbox reply handoff 数量');
     expect(html).toContain('Inbox Reply Handoff 已作废');
     expect(html).toContain('首发运营范围');
     expect(html).toContain('X、Reddit');
@@ -1819,6 +1820,8 @@ describe('client API page wiring', () => {
                 title: 'Need lower latency in APAC',
                 author: 'user123',
                 accountKey: 'acct-reddit',
+                ownership: 'item_project',
+                projectId: 22,
                 status: 'resolved',
                 artifactPath:
                   'artifacts/inbox-reply-handoffs/reddit/acct-reddit/reddit-item-88.json',
@@ -1863,6 +1866,8 @@ describe('client API page wiring', () => {
     expect(html).toContain('Inbox 来源：reddit');
     expect(html).toContain('Inbox 作者：user123');
     expect(html).toContain('Inbox 标题：Need lower latency in APAC');
+    expect(html).toContain('Inbox Handoff 归属：按 Inbox 项目推断');
+    expect(html).toContain('Inbox Handoff 项目：22');
     expect(html).toContain('Inbox Handoff 结果：resolved');
     expect(html).toContain('Inbox Handoff 详情：sent');
     expect(html).toContain('Inbox Delivery URL：https://reddit.com/message/messages/abc123');
