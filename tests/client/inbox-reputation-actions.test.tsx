@@ -1548,6 +1548,123 @@ describe('Inbox action wiring', () => {
     });
   });
 
+  it('queues the requested browser session action for instagram inbox handoffs without relying on weibo-specific ui state', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    const createBlockedInstagramReply = () => ({
+      item: {
+        id: 8,
+        source: 'instagram',
+        status: 'needs_review',
+        author: 'creator-ops',
+        title: 'Need lower latency in APAC',
+        excerpt: 'Can you share current response times?',
+        createdAt: '2026-04-19T10:00:00.000Z',
+      },
+      delivery: {
+        success: false,
+        status: 'manual_required',
+        mode: 'browser',
+        message: 'Instagram reply requires the browser session to be refreshed before manual handoff.',
+        reply: 'Manual follow-up reply.',
+        details: {
+          browserReplyHandoff: {
+            platform: 'instagram',
+            channelAccountId: 18,
+            accountKey: 'ig-ops',
+            readiness: 'blocked',
+            sessionAction: 'relogin',
+          },
+        },
+      },
+    });
+    const sendReplyAction = vi.fn().mockImplementation(async () => createBlockedInstagramReply());
+    const requestChannelAccountSessionAction = vi.fn().mockResolvedValue({
+      sessionAction: {
+        action: 'relogin',
+        message: 'Browser relogin request queued for Instagram.',
+        artifactPath: 'artifacts/browser-lane-requests/instagram/ig-ops/relogin-job-18.json',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(InboxPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              items: [
+                {
+                  id: 8,
+                  source: 'instagram',
+                  status: 'needs_review',
+                  author: 'creator-ops',
+                  title: 'Need lower latency in APAC',
+                  excerpt: 'Can you share current response times?',
+                  createdAt: '2026-04-19T10:00:00.000Z',
+                },
+              ],
+              total: 1,
+              unread: 1,
+            },
+          } satisfies ApiState<unknown>,
+          sendReplyAction,
+          requestChannelAccountSessionAction,
+        }),
+      );
+      await flush();
+    });
+
+    const replyDraftField = findElement(container, (element) => element.tagName === 'TEXTAREA');
+    expect(replyDraftField).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(replyDraftField, 'Manual follow-up reply.', window);
+      await flush();
+    });
+
+    const sendReplyButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('发送回复'),
+    );
+    expect(sendReplyButton).not.toBeNull();
+
+    await act(async () => {
+      sendReplyButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(collectText(container)).toContain(
+      'Instagram reply requires the browser session to be refreshed before manual handoff.',
+    );
+    const reloginButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('重新登录'),
+    );
+    expect(reloginButton).not.toBeNull();
+
+    await act(async () => {
+      reloginButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(requestChannelAccountSessionAction).toHaveBeenCalledWith(18, {
+      action: 'relogin',
+    });
+    expect(collectText(container)).toContain('Browser relogin request queued for Instagram.');
+    expect(collectText(container)).toContain(
+      'artifacts/browser-lane-requests/instagram/ig-ops/relogin-job-18.json',
+    );
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('clears stale browser session request feedback when a new manual-required inbox reply result arrives', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
