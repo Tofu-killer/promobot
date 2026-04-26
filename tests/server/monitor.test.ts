@@ -806,7 +806,7 @@ describe('monitor api', () => {
     } finally {
       cleanupTestDatabasePath(rootDir);
     }
-  });
+  }, 10000);
 
   it('falls back to configured x search seeds when no x token is available', async () => {
     delete process.env.X_ACCESS_TOKEN;

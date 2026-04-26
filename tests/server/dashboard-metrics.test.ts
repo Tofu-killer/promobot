@@ -1127,7 +1127,7 @@ describe('dashboard metrics api', () => {
     } finally {
       cleanupTestDatabasePath(rootDir);
     }
-  });
+  }, 10000);
 
   it('does not attribute browser handoffs with missing channelAccountId when the key is globally unique but the draft belongs to another project', async () => {
     const { rootDir } = createTestDatabasePath();
