@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../../src/server/app';
 import {
   getInboxReplyHandoffArtifactByPath,
@@ -14,6 +14,7 @@ import {
   InboxReplyHandoffCompletionSubmitError,
   submitInboxReplyHandoffCompletion,
 } from '../../src/server/services/inbox/replyHandoffCompletionSubmitter';
+import * as inboxStoreModule from '../../src/server/store/inbox';
 import { createInboxStore } from '../../src/server/store/inbox';
 import { cleanupTestDatabasePath, createTestDatabasePath, isolateProcessCwd } from './testDb';
 
@@ -212,6 +213,7 @@ describe('inbox reply handoff completion submitter', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     restoreCwd?.();
     restoreCwd = null;
   });
@@ -270,6 +272,74 @@ describe('inbox reply handoff completion submitter', () => {
             replyStatus: 'sent',
             itemStatus: 'handled',
             deliveryUrl: 'https://weibo.test/post/12#reply-42',
+          }),
+        }),
+      );
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('keeps sent handoff imports successful when the local inbox status update fails', async () => {
+    const { rootDir } = createTestDatabasePath();
+
+    try {
+      const inboxStore = createInboxStore();
+      const item = inboxStore.create({
+        projectId: 1,
+        source: 'weibo',
+        status: 'needs_reply',
+        author: 'ops-user',
+        title: 'Community question',
+        excerpt: 'Can you share current response times?',
+        metadata: {
+          accountKey: 'weibo-browser-main',
+        },
+      });
+      const artifactPath = writePendingInboxReplyHandoffArtifact(rootDir, item.id);
+
+      vi.spyOn(inboxStoreModule, 'createInboxStore').mockReturnValue({
+        create: inboxStore.create,
+        list: inboxStore.list,
+        updateStatus: () => undefined,
+      });
+
+      const result = await submitInboxReplyHandoffCompletion({
+        artifactPath,
+        replyStatus: 'sent',
+        deliveryUrl: 'https://weibo.test/post/12#reply-77',
+        message: 'browser lane completed reply',
+        deliveredAt: '2026-04-25T10:12:00.000Z',
+      });
+
+      expect(result).toEqual({
+        ok: true,
+        imported: true,
+        artifactPath,
+        itemId: item.id,
+        itemStatus: 'needs_reply',
+        platform: 'weibo',
+        mode: 'browser',
+        status: 'sent',
+        success: true,
+        deliveryUrl: 'https://weibo.test/post/12#reply-77',
+        externalId: null,
+        message: 'browser lane completed reply',
+        deliveredAt: '2026-04-25T10:12:00.000Z',
+      });
+      expect(inboxStore.list()).toEqual([
+        expect.objectContaining({
+          id: item.id,
+          status: 'needs_reply',
+        }),
+      ]);
+      expect(getInboxReplyHandoffArtifactByPath(artifactPath)).toEqual(
+        expect.objectContaining({
+          status: 'resolved',
+          resolution: expect.objectContaining({
+            replyStatus: 'sent',
+            itemStatus: 'needs_reply',
+            deliveryUrl: 'https://weibo.test/post/12#reply-77',
           }),
         }),
       );
@@ -430,6 +500,9 @@ describe('inbox reply handoff completion submitter', () => {
     );
     expect(getInboxReplyHandoffCompleteHelpText()).toContain(
       'node dist/server/cli/inboxReplyHandoffComplete.js --artifact-path <path> [options]',
+    );
+    expect(getInboxReplyHandoffCompleteHelpText()).not.toContain(
+      'tsx src/server/cli/inboxReplyHandoffComplete.ts',
     );
   });
 });

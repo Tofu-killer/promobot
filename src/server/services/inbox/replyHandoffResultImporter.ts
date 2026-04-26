@@ -59,14 +59,7 @@ export async function importInboxReplyHandoffResult(input: {
   let itemStatus = item.status;
   if (input.replyStatus === 'sent') {
     const handledItem = inboxStore.updateStatus(itemId, 'handled');
-    if (!handledItem) {
-      throw new InboxReplyHandoffImportError(
-        'inbox item status update failed after handoff import',
-        500,
-      );
-    }
-
-    itemStatus = handledItem.status;
+    itemStatus = handledItem?.status ?? item.status;
   }
 
   const resolvedArtifact = resolveInboxReplyHandoffArtifact({

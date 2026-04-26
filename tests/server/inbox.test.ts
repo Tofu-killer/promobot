@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../../src/server/app';
 import { createSessionStore } from '../../src/server/services/browser/sessionStore';
 import { createChannelAccountStore } from '../../src/server/store/channelAccounts';
+import * as inboxStoreModule from '../../src/server/store/inbox';
 import { createInboxStore } from '../../src/server/store/inbox';
 import { createMonitorStore } from '../../src/server/store/monitor';
 import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
@@ -114,6 +115,7 @@ async function requestApp(method: string, url: string, body?: unknown) {
 }
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   restoreEnv('AI_BASE_URL', originalEnv.AI_BASE_URL);
   restoreEnv('AI_API_KEY', originalEnv.AI_API_KEY);
@@ -1873,6 +1875,97 @@ describe('inbox api', () => {
         expect.objectContaining({
           id: 1,
           status: 'handled',
+        }),
+      ]);
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('keeps browser reply handoff sent imports successful when the local inbox status update fails', async () => {
+    const { rootDir } = createTestDatabasePath();
+    process.env.BROWSER_HANDOFF_OUTPUT_DIR = rootDir;
+
+    try {
+      const channelAccountStore = createChannelAccountStore();
+      const channelAccount = channelAccountStore.create({
+        projectId: 1,
+        platform: 'weibo',
+        accountKey: 'weibo-browser-main',
+        displayName: 'Weibo Browser Main',
+        authType: 'browser',
+        status: 'healthy',
+      });
+      createSessionStore().saveSession({
+        platform: 'weibo',
+        accountKey: 'weibo-browser-main',
+        storageState: {
+          cookies: [],
+          origins: [],
+        },
+        status: 'active',
+        lastValidatedAt: '2026-04-25T10:00:00.000Z',
+      });
+
+      const inboxStore = createInboxStore();
+      inboxStore.create({
+        projectId: 1,
+        source: 'weibo',
+        status: 'needs_review',
+        author: 'ops-user',
+        title: 'Need lower latency in APAC',
+        excerpt: 'Can you share current response times?',
+        metadata: {
+          channelAccountId: channelAccount.id,
+          accountKey: 'weibo-browser-main',
+        },
+      });
+
+      const sendReplyResponse = await requestApp('POST', '/api/inbox/1/send-reply', {
+        reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+      });
+      const artifactPath = (
+        JSON.parse(sendReplyResponse.body) as {
+          delivery: { details?: { browserReplyHandoff?: { artifactPath?: string } } };
+        }
+      ).delivery.details?.browserReplyHandoff?.artifactPath;
+
+      vi.spyOn(inboxStoreModule, 'createInboxStore').mockReturnValue({
+        create: inboxStore.create,
+        list: inboxStore.list,
+        updateStatus: () => undefined,
+      });
+
+      const importResponse = await requestApp('POST', '/api/system/inbox-reply-handoffs/import', {
+        artifactPath,
+        replyStatus: 'sent',
+        message: 'manual browser reply sent',
+        deliveryUrl: 'https://weibo.test/post/1#reply-10',
+        externalId: 'reply-10',
+        deliveredAt: '2026-04-25T10:06:00.000Z',
+      });
+
+      expect(importResponse.status).toBe(200);
+      expect(JSON.parse(importResponse.body)).toEqual({
+        ok: true,
+        imported: true,
+        artifactPath:
+          'artifacts/inbox-reply-handoffs/weibo/weibo-browser-main/weibo-inbox-item-1.json',
+        itemId: 1,
+        itemStatus: 'needs_review',
+        platform: 'weibo',
+        mode: 'browser',
+        status: 'sent',
+        success: true,
+        deliveryUrl: 'https://weibo.test/post/1#reply-10',
+        externalId: 'reply-10',
+        message: 'manual browser reply sent',
+        deliveredAt: '2026-04-25T10:06:00.000Z',
+      });
+      expect(inboxStore.list()).toEqual([
+        expect.objectContaining({
+          id: 1,
+          status: 'needs_review',
         }),
       ]);
     } finally {
