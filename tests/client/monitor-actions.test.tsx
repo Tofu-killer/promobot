@@ -1694,6 +1694,112 @@ describe('Monitor follow-up actions', () => {
     });
   });
 
+  it.each([
+    ['instagram', 'instagram', 'Competitor posted a new carousel'],
+    ['tiktok', 'tiktok', 'Competitor posted a short-form launch recap'],
+    ['xiaohongshu', '小红书', '竞品发布了新的种草合集'],
+    ['weibo', '微博', '竞品发起了新的微博互动'],
+  ] as const)(
+    'filters %s monitor items and generates follow-up drafts for the same platform',
+    async (filterId, source, title) => {
+      const { container, window } = installMinimalDom();
+      const { createRoot } = await import('react-dom/client');
+      const { MonitorPage } = await import('../../src/client/pages/Monitor');
+
+      const stateOverride = {
+        status: 'success' as const,
+        data: {
+          items: [
+            {
+              id: 7,
+              source: 'x',
+              title: 'Competitor launched a lower tier',
+              detail: 'Observed a cheaper plan and a follow-up opportunity.',
+              status: 'new',
+              createdAt: '2026-04-19T00:00:00.000Z',
+            },
+            {
+              id: 11,
+              source,
+              title,
+              detail: `Signal collected from ${source}.`,
+              status: 'new',
+              createdAt: '2026-04-19T01:00:00.000Z',
+            },
+          ],
+          total: 2,
+        },
+      };
+      const generateFollowUpAction = vi.fn().mockResolvedValue({
+        draft: {
+          id: 91,
+          platform: filterId,
+          title: `Follow-up: ${title}`,
+          content: `Follow-up draft for ${filterId}.`,
+          status: 'draft',
+        },
+      });
+
+      const root = createRoot(container as never);
+      await act(async () => {
+        root.render(
+          createElement(MonitorPage as never, {
+            loadMonitorAction: async () => stateOverride.data,
+            stateOverride,
+            generateFollowUpAction,
+          }),
+        );
+        await flush();
+      });
+
+      const sourceFilter = findElement(
+        container,
+        (element) => element.getAttribute('data-monitor-filter-source') === filterId,
+      );
+
+      expect(sourceFilter).not.toBeNull();
+
+      await act(async () => {
+        sourceFilter?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+        await flush();
+      });
+
+      expect(sourceFilter?.getAttribute('aria-pressed')).toBe('true');
+      expect(collectText(container)).toContain(title);
+      expect(collectText(container)).not.toContain('Competitor launched a lower tier');
+
+      const selectedItem = findElement(
+        container,
+        (element) => element.getAttribute('data-monitor-item-id') === '11',
+      );
+      const generateButton = findElement(
+        container,
+        (element) => element.tagName === 'BUTTON' && collectText(element).includes('生成跟进草稿'),
+      );
+
+      expect(selectedItem).not.toBeNull();
+      expect(generateButton).not.toBeNull();
+
+      await act(async () => {
+        selectedItem?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+        await flush();
+      });
+
+      await act(async () => {
+        generateButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+        await flush();
+      });
+
+      expect(generateFollowUpAction).toHaveBeenCalledWith(11, filterId);
+      expect(collectText(container)).toContain(`Follow-up: ${title}`);
+
+      await act(async () => {
+        root.unmount();
+        await flush();
+      });
+    },
+  );
+
   it('clears the selected monitor item when source filtering hides it', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
@@ -1793,7 +1899,10 @@ describe('Monitor follow-up actions', () => {
     });
   });
 
-  it('blocks follow-up draft generation for non-launch monitor sources', async () => {
+  it.each([
+    ['rss', 'RSS pricing watch'],
+    ['v2ex', 'V2EX pricing watch'],
+  ] as const)('blocks follow-up draft generation for non-launch monitor sources: %s', async (source, title) => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
     const { MonitorPage } = await import('../../src/client/pages/Monitor');
@@ -1804,8 +1913,8 @@ describe('Monitor follow-up actions', () => {
         items: [
           {
             id: 10,
-            source: 'rss',
-            title: 'RSS pricing watch',
+            source,
+            title,
             detail: 'Tracked a competitor pricing update.',
             status: 'new',
             createdAt: '2026-04-19T02:00:00.000Z',
@@ -1857,6 +1966,72 @@ describe('Monitor follow-up actions', () => {
       root.unmount();
       await flush();
     });
+  });
+
+  it('renders first-class source filters for the broader monitor platform set', async () => {
+    const { MonitorPage } = await import('../../src/client/pages/Monitor');
+
+    const html = renderPage(MonitorPage, {
+      stateOverride: {
+        status: 'success',
+        data: {
+          items: [
+            {
+              id: 20,
+              source: 'instagram',
+              title: 'Instagram signal',
+              detail: 'Track competitor launches on Instagram.',
+              status: 'new',
+              createdAt: '2026-04-19T00:00:00.000Z',
+            },
+            {
+              id: 21,
+              source: 'tiktok',
+              title: 'TikTok signal',
+              detail: 'Track competitor launches on TikTok.',
+              status: 'new',
+              createdAt: '2026-04-19T01:00:00.000Z',
+            },
+            {
+              id: 22,
+              source: 'weibo',
+              title: 'Weibo signal',
+              detail: 'Track competitor launches on Weibo.',
+              status: 'new',
+              createdAt: '2026-04-19T02:00:00.000Z',
+            },
+            {
+              id: 23,
+              source: 'xiaohongshu',
+              title: 'Xiaohongshu signal',
+              detail: 'Track competitor launches on Xiaohongshu.',
+              status: 'new',
+              createdAt: '2026-04-19T03:00:00.000Z',
+            },
+            {
+              id: 24,
+              source: 'v2ex',
+              title: 'V2EX signal',
+              detail: 'Track competitor mentions on V2EX.',
+              status: 'new',
+              createdAt: '2026-04-19T04:00:00.000Z',
+            },
+          ],
+          total: 5,
+        },
+      },
+    });
+
+    expect(html).toContain('data-monitor-filter-source="instagram"');
+    expect(html).toContain('data-monitor-filter-source="tiktok"');
+    expect(html).toContain('data-monitor-filter-source="weibo"');
+    expect(html).toContain('data-monitor-filter-source="xiaohongshu"');
+    expect(html).toContain('data-monitor-filter-source="v2ex"');
+    expect(html).toContain('Instagram');
+    expect(html).toContain('TikTok');
+    expect(html).toContain('微博');
+    expect(html).toContain('小红书');
+    expect(html).toContain('V2EX');
   });
 
   it('shows monitor fetch feedback after clicking the action', async () => {

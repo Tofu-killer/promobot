@@ -49,7 +49,7 @@ export interface EnqueueMonitorFetchJobResponse {
   runtime: Record<string, unknown>;
 }
 
-const launchReadyFollowUpPlatforms = new Set(['x', 'reddit']);
+const launchReadyFollowUpPlatforms = new Set(['x', 'reddit', 'instagram', 'tiktok', 'xiaohongshu', 'weibo']);
 
 function parseProjectId(value: string) {
   const normalizedValue = value.trim();
@@ -147,14 +147,29 @@ type FollowUpAttemptState =
     }
   | null;
 
-type MonitorSourceFilter = 'all' | 'x' | 'rss' | 'reddit' | 'product-hunt';
+type MonitorSourceFilter =
+  | 'all'
+  | 'x'
+  | 'rss'
+  | 'reddit'
+  | 'product-hunt'
+  | 'instagram'
+  | 'tiktok'
+  | 'xiaohongshu'
+  | 'weibo'
+  | 'v2ex';
 
 const sourceFilters: Array<{ id: MonitorSourceFilter; label: string }> = [
   { id: 'all', label: '全部来源' },
   { id: 'x', label: 'X / Twitter' },
-  { id: 'rss', label: 'RSS' },
   { id: 'reddit', label: 'Reddit' },
+  { id: 'instagram', label: 'Instagram' },
+  { id: 'tiktok', label: 'TikTok' },
+  { id: 'xiaohongshu', label: '小红书' },
+  { id: 'weibo', label: '微博' },
+  { id: 'rss', label: 'RSS' },
   { id: 'product-hunt', label: 'Product Hunt' },
+  { id: 'v2ex', label: 'V2EX' },
 ];
 const queueInputStyle = {
   width: '100%',
@@ -486,8 +501,28 @@ function normalizeSourceFilter(source: string): MonitorSourceFilter {
     return 'reddit';
   }
 
+  if (normalized === 'instagram') {
+    return 'instagram';
+  }
+
+  if (normalized === 'tiktok' || normalized === 'tik tok') {
+    return 'tiktok';
+  }
+
+  if (normalized === 'xiaohongshu' || normalized === '小红书') {
+    return 'xiaohongshu';
+  }
+
+  if (normalized === 'weibo' || normalized === '微博') {
+    return 'weibo';
+  }
+
   if (normalized === 'product hunt' || normalized === 'product-hunt') {
     return 'product-hunt';
+  }
+
+  if (normalized === 'v2ex') {
+    return 'v2ex';
   }
 
   return 'all';
@@ -500,15 +535,6 @@ function filterMonitorItems(items: MonitorItem[], activeSourceFilter: MonitorSou
 }
 
 function resolveFollowUpPlatform(source: string) {
-  const normalized = source.trim().toLowerCase();
-
-  if (normalized === 'x' || normalized.includes('twitter')) {
-    return 'x';
-  }
-
-  if (normalized.includes('reddit')) {
-    return 'reddit';
-  }
-
-  return null;
+  const normalized = normalizeSourceFilter(source);
+  return launchReadyFollowUpPlatforms.has(normalized) ? normalized : null;
 }
