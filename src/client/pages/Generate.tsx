@@ -16,6 +16,8 @@ const platformOptions: PlatformOption[] = [
   { label: 'Reddit', value: 'reddit', launchStatus: 'ready', launchBadge: '首发可用' },
   { label: 'Blog', value: 'blog', launchStatus: 'ready', launchBadge: '首发可用' },
   { label: 'Facebook Group', value: 'facebook-group', launchStatus: 'manual', launchBadge: '人工接管' },
+  { label: 'Instagram', value: 'instagram', launchStatus: 'manual', launchBadge: '人工接管' },
+  { label: 'TikTok', value: 'tiktok', launchStatus: 'manual', launchBadge: '人工接管' },
   { label: '小红书', value: 'xiaohongshu', launchStatus: 'manual', launchBadge: '人工接管' },
   { label: '微博', value: 'weibo', launchStatus: 'manual', launchBadge: '人工接管' },
 ];

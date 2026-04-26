@@ -554,7 +554,7 @@ describe('client API page wiring', () => {
     expect(html).toContain('Inbox Reply Handoff 已作废');
     expect(html).toContain('首发运营范围');
     expect(html).toContain('X、Reddit');
-    expect(html).toContain('人工接管：Facebook Group、小红书、微博');
+    expect(html).toContain('人工接管：Facebook Group、Instagram、TikTok、小红书、微博');
     expect(html).toContain('队列待执行');
     expect(html).toContain('队列已完成');
     expect(html).toContain('到期待执行（pending 子集）');

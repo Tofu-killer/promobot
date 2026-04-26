@@ -978,6 +978,79 @@ describe('Drafts publish actions', () => {
     });
   });
 
+  it('treats tiktok drafts as manual handoff platforms', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { DraftsPage } = await import('../../src/client/pages/Drafts');
+
+    const loadDraftsAction = vi.fn().mockResolvedValue({
+      drafts: [
+        {
+          id: 32,
+          platform: 'tiktok',
+          title: 'TikTok launch clip',
+          content: 'Draft body',
+          hashtags: ['#launch'],
+          status: 'draft',
+          createdAt: '2026-04-27T00:00:00.000Z',
+          updatedAt: '2026-04-27T00:00:00.000Z',
+        },
+      ],
+    });
+    const publishDraftAction = vi.fn().mockResolvedValue({
+      success: false,
+      status: 'manual_required',
+      publishUrl: null,
+      message: 'tiktok draft 32 is ready for manual browser handoff with the saved session.',
+      details: {
+        browserHandoff: {
+          readiness: 'ready',
+          sessionAction: null,
+          artifactPath: 'artifacts/browser-handoffs/tiktok/launch-campaign/tiktok-draft-32.json',
+        },
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(DraftsPage as never, {
+          loadDraftsAction,
+          publishDraftAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const publishButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('发起人工接管'),
+    );
+
+    expect(publishButton).not.toBeNull();
+
+    await act(async () => {
+      publishButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(publishDraftAction).toHaveBeenCalledWith(32);
+    expect(collectText(container)).toContain('已转入人工接管：TikTok launch clip');
+    expect(collectText(container)).toContain(
+      'tiktok draft 32 is ready for manual browser handoff with the saved session.',
+    );
+    expect(collectText(container)).toContain(
+      'Handoff 路径：artifacts/browser-handoffs/tiktok/launch-campaign/tiktok-draft-32.json',
+    );
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('shows browser handoff session actions when manual_required still needs login work', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');

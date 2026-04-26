@@ -29,6 +29,12 @@ export function listPlatformReadiness(): PlatformReadiness[] {
   const facebookSessions = sessionStore
     .listSessions()
     .filter((session) => normalizePlatform(session.platform) === 'facebookGroup');
+  const instagramSessions = sessionStore
+    .listSessions()
+    .filter((session) => normalizePlatform(session.platform) === 'instagram');
+  const tiktokSessions = sessionStore
+    .listSessions()
+    .filter((session) => normalizePlatform(session.platform) === 'tiktok');
   const xiaohongshuSessions = sessionStore
     .listSessions()
     .filter((session) => normalizePlatform(session.platform) === 'xiaohongshu');
@@ -40,6 +46,8 @@ export function listPlatformReadiness(): PlatformReadiness[] {
     getXReadiness(),
     getRedditReadiness(),
     getAggregatedBrowserPlatformReadiness('facebookGroup', 'Facebook Group', facebookSessions),
+    getAggregatedBrowserPlatformReadiness('instagram', 'Instagram', instagramSessions),
+    getAggregatedBrowserPlatformReadiness('tiktok', 'TikTok', tiktokSessions),
     getAggregatedBrowserPlatformReadiness('xiaohongshu', '小红书', xiaohongshuSessions),
     getAggregatedBrowserPlatformReadiness('weibo', '微博', weiboSessions),
   ];
@@ -67,6 +75,14 @@ export function getChannelAccountPublishReadiness(account: {
 
   if (platform === 'facebookGroup') {
     return getBrowserSessionReadiness('facebookGroup', 'Facebook Group', account.accountKey);
+  }
+
+  if (platform === 'instagram') {
+    return getBrowserSessionReadiness('instagram', 'Instagram', account.accountKey);
+  }
+
+  if (platform === 'tiktok') {
+    return getBrowserSessionReadiness('tiktok', 'TikTok', account.accountKey);
   }
 
   if (platform === 'xiaohongshu') {
@@ -257,7 +273,7 @@ function getRedditReadiness(): PlatformReadiness {
 }
 
 function getBrowserSessionReadiness(
-  platform: 'x' | 'reddit' | 'facebookGroup' | 'xiaohongshu' | 'weibo',
+  platform: 'x' | 'reddit' | 'facebookGroup' | 'instagram' | 'tiktok' | 'xiaohongshu' | 'weibo',
   label: string,
   accountKey: string,
 ): PlatformReadiness {
@@ -316,13 +332,15 @@ function formatPlatformLabel(platform: string) {
   if (platform === 'x') return 'X';
   if (platform === 'reddit') return 'Reddit';
   if (platform === 'facebookGroup') return 'Facebook Group';
+  if (platform === 'instagram') return 'Instagram';
+  if (platform === 'tiktok') return 'TikTok';
   if (platform === 'xiaohongshu') return '小红书';
   if (platform === 'weibo') return '微博';
   return platform;
 }
 
 function getAggregatedBrowserPlatformReadiness(
-  platform: 'facebookGroup' | 'xiaohongshu' | 'weibo',
+  platform: 'facebookGroup' | 'instagram' | 'tiktok' | 'xiaohongshu' | 'weibo',
   label: string,
   sessions: SessionMetadata[],
 ): PlatformReadiness {

@@ -7,7 +7,7 @@ PromoBot 现在不是“只有 spec 的空仓库”了。
 ## 当前已实现的能力
 
 - 项目管理：`/api/projects` 支持创建、读取、更新项目站点上下文。
-- 内容生成：`/api/content/generate` 现在支持为首发可用与人工接管平台一起生成草稿；自动发布仍主要集中在 `x` / `reddit` / `blog`，其余平台走后续人工接管。
+- 内容生成：`/api/content/generate` 现在支持为首发可用与人工接管平台一起生成草稿；自动发布仍主要集中在 `x` / `reddit` / `blog`，`instagram` / `tiktok` / `facebook-group` / `xiaohongshu` / `weibo` 走后续人工接管。
 - 草稿工作流：`/api/drafts` 支持读取、编辑、送审、排程、发布，状态覆盖 `draft`、`review`、`approved`、`scheduled`、`queued`、`published`、`failed`。
 - 发布队列：后端内置 scheduler runtime 和 SQLite job queue，支持 enqueue、tick、reload、retry、cancel。
 - 运营数据页：Dashboard、Discovery Pool、Social Inbox、Competitor Monitor、Reputation、Channel Accounts、Settings、System Queue 都有对应页面和 API。
@@ -18,14 +18,14 @@ PromoBot 现在不是“只有 spec 的空仓库”了。
 - `x`：配置 `X_ACCESS_TOKEN` 或 `X_BEARER_TOKEN` 时会调用 X API；未配置时会返回明确失败，不会再伪造 `published` 结果。
 - `reddit`：配置完整 OAuth 环境变量时会调用 Reddit API；未配置时也会返回明确失败，不会再伪造 `published` 结果。
 - `facebook-group`：不会自动发帖，只会根据已保存的 session 元数据返回 manual handoff / manual review 合同。
-- `weibo`、`xiaohongshu`：现在会像 `facebook-group` 一样基于浏览器 session 返回有状态的 manual handoff 合同；缺 session 时会明确提示 `request_session`，过期时会提示 `relogin`。
+- `instagram`、`tiktok`、`weibo`、`xiaohongshu`：现在会像 `facebook-group` 一样基于浏览器 session 返回有状态的 manual handoff 合同；缺 session 时会明确提示 `request_session`，过期时会提示 `relogin`。
 - `blog`：现在会把发布内容写入本地 Markdown 文件；默认输出到 `data/blog-posts/`，也可用 `BLOG_PUBLISH_OUTPUT_DIR` 覆盖。
 
-对于 `facebook-group / 小红书 / 微博`，当 session 已就绪时，发布请求现在会额外生成本地 handoff artifact 文件，包含草稿内容、目标、accountKey 和 session 摘要，便于人工接管或外部 browser lane 消费。artifact 会显式维护 `pending / resolved / obsolete` 状态：后续 publish 成功会结单成 `resolved`，session 缺失或过期则会把旧 handoff 标成 `obsolete`。
+对于 `facebook-group / instagram / tiktok / 小红书 / 微博`，当 session 已就绪时，发布请求现在会额外生成本地 handoff artifact 文件，包含草稿内容、目标、accountKey 和 session 摘要，便于人工接管或外部 browser lane 消费。artifact 会显式维护 `pending / resolved / obsolete` 状态：后续 publish 成功会结单成 `resolved`，session 缺失或过期则会把旧 handoff 标成 `obsolete`。
 
 `Social Inbox` 的 reply handoff 也沿用同一套 browser/manual 合同：`POST /api/inbox/:id/send-reply` 现在会明确区分 `sent / manual_required / failed`。其中 `manual_required` 不会把会话误记为 `handled`；如果后端返回 `details.browserReplyHandoff`，前端会直接展示 `readiness`、`sessionAction` 和 handoff artifact 路径，便于人工接管或外部 browser lane 继续消费。缺 session 时会看到 `request_session`，session 过期时会看到 `relogin`，而且只有真正 `sent` 的 reply 才会回写 `handled`。
 
-这意味着当前“成功发布”语义已经比之前更可靠：未配凭证的 `x` / `reddit` 会直接失败；`blog` 会真正落地成可交付的本地文件；`facebook-group`、`weibo`、`xiaohongshu` 也不再是无状态 stub，而是带 session 诊断的 browser handoff 路径。当前可落地发布范围应理解为：`X + Reddit + Blog（本地文件） + Facebook Group / 小红书 / 微博（人工接管）`。
+这意味着当前“成功发布”语义已经比之前更可靠：未配凭证的 `x` / `reddit` 会直接失败；`blog` 会真正落地成可交付的本地文件；`facebook-group`、`instagram`、`tiktok`、`weibo`、`xiaohongshu` 也不再是无状态 stub，而是带 session 诊断的 browser handoff 路径。当前可落地发布范围应理解为：`X + Reddit + Blog（本地文件） + Facebook Group / Instagram / TikTok / 小红书 / 微博（人工接管）`。
 
 ## 数据与运行时
 
@@ -50,7 +50,7 @@ PromoBot 现在不是“只有 spec 的空仓库”了。
 - 请求登录 / 重新登录现在会额外生成 `artifacts/browser-lane-requests/` 下的接管工单文件，便于外部 browser lane 消费；保存 session 成功后，对应工单也会回写为 `resolved`，并附上 session 摘要。`System Queue` 里的 Browser Lane 工单区也支持直接粘贴 `storageState` JSON 并调用 importer API 结单，但真正的自动登录流程仍未接入。
 - 外部 browser lane 现在也可以把结果写成 `browser_lane_result` artifact，然后调用 `POST /api/system/browser-lane-requests/import` 让服务端自动导入 `storageState`、更新渠道账号 session 元数据，并结掉对应 request artifact。这样第一刀无需内置 Playwright，也不用再手工回填 session 表单。
 - 仓库同时提供了 `pnpm browser:lane:submit -- --request-artifact <path> --storage-state-file <path>`，用于从本地 Playwright storage state JSON 生成 `browser_lane_result` artifact；如果再附带 `--base-url` 和 `--admin-password`，会直接把 `requestArtifactPath + storageState` 提交给 importer API，因此 browser lane 不必和服务端共享同一份 result artifact 目录。
-- `facebook-group`、`weibo`、`xiaohongshu` 的 browser handoff 现在也有正式完成入口：外部 lane 或人工接管完成后，可调用 `POST /api/system/browser-handoffs/import` 回写 `published/failed` 结果，系统会同步更新草稿状态、publish log 和 handoff artifact。
+- `facebook-group`、`instagram`、`tiktok`、`weibo`、`xiaohongshu` 的 browser handoff 现在也有正式完成入口：外部 lane 或人工接管完成后，可调用 `POST /api/system/browser-handoffs/import` 回写 `published/failed` 结果，系统会同步更新草稿状态、publish log 和 handoff artifact。
 - 仓库同时提供了 `pnpm browser:handoff:complete -- --artifact-path <path> --status <published|failed>`，用于在本机直接结单 handoff；如果再附带 `--base-url` 和 `--admin-password`，则会走远程 API 导入。
 - `Social Inbox` 的 reply handoff 也有同级完成入口：外部 lane 或人工接管完成回复后，可调用 `POST /api/system/inbox-reply-handoffs/import` 回写 `sent/failed` 结果，系统会同步更新 inbox item 状态和 handoff artifact；源码 checkout 场景可用 `pnpm inbox:reply:handoff:complete -- --artifact-path <path> --status <sent|failed>` 直接结单，bundle-only 场景则用 `node dist/server/cli/inboxReplyHandoffComplete.js --artifact-path <path> --status <sent|failed>`，两者都支持附带 `--message`、`--delivery-url`、`--external-id`、`--delivered-at`，再加 `--base-url` 和 `--admin-password` 时会改走远程 API。
 - 仓库同时提供了 `pnpm browser:artifacts:archive -- [--older-than-hours <n>] [--include-results]`，用于把足够旧的已结单 browser artifacts 归档到 `artifacts/archive/`；当前归档范围同时覆盖 browser lane request/result、browser handoff 和 inbox reply handoff。默认是 dry-run，只有加 `--apply` 才会真正移动文件。

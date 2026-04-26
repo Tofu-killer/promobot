@@ -161,6 +161,16 @@ describe('settings api', () => {
             status: 'needs_session',
           }),
           expect.objectContaining({
+            platform: 'instagram',
+            ready: false,
+            status: 'needs_session',
+          }),
+          expect.objectContaining({
+            platform: 'tiktok',
+            ready: false,
+            status: 'needs_session',
+          }),
+          expect.objectContaining({
             platform: 'xiaohongshu',
             ready: false,
             status: 'needs_session',
@@ -576,6 +586,67 @@ describe('settings api', () => {
             mode: 'browser',
             status: 'needs_relogin',
             message: '已有 微博 浏览器 session，但需要重新登录刷新。',
+            action: 'relogin',
+          }),
+        ]),
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('reports instagram and tiktok readiness from browser session state', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'instagram',
+        accountKey: 'instagram-main',
+        displayName: 'PromoBot Instagram',
+        authType: 'browser',
+        status: 'unknown',
+      });
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'tiktok',
+        accountKey: 'tiktok-main',
+        displayName: 'PromoBot TikTok',
+        authType: 'browser',
+        status: 'unknown',
+      });
+
+      const instagramStorageStatePath = path.join(rootDir, 'artifacts', 'browser-sessions', 'instagram.json');
+      const tiktokStorageStatePath = path.join(rootDir, 'artifacts', 'browser-sessions', 'tiktok.json');
+      mkdirSync(path.dirname(instagramStorageStatePath), { recursive: true });
+      writeFileSync(instagramStorageStatePath, JSON.stringify({ cookies: [], origins: [] }, null, 2));
+      writeFileSync(tiktokStorageStatePath, JSON.stringify({ cookies: [], origins: [] }, null, 2));
+
+      await requestApp('POST', '/api/channel-accounts/1/session', {
+        storageStatePath: 'artifacts/browser-sessions/instagram.json',
+        status: 'active',
+      });
+      await requestApp('POST', '/api/channel-accounts/2/session', {
+        storageStatePath: 'artifacts/browser-sessions/tiktok.json',
+        status: 'expired',
+      });
+
+      const loaded = await requestApp('GET', '/api/settings');
+
+      expect(loaded.status).toBe(200);
+      expect(JSON.parse(loaded.body)).toEqual({
+        settings: expect.any(Object),
+        platforms: expect.arrayContaining([
+          expect.objectContaining({
+            platform: 'instagram',
+            ready: true,
+            mode: 'browser',
+            status: 'ready',
+            message: 'Instagram 已检测到 1 个可用浏览器 session。',
+          }),
+          expect.objectContaining({
+            platform: 'tiktok',
+            ready: false,
+            mode: 'browser',
+            status: 'needs_relogin',
+            message: '已有 TikTok 浏览器 session，但需要重新登录刷新。',
             action: 'relogin',
           }),
         ]),

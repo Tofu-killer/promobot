@@ -133,6 +133,8 @@ function formatReviewActionErrorPrefix(action: ReviewActionState['action']) {
 const manualHandoffReviewPlatforms = new Set([
   'facebook-group',
   'facebookGroup',
+  'instagram',
+  'tiktok',
   'xiaohongshu',
   'weibo',
 ]);

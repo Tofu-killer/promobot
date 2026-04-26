@@ -334,6 +334,8 @@ const createPlatformOptions = [
   { value: 'x', label: 'X / Twitter（首发可用）' },
   { value: 'reddit', label: 'Reddit（首发可用）' },
   { value: 'facebookGroup', label: 'Facebook Group（人工接管）' },
+  { value: 'instagram', label: 'Instagram（人工接管）' },
+  { value: 'tiktok', label: 'TikTok（人工接管）' },
   { value: 'xiaohongshu', label: '小红书（人工接管）' },
   { value: 'weibo', label: '微博（人工接管）' },
   { value: 'blog', label: 'Blog（本地文件发布）' },
@@ -360,6 +362,20 @@ const createPlatformDefaults: Record<
   facebookGroup: {
     accountKey: 'facebook-group-main',
     displayName: 'Facebook Group Manual',
+    authType: 'browser',
+    status: 'unknown',
+    metadata: '',
+  },
+  instagram: {
+    accountKey: 'instagram-main',
+    displayName: 'Instagram Primary',
+    authType: 'browser',
+    status: 'unknown',
+    metadata: '',
+  },
+  tiktok: {
+    accountKey: 'tiktok-main',
+    displayName: 'TikTok Primary',
     authType: 'browser',
     status: 'unknown',
     metadata: '',
@@ -1058,7 +1074,7 @@ export function ChannelAccountsPage({
         <SectionCard title="创建账号" description="填写最小必需信息后提交到 `/api/channel-accounts`。默认值按首发路径保守预置，创建后再测试连接。">
           <div style={{ display: 'grid', gap: '12px' }}>
             <p style={{ margin: 0, color: '#475569', lineHeight: 1.6 }}>
-              首发可用：X、Reddit、Blog（本地文件）。人工接管：Facebook Group、小红书、微博。
+              首发可用：X、Reddit、Blog（本地文件）。人工接管：Facebook Group、Instagram、TikTok、小红书、微博。
             </p>
 
             <label style={{ display: 'grid', gap: '8px' }}>
@@ -2107,6 +2123,8 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 function formatPlatformLabel(platform: string | undefined) {
   if (platform === 'x') return 'X';
   if (platform === 'reddit') return 'Reddit';
-  if (platform === 'facebookGroup') return 'Facebook Group';
+  if (platform === 'facebookGroup' || platform === 'facebook-group') return 'Facebook Group';
+  if (platform === 'instagram') return 'Instagram';
+  if (platform === 'tiktok') return 'TikTok';
   return platform ?? '当前';
 }

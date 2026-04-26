@@ -50,6 +50,10 @@ function buildPublishUrl(
       return `https://reddit.com/r/promobot/comments/${draftId}`;
     case 'facebookGroup':
       return `https://www.facebook.com/groups/promobot/posts/${draftId}`;
+    case 'instagram':
+      return `https://www.instagram.com/p/${draftId}/`;
+    case 'tiktok':
+      return `https://www.tiktok.com/@promobot/video/${draftId}`;
     case 'xiaohongshu':
       return `https://www.xiaohongshu.com/explore/${draftId}`;
     case 'weibo':

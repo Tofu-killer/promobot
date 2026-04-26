@@ -163,7 +163,7 @@ describe('content generation api', () => {
 
     const response = await requestApp('POST', '/api/content/generate', {
       topic: 'Claude support launched',
-      platforms: ['x', 'reddit'],
+      platforms: ['x', 'instagram', 'tiktok', 'reddit'],
       tone: 'professional',
       saveAsDraft: true,
     });
@@ -179,6 +179,18 @@ describe('content generation api', () => {
         },
         {
           draftId: 2,
+          platform: 'instagram',
+          content: 'instagram-draft-content',
+          hashtags: [],
+        },
+        {
+          draftId: 3,
+          platform: 'tiktok',
+          content: 'tiktok-draft-content',
+          hashtags: [],
+        },
+        {
+          draftId: 4,
           platform: 'reddit',
           content: 'reddit-draft-content',
           hashtags: [],

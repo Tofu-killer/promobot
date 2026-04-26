@@ -205,7 +205,7 @@ export function DashboardPage({
           >
             <div style={{ fontWeight: 700, color: '#9a3412' }}>首发运营范围</div>
             <div style={{ color: '#7c2d12' }}>自动发布：X、Reddit</div>
-            <div style={{ color: '#7c2d12' }}>人工接管：Facebook Group、小红书、微博</div>
+            <div style={{ color: '#7c2d12' }}>人工接管：Facebook Group、Instagram、TikTok、小红书、微博</div>
             <div style={{ color: '#166534' }}>本地文件发布：Blog</div>
           </section>
 

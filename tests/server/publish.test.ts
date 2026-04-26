@@ -1586,6 +1586,96 @@ describe('publish api', () => {
     ]);
   });
 
+  it('returns a ready manual handoff contract for instagram drafts with a saved browser session', async () => {
+    const session: SessionMetadata = {
+      id: 'instagram:launch-campaign',
+      platform: 'instagram',
+      accountKey: 'launch-campaign',
+      storageStatePath: 'artifacts/browser-sessions/instagram.json',
+      status: 'active',
+      createdAt: '2026-04-19T10:00:00.000Z',
+      updatedAt: '2026-04-19T10:30:00.000Z',
+      lastValidatedAt: '2026-04-19T10:25:00.000Z',
+    };
+    vi.spyOn(sessionStoreModule, 'createSessionStore').mockReturnValue({
+      getSession: vi.fn().mockReturnValue(session),
+    } as unknown as sessionStoreModule.SessionStore);
+
+    const testDatabase = createTestDatabasePath();
+    activeTestDbRoot = testDatabase.rootDir;
+    activeTestDatabasePath = testDatabase.databasePath;
+    const draftStore = createSQLiteDraftStore();
+    const draft = draftStore.create({
+      platform: 'instagram',
+      title: 'Instagram launch reel',
+      content: 'Needs browser handoff',
+      target: '@brand-account',
+      metadata: {
+        accountKey: 'launch-campaign',
+      },
+    });
+    const app = createTestApp(
+      {
+        lookupDraft(id) {
+          const storedDraft = draftStore.getById(id);
+          if (!storedDraft) {
+            return undefined;
+          }
+
+          return {
+            id: storedDraft.id,
+            platform: storedDraft.platform,
+            title: storedDraft.title,
+            content: storedDraft.content,
+            target: storedDraft.target,
+            metadata: storedDraft.metadata,
+          };
+        },
+      },
+      { useDefaultPersistence: true },
+    );
+
+    const response = await requestApp(app, 'POST', `/api/drafts/${draft.id}/publish`);
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({
+      draftId: draft.id,
+      draftStatus: 'review',
+      platform: 'instagram',
+      mode: 'browser',
+      status: 'manual_required',
+      success: false,
+      publishUrl: null,
+      externalId: null,
+      message: 'instagram draft 1 is ready for manual browser handoff with the saved session.',
+      publishedAt: null,
+      details: {
+        target: '@brand-account',
+        accountKey: 'launch-campaign',
+        browserHandoff: {
+          readiness: 'ready',
+          session: {
+            hasSession: true,
+            id: 'instagram:launch-campaign',
+            status: 'active',
+            validatedAt: '2026-04-19T10:25:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/instagram.json',
+          },
+          sessionAction: null,
+          artifactPath: 'artifacts/browser-handoffs/instagram/launch-campaign/instagram-draft-1.json',
+        },
+      },
+    });
+    expect(readPublishLogs()).toEqual([
+      expect.objectContaining({
+        draftId: draft.id,
+        status: 'manual_required',
+        publishUrl: null,
+        message: 'instagram draft 1 is ready for manual browser handoff with the saved session.',
+      }),
+    ]);
+  });
+
   it('resolves a pending browser handoff artifact when a later browser publish succeeds', async () => {
     const testDatabase = createTestDatabasePath();
     activeTestDbRoot = testDatabase.rootDir;

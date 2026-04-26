@@ -2,6 +2,8 @@ export type PublisherPlatform =
   | 'x'
   | 'reddit'
   | 'facebookGroup'
+  | 'instagram'
+  | 'tiktok'
   | 'xiaohongshu'
   | 'weibo'
   | 'blog';

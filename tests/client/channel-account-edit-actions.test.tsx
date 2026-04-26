@@ -612,6 +612,66 @@ describe('channel account edit actions', () => {
     });
   });
 
+  it('applies browser launch presets for instagram and tiktok', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ChannelAccountsPage } = await import('../../src/client/pages/ChannelAccounts');
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ChannelAccountsPage as never, {
+          stateOverride: {
+            status: 'idle',
+            error: null,
+          },
+        }),
+      );
+      await flush();
+    });
+
+    const instagramPreset = findElement(
+      container,
+      (element) => element.getAttribute('data-create-platform-preset') === 'instagram',
+    );
+
+    expect(instagramPreset).not.toBeNull();
+
+    await act(async () => {
+      instagramPreset?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(collectInputs(container)).toContain('value="instagram"');
+    expect(collectInputs(container)).toContain('value="instagram-main"');
+    expect(collectInputs(container)).toContain('value="Instagram Primary"');
+    expect(collectInputs(container)).toContain('value="browser"');
+    expect(collectInputs(container)).toContain('value="unknown"');
+
+    const tiktokPreset = findElement(
+      container,
+      (element) => element.getAttribute('data-create-platform-preset') === 'tiktok',
+    );
+
+    expect(tiktokPreset).not.toBeNull();
+
+    await act(async () => {
+      tiktokPreset?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(collectInputs(container)).toContain('value="tiktok"');
+    expect(collectInputs(container)).toContain('value="tiktok-main"');
+    expect(collectInputs(container)).toContain('value="TikTok Primary"');
+    expect(collectInputs(container)).toContain('value="browser"');
+    expect(collectInputs(container)).toContain('value="unknown"');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('passes projectId through the create form when creating a channel account', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');

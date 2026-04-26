@@ -1,7 +1,9 @@
 import { Router } from 'express';
 import { generateBlogDraft } from '../services/generators/blog.js';
 import { generateFacebookGroupDraft } from '../services/generators/facebookGroup.js';
+import { generateInstagramDraft } from '../services/generators/instagram.js';
 import { generateRedditDraft } from '../services/generators/reddit.js';
+import { generateTiktokDraft } from '../services/generators/tiktok.js';
 import type { GenerateDraftInput, GeneratedDraft, SiteContext } from '../services/generators/types.js';
 import { generateWeiboDraft } from '../services/generators/weibo.js';
 import { generateXDraft } from '../services/generators/x.js';
@@ -13,7 +15,9 @@ import { createDraftStore } from './drafts.js';
 type SupportedPlatform =
   | 'blog'
   | 'facebook-group'
+  | 'instagram'
   | 'reddit'
+  | 'tiktok'
   | 'weibo'
   | 'x'
   | 'xiaohongshu';
@@ -24,7 +28,9 @@ type DraftCreateInput = Parameters<DraftStore['create']>[0] & { projectId?: numb
 const platformGenerators: Record<SupportedPlatform, PlatformGenerator> = {
   blog: generateBlogDraft,
   'facebook-group': generateFacebookGroupDraft,
+  instagram: generateInstagramDraft,
   reddit: generateRedditDraft,
+  tiktok: generateTiktokDraft,
   weibo: generateWeiboDraft,
   x: generateXDraft,
   xiaohongshu: generateXiaohongshuDraft,
