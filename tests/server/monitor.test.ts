@@ -1063,20 +1063,85 @@ describe('monitor api', () => {
     }
   });
 
-  it('rejects follow-up drafts when the requested platform is not launch-ready', async () => {
+  it.each([
+    ['instagram', 'instagram', 'Instagram creator benchmark'],
+    ['tiktok', 'tiktok', 'TikTok creator benchmark'],
+    ['xiaohongshu', '小红书', '小红书内容节奏观察'],
+    ['weibo', '微博', '微博热点互动观察'],
+  ] as const)(
+    'creates a follow-up draft from a %s monitor item using the source fallback platform',
+    async (platform, source, title) => {
+      const { rootDir } = createTestDatabasePath();
+      try {
+        const monitorStore = createMonitorStore();
+        const draftStore = createSQLiteDraftStore();
+        const item = monitorStore.create({
+          projectId: 18,
+          source,
+          title,
+          detail: `Observed a follow-up opportunity on ${platform}.`,
+          status: 'new',
+        });
+
+        const response = await requestApp('POST', `/api/monitor/${item.id}/generate-follow-up`);
+
+        expect(response.status).toBe(201);
+        expect(JSON.parse(response.body)).toEqual({
+          draft: expect.objectContaining({
+            id: 1,
+            projectId: 18,
+            platform,
+            title: expect.stringContaining('Follow-up'),
+            content: expect.stringContaining(title),
+            status: 'draft',
+          }),
+        });
+        expect(draftStore.list()).toHaveLength(1);
+      } finally {
+        cleanupTestDatabasePath(rootDir);
+      }
+    },
+  );
+
+  it('rejects an unsupported follow-up target even when the monitor source is launch-ready', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
       const monitorStore = createMonitorStore();
       const item = monitorStore.create({
-        source: 'rss',
-        title: 'Competitor launched a lower tier',
-        detail: 'Observed a cheaper plan and a follow-up opportunity.',
+        source: 'instagram',
+        title: 'Instagram creator benchmark',
+        detail: 'Observed a follow-up opportunity on Instagram.',
         status: 'new',
       });
 
       const response = await requestApp('POST', `/api/monitor/${item.id}/generate-follow-up`, {
         platform: 'rss',
       });
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'unsupported follow-up platform',
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it.each([
+    ['rss', 'RSS pricing watch', { platform: 'x' }],
+    ['v2ex', 'V2EX creator benchmark', { platform: 'instagram' }],
+  ] as const)('rejects follow-up drafts for non-launch monitor sources even when %s requests a supported target platform', async (source, title, body) => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const monitorStore = createMonitorStore();
+      const item = monitorStore.create({
+        source,
+        title,
+        detail: 'Observed a cheaper plan and a follow-up opportunity.',
+        status: 'new',
+      });
+
+      const response = await requestApp('POST', `/api/monitor/${item.id}/generate-follow-up`, body);
 
       expect(response.status).toBe(400);
       expect(JSON.parse(response.body)).toEqual({

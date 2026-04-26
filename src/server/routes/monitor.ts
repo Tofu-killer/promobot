@@ -7,7 +7,7 @@ import { systemDashboardRouter } from './systemDashboard.js';
 export const monitorRouter = Router();
 const monitorStore = createMonitorStore();
 const draftStore = createSQLiteDraftStore();
-const supportedFollowUpPlatforms = new Set(['x', 'reddit']);
+const supportedFollowUpPlatforms = new Set(['x', 'reddit', 'instagram', 'tiktok', 'xiaohongshu', 'weibo']);
 
 monitorRouter.use(systemDashboardRouter);
 
@@ -61,7 +61,13 @@ monitorRouter.post('/:id/generate-follow-up', (request, response) => {
     return;
   }
 
-  const platform = resolveFollowUpPlatform(request.body?.platform, item.source);
+  const sourcePlatform = resolveFollowUpSourcePlatform(item.source);
+  if (!sourcePlatform) {
+    response.status(400).json({ error: 'unsupported follow-up platform' });
+    return;
+  }
+
+  const platform = resolveFollowUpPlatform(request.body?.platform, sourcePlatform);
   if (!platform) {
     response.status(400).json({ error: 'unsupported follow-up platform' });
     return;
@@ -99,11 +105,47 @@ function parseOptionalProjectId(value: unknown) {
   return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined;
 }
 
-function resolveFollowUpPlatform(requestedPlatform: unknown, source: string) {
+function resolveFollowUpSourcePlatform(source: string) {
+  const normalizedSource = normalizeFollowUpPlatformCandidate(source);
+  return normalizedSource && supportedFollowUpPlatforms.has(normalizedSource) ? normalizedSource : null;
+}
+
+function resolveFollowUpPlatform(requestedPlatform: unknown, sourcePlatform: string) {
   const candidate =
     typeof requestedPlatform === 'string' && requestedPlatform.trim()
       ? requestedPlatform.trim()
-      : source.trim();
+      : sourcePlatform;
 
-  return supportedFollowUpPlatforms.has(candidate) ? candidate : null;
+  const normalizedCandidate = normalizeFollowUpPlatformCandidate(candidate);
+  return normalizedCandidate && supportedFollowUpPlatforms.has(normalizedCandidate) ? normalizedCandidate : null;
+}
+
+function normalizeFollowUpPlatformCandidate(value: string) {
+  const normalized = value.trim().toLowerCase();
+
+  if (normalized === 'x' || normalized === 'x / twitter' || normalized === 'twitter') {
+    return 'x';
+  }
+
+  if (normalized === 'reddit') {
+    return 'reddit';
+  }
+
+  if (normalized === 'instagram') {
+    return 'instagram';
+  }
+
+  if (normalized === 'tiktok' || normalized === 'tik tok') {
+    return 'tiktok';
+  }
+
+  if (normalized === 'xiaohongshu' || normalized === '小红书') {
+    return 'xiaohongshu';
+  }
+
+  if (normalized === 'weibo' || normalized === '微博') {
+    return 'weibo';
+  }
+
+  return null;
 }
