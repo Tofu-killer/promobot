@@ -40,6 +40,23 @@ export interface ChannelAccountRecord {
     resolvedAt: string | null;
     resolution?: unknown;
   };
+  latestInboxReplyHandoffArtifact?: {
+    channelAccountId?: number;
+    ownership?: string;
+    projectId?: number | null;
+    platform: string;
+    itemId: string;
+    source: string;
+    title: string | null;
+    author: string | null;
+    accountKey: string;
+    status: string;
+    artifactPath: string;
+    createdAt: string;
+    updatedAt: string;
+    resolvedAt: string | null;
+    resolution?: unknown;
+  };
   readiness?: Record<string, unknown>;
   publishReadiness?: Record<string, unknown>;
   createdAt: string;
@@ -1221,6 +1238,68 @@ export function ChannelAccountsPage({
                               </div>
                             </>
                           ) : null}
+                          {account.latestInboxReplyHandoffArtifact ? (
+                            <>
+                              <div>
+                                最近 Inbox Reply Handoff：item #{account.latestInboxReplyHandoffArtifact.itemId} ·{' '}
+                                {account.latestInboxReplyHandoffArtifact.status}
+                              </div>
+                              <div>
+                                Inbox 来源：{account.latestInboxReplyHandoffArtifact.source}
+                              </div>
+                              <div>
+                                Inbox 作者：{account.latestInboxReplyHandoffArtifact.author ?? '未提供'}
+                              </div>
+                              <div>
+                                Inbox 标题：{account.latestInboxReplyHandoffArtifact.title ?? '未提供'}
+                              </div>
+                              <div>
+                                Inbox Handoff 时间：{account.latestInboxReplyHandoffArtifact.updatedAt}
+                              </div>
+                              <div>
+                                Inbox Handoff 结单：
+                                {account.latestInboxReplyHandoffArtifact.resolvedAt ?? '未结单'}
+                              </div>
+                              {account.latestInboxReplyHandoffArtifact.ownership ? (
+                                <div>
+                                  Inbox Handoff 归属：
+                                  {formatHandoffOwnership(account.latestInboxReplyHandoffArtifact.ownership)}
+                                </div>
+                              ) : null}
+                              {typeof account.latestInboxReplyHandoffArtifact.projectId === 'number' ? (
+                                <div>
+                                  Inbox Handoff 项目：{account.latestInboxReplyHandoffArtifact.projectId}
+                                </div>
+                              ) : null}
+                              {readStatusValue(account.latestInboxReplyHandoffArtifact.resolution) ? (
+                                <div>
+                                  Inbox Handoff 结果：
+                                  {readStatusValue(account.latestInboxReplyHandoffArtifact.resolution)}
+                                </div>
+                              ) : null}
+                              {readResolutionDetail(account.latestInboxReplyHandoffArtifact.resolution) ? (
+                                <div>
+                                  Inbox Handoff 详情：
+                                  {readResolutionDetail(account.latestInboxReplyHandoffArtifact.resolution)}
+                                </div>
+                              ) : null}
+                              {readTextValue(
+                                readObjectValue(account.latestInboxReplyHandoffArtifact.resolution)?.deliveryUrl,
+                              ) ? (
+                                <div>
+                                  Inbox Delivery URL：
+                                  {
+                                    readTextValue(
+                                      readObjectValue(account.latestInboxReplyHandoffArtifact.resolution)?.deliveryUrl,
+                                    )
+                                  }
+                                </div>
+                              ) : null}
+                              <div>
+                                Inbox Handoff 路径：{account.latestInboxReplyHandoffArtifact.artifactPath}
+                              </div>
+                            </>
+                          ) : null}
                           <div>
                             发布就绪：{formatReadinessStatus(account.publishReadiness?.status)}
                           </div>
@@ -1893,7 +1972,9 @@ function readResolutionDetail(value: unknown): string | undefined {
   return (
     readTextValue(record?.reason) ??
     readTextValue(record?.publishStatus) ??
+    readTextValue(record?.replyStatus) ??
     readTextValue(record?.draftStatus) ??
+    readTextValue(record?.itemStatus) ??
     undefined
   );
 }
@@ -1905,6 +1986,10 @@ function formatHandoffOwnership(value: string) {
 
   if (value === 'draft_project') {
     return '按草稿项目推断';
+  }
+
+  if (value === 'item_project') {
+    return '按 Inbox 项目推断';
   }
 
   if (value === 'unmatched') {

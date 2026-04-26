@@ -23,6 +23,8 @@ PromoBot 现在不是“只有 spec 的空仓库”了。
 
 对于 `facebook-group / 小红书 / 微博`，当 session 已就绪时，发布请求现在会额外生成本地 handoff artifact 文件，包含草稿内容、目标、accountKey 和 session 摘要，便于人工接管或外部 browser lane 消费。artifact 会显式维护 `pending / resolved / obsolete` 状态：后续 publish 成功会结单成 `resolved`，session 缺失或过期则会把旧 handoff 标成 `obsolete`。
 
+`Social Inbox` 的 reply handoff 也沿用同一套 browser/manual 合同：`POST /api/inbox/:id/send-reply` 现在会明确区分 `sent / manual_required / failed`。其中 `manual_required` 不会把会话误记为 `handled`；如果后端返回 `details.browserReplyHandoff`，前端会直接展示 `readiness`、`sessionAction` 和 handoff artifact 路径，便于人工接管或外部 browser lane 继续消费。缺 session 时会看到 `request_session`，session 过期时会看到 `relogin`，而且只有真正 `sent` 的 reply 才会回写 `handled`。
+
 这意味着当前“成功发布”语义已经比之前更可靠：未配凭证的 `x` / `reddit` 会直接失败；`blog` 会真正落地成可交付的本地文件；`facebook-group`、`weibo`、`xiaohongshu` 也不再是无状态 stub，而是带 session 诊断的 browser handoff 路径。当前可落地发布范围应理解为：`X + Reddit + Blog（本地文件） + Facebook Group / 小红书 / 微博（人工接管）`。
 
 ## 数据与运行时
@@ -33,7 +35,7 @@ PromoBot 现在不是“只有 spec 的空仓库”了。
 - 所有 API 都挂在 IP allowlist 中间件后面。
 - allowlist 现在支持“精确 IP 字符串”“CIDR 子网”以及 `*` 全放开；Settings 页保存后会立即影响当前进程的访问控制。
 - 服务启动时会自动读取仓库根目录下的 `.env`（如果存在）；已存在的 shell 环境变量优先，不会被 `.env` 覆盖。
-- `/api/system/health` 现在会返回 `service`、`timestamp`、`uptimeSeconds`、scheduler 摘要，以及 browser artifact 摘要：`browserArtifacts.laneRequests(total/pending/resolved)` 和 `browserArtifacts.handoffs(total/pending/resolved/obsolete/unmatched)`，便于 PM2 / 运维探活。
+- `/api/system/health` 现在会返回 `service`、`timestamp`、`uptimeSeconds`、scheduler 摘要，以及 browser artifact 摘要：`browserArtifacts.laneRequests(total/pending/resolved)`、`browserArtifacts.handoffs(total/pending/resolved/obsolete/unmatched)` 和 `browserArtifacts.inboxReplyHandoffs(total/pending/resolved/obsolete)`，便于 PM2 / 运维探活。
 
 ## 重要限制
 
@@ -50,8 +52,9 @@ PromoBot 现在不是“只有 spec 的空仓库”了。
 - 仓库同时提供了 `pnpm browser:lane:submit -- --request-artifact <path> --storage-state-file <path>`，用于从本地 Playwright storage state JSON 生成 `browser_lane_result` artifact；如果再附带 `--base-url` 和 `--admin-password`，会直接把 `requestArtifactPath + storageState` 提交给 importer API，因此 browser lane 不必和服务端共享同一份 result artifact 目录。
 - `facebook-group`、`weibo`、`xiaohongshu` 的 browser handoff 现在也有正式完成入口：外部 lane 或人工接管完成后，可调用 `POST /api/system/browser-handoffs/import` 回写 `published/failed` 结果，系统会同步更新草稿状态、publish log 和 handoff artifact。
 - 仓库同时提供了 `pnpm browser:handoff:complete -- --artifact-path <path> --status <published|failed>`，用于在本机直接结单 handoff；如果再附带 `--base-url` 和 `--admin-password`，则会走远程 API 导入。
-- 仓库同时提供了 `pnpm browser:artifacts:archive -- [--older-than-hours <n>] [--include-results]`，用于把足够旧的已结单 browser artifacts 归档到 `artifacts/archive/`；默认是 dry-run，只有加 `--apply` 才会真正移动文件。
-- `System Queue`、`Dashboard`、`Settings`、`Channel Accounts` 现在都能直接看到 browser lane / browser handoff 的最新状态；系统 API 也提供了 `/api/system/browser-handoffs` 只读汇总入口。
+- `Social Inbox` 的 reply handoff 也有同级完成入口：外部 lane 或人工接管完成回复后，可调用 `POST /api/system/inbox-reply-handoffs/import` 回写 `sent/failed` 结果，系统会同步更新 inbox item 状态和 handoff artifact；源码 checkout 场景可用 `pnpm inbox:reply:handoff:complete -- --artifact-path <path> --status <sent|failed>` 直接结单，bundle-only 场景则用 `node dist/server/cli/inboxReplyHandoffComplete.js --artifact-path <path> --status <sent|failed>`，两者都支持附带 `--message`、`--delivery-url`、`--external-id`、`--delivered-at`，再加 `--base-url` 和 `--admin-password` 时会改走远程 API。
+- 仓库同时提供了 `pnpm browser:artifacts:archive -- [--older-than-hours <n>] [--include-results]`，用于把足够旧的已结单 browser artifacts 归档到 `artifacts/archive/`；当前归档范围同时覆盖 browser lane request/result、browser handoff 和 inbox reply handoff。默认是 dry-run，只有加 `--apply` 才会真正移动文件。
+- `System Queue`、`Dashboard`、`Settings`、`Channel Accounts` 现在都能直接看到 browser lane / browser handoff / inbox reply handoff 的最新状态；系统 API 也提供了 `/api/system/browser-handoffs` 与 `/api/system/inbox-reply-handoffs` 只读汇总入口，`/api/system/health` 里的 `browserArtifacts` 还会额外带上 `inboxReplyHandoffs(total/pending/resolved/obsolete)`。
 - `Drafts` 和 `Review Queue` 在 `manual_required` 时会直接显示 handoff 回执里的 `browserHandoff` 细节，不再只剩一条泛化成功消息。
 
 ## 开发与验证
@@ -73,6 +76,8 @@ pnpm verify:release -- --input-dir /tmp/promobot-release
 pnpm deploy:local -- --skip-smoke
 pnpm rollback:local -- --backup-dir /tmp/promobot-backup --skip-smoke
 pnpm preflight:local -- --skip-smoke
+pnpm inbox:reply:handoff:complete -- --help
+node dist/server/cli/inboxReplyHandoffComplete.js --help
 pnpm browser:artifacts:archive -- --older-than-hours 72
 ```
 

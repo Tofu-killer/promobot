@@ -11,6 +11,7 @@ import {
   resolveSessionRequestArtifacts,
 } from '../../src/server/services/browser/sessionRequestArtifacts';
 import { createSQLiteDraftStore } from '../../src/server/store/drafts';
+import { createInboxStore } from '../../src/server/store/inbox';
 import { createSQLitePublishLogStore } from '../../src/server/store/publishLogs';
 import { cleanupTestDatabasePath, createTestDatabasePath, isolateProcessCwd } from './testDb';
 
@@ -265,6 +266,12 @@ describe('security middleware', () => {
           obsolete: 0,
           unmatched: 0,
         },
+        inboxReplyHandoffs: {
+          total: 0,
+          pending: 0,
+          resolved: 0,
+          obsolete: 0,
+        },
       },
     });
   });
@@ -431,6 +438,102 @@ describe('security middleware', () => {
         }),
       );
 
+      const inboxReplyHandoffDir = path.join(
+        rootDir,
+        'artifacts',
+        'inbox-reply-handoffs',
+        'weibo',
+        'weibo-browser-main',
+      );
+      fs.mkdirSync(inboxReplyHandoffDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(inboxReplyHandoffDir, 'weibo-inbox-item-21.json'),
+        JSON.stringify({
+          type: 'browser_inbox_reply_handoff',
+          status: 'pending',
+          platform: 'weibo',
+          itemId: '21',
+          source: 'weibo',
+          title: 'Community question',
+          excerpt: 'Can you share current response times?',
+          reply: 'Thanks for reaching out.',
+          author: 'ops-user',
+          sourceUrl: 'https://weibo.test/post/21',
+          accountKey: 'weibo-browser-main',
+          session: {
+            hasSession: true,
+            id: 'weibo:weibo-browser-main',
+            status: 'active',
+            validatedAt: '2026-04-25T10:00:00.000Z',
+            storageStatePath: 'browser-sessions/managed/weibo/weibo-browser-main.json',
+          },
+          createdAt: '2026-04-25T10:01:00.000Z',
+          updatedAt: '2026-04-25T10:01:00.000Z',
+          resolvedAt: null,
+          resolution: null,
+        }),
+      );
+      fs.writeFileSync(
+        path.join(inboxReplyHandoffDir, 'weibo-inbox-item-22.json'),
+        JSON.stringify({
+          type: 'browser_inbox_reply_handoff',
+          status: 'resolved',
+          platform: 'weibo',
+          itemId: '22',
+          source: 'weibo',
+          title: 'Resolved question',
+          excerpt: 'Thanks for the reply.',
+          reply: 'Happy to help.',
+          author: 'ops-user',
+          sourceUrl: 'https://weibo.test/post/22',
+          accountKey: 'weibo-browser-main',
+          session: {
+            hasSession: true,
+            id: 'weibo:weibo-browser-main',
+            status: 'active',
+            validatedAt: '2026-04-25T10:05:00.000Z',
+            storageStatePath: 'browser-sessions/managed/weibo/weibo-browser-main.json',
+          },
+          createdAt: '2026-04-25T10:06:00.000Z',
+          updatedAt: '2026-04-25T10:10:00.000Z',
+          resolvedAt: '2026-04-25T10:10:00.000Z',
+          resolution: {
+            status: 'resolved',
+            replyStatus: 'sent',
+          },
+        }),
+      );
+      fs.writeFileSync(
+        path.join(inboxReplyHandoffDir, 'weibo-inbox-item-23.json'),
+        JSON.stringify({
+          type: 'browser_inbox_reply_handoff',
+          status: 'obsolete',
+          platform: 'weibo',
+          itemId: '23',
+          source: 'weibo',
+          title: 'Obsolete question',
+          excerpt: 'Please log in again.',
+          reply: 'Please retry.',
+          author: 'ops-user',
+          sourceUrl: 'https://weibo.test/post/23',
+          accountKey: 'weibo-browser-main',
+          session: {
+            hasSession: true,
+            id: 'weibo:weibo-browser-main',
+            status: 'expired',
+            validatedAt: '2026-04-25T10:15:00.000Z',
+            storageStatePath: 'browser-sessions/managed/weibo/weibo-browser-main.json',
+          },
+          createdAt: '2026-04-25T10:16:00.000Z',
+          updatedAt: '2026-04-25T10:20:00.000Z',
+          resolvedAt: '2026-04-25T10:20:00.000Z',
+          resolution: {
+            status: 'obsolete',
+            reason: 'relogin',
+          },
+        }),
+      );
+
       const response = await requestExistingApp(app, {
         method: 'GET',
         url: '/api/system/health',
@@ -459,6 +562,12 @@ describe('security middleware', () => {
             resolved: 1,
             obsolete: 1,
             unmatched: 1,
+          },
+          inboxReplyHandoffs: {
+            total: 3,
+            pending: 1,
+            resolved: 1,
+            obsolete: 1,
           },
         },
       });
@@ -520,6 +629,12 @@ describe('security middleware', () => {
               resolved: 0,
               obsolete: 0,
               unmatched: 0,
+            },
+            inboxReplyHandoffs: {
+              total: 0,
+              pending: 0,
+              resolved: 0,
+              obsolete: 0,
             },
           },
         });
@@ -605,6 +720,12 @@ describe('security middleware', () => {
             obsolete: 0,
             unmatched: 0,
           },
+          inboxReplyHandoffs: {
+            total: 0,
+            pending: 0,
+            resolved: 0,
+            obsolete: 0,
+          },
         },
       });
     } finally {
@@ -680,6 +801,12 @@ describe('security middleware', () => {
             resolved: 0,
             obsolete: 0,
             unmatched: 0,
+          },
+          inboxReplyHandoffs: {
+            total: 0,
+            pending: 0,
+            resolved: 0,
+            obsolete: 0,
           },
         },
       });
@@ -1059,6 +1186,12 @@ describe('system runtime api', () => {
           resolved: 0,
           obsolete: 0,
           unmatched: 0,
+        },
+        inboxReplyHandoffs: {
+          total: 0,
+          pending: 0,
+          resolved: 0,
+          obsolete: 0,
         },
       },
     });
@@ -2349,6 +2482,158 @@ describe('system runtime api', () => {
     }
   });
 
+  it('lists inbox reply handoff artifacts through the system api', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const app = createApp({
+        allowedIps: ['127.0.0.1'],
+        adminPassword: 'secret',
+      });
+
+      const artifactDir = path.join(
+        rootDir,
+        'artifacts',
+        'inbox-reply-handoffs',
+        'weibo',
+        'weibo-browser-main',
+      );
+      fs.mkdirSync(artifactDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(artifactDir, 'weibo-inbox-item-12.json'),
+        JSON.stringify({
+          type: 'browser_inbox_reply_handoff',
+          status: 'pending',
+          platform: 'weibo',
+          itemId: '12',
+          source: 'weibo',
+          title: 'Community question',
+          excerpt: 'Can you share current response times?',
+          reply: 'Thanks for reaching out.',
+          author: 'ops-user',
+          sourceUrl: 'https://weibo.test/post/12',
+          accountKey: 'weibo-browser-main',
+          session: {
+            hasSession: true,
+            id: 'weibo:weibo-browser-main',
+            status: 'active',
+            validatedAt: '2026-04-25T10:00:00.000Z',
+            storageStatePath: 'browser-sessions/managed/weibo/weibo-browser-main.json',
+          },
+          createdAt: '2026-04-25T10:01:00.000Z',
+          updatedAt: '2026-04-25T10:01:00.000Z',
+          resolvedAt: null,
+          resolution: null,
+        }),
+      );
+
+      const response = await requestExistingApp(app, {
+        method: 'GET',
+        url: '/api/system/inbox-reply-handoffs?limit=10',
+        remoteAddress: '127.0.0.1',
+        headers: {
+          'x-admin-password': 'secret',
+        },
+      });
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        handoffs: [
+          expect.objectContaining({
+            platform: 'weibo',
+            itemId: '12',
+            source: 'weibo',
+            accountKey: 'weibo-browser-main',
+            status: 'pending',
+            artifactPath:
+              'artifacts/inbox-reply-handoffs/weibo/weibo-browser-main/weibo-inbox-item-12.json',
+            resolvedAt: null,
+          }),
+        ],
+        total: 1,
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('returns a conflict when an inbox reply handoff artifact has already been resolved', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const inboxStore = createInboxStore();
+      const item = inboxStore.create({
+        projectId: 1,
+        source: 'weibo',
+        status: 'needs_review',
+        author: 'ops-user',
+        title: 'Community question',
+        excerpt: 'Can you share current response times?',
+        metadata: {
+          accountKey: 'weibo-browser-main',
+        },
+      });
+      const artifactPath =
+        'artifacts/inbox-reply-handoffs/weibo/weibo-browser-main/weibo-inbox-item-1.json';
+      fs.mkdirSync(path.dirname(path.join(rootDir, artifactPath)), { recursive: true });
+      fs.writeFileSync(
+        path.join(rootDir, artifactPath),
+        JSON.stringify({
+          type: 'browser_inbox_reply_handoff',
+          status: 'resolved',
+          platform: 'weibo',
+          itemId: String(item.id),
+          source: 'weibo',
+          title: 'Community question',
+          excerpt: 'Can you share current response times?',
+          reply: 'Thanks for reaching out.',
+          author: 'ops-user',
+          sourceUrl: 'https://weibo.test/post/1',
+          accountKey: 'weibo-browser-main',
+          session: {
+            hasSession: true,
+            id: 'weibo:weibo-browser-main',
+            status: 'active',
+            validatedAt: '2026-04-25T10:00:00.000Z',
+            storageStatePath: 'browser-sessions/managed/weibo/weibo-browser-main.json',
+          },
+          createdAt: '2026-04-25T10:01:00.000Z',
+          updatedAt: '2026-04-25T10:05:00.000Z',
+          resolvedAt: '2026-04-25T10:05:00.000Z',
+          resolution: {
+            status: 'resolved',
+            replyStatus: 'sent',
+          },
+        }),
+      );
+
+      const app = createApp({
+        allowedIps: ['127.0.0.1'],
+        adminPassword: 'secret',
+      });
+
+      const response = await requestExistingApp(app, {
+        method: 'POST',
+        url: '/api/system/inbox-reply-handoffs/import',
+        remoteAddress: '127.0.0.1',
+        headers: {
+          'x-admin-password': 'secret',
+          'content-type': 'application/json',
+        },
+        body: {
+          artifactPath,
+          replyStatus: 'sent',
+          message: 'manual browser reply sent',
+        },
+      });
+
+      expect(response.status).toBe(409);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'inbox reply handoff artifact already resolved',
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
 });
 
 describe('static client hosting', () => {
@@ -2446,6 +2731,12 @@ describe('static client hosting', () => {
             resolved: 0,
             obsolete: 0,
             unmatched: 0,
+          },
+          inboxReplyHandoffs: {
+            total: 0,
+            pending: 0,
+            resolved: 0,
+            obsolete: 0,
           },
         },
       });

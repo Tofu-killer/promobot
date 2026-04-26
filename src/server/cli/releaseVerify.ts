@@ -68,6 +68,7 @@ const REQUIRED_RELEASE_PATHS = [
   'pnpm-lock.yaml',
   'dist/server/index.js',
   'dist/server/cli/deploymentSmoke.js',
+  'dist/server/cli/inboxReplyHandoffComplete.js',
   'dist/server/cli/releaseVerify.js',
   'dist/client/index.html',
   'pm2.config.js',

@@ -186,6 +186,7 @@ describe('deployment smoke cli', () => {
         'GET http://local.test/api/settings',
         'GET http://local.test/api/system/browser-lane-requests?limit=1',
         'GET http://local.test/api/system/browser-handoffs?limit=1',
+        'GET http://local.test/api/system/inbox-reply-handoffs?limit=1',
         'POST http://local.test/api/auth/logout',
       ]);
       expect(result).toEqual({
@@ -208,6 +209,12 @@ describe('deployment smoke cli', () => {
                 obsolete: 0,
                 unmatched: 0,
               },
+              inboxReplyHandoffs: {
+                total: 0,
+                pending: 0,
+                resolved: 0,
+                obsolete: 0,
+              },
             },
           }),
           settings: expect.objectContaining({
@@ -219,6 +226,10 @@ describe('deployment smoke cli', () => {
             total: 0,
           },
           browserHandoffs: {
+            handoffs: [],
+            total: 0,
+          },
+          inboxReplyHandoffs: {
             handoffs: [],
             total: 0,
           },
@@ -250,6 +261,7 @@ describe('deployment smoke cli', () => {
     expect(getDeploymentSmokeHelpText()).toContain('--base-url <origin>');
     expect(getDeploymentSmokeHelpText()).toContain('[--admin-password <secret>]');
     expect(getDeploymentSmokeHelpText()).toContain('/api/system/browser-handoffs?limit=1');
+    expect(getDeploymentSmokeHelpText()).toContain('/api/system/inbox-reply-handoffs?limit=1');
   });
 
   it('falls back to environment passwords when the cli argument is omitted', async () => {

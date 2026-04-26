@@ -49,6 +49,12 @@ export interface DashboardResponse {
     obsolete: number;
     unmatched: number;
   };
+  inboxReplyHandoffs?: {
+    total: number;
+    pending: number;
+    resolved: number;
+    obsolete: number;
+  };
   jobQueue?: {
     pending: number;
     running: number;
@@ -138,6 +144,7 @@ export function DashboardPage({
   const channelAccountMetrics = viewData?.channelAccounts ?? null;
   const browserLaneMetrics = viewData?.browserLaneRequests ?? null;
   const browserHandoffMetrics = viewData?.browserHandoffs ?? null;
+  const inboxReplyHandoffMetrics = viewData?.inboxReplyHandoffs ?? null;
   const draftLifecycleMetrics = {
     scheduled: viewData?.drafts.scheduled,
     published: viewData?.drafts.published,
@@ -281,6 +288,26 @@ export function DashboardPage({
               label="Browser Handoff 未归属"
               value={formatOptionalMetricValue(browserHandoffMetrics?.unmatched)}
               detail="缺少明确账号归属、仍依赖历史推断或未匹配的 handoff 数量"
+            />
+            <StatCard
+              label="Inbox Reply Handoff 总工单"
+              value={formatOptionalMetricValue(inboxReplyHandoffMetrics?.total)}
+              detail="inbox reply browser/manual handoff artifact 总数"
+            />
+            <StatCard
+              label="Inbox Reply Handoff 待处理"
+              value={formatOptionalMetricValue(inboxReplyHandoffMetrics?.pending)}
+              detail="仍在等待人工完成回复并回填结果的 handoff 数量"
+            />
+            <StatCard
+              label="Inbox Reply Handoff 已完成"
+              value={formatOptionalMetricValue(inboxReplyHandoffMetrics?.resolved)}
+              detail="已导入 sent 或 failed 结果、artifact 已结单的 inbox reply handoff 数量"
+            />
+            <StatCard
+              label="Inbox Reply Handoff 已作废"
+              value={formatOptionalMetricValue(inboxReplyHandoffMetrics?.obsolete)}
+              detail="因重新请求 session 或 relogin 而作废的 inbox reply handoff 数量"
             />
             <StatCard
               label="待发布"

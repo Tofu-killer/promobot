@@ -177,6 +177,11 @@ describe('release bundle cli', () => {
     writeFile(repoRoot, 'docs/DEPLOYMENT.md', '# Deploy\n');
     writeFile(repoRoot, 'dist/server/index.js', 'console.log("server");\n');
     writeFile(repoRoot, 'dist/server/chunks/app.js', 'export const app = true;\n');
+    writeFile(
+      repoRoot,
+      'dist/server/cli/inboxReplyHandoffComplete.js',
+      'console.log("handoff complete");\n',
+    );
     writeFile(repoRoot, 'dist/client/index.html', '<!doctype html>\n');
     writeFile(repoRoot, 'dist/client/assets/app.js', 'console.log("client");\n');
     writeFile(repoRoot, 'ops/deploy-release.sh', '#!/usr/bin/env bash\n');
@@ -205,6 +210,7 @@ describe('release bundle cli', () => {
         'dist/client/assets/app.js',
         'dist/client/index.html',
         'dist/server/chunks/app.js',
+        'dist/server/cli/inboxReplyHandoffComplete.js',
         'dist/server/index.js',
         'docs/DEPLOYMENT.md',
         'manifest.json',
@@ -231,6 +237,9 @@ describe('release bundle cli', () => {
     );
     expect(summary.checksums['dist/server/chunks/app.js']).toBe(
       sha256Hex('export const app = true;\n'),
+    );
+    expect(summary.checksums['dist/server/cli/inboxReplyHandoffComplete.js']).toBe(
+      sha256Hex('console.log("handoff complete");\n'),
     );
     expect(summary.checksums['dist/client/index.html']).toBe(sha256Hex('<!doctype html>\n'));
     expect(summary.checksums['docs/DEPLOYMENT.md']).toBe(sha256Hex('# Deploy\n'));

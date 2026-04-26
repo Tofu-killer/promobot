@@ -69,8 +69,12 @@ cp .env.example .env
   - browser manual handoff artifact 会落在 `artifacts/browser-handoffs/<platform>/<account>/`，并维护 `pending / resolved / obsolete` 状态
   - 外部 browser lane 或人工接管完成发布后，可调用 `POST /api/system/browser-handoffs/import` 回写 `published/failed` 结果，系统会同步更新 draft、publish log 和 handoff artifact
   - 仓库内置 `pnpm browser:handoff:complete -- --artifact-path <path> --status <published|failed>`；默认直接在本机导入 handoff 完成结果，若同时提供 `--base-url` 和 `--admin-password`，则会走远程 API
-  - 仓库内置 `pnpm browser:artifacts:archive -- [--older-than-hours <n>] [--include-results]`；默认只做 dry-run，输出机器可读 JSON summary；加 `--apply` 后会把足够旧的已结单 artifact 移到 `artifacts/archive/browser-lane-requests/` 或 `artifacts/archive/browser-handoffs/`
-  - 控制台中的 `System Queue` / `Settings` / `Dashboard` / `Channel Accounts` 都会直接消费这些工单与 handoff 状态
+  - inbox reply handoff artifact 会落在 `artifacts/inbox-reply-handoffs/<platform>/<account>/`，并维护 `pending / resolved / obsolete` 状态
+  - 外部 browser lane 或人工接管完成回复后，可调用 `POST /api/system/inbox-reply-handoffs/import` 回写 `sent/failed` 结果；只有 `sent` 会把 inbox item 回写为 `handled`
+  - 仓库内置 `pnpm inbox:reply:handoff:complete -- --artifact-path <path> --status <sent|failed>`；默认直接在源码仓库内导入 inbox reply handoff 完成结果。若只拿 release bundle，则改用 `node dist/server/cli/inboxReplyHandoffComplete.js --artifact-path <path> --status <sent|failed>`；两条入口都支持 `--message`、`--delivery-url`、`--external-id`、`--delivered-at`，同时提供 `--base-url` 和 `--admin-password` 时会走远程 API
+  - 仓库内置 `pnpm browser:artifacts:archive -- [--older-than-hours <n>] [--include-results]`；默认只做 dry-run，输出机器可读 JSON summary；加 `--apply` 后会把足够旧的已结单 artifact 移到 `artifacts/archive/browser-lane-requests/`、`artifacts/archive/browser-handoffs/` 或 `artifacts/archive/inbox-reply-handoffs/`
+  - `/api/system/health` 会汇总 `browserArtifacts.laneRequests`、`browserArtifacts.handoffs` 和 `browserArtifacts.inboxReplyHandoffs`
+  - 控制台中的 `System Queue` / `Settings` / `Dashboard` / `Channel Accounts` 都会直接消费这些工单与 handoff 状态；`Channel Accounts` 还会返回 `latestInboxReplyHandoffArtifact`
 - `AI_BASE_URL` / `AI_API_KEY`
   - 对服务启动本身可选
   - 对 AI 草稿生成、Inbox 回复建议等功能必需
@@ -83,7 +87,7 @@ cp .env.example .env
   - 未配置时默认 `<cwd>/data/blog-posts`
 - `BROWSER_HANDOFF_OUTPUT_DIR`
   - 可选
-  - 控制 browser manual handoff artifact 的输出目录
+  - 控制 browser manual handoff 与 inbox reply handoff artifact 的输出目录
   - 未配置时默认使用仓库 / 部署根目录
 - `X_ACCESS_TOKEN` / `X_BEARER_TOKEN`
   - 任一存在时，`x` publisher 才会尝试真实 API
@@ -384,6 +388,7 @@ pnpm verify:release -- --input-dir /tmp/promobot-release
 cd /tmp/promobot-release
 pnpm release:deploy -- --skip-smoke
 node dist/server/cli/deploymentSmoke.js --base-url http://127.0.0.1:3001
+node dist/server/cli/inboxReplyHandoffComplete.js --help
 ```
 
 这条链路建议在构建机先做一次 `verify:release`，再把 bundle 目录发往目标机。目标机上的独立 smoke 继续沿用 bundle 自带的 compiled CLI，与 `ops/deploy-release.sh` 内部的检查方式保持一致。
@@ -462,6 +467,7 @@ pm2 logs promobot --lines 100
 - 如果 runtime 已挂载，还会返回 `scheduler.queue.pending/running/failed/duePending`
 - `browserArtifacts.laneRequests.total/pending/resolved`
 - `browserArtifacts.handoffs.total/pending/resolved/obsolete/unmatched`
+- `browserArtifacts.inboxReplyHandoffs.total/pending/resolved/obsolete`
 
 最小通过标准：
 
@@ -485,7 +491,8 @@ pnpm smoke:server -- --base-url http://127.0.0.1:3001
 3. `GET /api/settings`
 4. `GET /api/system/browser-lane-requests?limit=1`
 5. `GET /api/system/browser-handoffs?limit=1`
-6. `POST /api/auth/logout`
+6. `GET /api/system/inbox-reply-handoffs?limit=1`
+7. `POST /api/auth/logout`
 
 ## 日志轮转
 
@@ -635,7 +642,7 @@ curl http://127.0.0.1:3001/
 
 - `/api/system/health` 返回 `200`
 - 响应 JSON 里至少包含 `ok=true` 和 `service=promobot`
-- 响应 JSON 里包含 `browserArtifacts.laneRequests` 和 `browserArtifacts.handoffs`
+- 响应 JSON 里包含 `browserArtifacts.laneRequests`、`browserArtifacts.handoffs` 和 `browserArtifacts.inboxReplyHandoffs`
 - 页面入口返回 HTML，而不是 404
 
 如果你想先预览 browser artifact 归档计划而不真正移动文件，可运行：

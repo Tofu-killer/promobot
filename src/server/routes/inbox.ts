@@ -2,12 +2,15 @@ import { Router } from 'express';
 import { createInboxStore } from '../store/inbox.js';
 import { chatJson } from '../services/aiClient.js';
 import { createInboxFetchService } from '../services/inboxFetch.js';
+import { createInboxReplyService } from '../services/inboxReply.js';
 
 export const inboxRouter = Router();
 const inboxStore = createInboxStore();
 const inboxFetchService = createInboxFetchService();
+const inboxReplyService = createInboxReplyService();
 
 const allowedStatuses = new Set(['handled', 'snoozed', 'needs_reply', 'needs_review']);
+const sendableStatuses = new Set(['needs_reply', 'needs_review']);
 
 function isAllowedStatus(value: string): boolean {
   return allowedStatuses.has(value);
@@ -98,7 +101,7 @@ inboxRouter.post('/:id/suggest-reply', async (request, response) => {
   response.json({ suggestion: { reply: suggestion.reply } });
 });
 
-inboxRouter.post('/:id/send-reply', (request, response) => {
+inboxRouter.post('/:id/send-reply', async (request, response, next) => {
   const id = Number(request.params.id);
   const reply = parseReply(request.body?.reply);
 
@@ -114,21 +117,22 @@ inboxRouter.post('/:id/send-reply', (request, response) => {
     return;
   }
 
-  const updatedItem = inboxStore.updateStatus(id, 'handled');
-  if (!updatedItem) {
-    response.status(404).json({ error: 'inbox item not found' });
+  if (!sendableStatuses.has(item.status)) {
+    response.status(409).json({ error: 'inbox item cannot be replied to' });
     return;
   }
 
-  response.json({
-    item: updatedItem,
-    delivery: {
-      status: 'recorded',
-      mode: 'manual',
-      message: 'Reply recorded for manual delivery.',
-      reply,
-    },
-  });
+  try {
+    const delivery = await inboxReplyService.deliver({ item, reply });
+    const responseItem = delivery.status === 'sent' ? inboxStore.updateStatus(id, 'handled') ?? item : item;
+
+    response.json({
+      item: responseItem,
+      delivery,
+    });
+  } catch (error) {
+    next(error);
+  }
 });
 
 function parseProjectIdQuery(value: unknown) {

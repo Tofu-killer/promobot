@@ -120,6 +120,27 @@ export interface BrowserHandoffsResponse {
   total: number;
 }
 
+export interface InboxReplyHandoffRecord {
+  channelAccountId?: number;
+  platform: string;
+  itemId: string;
+  source: string;
+  title: string | null;
+  author: string | null;
+  accountKey: string;
+  status: string;
+  artifactPath: string;
+  createdAt: string;
+  updatedAt: string;
+  resolvedAt: string | null;
+  resolution?: unknown;
+}
+
+export interface InboxReplyHandoffsResponse {
+  handoffs: InboxReplyHandoffRecord[];
+  total: number;
+}
+
 export interface SystemJobMutationResponse {
   job: SystemJobRecord;
   runtime: Record<string, unknown>;
@@ -171,6 +192,10 @@ export async function loadBrowserLaneRequestsRequest(limit = 20): Promise<Browse
 
 export async function loadBrowserHandoffsRequest(limit = 20): Promise<BrowserHandoffsResponse> {
   return apiRequest<BrowserHandoffsResponse>(`/api/system/browser-handoffs?limit=${limit}`);
+}
+
+export async function loadInboxReplyHandoffsRequest(limit = 20): Promise<InboxReplyHandoffsResponse> {
+  return apiRequest<InboxReplyHandoffsResponse>(`/api/system/inbox-reply-handoffs?limit=${limit}`);
 }
 
 export async function retrySystemJobRequest(
@@ -259,6 +284,7 @@ interface SettingsPageProps {
   loadSystemJobsAction?: () => Promise<SystemJobsResponse>;
   loadBrowserLaneRequestsAction?: () => Promise<BrowserLaneRequestsResponse>;
   loadBrowserHandoffsAction?: () => Promise<BrowserHandoffsResponse>;
+  loadInboxReplyHandoffsAction?: () => Promise<InboxReplyHandoffsResponse>;
   reloadSchedulerAction?: () => Promise<RuntimeControlResponse>;
   tickSchedulerAction?: () => Promise<RuntimeControlResponse>;
   fetchMonitorAction?: () => Promise<FetchControlResponse>;
@@ -271,6 +297,7 @@ interface SettingsPageProps {
   jobsStateOverride?: AsyncState<SystemJobsResponse>;
   browserLaneStateOverride?: AsyncState<BrowserLaneRequestsResponse>;
   browserHandoffStateOverride?: AsyncState<BrowserHandoffsResponse>;
+  inboxReplyHandoffStateOverride?: AsyncState<InboxReplyHandoffsResponse>;
   updateStateOverride?: AsyncState<SettingsResponse>;
   validationMessageOverride?: string;
 }
@@ -323,6 +350,10 @@ function defaultLoadBrowserHandoffsAction() {
   return loadBrowserHandoffsRequest(20);
 }
 
+function defaultLoadInboxReplyHandoffsAction() {
+  return loadInboxReplyHandoffsRequest(20);
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -341,7 +372,23 @@ function readStatusValue(value: unknown) {
 
 function readResolutionDetail(value: unknown) {
   const record = asRecord(value);
-  return readString(record?.reason) ?? readString(record?.publishStatus) ?? readString(record?.draftStatus);
+  return (
+    readString(record?.reason) ??
+    readString(record?.publishStatus) ??
+    readString(record?.replyStatus) ??
+    readString(record?.draftStatus) ??
+    readString(record?.itemStatus)
+  );
+}
+
+function readResolutionDeliveryUrl(value: unknown) {
+  const record = asRecord(value);
+  return readString(record?.deliveryUrl);
+}
+
+function readResolutionDeliveredAt(value: unknown) {
+  const record = asRecord(value);
+  return readString(record?.deliveredAt);
 }
 
 function readNumber(value: unknown): number | null {
@@ -563,6 +610,7 @@ export function SettingsPage({
   loadSystemJobsAction = defaultLoadSystemJobsAction,
   loadBrowserLaneRequestsAction = defaultLoadBrowserLaneRequestsAction,
   loadBrowserHandoffsAction = defaultLoadBrowserHandoffsAction,
+  loadInboxReplyHandoffsAction = defaultLoadInboxReplyHandoffsAction,
   reloadSchedulerAction = reloadSchedulerRuntimeRequest,
   tickSchedulerAction = tickSchedulerRuntimeRequest,
   fetchMonitorAction = fetchMonitorSignalsRequest,
@@ -575,6 +623,7 @@ export function SettingsPage({
   jobsStateOverride,
   browserLaneStateOverride,
   browserHandoffStateOverride,
+  inboxReplyHandoffStateOverride,
   updateStateOverride,
   validationMessageOverride,
 }: SettingsPageProps) {
@@ -588,6 +637,10 @@ export function SettingsPage({
     loadBrowserHandoffsAction,
     [loadBrowserHandoffsAction],
   );
+  const { state: inboxReplyHandoffState, reload: reloadInboxReplyHandoffs } = useAsyncQuery(
+    loadInboxReplyHandoffsAction,
+    [loadInboxReplyHandoffsAction],
+  );
   const { state: updateState, run: saveSettings } = useAsyncAction(updateSettingsRequest);
   const { run: enqueueJob } = useAsyncAction(enqueueSystemJobAction);
   const { run: mutateJob } = useAsyncAction(
@@ -598,6 +651,7 @@ export function SettingsPage({
   const displayJobsState = jobsStateOverride ?? jobsState;
   const displayBrowserLaneState = browserLaneStateOverride ?? browserLaneState;
   const displayBrowserHandoffState = browserHandoffStateOverride ?? browserHandoffState;
+  const displayInboxReplyHandoffState = inboxReplyHandoffStateOverride ?? inboxReplyHandoffState;
   const displayUpdateState = updateStateOverride ?? updateState;
   const hasLiveSettingsData =
     typeof displayState.data === 'object' &&
@@ -679,6 +733,11 @@ export function SettingsPage({
     displayBrowserHandoffState.data !== null &&
     Array.isArray(displayBrowserHandoffState.data.handoffs);
   const visibleBrowserHandoffs = hasLiveBrowserHandoffData ? displayBrowserHandoffState.data.handoffs : [];
+  const hasLiveInboxReplyHandoffData =
+    typeof displayInboxReplyHandoffState.data === 'object' &&
+    displayInboxReplyHandoffState.data !== null &&
+    Array.isArray(displayInboxReplyHandoffState.data.handoffs);
+  const visibleInboxReplyHandoffs = hasLiveInboxReplyHandoffData ? displayInboxReplyHandoffState.data.handoffs : [];
   const recentJobs =
     hasLiveJobsData && displayJobsState.data?.recentJobs.length > 0
       ? displayJobsState.data.recentJobs
@@ -733,6 +792,7 @@ export function SettingsPage({
       reloadJobs();
       reloadBrowserLane();
       reloadBrowserHandoffs();
+      reloadInboxReplyHandoffs();
     } catch (error) {
       setControlError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -760,6 +820,7 @@ export function SettingsPage({
         reloadJobs();
         reloadBrowserLane();
         reloadBrowserHandoffs();
+        reloadInboxReplyHandoffs();
       })
       .catch((error) => {
         setControlError(error instanceof Error ? error.message : String(error));
@@ -793,6 +854,7 @@ export function SettingsPage({
         reloadJobs();
         reloadBrowserLane();
         reloadBrowserHandoffs();
+        reloadInboxReplyHandoffs();
       })
       .catch((error) => {
         setControlError(error instanceof Error ? error.message : String(error));
@@ -1202,6 +1264,62 @@ export function SettingsPage({
                 ))
               ) : hasLiveBrowserHandoffData ? (
                 <div style={{ color: '#475569' }}>当前没有 browser handoffs。</div>
+              ) : null}
+            </div>
+
+            <div style={{ display: 'grid', gap: '10px' }}>
+              <div style={{ fontWeight: 700 }}>Inbox Reply Handoff 工单</div>
+              {displayInboxReplyHandoffState.status === 'loading' ? (
+                <div style={{ color: '#475569' }}>正在加载 inbox reply handoffs...</div>
+              ) : null}
+              {displayInboxReplyHandoffState.status === 'error' ? (
+                <div style={{ color: '#b91c1c' }}>
+                  inbox reply handoffs 加载失败：{displayInboxReplyHandoffState.error}
+                </div>
+              ) : null}
+              {hasLiveInboxReplyHandoffData && visibleInboxReplyHandoffs.length > 0 ? (
+                visibleInboxReplyHandoffs.map((handoff) => (
+                  <div
+                    key={`${handoff.artifactPath}-${handoff.updatedAt}`}
+                    style={{
+                      borderRadius: '14px',
+                      background: '#f8fafc',
+                      border: '1px solid #e2e8f0',
+                      padding: '12px 14px',
+                      display: 'grid',
+                      gap: '4px',
+                    }}
+                  >
+                    <div style={{ fontWeight: 700 }}>
+                      {handoff.platform} · item #{handoff.itemId} · {handoff.status}
+                    </div>
+                    {typeof handoff.channelAccountId === 'number' ? (
+                      <div style={{ color: '#475569' }}>account #{handoff.channelAccountId}</div>
+                    ) : null}
+                    <div style={{ color: '#475569' }}>source: {handoff.source}</div>
+                    <div style={{ color: '#475569' }}>author: {handoff.author ?? '未提供'}</div>
+                    <div style={{ color: '#475569' }}>title: {handoff.title ?? '未提供'}</div>
+                    <div style={{ color: '#475569' }}>artifactPath: {handoff.artifactPath}</div>
+                    <div style={{ color: '#475569' }}>updatedAt: {handoff.updatedAt}</div>
+                    <div style={{ color: '#475569' }}>
+                      resolvedAt: {handoff.resolvedAt ?? '未结单'}
+                    </div>
+                    <div style={{ color: '#475569' }}>
+                      resolution: {formatContractValue(readStatusValue(handoff.resolution))}
+                    </div>
+                    <div style={{ color: '#475569' }}>
+                      resolution detail: {formatContractValue(readResolutionDetail(handoff.resolution))}
+                    </div>
+                    <div style={{ color: '#475569' }}>
+                      deliveryUrl: {formatContractValue(readResolutionDeliveryUrl(handoff.resolution))}
+                    </div>
+                    <div style={{ color: '#475569' }}>
+                      deliveredAt: {formatContractValue(readResolutionDeliveredAt(handoff.resolution))}
+                    </div>
+                  </div>
+                ))
+              ) : hasLiveInboxReplyHandoffData ? (
+                <div style={{ color: '#475569' }}>当前没有 inbox reply handoffs。</div>
               ) : null}
             </div>
           </div>

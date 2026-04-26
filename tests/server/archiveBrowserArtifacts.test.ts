@@ -62,6 +62,48 @@ function writeBrowserHandoffArtifact(
   });
 }
 
+function writeInboxReplyHandoffArtifact(
+  rootDir: string,
+  input: {
+    artifactPath: string;
+    status: 'pending' | 'resolved' | 'obsolete';
+    updatedAt: string;
+    resolvedAt: string | null;
+  },
+) {
+  const itemIdMatch = input.artifactPath.match(/inbox-item-(\d+)\.json$/);
+  const itemId = itemIdMatch?.[1] ?? '12';
+  return writeJsonArtifact(rootDir, input.artifactPath, {
+    type: 'browser_inbox_reply_handoff',
+    status: input.status,
+    platform: 'weibo',
+    itemId,
+    source: 'weibo',
+    title: 'Community question',
+    excerpt: 'Can you share current response times?',
+    reply: 'Thanks for reaching out.',
+    author: 'ops-user',
+    sourceUrl: 'https://weibo.test/post/12',
+    accountKey: 'weibo-browser-main',
+    session: {
+      hasSession: true,
+      id: 'weibo:weibo-browser-main',
+      status: 'active',
+      validatedAt: '2026-04-22T08:00:00.000Z',
+      storageStatePath: 'artifacts/browser-sessions/weibo-browser-main.json',
+    },
+    createdAt: '2026-04-22T08:05:00.000Z',
+    updatedAt: input.updatedAt,
+    resolvedAt: input.resolvedAt,
+    resolution:
+      input.status === 'pending'
+        ? null
+        : {
+            status: input.status,
+          },
+  });
+}
+
 describe('browser artifact archiver', () => {
   beforeEach(() => {
     restoreCwd = isolateProcessCwd();
@@ -199,6 +241,27 @@ describe('browser artifact archiver', () => {
           },
         },
       );
+      const resolvedInboxReplyHandoffPath = writeInboxReplyHandoffArtifact(rootDir, {
+        artifactPath:
+          'artifacts/inbox-reply-handoffs/weibo/weibo-browser-main/weibo-inbox-item-12.json',
+        status: 'resolved',
+        updatedAt: '2026-04-22T10:30:00.000Z',
+        resolvedAt: '2026-04-22T10:30:00.000Z',
+      });
+      const obsoleteInboxReplyHandoffPath = writeInboxReplyHandoffArtifact(rootDir, {
+        artifactPath:
+          'artifacts/inbox-reply-handoffs/weibo/weibo-browser-main/weibo-inbox-item-13.json',
+        status: 'obsolete',
+        updatedAt: '2026-04-22T10:45:00.000Z',
+        resolvedAt: '2026-04-22T10:45:00.000Z',
+      });
+      writeInboxReplyHandoffArtifact(rootDir, {
+        artifactPath:
+          'artifacts/inbox-reply-handoffs/weibo/weibo-browser-main/weibo-inbox-item-14.json',
+        status: 'pending',
+        updatedAt: '2026-04-22T11:00:00.000Z',
+        resolvedAt: null,
+      });
 
       const summary = await archiveBrowserArtifacts({
         olderThanHours: 24,
@@ -214,8 +277,8 @@ describe('browser artifact archiver', () => {
           includeResults: false,
           cutoff: '2026-04-23T12:00:00.000Z',
           totals: {
-            scanned: 8,
-            eligible: 3,
+            scanned: 11,
+            eligible: 5,
             archived: 0,
             skipped: 0,
             errors: 1,
@@ -234,6 +297,11 @@ describe('browser artifact archiver', () => {
             },
             browserHandoffs: {
               scanned: 4,
+              eligible: 2,
+              archived: 0,
+            },
+            inboxReplyHandoffs: {
+              scanned: 3,
               eligible: 2,
               archived: 0,
             },
@@ -260,6 +328,20 @@ describe('browser artifact archiver', () => {
           sourcePath: resolvedRequestPath,
           archivePath:
             'artifacts/archive/browser-lane-requests/x/-promobot/request-session-job-17.json',
+          status: 'would_archive',
+        }),
+        expect.objectContaining({
+          kind: 'inbox_reply_handoff',
+          sourcePath: resolvedInboxReplyHandoffPath,
+          archivePath:
+            'artifacts/archive/inbox-reply-handoffs/weibo/weibo-browser-main/weibo-inbox-item-12.json',
+          status: 'would_archive',
+        }),
+        expect.objectContaining({
+          kind: 'inbox_reply_handoff',
+          sourcePath: obsoleteInboxReplyHandoffPath,
+          archivePath:
+            'artifacts/archive/inbox-reply-handoffs/weibo/weibo-browser-main/weibo-inbox-item-13.json',
           status: 'would_archive',
         }),
       ]);
@@ -353,6 +435,13 @@ describe('browser artifact archiver', () => {
         updatedAt: '2026-04-22T10:00:00.000Z',
         resolvedAt: '2026-04-22T10:00:00.000Z',
       });
+      const resolvedInboxReplyHandoffPath = writeInboxReplyHandoffArtifact(rootDir, {
+        artifactPath:
+          'artifacts/inbox-reply-handoffs/weibo/weibo-browser-main/weibo-inbox-item-21.json',
+        status: 'resolved',
+        updatedAt: '2026-04-22T10:15:00.000Z',
+        resolvedAt: '2026-04-22T10:15:00.000Z',
+      });
 
       const summary = await archiveBrowserArtifacts({
         apply: true,
@@ -368,9 +457,9 @@ describe('browser artifact archiver', () => {
           apply: true,
           includeResults: true,
           totals: {
-            scanned: 3,
-            eligible: 3,
-            archived: 3,
+            scanned: 4,
+            eligible: 4,
+            archived: 4,
             skipped: 0,
             errors: 0,
           },
@@ -398,11 +487,19 @@ describe('browser artifact archiver', () => {
             'artifacts/archive/browser-lane-requests/x/-promobot/request-session-job-21.result.json',
           status: 'archived',
         }),
+        expect.objectContaining({
+          kind: 'inbox_reply_handoff',
+          sourcePath: resolvedInboxReplyHandoffPath,
+          archivePath:
+            'artifacts/archive/inbox-reply-handoffs/weibo/weibo-browser-main/weibo-inbox-item-21.json',
+          status: 'archived',
+        }),
       ]);
 
       expect(fs.existsSync(path.join(rootDir, resolvedRequestPath))).toBe(false);
       expect(fs.existsSync(path.join(rootDir, resultArtifactPath))).toBe(false);
       expect(fs.existsSync(path.join(rootDir, resolvedHandoffPath))).toBe(false);
+      expect(fs.existsSync(path.join(rootDir, resolvedInboxReplyHandoffPath))).toBe(false);
 
       expect(
         JSON.parse(
@@ -432,10 +529,27 @@ describe('browser artifact archiver', () => {
           ),
         ),
       ).toEqual(
+          expect.objectContaining({
+            type: 'browser_lane_result',
+            requestJobId: 21,
+            consumedAt: '2026-04-22T09:10:00.000Z',
+          }),
+      );
+      expect(
+        JSON.parse(
+          fs.readFileSync(
+            path.join(
+              rootDir,
+              'artifacts/archive/inbox-reply-handoffs/weibo/weibo-browser-main/weibo-inbox-item-21.json',
+            ),
+            'utf8',
+          ),
+        ),
+      ).toEqual(
         expect.objectContaining({
-          type: 'browser_lane_result',
-          requestJobId: 21,
-          consumedAt: '2026-04-22T09:10:00.000Z',
+          type: 'browser_inbox_reply_handoff',
+          itemId: '21',
+          resolvedAt: '2026-04-22T10:15:00.000Z',
         }),
       );
     } finally {

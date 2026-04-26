@@ -129,6 +129,7 @@ describe('release verify cli', () => {
         'pnpm-lock.yaml',
         'dist/server/index.js',
         'dist/server/cli/deploymentSmoke.js',
+        'dist/server/cli/inboxReplyHandoffComplete.js',
         'dist/server/cli/releaseVerify.js',
         'dist/client/index.html',
         'pm2.config.js',
@@ -193,6 +194,7 @@ describe('release verify cli', () => {
         'pnpm-lock.yaml',
         'dist/server/index.js',
         'dist/server/cli/deploymentSmoke.js',
+        'dist/server/cli/inboxReplyHandoffComplete.js',
         'dist/server/cli/releaseVerify.js',
         'dist/client/index.html',
         'pm2.config.js',
@@ -240,6 +242,12 @@ describe('release verify cli', () => {
           name: 'dist/server/cli/deploymentSmoke.js',
           ok: true,
           target: path.join(inputDir, 'dist/server/cli/deploymentSmoke.js'),
+        },
+        {
+          kind: 'manifest-item',
+          name: 'dist/server/cli/inboxReplyHandoffComplete.js',
+          ok: true,
+          target: path.join(inputDir, 'dist/server/cli/inboxReplyHandoffComplete.js'),
         },
         {
           kind: 'manifest-item',
@@ -308,6 +316,7 @@ describe('release verify cli', () => {
         'pnpm-lock.yaml',
         'dist/server/index.js',
         'dist/server/cli/deploymentSmoke.js',
+        'dist/server/cli/inboxReplyHandoffComplete.js',
         'dist/server/cli/releaseVerify.js',
         'dist/client/index.html',
         'pm2.config.js',
@@ -364,6 +373,7 @@ describe('release verify cli', () => {
         'pnpm-lock.yaml',
         'dist/server/index.js',
         'dist/server/cli/deploymentSmoke.js',
+        'dist/server/cli/inboxReplyHandoffComplete.js',
         'dist/server/cli/releaseVerify.js',
         'dist/client/index.html',
         'pm2.config.js',
@@ -406,6 +416,7 @@ describe('release verify cli', () => {
         { relativePath: 'pnpm-lock.yaml' },
         { path: 'dist/server/index.js' },
         { relativePath: 'dist/server/cli/deploymentSmoke.js' },
+        { path: 'dist/server/cli/inboxReplyHandoffComplete.js' },
         { name: 'dist/server/cli/releaseVerify.js' },
         { path: 'dist/client/index.html' },
         { relativePath: 'pm2.config.js' },
@@ -501,6 +512,7 @@ function writeRequiredBundleCore(
     clientContent?: string;
     deployScript?: string;
     deploymentSmokeContent?: string;
+    inboxReplyHandoffCompleteCliContent?: string;
     packageJsonContent?: string;
     pm2Content?: string;
     releaseVerifyCliContent?: string;
@@ -515,6 +527,11 @@ function writeRequiredBundleCore(
     rootDir,
     'dist/server/cli/deploymentSmoke.js',
     content.deploymentSmokeContent ?? 'console.log("smoke");\n',
+  );
+  writeFile(
+    rootDir,
+    'dist/server/cli/inboxReplyHandoffComplete.js',
+    content.inboxReplyHandoffCompleteCliContent ?? 'console.log("handoff-complete");\n',
   );
   writeFile(
     rootDir,

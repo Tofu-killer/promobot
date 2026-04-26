@@ -177,6 +177,12 @@ describe('dashboard api', () => {
           obsolete: 0,
           unmatched: 0,
         },
+        inboxReplyHandoffs: {
+          total: 0,
+          pending: 0,
+          resolved: 0,
+          obsolete: 0,
+        },
         jobQueue: {
           pending: 0,
           running: 0,
@@ -260,6 +266,12 @@ describe('dashboard api', () => {
           resolved: 0,
           obsolete: 0,
           unmatched: 0,
+        },
+        inboxReplyHandoffs: {
+          total: 0,
+          pending: 0,
+          resolved: 0,
+          obsolete: 0,
         },
         jobQueue: {
           pending: 0,
