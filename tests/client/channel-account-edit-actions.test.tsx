@@ -3696,6 +3696,709 @@ describe('channel account edit actions', () => {
     });
   });
 
+  it('keeps session save loading and success feedback scoped to the edited account when switching accounts', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ChannelAccountsPage } = await import('../../src/client/pages/ChannelAccounts');
+
+    const saveSessionDeferred = createDeferredPromise<{
+      ok: boolean;
+      session: {
+        hasSession: boolean;
+        id: string;
+        status: string;
+        validatedAt: string | null;
+        storageStatePath: string | null;
+        notes?: string;
+      };
+      channelAccount: {
+        id: number;
+        platform: string;
+        accountKey: string;
+        displayName: string;
+        authType: string;
+        status: string;
+        metadata: Record<string, unknown>;
+        session: {
+          hasSession: boolean;
+          status: string;
+          validatedAt: string | null;
+          storageStatePath: string | null;
+          id?: string;
+          notes?: string;
+        };
+        createdAt: string;
+        updatedAt: string;
+      };
+    }>();
+    const saveChannelAccountSessionAction = vi.fn().mockReturnValue(saveSessionDeferred.promise);
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ChannelAccountsPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              channelAccounts: [
+                {
+                  id: 7,
+                  platform: 'x',
+                  accountKey: 'acct-browser',
+                  displayName: 'Browser X',
+                  authType: 'browser',
+                  status: 'healthy',
+                  metadata: {},
+                  session: {
+                    hasSession: false,
+                    status: 'missing',
+                    validatedAt: null,
+                    storageStatePath: null,
+                    id: 'x:acct-browser',
+                  },
+                  createdAt: '2026-04-19T00:00:00.000Z',
+                  updatedAt: '2026-04-19T00:00:00.000Z',
+                },
+                {
+                  id: 8,
+                  platform: 'reddit',
+                  accountKey: 'acct-reddit',
+                  displayName: 'Reddit Ops',
+                  authType: 'oauth',
+                  status: 'healthy',
+                  metadata: {},
+                  session: {
+                    hasSession: false,
+                    status: 'missing',
+                    validatedAt: null,
+                    storageStatePath: null,
+                    id: 'reddit:acct-reddit',
+                  },
+                  createdAt: '2026-04-19T00:00:00.000Z',
+                  updatedAt: '2026-04-19T00:00:00.000Z',
+                },
+              ],
+            },
+          },
+          saveChannelAccountSessionAction,
+        }),
+      );
+      await flush();
+    });
+
+    const firstEditButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-edit-account-id') === '7',
+    );
+
+    await act(async () => {
+      firstEditButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    await act(async () => {
+      updateFieldValue(
+        findElement(
+          container,
+          (element) => element.tagName === 'INPUT' && element.getAttribute('data-edit-session-storage-path-id') === '7',
+        ),
+        'artifacts/browser-sessions/browser-x-fresh.json',
+        window,
+      );
+      await flush();
+    });
+
+    const firstSaveSessionButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-save-session-id') === '7',
+    );
+
+    await act(async () => {
+      firstSaveSessionButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(saveChannelAccountSessionAction).toHaveBeenCalledTimes(1);
+    expect(collectText(container)).toContain('正在保存 Session...');
+
+    const secondEditButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-edit-account-id') === '8',
+    );
+
+    await act(async () => {
+      secondEditButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    const secondSaveSessionButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-save-session-id') === '8',
+    );
+
+    expect(secondSaveSessionButton).not.toBeNull();
+    expect(collectText(secondSaveSessionButton as never)).toContain('保存 Session 元数据');
+    expect(collectText(secondSaveSessionButton as never)).not.toContain('正在保存 Session...');
+    expect(collectText(container)).not.toContain('正在保存 Session...');
+
+    await act(async () => {
+      saveSessionDeferred.resolve({
+        ok: true,
+        session: {
+          hasSession: true,
+          id: 'x:acct-browser',
+          status: 'active',
+          validatedAt: '2026-04-19T06:00:00.000Z',
+          storageStatePath: 'artifacts/browser-sessions/browser-x-fresh.json',
+          notes: 'cookie refreshed in headed browser',
+        },
+        channelAccount: {
+          id: 7,
+          platform: 'x',
+          accountKey: 'acct-browser',
+          displayName: 'Browser X',
+          authType: 'browser',
+          status: 'healthy',
+          metadata: {},
+          session: {
+            hasSession: true,
+            id: 'x:acct-browser',
+            status: 'active',
+            validatedAt: '2026-04-19T06:00:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/browser-x-fresh.json',
+            notes: 'cookie refreshed in headed browser',
+          },
+          createdAt: '2026-04-19T00:00:00.000Z',
+          updatedAt: '2026-04-19T06:00:00.000Z',
+        },
+      });
+      await flush();
+    });
+
+    expect(collectText(container)).not.toContain('Session 元数据已保存');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('keeps session save loading visible while another account starts a session action', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ChannelAccountsPage } = await import('../../src/client/pages/ChannelAccounts');
+
+    const saveSessionDeferred = createDeferredPromise<{
+      ok: boolean;
+      session: {
+        hasSession: boolean;
+        id: string;
+        status: string;
+        validatedAt: string | null;
+        storageStatePath: string | null;
+        notes?: string;
+      };
+      channelAccount: {
+        id: number;
+        platform: string;
+        accountKey: string;
+        displayName: string;
+        authType: string;
+        status: string;
+        metadata: Record<string, unknown>;
+        session: {
+          hasSession: boolean;
+          status: string;
+          validatedAt: string | null;
+          storageStatePath: string | null;
+          id?: string;
+          notes?: string;
+        };
+        createdAt: string;
+        updatedAt: string;
+      };
+    }>();
+    const saveChannelAccountSessionAction = vi.fn().mockReturnValue(saveSessionDeferred.promise);
+    const requestChannelAccountSessionAction = vi.fn().mockResolvedValue({
+      ok: true,
+      sessionAction: {
+        action: 'request_session',
+        accountId: 8,
+        status: 'pending',
+        requestedAt: '2026-04-19T06:30:00.000Z',
+        message: 'Browser login requested.',
+        nextStep: '/api/channel-accounts/8/session',
+        jobId: 22,
+        jobStatus: 'pending',
+        artifactPath: 'artifacts/browser-lane-requests/reddit/acct-reddit/request-session-job-22.json',
+      },
+      channelAccount: {
+        id: 8,
+        platform: 'reddit',
+        accountKey: 'acct-reddit',
+        displayName: 'Reddit Ops',
+        authType: 'oauth',
+        status: 'healthy',
+        metadata: {},
+        session: {
+          hasSession: false,
+          status: 'missing',
+          validatedAt: null,
+          storageStatePath: null,
+        },
+        latestBrowserLaneArtifact: {
+          action: 'request_session',
+          jobStatus: 'pending',
+          requestedAt: '2026-04-19T06:30:00.000Z',
+          artifactPath: 'artifacts/browser-lane-requests/reddit/acct-reddit/request-session-job-22.json',
+          resolvedAt: null,
+        },
+        createdAt: '2026-04-19T00:00:00.000Z',
+        updatedAt: '2026-04-19T06:30:00.000Z',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ChannelAccountsPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              channelAccounts: [
+                {
+                  id: 7,
+                  platform: 'x',
+                  accountKey: 'acct-browser',
+                  displayName: 'Browser X',
+                  authType: 'browser',
+                  status: 'healthy',
+                  metadata: {},
+                  session: {
+                    hasSession: false,
+                    status: 'missing',
+                    validatedAt: null,
+                    storageStatePath: null,
+                    id: 'x:acct-browser',
+                  },
+                  createdAt: '2026-04-19T00:00:00.000Z',
+                  updatedAt: '2026-04-19T00:00:00.000Z',
+                },
+                {
+                  id: 8,
+                  platform: 'reddit',
+                  accountKey: 'acct-reddit',
+                  displayName: 'Reddit Ops',
+                  authType: 'oauth',
+                  status: 'healthy',
+                  metadata: {},
+                  session: {
+                    hasSession: false,
+                    status: 'missing',
+                    validatedAt: null,
+                    storageStatePath: null,
+                    id: 'reddit:acct-reddit',
+                  },
+                  createdAt: '2026-04-19T00:00:00.000Z',
+                  updatedAt: '2026-04-19T00:00:00.000Z',
+                },
+              ],
+            },
+          },
+          saveChannelAccountSessionAction,
+          requestChannelAccountSessionAction,
+        }),
+      );
+      await flush();
+    });
+
+    const editButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-edit-account-id') === '7',
+    );
+
+    await act(async () => {
+      editButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    await act(async () => {
+      updateFieldValue(
+        findElement(
+          container,
+          (element) => element.tagName === 'INPUT' && element.getAttribute('data-edit-session-storage-path-id') === '7',
+        ),
+        'artifacts/browser-sessions/browser-x-fresh.json',
+        window,
+      );
+      await flush();
+    });
+
+    const saveSessionButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-save-session-id') === '7',
+    );
+
+    await act(async () => {
+      saveSessionButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('正在保存 Session...');
+
+    const requestSessionButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-session-action-id') === '8',
+    );
+
+    await act(async () => {
+      requestSessionButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    const savingButtonWhileActionRuns = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-save-session-id') === '7',
+    );
+
+    expect(requestChannelAccountSessionAction).toHaveBeenCalledWith(8, {
+      action: 'request_session',
+    });
+    expect(collectText(savingButtonWhileActionRuns as never)).toContain('正在保存 Session...');
+    expect(collectText(container)).toContain('正在保存 Session...');
+    expect(collectText(container)).toContain('请求登录占位已记录');
+
+    await act(async () => {
+      saveSessionDeferred.resolve({
+        ok: true,
+        session: {
+          hasSession: true,
+          id: 'x:acct-browser',
+          status: 'active',
+          validatedAt: '2026-04-19T06:40:00.000Z',
+          storageStatePath: 'artifacts/browser-sessions/browser-x-fresh.json',
+          notes: 'cookie refreshed in headed browser',
+        },
+        channelAccount: {
+          id: 7,
+          platform: 'x',
+          accountKey: 'acct-browser',
+          displayName: 'Browser X',
+          authType: 'browser',
+          status: 'healthy',
+          metadata: {},
+          session: {
+            hasSession: true,
+            id: 'x:acct-browser',
+            status: 'active',
+            validatedAt: '2026-04-19T06:40:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/browser-x-fresh.json',
+            notes: 'cookie refreshed in headed browser',
+          },
+          createdAt: '2026-04-19T00:00:00.000Z',
+          updatedAt: '2026-04-19T06:40:00.000Z',
+        },
+      });
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('Session 元数据已保存');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('keeps concurrent session saves scoped per account when multiple saves overlap', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ChannelAccountsPage } = await import('../../src/client/pages/ChannelAccounts');
+
+    const firstSaveDeferred = createDeferredPromise<{
+      ok: boolean;
+      session: {
+        hasSession: boolean;
+        id: string;
+        status: string;
+        validatedAt: string | null;
+        storageStatePath: string | null;
+        notes?: string;
+      };
+      channelAccount: {
+        id: number;
+        platform: string;
+        accountKey: string;
+        displayName: string;
+        authType: string;
+        status: string;
+        metadata: Record<string, unknown>;
+        session: {
+          hasSession: boolean;
+          status: string;
+          validatedAt: string | null;
+          storageStatePath: string | null;
+          id?: string;
+          notes?: string;
+        };
+        createdAt: string;
+        updatedAt: string;
+      };
+    }>();
+    const secondSaveDeferred = createDeferredPromise<{
+      ok: boolean;
+      session: {
+        hasSession: boolean;
+        id: string;
+        status: string;
+        validatedAt: string | null;
+        storageStatePath: string | null;
+        notes?: string;
+      };
+      channelAccount: {
+        id: number;
+        platform: string;
+        accountKey: string;
+        displayName: string;
+        authType: string;
+        status: string;
+        metadata: Record<string, unknown>;
+        session: {
+          hasSession: boolean;
+          status: string;
+          validatedAt: string | null;
+          storageStatePath: string | null;
+          id?: string;
+          notes?: string;
+        };
+        createdAt: string;
+        updatedAt: string;
+      };
+    }>();
+    const saveChannelAccountSessionAction = vi.fn((accountId: number) =>
+      accountId === 7 ? firstSaveDeferred.promise : secondSaveDeferred.promise,
+    );
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ChannelAccountsPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              channelAccounts: [
+                {
+                  id: 7,
+                  platform: 'x',
+                  accountKey: 'acct-browser',
+                  displayName: 'Browser X',
+                  authType: 'browser',
+                  status: 'healthy',
+                  metadata: {},
+                  session: {
+                    hasSession: false,
+                    status: 'missing',
+                    validatedAt: null,
+                    storageStatePath: null,
+                    id: 'x:acct-browser',
+                  },
+                  createdAt: '2026-04-19T00:00:00.000Z',
+                  updatedAt: '2026-04-19T00:00:00.000Z',
+                },
+                {
+                  id: 8,
+                  platform: 'reddit',
+                  accountKey: 'acct-reddit',
+                  displayName: 'Reddit Ops',
+                  authType: 'oauth',
+                  status: 'healthy',
+                  metadata: {},
+                  session: {
+                    hasSession: false,
+                    status: 'missing',
+                    validatedAt: null,
+                    storageStatePath: null,
+                    id: 'reddit:acct-reddit',
+                  },
+                  createdAt: '2026-04-19T00:00:00.000Z',
+                  updatedAt: '2026-04-19T00:00:00.000Z',
+                },
+              ],
+            },
+          },
+          saveChannelAccountSessionAction,
+        }),
+      );
+      await flush();
+    });
+
+    const firstEditButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-edit-account-id') === '7',
+    );
+
+    await act(async () => {
+      firstEditButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    await act(async () => {
+      updateFieldValue(
+        findElement(
+          container,
+          (element) => element.tagName === 'INPUT' && element.getAttribute('data-edit-session-storage-path-id') === '7',
+        ),
+        'artifacts/browser-sessions/browser-x-fresh.json',
+        window,
+      );
+      await flush();
+    });
+
+    const firstSaveSessionButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-save-session-id') === '7',
+    );
+
+    await act(async () => {
+      firstSaveSessionButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    const secondEditButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-edit-account-id') === '8',
+    );
+
+    await act(async () => {
+      secondEditButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    await act(async () => {
+      updateFieldValue(
+        findElement(
+          container,
+          (element) => element.tagName === 'INPUT' && element.getAttribute('data-edit-session-storage-path-id') === '8',
+        ),
+        'artifacts/browser-sessions/reddit-session.json',
+        window,
+      );
+      await flush();
+    });
+
+    const secondSaveSessionButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-save-session-id') === '8',
+    );
+
+    await act(async () => {
+      secondSaveSessionButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(saveChannelAccountSessionAction).toHaveBeenCalledTimes(2);
+    expect(collectText(secondSaveSessionButton as never)).toContain('正在保存 Session...');
+
+    await act(async () => {
+      firstSaveDeferred.resolve({
+        ok: true,
+        session: {
+          hasSession: true,
+          id: 'x:acct-browser',
+          status: 'active',
+          validatedAt: '2026-04-19T06:45:00.000Z',
+          storageStatePath: 'artifacts/browser-sessions/browser-x-fresh.json',
+          notes: 'cookie refreshed in headed browser',
+        },
+        channelAccount: {
+          id: 7,
+          platform: 'x',
+          accountKey: 'acct-browser',
+          displayName: 'Browser X',
+          authType: 'browser',
+          status: 'healthy',
+          metadata: {},
+          session: {
+            hasSession: true,
+            id: 'x:acct-browser',
+            status: 'active',
+            validatedAt: '2026-04-19T06:45:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/browser-x-fresh.json',
+            notes: 'cookie refreshed in headed browser',
+          },
+          createdAt: '2026-04-19T00:00:00.000Z',
+          updatedAt: '2026-04-19T06:45:00.000Z',
+        },
+      });
+      await flush();
+    });
+
+    expect(collectText(container)).not.toContain('Session 元数据已保存');
+    expect(collectText(secondSaveSessionButton as never)).toContain('正在保存 Session...');
+
+    await act(async () => {
+      firstEditButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('Session 元数据已保存');
+    expect(collectText(container)).toContain('Storage Path：artifacts/browser-sessions/browser-x-fresh.json');
+
+    await act(async () => {
+      secondEditButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    const secondSaveSessionButtonStillPending = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-save-session-id') === '8',
+    );
+
+    expect(collectText(secondSaveSessionButtonStillPending as never)).toContain('正在保存 Session...');
+
+    await act(async () => {
+      secondSaveDeferred.resolve({
+        ok: true,
+        session: {
+          hasSession: true,
+          id: 'reddit:acct-reddit',
+          status: 'active',
+          validatedAt: '2026-04-19T06:50:00.000Z',
+          storageStatePath: 'artifacts/browser-sessions/reddit-session.json',
+          notes: 'oauth session refreshed',
+        },
+        channelAccount: {
+          id: 8,
+          platform: 'reddit',
+          accountKey: 'acct-reddit',
+          displayName: 'Reddit Ops',
+          authType: 'oauth',
+          status: 'healthy',
+          metadata: {},
+          session: {
+            hasSession: true,
+            id: 'reddit:acct-reddit',
+            status: 'active',
+            validatedAt: '2026-04-19T06:50:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/reddit-session.json',
+            notes: 'oauth session refreshed',
+          },
+          createdAt: '2026-04-19T00:00:00.000Z',
+          updatedAt: '2026-04-19T06:50:00.000Z',
+        },
+      });
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('Session 元数据已保存');
+    expect(collectText(container)).toContain('Storage Path：artifacts/browser-sessions/reddit-session.json');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('saves imported storage state JSON without requiring a manually typed storage path', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');

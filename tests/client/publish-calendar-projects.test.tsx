@@ -1408,7 +1408,13 @@ describe('PublishCalendar and Projects pages', () => {
       brandVoice: '',
       ctas: [],
     });
-    expect(collectText(container)).toContain('项目已保存');
+    const projectSaveFeedback = findElement(
+      container,
+      (element) => element.getAttribute('data-project-save-feedback-id') === '7',
+    );
+
+    expect(projectSaveFeedback).not.toBeNull();
+    expect(collectText(projectSaveFeedback as never)).toContain('项目已保存');
     expect(collectText(container)).toContain('项目：Acme Launch Updated');
 
     const updatedNameField = findElement(
@@ -1429,7 +1435,341 @@ describe('PublishCalendar and Projects pages', () => {
     });
   });
 
-  it('shows pending project actions and clears old save success while a new project request is in flight', async () => {
+  it('keeps project save loading scoped to each project when multiple saves overlap', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ProjectsPage } = await import('../../src/client/pages/Projects');
+
+    const firstSaveDeferred = createDeferredPromise<{
+      project: {
+        id: number;
+        name: string;
+        siteName: string;
+        siteUrl: string;
+        siteDescription: string;
+        sellingPoints: string[];
+        createdAt: string;
+      };
+    }>();
+    const secondSaveDeferred = createDeferredPromise<{
+      project: {
+        id: number;
+        name: string;
+        siteName: string;
+        siteUrl: string;
+        siteDescription: string;
+        sellingPoints: string[];
+        createdAt: string;
+      };
+    }>();
+    const loadProjectsAction = vi.fn().mockResolvedValue({
+      projects: [
+        {
+          id: 7,
+          name: 'Acme Launch',
+          siteName: 'Acme',
+          siteUrl: 'https://acme.test',
+          siteDescription: 'Launch week campaign',
+          sellingPoints: ['Cheap', 'Fast'],
+          createdAt: '2026-04-19T08:00:00.000Z',
+        },
+        {
+          id: 8,
+          name: 'Acme Expansion',
+          siteName: 'Acme Expansion',
+          siteUrl: 'https://acme.test/expansion',
+          siteDescription: 'Expansion brief',
+          sellingPoints: ['Broader'],
+          createdAt: '2026-04-19T09:00:00.000Z',
+        },
+      ],
+    });
+    const loadSourceConfigsAction = vi.fn().mockResolvedValue({
+      sourceConfigs: [],
+    });
+    const updateProjectAction = vi.fn((projectId: number) =>
+      projectId === 7
+        ? firstSaveDeferred.promise
+        : secondSaveDeferred.promise,
+    );
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ProjectsPage as never, {
+          loadProjectsAction,
+          loadSourceConfigsAction,
+          updateProjectAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const firstSaveButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-project-save-id') === '7' &&
+        collectText(element).includes('保存项目'),
+    );
+    const secondSaveButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-project-save-id') === '8' &&
+        collectText(element).includes('保存项目'),
+    );
+
+    expect(firstSaveButton).not.toBeNull();
+    expect(secondSaveButton).not.toBeNull();
+
+    await act(async () => {
+      firstSaveButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    const firstPendingButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-project-save-id') === '7',
+    );
+    const secondIdleButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-project-save-id') === '8',
+    );
+
+    expect(collectText(firstPendingButton as never)).toContain('正在保存项目...');
+    expect(firstPendingButton?.disabled).toBe(true);
+    expect(collectText(secondIdleButton as never)).toContain('保存项目');
+    expect(secondIdleButton?.disabled).toBe(false);
+
+    await act(async () => {
+      secondIdleButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    const firstStillPendingButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-project-save-id') === '7',
+    );
+    const secondPendingButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-project-save-id') === '8',
+    );
+
+    expect(updateProjectAction).toHaveBeenCalledTimes(2);
+    expect(collectText(firstStillPendingButton as never)).toContain('正在保存项目...');
+    expect(firstStillPendingButton?.disabled).toBe(true);
+    expect(collectText(secondPendingButton as never)).toContain('正在保存项目...');
+    expect(secondPendingButton?.disabled).toBe(true);
+
+    await act(async () => {
+      firstSaveDeferred.resolve({
+        project: {
+          id: 7,
+          name: 'Acme Launch',
+          siteName: 'Acme',
+          siteUrl: 'https://acme.test',
+          siteDescription: 'Launch week campaign',
+          sellingPoints: ['Cheap', 'Fast'],
+          createdAt: '2026-04-19T08:00:00.000Z',
+        },
+      });
+      await flush();
+      await flush();
+    });
+
+    const firstCompletedButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-project-save-id') === '7',
+    );
+    const secondStillPendingButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-project-save-id') === '8',
+    );
+
+    expect(collectText(firstCompletedButton as never)).toContain('保存项目');
+    expect(firstCompletedButton?.disabled).toBe(false);
+    expect(collectText(secondStillPendingButton as never)).toContain('正在保存项目...');
+    expect(secondStillPendingButton?.disabled).toBe(true);
+
+    await act(async () => {
+      secondSaveDeferred.resolve({
+        project: {
+          id: 8,
+          name: 'Acme Expansion',
+          siteName: 'Acme Expansion',
+          siteUrl: 'https://acme.test/expansion',
+          siteDescription: 'Expansion brief',
+          sellingPoints: ['Broader'],
+          createdAt: '2026-04-19T09:00:00.000Z',
+        },
+      });
+      await flush();
+      await flush();
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('keeps project save feedback scoped when concurrent project saves resolve out of order', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ProjectsPage } = await import('../../src/client/pages/Projects');
+
+    const firstSaveDeferred = createDeferredPromise<{
+      project: {
+        id: number;
+        name: string;
+        siteName: string;
+        siteUrl: string;
+        siteDescription: string;
+        sellingPoints: string[];
+        createdAt: string;
+      };
+    }>();
+    const secondSaveDeferred = createDeferredPromise<{
+      project: {
+        id: number;
+        name: string;
+        siteName: string;
+        siteUrl: string;
+        siteDescription: string;
+        sellingPoints: string[];
+        createdAt: string;
+      };
+    }>();
+    const loadProjectsAction = vi.fn().mockResolvedValue({
+      projects: [
+        {
+          id: 7,
+          name: 'Acme Launch',
+          siteName: 'Acme',
+          siteUrl: 'https://acme.test',
+          siteDescription: 'Launch week campaign',
+          sellingPoints: ['Cheap', 'Fast'],
+          createdAt: '2026-04-19T08:00:00.000Z',
+        },
+        {
+          id: 8,
+          name: 'Acme Expansion',
+          siteName: 'Acme Expansion',
+          siteUrl: 'https://acme.test/expansion',
+          siteDescription: 'Expansion brief',
+          sellingPoints: ['Broader'],
+          createdAt: '2026-04-19T09:00:00.000Z',
+        },
+      ],
+    });
+    const loadSourceConfigsAction = vi.fn().mockResolvedValue({
+      sourceConfigs: [],
+    });
+    const updateProjectAction = vi.fn((projectId: number) =>
+      projectId === 7 ? firstSaveDeferred.promise : secondSaveDeferred.promise,
+    );
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ProjectsPage as never, {
+          loadProjectsAction,
+          loadSourceConfigsAction,
+          updateProjectAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const firstSaveButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-project-save-id') === '7',
+    );
+    const secondSaveButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-project-save-id') === '8',
+    );
+
+    await act(async () => {
+      firstSaveButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      secondSaveButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    await act(async () => {
+      firstSaveDeferred.resolve({
+        project: {
+          id: 7,
+          name: 'Acme Launch',
+          siteName: 'Acme',
+          siteUrl: 'https://acme.test',
+          siteDescription: 'Launch week campaign',
+          sellingPoints: ['Cheap', 'Fast'],
+          createdAt: '2026-04-19T08:00:00.000Z',
+        },
+      });
+      await flush();
+      await flush();
+    });
+
+    const firstProjectFeedback = findElement(
+      container,
+      (element) => element.getAttribute('data-project-save-feedback-id') === '7',
+    );
+    const secondProjectFeedbackBeforeResolve = findElement(
+      container,
+      (element) => element.getAttribute('data-project-save-feedback-id') === '8',
+    );
+    const secondPendingButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-project-save-id') === '8',
+    );
+
+    expect(firstProjectFeedback).not.toBeNull();
+    expect(collectText(firstProjectFeedback as never)).toContain('项目已保存');
+    expect(secondProjectFeedbackBeforeResolve).toBeNull();
+    expect(collectText(secondPendingButton as never)).toContain('正在保存项目...');
+
+    await act(async () => {
+      secondSaveDeferred.resolve({
+        project: {
+          id: 8,
+          name: 'Acme Expansion',
+          siteName: 'Acme Expansion',
+          siteUrl: 'https://acme.test/expansion',
+          siteDescription: 'Expansion brief',
+          sellingPoints: ['Broader'],
+          createdAt: '2026-04-19T09:00:00.000Z',
+        },
+      });
+      await flush();
+      await flush();
+    });
+
+    const secondProjectFeedback = findElement(
+      container,
+      (element) => element.getAttribute('data-project-save-feedback-id') === '8',
+    );
+    const firstProjectFeedbackAfterBothSaves = findElement(
+      container,
+      (element) => element.getAttribute('data-project-save-feedback-id') === '7',
+    );
+
+    expect(secondProjectFeedback).not.toBeNull();
+    expect(collectText(secondProjectFeedback as never)).toContain('项目已保存');
+    expect(firstProjectFeedbackAfterBothSaves).not.toBeNull();
+    expect(collectText(firstProjectFeedbackAfterBothSaves as never)).toContain('项目已保存');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('shows pending project actions without clearing scoped project save feedback while a new project request is in flight', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
     const { ProjectsPage } = await import('../../src/client/pages/Projects');
@@ -1508,7 +1848,13 @@ describe('PublishCalendar and Projects pages', () => {
       await flush();
     });
 
-    expect(collectText(container)).toContain('项目已保存');
+    const projectSaveFeedback = findElement(
+      container,
+      (element) => element.getAttribute('data-project-save-feedback-id') === '7',
+    );
+
+    expect(projectSaveFeedback).not.toBeNull();
+    expect(collectText(projectSaveFeedback as never)).toContain('项目已保存');
 
     const createButton = findElement(
       container,
@@ -1524,6 +1870,10 @@ describe('PublishCalendar and Projects pages', () => {
       container,
       (element) => element.tagName === 'BUTTON' && element.textContent.includes('正在创建项目...'),
     );
+    const projectSaveFeedbackWhileCreatePending = findElement(
+      container,
+      (element) => element.getAttribute('data-project-save-feedback-id') === '7',
+    );
 
     expect(createProjectAction).toHaveBeenCalledWith({
       name: 'Acme Launch',
@@ -1535,7 +1885,8 @@ describe('PublishCalendar and Projects pages', () => {
       ctas: ['Start free', 'Book a demo'],
     });
     expect(pendingCreateButton?.disabled).toBe(true);
-    expect(collectText(container)).not.toContain('项目已保存');
+    expect(projectSaveFeedbackWhileCreatePending).not.toBeNull();
+    expect(collectText(projectSaveFeedbackWhileCreatePending as never)).toContain('项目已保存');
 
     await act(async () => {
       pendingCreateProject.resolve({

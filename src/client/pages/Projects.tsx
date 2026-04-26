@@ -294,8 +294,9 @@ export function ProjectsPage({
   const [ctas, setCtas] = useState('Start free, Book a demo');
   const { state, run } = useAsyncAction(createProjectAction);
   const { state: projectsState, reload } = useAsyncQuery(loadProjectsAction, [loadProjectsAction]);
-  const [saveMessage, setSaveMessage] = useState<string | null>(null);
-  const [pendingProjectSaveId, setPendingProjectSaveId] = useState<number | null>(null);
+  const [pageMessage, setPageMessage] = useState<string | null>(null);
+  const [pendingProjectSaveIds, setPendingProjectSaveIds] = useState<Record<number, boolean>>({});
+  const [projectSaveMessageById, setProjectSaveMessageById] = useState<Record<number, string>>({});
   const [pendingProjectArchiveId, setPendingProjectArchiveId] = useState<number | null>(null);
   const [pendingSourceConfigCreateProjectId, setPendingSourceConfigCreateProjectId] = useState<number | null>(null);
   const [pendingSourceConfigSaveId, setPendingSourceConfigSaveId] = useState<number | null>(null);
@@ -406,7 +407,7 @@ export function ProjectsPage({
   }, [displaySourceConfigsState.data, sourceConfigsStateOverride]);
 
   function handleCreateProject() {
-    setSaveMessage(null);
+    setPageMessage(null);
     void run({
       name,
       siteName,
@@ -455,6 +456,58 @@ export function ProjectsPage({
         ...patch,
       },
     }));
+    setProjectSaveMessageById((currentMessages) => {
+      if (!(projectId in currentMessages)) {
+        return currentMessages;
+      }
+
+      const { [projectId]: _removed, ...rest } = currentMessages;
+      return rest;
+    });
+  }
+
+  function setProjectSavePending(projectId: number, pending: boolean) {
+    setPendingProjectSaveIds((current) => {
+      if (pending) {
+        if (current[projectId]) {
+          return current;
+        }
+
+        return {
+          ...current,
+          [projectId]: true,
+        };
+      }
+
+      if (!(projectId in current)) {
+        return current;
+      }
+
+      const { [projectId]: _removed, ...rest } = current;
+      return rest;
+    });
+  }
+
+  function setProjectSaveMessage(projectId: number, message: string | null) {
+    setProjectSaveMessageById((currentMessages) => {
+      if (message === null) {
+        if (!(projectId in currentMessages)) {
+          return currentMessages;
+        }
+
+        const { [projectId]: _removed, ...rest } = currentMessages;
+        return rest;
+      }
+
+      if (currentMessages[projectId] === message) {
+        return currentMessages;
+      }
+
+      return {
+        ...currentMessages,
+        [projectId]: message,
+      };
+    });
   }
 
   function handleSaveProject(projectId: number) {
@@ -471,8 +524,9 @@ export function ProjectsPage({
       },
     );
 
-    setSaveMessage(null);
-    setPendingProjectSaveId(projectId);
+    setPageMessage(null);
+    setProjectSaveMessage(projectId, null);
+    setProjectSavePending(projectId, true);
     void updateProjectAction(projectId, {
       name: form.name,
       siteDescription: form.siteDescription,
@@ -491,7 +545,7 @@ export function ProjectsPage({
             ctas: formatStringList(result.project.ctas),
           },
         }));
-        setSaveMessage('项目已保存');
+        setProjectSaveMessage(projectId, '项目已保存');
         reload();
 
         return loadSourceConfigsAction(projectId)
@@ -502,12 +556,12 @@ export function ProjectsPage({
       })
       .catch(() => undefined)
       .finally(() => {
-        setPendingProjectSaveId((current) => (current === projectId ? null : current));
+        setProjectSavePending(projectId, false);
       });
   }
 
   function handleArchiveProject(projectId: number) {
-    setSaveMessage(null);
+    setPageMessage(null);
     setPendingProjectArchiveId(projectId);
     void archiveProjectAction(projectId)
       .then((result) => {
@@ -521,7 +575,7 @@ export function ProjectsPage({
           delete nextConfigs[projectId];
           return nextConfigs;
         });
-        setSaveMessage(`项目已归档：${result.project.name}`);
+        setPageMessage(`项目已归档：${result.project.name}`);
         reload();
       })
       .catch(() => undefined)
@@ -610,7 +664,7 @@ export function ProjectsPage({
   function handleCreateSourceConfig(projectId: number) {
     const form = getNewSourceConfigForm(projectId);
 
-    setSaveMessage(null);
+    setPageMessage(null);
     setPendingSourceConfigCreateProjectId(projectId);
     void createSourceConfigAction(projectId, {
       projectId,
@@ -628,7 +682,7 @@ export function ProjectsPage({
         );
 
         setProjectSourceConfigs(projectId, nextSourceConfigs);
-        setSaveMessage('SourceConfig 已保存');
+        setPageMessage('SourceConfig 已保存');
 
         return loadSourceConfigsAction(projectId)
           .then((reloaded) => {
@@ -662,7 +716,7 @@ export function ProjectsPage({
 
     const form = getSourceConfigFormValue(sourceConfig);
 
-    setSaveMessage(null);
+    setPageMessage(null);
     setPendingSourceConfigSaveId(sourceConfigId);
     void updateSourceConfigAction(projectId, sourceConfigId, {
       projectId,
@@ -701,7 +755,7 @@ export function ProjectsPage({
           },
           error: null,
         }));
-        setSaveMessage('SourceConfig 已保存');
+        setPageMessage('SourceConfig 已保存');
       })
       .catch(() => undefined)
       .finally(() => {
@@ -839,7 +893,7 @@ export function ProjectsPage({
       <SectionCard title="项目列表" description="这里会展示真实项目列表，并支持最小字段编辑。">
         {displayProjectsState.status === 'loading' ? <p style={{ margin: 0, color: '#334155' }}>正在加载项目列表...</p> : null}
         {displayProjectsState.status === 'error' ? <p style={{ margin: 0, color: '#b91c1c' }}>项目列表加载失败：{displayProjectsState.error}</p> : null}
-        {saveMessage ? <p style={{ margin: '0 0 12px', color: '#166534' }}>{saveMessage}</p> : null}
+        {pageMessage ? <p style={{ margin: '0 0 12px', color: '#166534' }}>{pageMessage}</p> : null}
 
         {displayProjectsState.status === 'success' && projects.length === 0 ? (
           <p style={{ margin: 0, color: '#475569' }}>暂无项目</p>
@@ -927,7 +981,7 @@ export function ProjectsPage({
                     type="button"
                     data-project-save-id={String(project.id)}
                     onClick={() => handleSaveProject(project.id)}
-                    disabled={pendingProjectSaveId === project.id}
+                    disabled={Boolean(pendingProjectSaveIds[project.id])}
                     style={{
                       border: 'none',
                       borderRadius: '12px',
@@ -938,8 +992,16 @@ export function ProjectsPage({
                       justifySelf: 'flex-start',
                     }}
                   >
-                    {pendingProjectSaveId === project.id ? '正在保存项目...' : '保存项目'}
+                    {pendingProjectSaveIds[project.id] ? '正在保存项目...' : '保存项目'}
                   </button>
+                  {projectSaveMessageById[project.id] ? (
+                    <p
+                      data-project-save-feedback-id={String(project.id)}
+                      style={{ margin: 0, color: '#166534' }}
+                    >
+                      {projectSaveMessageById[project.id]}
+                    </p>
+                  ) : null}
                   <button
                     type="button"
                     data-project-archive-id={String(project.id)}
