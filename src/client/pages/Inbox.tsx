@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { apiRequest } from '../lib/api';
 import type { AsyncState } from '../hooks/useAsyncRequest';
 import { useAsyncAction, useAsyncQuery } from '../hooks/useAsyncRequest';
@@ -118,6 +118,8 @@ export interface InboxReplySuggestionResponse {
   };
 }
 
+type BrowserSessionAction = 'request_session' | 'relogin';
+
 interface BrowserReplyHandoffArtifact {
   artifactPath?: string | null;
   path?: string | null;
@@ -132,6 +134,9 @@ interface BrowserReplyHandoffSessionAction {
 }
 
 interface BrowserReplyHandoffDetails {
+  platform?: string | null;
+  channelAccountId?: number | null;
+  accountKey?: string | null;
   readiness?: string | null;
   sessionAction?: string | BrowserReplyHandoffSessionAction | null;
   artifactPath?: string | null;
@@ -182,6 +187,78 @@ export async function sendInboxReplyRequest(id: number, reply: string): Promise<
   });
 }
 
+export interface RequestChannelAccountSessionActionPayload {
+  action?: BrowserSessionAction;
+}
+
+export interface RequestChannelAccountSessionActionResponse {
+  sessionAction: {
+    action: BrowserSessionAction;
+    message: string;
+    artifactPath?: string | null;
+    path?: string | null;
+  };
+}
+
+export async function requestInboxReplySessionActionRequest(
+  accountId: number,
+  input: RequestChannelAccountSessionActionPayload = {},
+): Promise<RequestChannelAccountSessionActionResponse> {
+  return apiRequest<RequestChannelAccountSessionActionResponse>(`/api/channel-accounts/${accountId}/session/request`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(input),
+  });
+}
+
+export interface CompleteInboxReplyHandoffInput {
+  artifactPath: string;
+  replyStatus: 'sent' | 'failed';
+  message?: string;
+  deliveryUrl?: string;
+}
+
+export interface InboxReplyHandoffCompletionResponse {
+  ok: boolean;
+  imported: boolean;
+  artifactPath: string;
+  itemId: number;
+  itemStatus: string;
+  platform: string;
+  mode: string;
+  status: string;
+  success: boolean;
+  deliveryUrl: string | null;
+  externalId: string | null;
+  message: string;
+  deliveredAt: string | null;
+}
+
+export async function completeInboxReplyHandoffRequest(
+  input: CompleteInboxReplyHandoffInput,
+): Promise<InboxReplyHandoffCompletionResponse> {
+  return apiRequest<InboxReplyHandoffCompletionResponse>('/api/system/inbox-reply-handoffs/import', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      artifactPath: input.artifactPath,
+      replyStatus: input.replyStatus,
+      message:
+        input.message ??
+        (input.replyStatus === 'sent'
+          ? 'inbox reply handoff marked sent'
+          : 'inbox reply handoff marked failed'),
+      ...(input.deliveryUrl !== undefined && input.deliveryUrl.trim().length > 0
+        ? { deliveryUrl: input.deliveryUrl.trim() }
+        : {}),
+    }),
+  });
+}
+
 interface InboxPageProps {
   loadInboxAction?: (projectId?: number) => Promise<InboxResponse>;
   fetchInboxAction?: (projectId?: number) => Promise<FetchInboxResponse>;
@@ -189,12 +266,21 @@ interface InboxPageProps {
   updateInboxAction?: (id: number, status: string) => Promise<UpdateInboxItemResponse>;
   suggestReplyAction?: (id: number) => Promise<InboxReplySuggestionResponse>;
   sendReplyAction?: (id: number, reply: string) => Promise<SendInboxReplyResponse>;
+  requestChannelAccountSessionAction?: (
+    accountId: number,
+    input?: RequestChannelAccountSessionActionPayload,
+  ) => Promise<RequestChannelAccountSessionActionResponse>;
+  completeInboxReplyHandoffAction?: (
+    input: CompleteInboxReplyHandoffInput,
+  ) => Promise<InboxReplyHandoffCompletionResponse>;
   stateOverride?: AsyncState<InboxResponse>;
   fetchStateOverride?: AsyncState<FetchInboxResponse>;
   enqueueStateOverride?: AsyncState<EnqueueInboxFetchJobResponse>;
   inboxUpdateStateOverride?: AsyncState<UpdateInboxItemResponse>;
   replySuggestionStateOverride?: AsyncState<InboxReplySuggestionResponse>;
   sendReplyStateOverride?: AsyncState<SendInboxReplyResponse>;
+  sessionActionStateOverride?: AsyncState<RequestChannelAccountSessionActionResponse>;
+  replyHandoffCompletionStateOverride?: AsyncState<InboxReplyHandoffCompletionResponse>;
 }
 
 interface PlaceholderActionButtonProps {
@@ -331,6 +417,10 @@ function readString(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value : null;
 }
 
+function readPositiveInteger(value: unknown) {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
 function readBrowserReplyHandoff(details: SendInboxReplyDetails | undefined) {
   const browserReplyHandoff = asRecord(details?.browserReplyHandoff);
   if (!browserReplyHandoff) {
@@ -353,12 +443,18 @@ function readBrowserReplyHandoff(details: SendInboxReplyDetails | undefined) {
     readString(artifactRecord?.relativePath) ??
     readString(sessionActionRecord?.artifactPath) ??
     readString(sessionActionRecord?.path);
+  const platform = readString(browserReplyHandoff.platform);
+  const accountKey = readString(browserReplyHandoff.accountKey);
+  const channelAccountId = readPositiveInteger(browserReplyHandoff.channelAccountId);
 
-  if (!readiness && !sessionAction && !artifactPath) {
+  if (!readiness && !sessionAction && !artifactPath && !platform && !accountKey && !channelAccountId) {
     return null;
   }
 
   return {
+    platform,
+    accountKey,
+    channelAccountId,
     readiness,
     sessionAction,
     artifactPath,
@@ -403,6 +499,20 @@ function filterInboxItems(items: InboxItem[], activePlatformFilter: string, acti
   });
 }
 
+function formatSessionActionLabel(action: BrowserSessionAction) {
+  return action === 'relogin' ? '重新登录' : '请求登录';
+}
+
+function formatSessionActionPendingLabel(action: BrowserSessionAction) {
+  return action === 'relogin' ? '正在提交重新登录...' : '正在提交登录请求...';
+}
+
+function readSessionActionArtifactPath(result: RequestChannelAccountSessionActionResponse | undefined) {
+  const sessionAction = asRecord(result?.sessionAction);
+
+  return readString(sessionAction?.artifactPath) ?? readString(sessionAction?.path);
+}
+
 export function InboxPage({
   loadInboxAction = loadInboxRequest,
   fetchInboxAction = fetchInboxRequest,
@@ -410,12 +520,16 @@ export function InboxPage({
   updateInboxAction = updateInboxItemRequest,
   suggestReplyAction = suggestInboxReplyRequest,
   sendReplyAction = sendInboxReplyRequest,
+  requestChannelAccountSessionAction = requestInboxReplySessionActionRequest,
+  completeInboxReplyHandoffAction = completeInboxReplyHandoffRequest,
   stateOverride,
   fetchStateOverride,
   enqueueStateOverride,
   inboxUpdateStateOverride,
   replySuggestionStateOverride,
   sendReplyStateOverride,
+  sessionActionStateOverride,
+  replyHandoffCompletionStateOverride,
 }: InboxPageProps) {
   const [projectIdDraft, setProjectIdDraft] = useState('');
   const projectId = parseProjectId(projectIdDraft);
@@ -437,6 +551,13 @@ export function InboxPage({
   const { state: sendReplyState, run: runSendReply } = useAsyncAction(
     ({ id, reply }: { id: number; reply: string }) => sendReplyAction(id, reply),
   );
+  const { state: sessionActionState, run: runSessionAction } = useAsyncAction(
+    ({ accountId, action }: { accountId: number; action: BrowserSessionAction }) =>
+      requestChannelAccountSessionAction(accountId, { action }),
+  );
+  const { state: replyHandoffCompletionState, run: runReplyHandoffCompletion } = useAsyncAction(
+    (input: CompleteInboxReplyHandoffInput) => completeInboxReplyHandoffAction(input),
+  );
   const [activePlatformFilter, setActivePlatformFilter] = useState('all');
   const [activeStatusFilter, setActiveStatusFilter] = useState('all');
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
@@ -445,6 +566,14 @@ export function InboxPage({
   const [replyDeliveryItemId, setReplyDeliveryItemId] = useState<number | null>(null);
   const [replyDraftByItemId, setReplyDraftByItemId] = useState<Record<number, string>>({});
   const [manualReplyAssistantFeedback, setManualReplyAssistantFeedback] = useState<string | null>(null);
+  const [sessionActionItemId, setSessionActionItemId] = useState<number | null>(null);
+  const [replyHandoffCompletionItemId, setReplyHandoffCompletionItemId] = useState<number | null>(null);
+  const [replyHandoffCompletionResult, setReplyHandoffCompletionResult] =
+    useState<InboxReplyHandoffCompletionResponse | null>(null);
+  const [replyHandoffDraftByArtifactPath, setReplyHandoffDraftByArtifactPath] = useState<
+    Record<string, { deliveryUrl: string; message: string }>
+  >({});
+  const replyHandoffCompletionAttemptRef = useRef(0);
   const [allowReplySuggestionFallback, setAllowReplySuggestionFallback] = useState(true);
   const [enqueueRunAtDraft, setEnqueueRunAtDraft] = useState('');
   const displayState = stateOverride ?? state;
@@ -453,6 +582,8 @@ export function InboxPage({
   const displayInboxUpdateState = inboxUpdateStateOverride ?? inboxUpdateState;
   const displayReplySuggestionState = replySuggestionStateOverride ?? replySuggestionState;
   const displaySendReplyState = sendReplyStateOverride ?? sendReplyState;
+  const displaySessionActionState = sessionActionStateOverride ?? sessionActionState;
+  const displayReplyHandoffCompletionState = replyHandoffCompletionStateOverride ?? replyHandoffCompletionState;
   const fallbackData: InboxResponse = {
     items: [
       {
@@ -478,12 +609,23 @@ export function InboxPage({
     displayInboxUpdateState.status === 'success' && displayInboxUpdateState.data ? displayInboxUpdateState.data.item : null;
   const deliveredReplyItem =
     displaySendReplyState.status === 'success' && displaySendReplyState.data ? displaySendReplyState.data.item : null;
+  const completedReplyHandoff = replyHandoffCompletionResult;
   let displayItems = viewData.items;
   if (updatedInboxItem) {
     displayItems = displayItems.map((item) => (item.id === updatedInboxItem.id ? updatedInboxItem : item));
   }
   if (deliveredReplyItem) {
     displayItems = displayItems.map((item) => (item.id === deliveredReplyItem.id ? deliveredReplyItem : item));
+  }
+  if (completedReplyHandoff) {
+    displayItems = displayItems.map((item) =>
+      item.id === completedReplyHandoff.itemId
+        ? {
+            ...item,
+            status: completedReplyHandoff.itemStatus,
+          }
+        : item,
+    );
   }
   const filteredItems = filterInboxItems(displayItems, activePlatformFilter, activeStatusFilter);
   const selectedItem = isPreview ? null : filteredItems.find((item) => item.id === selectedItemId) ?? filteredItems[0] ?? null;
@@ -504,6 +646,11 @@ export function InboxPage({
     setReplySuggestionItemId(null);
     setReplyDeliveryItemId(null);
     setReplyDraftByItemId({});
+    setSessionActionItemId(null);
+    replyHandoffCompletionAttemptRef.current += 1;
+    setReplyHandoffCompletionItemId(null);
+    setReplyHandoffCompletionResult(null);
+    setReplyHandoffDraftByArtifactPath({});
     setAllowReplySuggestionFallback(false);
   }, [projectId]);
 
@@ -548,14 +695,17 @@ export function InboxPage({
     deliveredReplyFeedbackItemId === replyDeliveryItemId
       ? displaySendReplyState.data.delivery
       : null;
+  const showReplyDeliveryFollowUp =
+    replyDeliveryItemId !== null && (selectedItem === null || selectedItem.id === replyDeliveryItemId);
   const sendReplyFeedback =
     deliveredReplyFeedback
       ? deliveredReplyFeedback.message
       : displaySendReplyState.status === 'error' && replyDeliveryItemId !== null
         ? `发送回复失败：${displaySendReplyState.error}`
         : null;
-  const sendReplyBrowserHandoff = deliveredReplyFeedback ? readBrowserReplyHandoff(deliveredReplyFeedback.details) : null;
-  const sendReplyManualReplyAssistant = deliveredReplyFeedback
+  const sendReplyBrowserHandoff =
+    showReplyDeliveryFollowUp && deliveredReplyFeedback ? readBrowserReplyHandoff(deliveredReplyFeedback.details) : null;
+  const sendReplyManualReplyAssistant = showReplyDeliveryFollowUp && deliveredReplyFeedback
     ? readManualReplyAssistant(deliveredReplyFeedback.details)
     : null;
   const sendReplyFeedbackTone =
@@ -577,7 +727,40 @@ export function InboxPage({
 
   useEffect(() => {
     setManualReplyAssistantFeedback(null);
+    setSessionActionItemId(null);
+    replyHandoffCompletionAttemptRef.current += 1;
+    setReplyHandoffCompletionItemId(null);
+    setReplyHandoffCompletionResult(null);
+    setReplyHandoffDraftByArtifactPath({});
   }, [deliveredReplyFeedbackItemId, sendReplyFeedback]);
+
+  const sessionActionFeedback =
+    displaySessionActionState.status === 'success' && displaySessionActionState.data && sessionActionItemId !== null
+      ? displaySessionActionState.data.sessionAction.message
+      : displaySessionActionState.status === 'error' && sessionActionItemId !== null
+        ? `提交 browser session 动作失败：${displaySessionActionState.error}`
+        : null;
+  const sessionActionArtifactPath =
+    displaySessionActionState.status === 'success' &&
+    displaySessionActionState.data &&
+    sessionActionItemId !== null &&
+    sessionActionItemId === replyDeliveryItemId
+      ? readSessionActionArtifactPath(displaySessionActionState.data)
+      : null;
+  const replyHandoffCompletionFeedback =
+    showReplyDeliveryFollowUp && completedReplyHandoff && replyHandoffCompletionItemId !== null
+      ? `已结单 inbox reply item #${completedReplyHandoff.itemId} (${completedReplyHandoff.itemStatus})`
+      : showReplyDeliveryFollowUp &&
+          displayReplyHandoffCompletionState.status === 'error' &&
+          replyHandoffCompletionItemId !== null
+        ? `Inbox reply handoff 结单失败：${displayReplyHandoffCompletionState.error}`
+        : null;
+  const replyHandoffCompletionFeedbackTone =
+    showReplyDeliveryFollowUp && completedReplyHandoff
+      ? 'success'
+      : showReplyDeliveryFollowUp && displayReplyHandoffCompletionState.status === 'error'
+        ? 'error'
+        : null;
 
   async function handleInboxStatus(item: InboxItem, status: 'handled' | 'snoozed') {
     setSelectedItemId(item.id);
@@ -685,6 +868,68 @@ export function InboxPage({
       });
   }
 
+  function handleReplyHandoffDraftChange(artifactPath: string, field: 'deliveryUrl' | 'message', value: string) {
+    setReplyHandoffDraftByArtifactPath((current) => ({
+      ...current,
+      [artifactPath]: {
+        deliveryUrl: current[artifactPath]?.deliveryUrl ?? '',
+        message: current[artifactPath]?.message ?? '',
+        [field]: value,
+      },
+    }));
+  }
+
+  function handleRequestSessionAction() {
+    if (
+      !sendReplyBrowserHandoff?.sessionAction ||
+      !sendReplyBrowserHandoff.channelAccountId ||
+      replyDeliveryItemId === null
+    ) {
+      return;
+    }
+
+    const action = sendReplyBrowserHandoff.sessionAction;
+    if (action !== 'request_session' && action !== 'relogin') {
+      return;
+    }
+
+    setSessionActionItemId(replyDeliveryItemId);
+    void runSessionAction({
+      accountId: sendReplyBrowserHandoff.channelAccountId,
+      action,
+    }).catch(() => undefined);
+  }
+
+  function handleCompleteReplyHandoff(replyStatus: 'sent' | 'failed') {
+    if (!sendReplyBrowserHandoff?.artifactPath || replyDeliveryItemId === null) {
+      return;
+    }
+
+    const draft = replyHandoffDraftByArtifactPath[sendReplyBrowserHandoff.artifactPath];
+    const message = draft?.message.trim();
+    const deliveryUrl = draft?.deliveryUrl.trim();
+    const completionAttemptId = replyHandoffCompletionAttemptRef.current + 1;
+
+    replyHandoffCompletionAttemptRef.current = completionAttemptId;
+    setReplyHandoffCompletionItemId(replyDeliveryItemId);
+    setReplyHandoffCompletionResult(null);
+    void runReplyHandoffCompletion({
+      artifactPath: sendReplyBrowserHandoff.artifactPath,
+      replyStatus,
+      ...(message ? { message } : {}),
+      ...(deliveryUrl ? { deliveryUrl } : {}),
+    })
+      .then((result) => {
+        if (replyHandoffCompletionAttemptRef.current !== completionAttemptId) {
+          return;
+        }
+
+        setReplyHandoffCompletionResult(result);
+        reload();
+      })
+      .catch(() => undefined);
+  }
+
   function handleSelectPlatformFilter(filter: string) {
     const nextFilteredItems = filterInboxItems(displayItems, filter, activeStatusFilter);
     setActivePlatformFilter(filter);
@@ -704,6 +949,16 @@ export function InboxPage({
         : null,
     );
   }
+
+  const activeReplyHandoffDraft = sendReplyBrowserHandoff?.artifactPath
+    ? replyHandoffDraftByArtifactPath[sendReplyBrowserHandoff.artifactPath]
+    : undefined;
+  const shouldShowReplyHandoffCompletionActions =
+    !!sendReplyBrowserHandoff?.artifactPath &&
+    (!completedReplyHandoff || completedReplyHandoff.itemId !== replyDeliveryItemId);
+  const shouldShowSessionActionButton =
+    !!sendReplyBrowserHandoff?.channelAccountId &&
+    (sendReplyBrowserHandoff.sessionAction === 'request_session' || sendReplyBrowserHandoff.sessionAction === 'relogin');
 
   return (
     <section>
@@ -801,6 +1056,103 @@ export function InboxPage({
           ) : null}
           {sendReplyBrowserHandoff?.artifactPath ? (
             <span style={{ display: 'block', marginTop: '6px' }}>Handoff 路径：{sendReplyBrowserHandoff.artifactPath}</span>
+          ) : null}
+          {shouldShowSessionActionButton ? (
+            <span style={{ display: 'block', marginTop: '10px' }}>
+              <span style={{ display: 'inline-flex', gap: '8px', flexWrap: 'wrap' }}>
+                <ActionButton
+                  label={
+                    displaySessionActionState.status === 'loading' && sessionActionItemId === replyDeliveryItemId
+                      ? formatSessionActionPendingLabel(sendReplyBrowserHandoff.sessionAction as BrowserSessionAction)
+                      : formatSessionActionLabel(sendReplyBrowserHandoff.sessionAction as BrowserSessionAction)
+                  }
+                  tone="primary"
+                  onClick={handleRequestSessionAction}
+                  disabled={displaySessionActionState.status === 'loading' && sessionActionItemId === replyDeliveryItemId}
+                />
+              </span>
+              {sessionActionFeedback ? (
+                <span style={{ display: 'block', marginTop: '8px' }}>{sessionActionFeedback}</span>
+              ) : null}
+              {sessionActionArtifactPath ? (
+                <span style={{ display: 'block', marginTop: '6px' }}>Session 请求路径：{sessionActionArtifactPath}</span>
+              ) : null}
+            </span>
+          ) : null}
+          {shouldShowReplyHandoffCompletionActions ? (
+            <span style={{ display: 'block', marginTop: '10px' }}>
+              <span style={{ display: 'block', marginBottom: '8px' }}>Inbox reply handoff 结单</span>
+              <span style={{ display: 'grid', gap: '8px' }}>
+                <input
+                  data-inbox-reply-handoff-field="deliveryUrl"
+                  value={activeReplyHandoffDraft?.deliveryUrl ?? ''}
+                  onChange={(event) => {
+                    handleReplyHandoffDraftChange(sendReplyBrowserHandoff.artifactPath!, 'deliveryUrl', event.target.value);
+                  }}
+                  placeholder="delivery URL（可选）"
+                  style={queueInputStyle}
+                />
+                <input
+                  data-inbox-reply-handoff-field="message"
+                  value={activeReplyHandoffDraft?.message ?? ''}
+                  onChange={(event) => {
+                    handleReplyHandoffDraftChange(sendReplyBrowserHandoff.artifactPath!, 'message', event.target.value);
+                  }}
+                  placeholder="结单备注（可选）"
+                  style={queueInputStyle}
+                />
+                <span style={{ display: 'inline-flex', gap: '8px', flexWrap: 'wrap' }}>
+                  <ActionButton
+                    label={
+                      displayReplyHandoffCompletionState.status === 'loading' &&
+                      replyHandoffCompletionItemId === replyDeliveryItemId
+                        ? '正在结单...'
+                        : '标记已发送'
+                    }
+                    tone="primary"
+                    onClick={() => {
+                      handleCompleteReplyHandoff('sent');
+                    }}
+                    disabled={
+                      displayReplyHandoffCompletionState.status === 'loading' &&
+                      replyHandoffCompletionItemId === replyDeliveryItemId
+                    }
+                  />
+                  <ActionButton
+                    label={
+                      displayReplyHandoffCompletionState.status === 'loading' &&
+                      replyHandoffCompletionItemId === replyDeliveryItemId
+                        ? '正在结单...'
+                        : '标记失败'
+                    }
+                    onClick={() => {
+                      handleCompleteReplyHandoff('failed');
+                    }}
+                    disabled={
+                      displayReplyHandoffCompletionState.status === 'loading' &&
+                      replyHandoffCompletionItemId === replyDeliveryItemId
+                    }
+                  />
+                </span>
+              </span>
+            </span>
+          ) : null}
+          {replyHandoffCompletionFeedback ? (
+            <span
+              style={{
+                display: 'block',
+                marginTop: '10px',
+                color: replyHandoffCompletionFeedbackTone === 'error' ? '#b91c1c' : '#166534',
+              }}
+            >
+              <span style={{ display: 'block' }}>{replyHandoffCompletionFeedback}</span>
+              {completedReplyHandoff?.message ? (
+                <span style={{ display: 'block', marginTop: '6px' }}>{completedReplyHandoff.message}</span>
+              ) : null}
+              {completedReplyHandoff?.deliveryUrl ? (
+                <span style={{ display: 'block', marginTop: '6px' }}>{completedReplyHandoff.deliveryUrl}</span>
+              ) : null}
+            </span>
           ) : null}
           {sendReplyManualReplyAssistant ? (
             <span style={{ display: 'block', marginTop: '10px' }}>
