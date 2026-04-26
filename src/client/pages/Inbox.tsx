@@ -368,6 +368,14 @@ function formatInboxPlatformFilterLabel(filter: string) {
     return 'Reddit';
   }
 
+  if (filter === 'instagram') {
+    return 'Instagram';
+  }
+
+  if (filter === 'tiktok') {
+    return 'TikTok';
+  }
+
   if (filter === 'v2ex') {
     return 'V2EX';
   }

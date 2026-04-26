@@ -3183,7 +3183,7 @@ describe('channel accounts api', () => {
     }
   });
 
-  it('adds xiaohongshu and weibo publish readiness based on browser session state', async () => {
+  it('adds browser-platform publish readiness for xiaohongshu, weibo, instagram, and tiktok', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
       await requestApp('POST', '/api/channel-accounts', {
@@ -3197,6 +3197,20 @@ describe('channel accounts api', () => {
         platform: 'weibo',
         accountKey: 'weibo-main',
         displayName: 'PromoBot Weibo',
+        authType: 'browser',
+        status: 'healthy',
+      });
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'instagram',
+        accountKey: 'instagram-main',
+        displayName: 'PromoBot Instagram',
+        authType: 'browser',
+        status: 'healthy',
+      });
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'tiktok',
+        accountKey: 'tiktok-main',
+        displayName: 'PromoBot TikTok',
         authType: 'browser',
         status: 'healthy',
       });
@@ -3220,11 +3234,29 @@ describe('channel accounts api', () => {
               action: 'request_session',
             }),
           }),
+          expect.objectContaining({
+            publishReadiness: expect.objectContaining({
+              platform: 'instagram',
+              ready: false,
+              status: 'needs_session',
+              action: 'request_session',
+            }),
+          }),
+          expect.objectContaining({
+            publishReadiness: expect.objectContaining({
+              platform: 'tiktok',
+              ready: false,
+              status: 'needs_session',
+              action: 'request_session',
+            }),
+          }),
         ],
       });
 
       writeStorageStateFile(rootDir, 'artifacts/browser-sessions/xiaohongshu.json');
       writeStorageStateFile(rootDir, 'artifacts/browser-sessions/weibo.json');
+      writeStorageStateFile(rootDir, 'artifacts/browser-sessions/instagram.json');
+      writeStorageStateFile(rootDir, 'artifacts/browser-sessions/tiktok.json');
 
       await requestApp('POST', '/api/channel-accounts/1/session', {
         storageStatePath: 'artifacts/browser-sessions/xiaohongshu.json',
@@ -3232,6 +3264,14 @@ describe('channel accounts api', () => {
       });
       await requestApp('POST', '/api/channel-accounts/2/session', {
         storageStatePath: 'artifacts/browser-sessions/weibo.json',
+        status: 'expired',
+      });
+      await requestApp('POST', '/api/channel-accounts/3/session', {
+        storageStatePath: 'artifacts/browser-sessions/instagram.json',
+        status: 'active',
+      });
+      await requestApp('POST', '/api/channel-accounts/4/session', {
+        storageStatePath: 'artifacts/browser-sessions/tiktok.json',
         status: 'expired',
       });
 
@@ -3248,6 +3288,21 @@ describe('channel accounts api', () => {
           expect.objectContaining({
             publishReadiness: expect.objectContaining({
               platform: 'weibo',
+              ready: false,
+              status: 'needs_relogin',
+              action: 'relogin',
+            }),
+          }),
+          expect.objectContaining({
+            publishReadiness: expect.objectContaining({
+              platform: 'instagram',
+              ready: true,
+              status: 'ready',
+            }),
+          }),
+          expect.objectContaining({
+            publishReadiness: expect.objectContaining({
+              platform: 'tiktok',
               ready: false,
               status: 'needs_relogin',
               action: 'relogin',

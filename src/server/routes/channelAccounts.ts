@@ -29,6 +29,8 @@ const supportedChannelAccountPlatforms = new Set([
   'reddit',
   'facebookGroup',
   'facebook-group',
+  'instagram',
+  'tiktok',
   'xiaohongshu',
   'weibo',
   'blog',

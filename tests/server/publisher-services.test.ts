@@ -9,6 +9,8 @@ import {
 } from '../../src/server/services/browser/sessionStore';
 import * as sessionStoreModule from '../../src/server/services/browser/sessionStore';
 import { publishToWeibo } from '../../src/server/services/publishers/weibo';
+import { publishToInstagram } from '../../src/server/services/publishers/instagram';
+import { publishToTiktok } from '../../src/server/services/publishers/tiktok';
 import { publishToXiaohongshu } from '../../src/server/services/publishers/xiaohongshu';
 import { publishToX } from '../../src/server/services/publishers/x';
 import { isolateProcessCwd } from './testDb';
@@ -396,6 +398,137 @@ describe('publishers', () => {
     });
   });
 
+  it('requests a saved browser session before instagram manual handoff when no session exists', async () => {
+    const sessionStore = mockSession(null);
+
+    const result = await publishToInstagram({
+      draftId: 24,
+      content: 'Needs browser handoff',
+      target: '@brand-account',
+      metadata: {
+        accountKey: 'launch-campaign',
+      },
+    });
+
+    expect(sessionStore.getSession).toHaveBeenCalledWith('instagram', 'launch-campaign');
+    expect(result).toEqual({
+      platform: 'instagram',
+      mode: 'browser',
+      status: 'manual_required',
+      success: false,
+      publishUrl: null,
+      externalId: null,
+      message: 'instagram draft 24 requires a saved browser session before manual handoff.',
+      publishedAt: null,
+      details: {
+        target: '@brand-account',
+        accountKey: 'launch-campaign',
+        browserHandoff: {
+          readiness: 'blocked',
+          session: {
+            hasSession: false,
+            status: 'missing',
+            validatedAt: null,
+            storageStatePath: null,
+          },
+          sessionAction: 'request_session',
+        },
+      },
+    });
+  });
+
+  it('returns a ready browser handoff for instagram when an active session exists', async () => {
+    const outputDir = mkdtempSync(path.join(tmpdir(), 'promobot-browser-handoff-'));
+    tempDirs.push(outputDir);
+    process.env.BROWSER_HANDOFF_OUTPUT_DIR = outputDir;
+
+    const sessionStore = mockSession({
+      id: 'instagram:launch-campaign',
+      platform: 'instagram',
+      accountKey: 'launch-campaign',
+      storageStatePath: 'artifacts/browser-sessions/instagram.json',
+      status: 'active',
+      notes: 'manual login completed',
+      createdAt: '2026-04-19T10:00:00.000Z',
+      updatedAt: '2026-04-19T10:30:00.000Z',
+      lastValidatedAt: '2026-04-19T10:25:00.000Z',
+    });
+
+    const result = await publishToInstagram({
+      draftId: 26,
+      content: 'Ready for browser handoff',
+      target: '@brand-account',
+      metadata: {
+        accountKey: 'launch-campaign',
+      },
+    });
+
+    expect(sessionStore.getSession).toHaveBeenCalledWith('instagram', 'launch-campaign');
+    expect(
+      JSON.parse(
+        readFileSync(
+          path.join(
+            outputDir,
+            'artifacts',
+            'browser-handoffs',
+            'instagram',
+            'launch-campaign',
+            'instagram-draft-26.json',
+          ),
+          'utf8',
+        ),
+      ),
+    ).toEqual({
+      type: 'browser_manual_handoff',
+      status: 'pending',
+      platform: 'instagram',
+      draftId: '26',
+      title: null,
+      content: 'Ready for browser handoff',
+      target: '@brand-account',
+      accountKey: 'launch-campaign',
+      session: {
+        hasSession: true,
+        id: 'instagram:launch-campaign',
+        status: 'active',
+        validatedAt: '2026-04-19T10:25:00.000Z',
+        storageStatePath: 'artifacts/browser-sessions/instagram.json',
+        notes: 'manual login completed',
+      },
+      createdAt: expect.any(String),
+      updatedAt: expect.any(String),
+      resolvedAt: null,
+      resolution: null,
+    });
+    expect(result).toEqual({
+      platform: 'instagram',
+      mode: 'browser',
+      status: 'manual_required',
+      success: false,
+      publishUrl: null,
+      externalId: null,
+      message: 'instagram draft 26 is ready for manual browser handoff with the saved session.',
+      publishedAt: null,
+      details: {
+        target: '@brand-account',
+        accountKey: 'launch-campaign',
+        browserHandoff: {
+          readiness: 'ready',
+          session: {
+            hasSession: true,
+            id: 'instagram:launch-campaign',
+            status: 'active',
+            validatedAt: '2026-04-19T10:25:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/instagram.json',
+            notes: 'manual login completed',
+          },
+          sessionAction: null,
+          artifactPath: 'artifacts/browser-handoffs/instagram/launch-campaign/instagram-draft-26.json',
+        },
+      },
+    });
+  });
+
   it('returns a ready browser handoff for weibo when an active session exists', async () => {
     const outputDir = mkdtempSync(path.join(tmpdir(), 'promobot-browser-handoff-'));
     tempDirs.push(outputDir);
@@ -483,6 +616,55 @@ describe('publishers', () => {
           },
           sessionAction: null,
           artifactPath: 'artifacts/browser-handoffs/weibo/launch-campaign/weibo-draft-28.json',
+        },
+      },
+    });
+  });
+
+  it('requests tiktok relogin when the saved session is expired', async () => {
+    const sessionStore = mockSession({
+      id: 'tiktok:launch-campaign',
+      platform: 'tiktok',
+      accountKey: 'launch-campaign',
+      storageStatePath: 'artifacts/browser-sessions/tiktok.json',
+      status: 'expired',
+      createdAt: '2026-04-19T10:00:00.000Z',
+      updatedAt: '2026-04-19T10:30:00.000Z',
+      lastValidatedAt: '2026-04-19T10:25:00.000Z',
+    });
+
+    const result = await publishToTiktok({
+      draftId: 29,
+      content: 'Needs relogin',
+      target: '@brand-account',
+      metadata: {
+        accountKey: 'launch-campaign',
+      },
+    });
+
+    expect(sessionStore.getSession).toHaveBeenCalledWith('tiktok', 'launch-campaign');
+    expect(result).toEqual({
+      platform: 'tiktok',
+      mode: 'browser',
+      status: 'manual_required',
+      success: false,
+      publishUrl: null,
+      externalId: null,
+      message: 'tiktok draft 29 requires the browser session to be refreshed before manual handoff.',
+      publishedAt: null,
+      details: {
+        target: '@brand-account',
+        accountKey: 'launch-campaign',
+        browserHandoff: {
+          readiness: 'blocked',
+          session: {
+            hasSession: true,
+            id: 'tiktok:launch-campaign',
+            status: 'expired',
+            validatedAt: '2026-04-19T10:25:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/tiktok.json',
+          },
+          sessionAction: 'relogin',
         },
       },
     });

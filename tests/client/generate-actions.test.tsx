@@ -868,6 +868,12 @@ describe('Generate review actions', () => {
     const facebookGroupCheckbox = findPlatformCheckbox(container, 'facebook-group') as (FakeElement & {
       checked?: boolean;
     }) | null;
+    const instagramCheckbox = findPlatformCheckbox(container, 'instagram') as (FakeElement & {
+      checked?: boolean;
+    }) | null;
+    const tiktokCheckbox = findPlatformCheckbox(container, 'tiktok') as (FakeElement & {
+      checked?: boolean;
+    }) | null;
     const xiaohongshuCheckbox = findPlatformCheckbox(container, 'xiaohongshu') as (FakeElement & {
       checked?: boolean;
     }) | null;
@@ -877,6 +883,8 @@ describe('Generate review actions', () => {
     expect(xCheckbox).not.toBeNull();
     expect(redditCheckbox).not.toBeNull();
     expect(facebookGroupCheckbox).not.toBeNull();
+    expect(instagramCheckbox).not.toBeNull();
+    expect(tiktokCheckbox).not.toBeNull();
     expect(xiaohongshuCheckbox).not.toBeNull();
     expect(weiboCheckbox).not.toBeNull();
     expect(blogCheckbox).not.toBeNull();
@@ -885,6 +893,8 @@ describe('Generate review actions', () => {
     expect(redditCheckbox?.checked).toBe(true);
     expect(blogCheckbox?.checked).toBe(true);
     expect(facebookGroupCheckbox?.checked).toBe(false);
+    expect(instagramCheckbox?.checked).toBe(false);
+    expect(tiktokCheckbox?.checked).toBe(false);
     expect(xiaohongshuCheckbox?.checked).toBe(false);
     expect(weiboCheckbox?.checked).toBe(false);
 
@@ -892,6 +902,8 @@ describe('Generate review actions', () => {
     expect(redditCheckbox?.disabled).toBe(false);
     expect(blogCheckbox?.disabled).toBe(false);
     expect(facebookGroupCheckbox?.disabled).toBe(false);
+    expect(instagramCheckbox?.disabled).toBe(false);
+    expect(tiktokCheckbox?.disabled).toBe(false);
     expect(xiaohongshuCheckbox?.disabled).toBe(false);
     expect(weiboCheckbox?.disabled).toBe(false);
 

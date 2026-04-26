@@ -7,8 +7,13 @@ import { createStubPublisher } from './stub.js';
 import { markBrowserHandoffArtifactsObsoleteForAccount, writeBrowserHandoffArtifact } from './browserHandoffArtifacts.js';
 import type { PublishRequest, PublishResult, Publisher, PublisherPlatform } from './types.js';
 
+type BrowserHandoffPlatform = Extract<
+  PublisherPlatform,
+  'facebookGroup' | 'instagram' | 'tiktok' | 'xiaohongshu' | 'weibo'
+>;
+
 export function createBrowserHandoffPublisher(
-  platform: Extract<PublisherPlatform, 'facebookGroup' | 'xiaohongshu' | 'weibo'>,
+  platform: BrowserHandoffPlatform,
 ): Publisher {
   const channelAccountStore = createChannelAccountStore();
   const fallbackPublisher = createStubPublisher({
@@ -95,7 +100,7 @@ function resolveAccountKey(metadata: PublishRequest['metadata']): string | null 
 
 function resolveChannelAccountId(
   channelAccounts: Array<{ id: number; projectId: number | null; platform: string; accountKey: string }>,
-  platform: Extract<PublisherPlatform, 'facebookGroup' | 'xiaohongshu' | 'weibo'>,
+  platform: BrowserHandoffPlatform,
   accountKey: string,
   metadata: PublishRequest['metadata'],
 ) {
@@ -139,7 +144,7 @@ function normalizeChannelAccountPlatform(platform: string) {
 }
 
 function buildMessage(
-  platform: 'facebookGroup' | 'xiaohongshu' | 'weibo',
+  platform: BrowserHandoffPlatform,
   draftId: string,
   sessionAction: 'request_session' | 'relogin' | null,
 ) {

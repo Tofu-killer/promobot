@@ -27,7 +27,14 @@ const fieldStyle = {
 } as const;
 
 const editableDraftStatusOptions: DraftStatus[] = ['draft', 'review', 'approved'];
-const manualHandoffPlatforms = new Set(['facebook-group', 'facebookGroup', 'xiaohongshu', 'weibo']);
+const manualHandoffPlatforms = new Set([
+  'facebook-group',
+  'facebookGroup',
+  'instagram',
+  'tiktok',
+  'xiaohongshu',
+  'weibo',
+]);
 
 function isEditableDraftStatus(status: DraftStatus) {
   return editableDraftStatusOptions.includes(status);

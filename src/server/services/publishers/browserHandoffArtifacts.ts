@@ -12,12 +12,16 @@ const draftStore = createSQLiteDraftStore();
 
 type BrowserHandoffArtifactStatus = 'pending' | 'resolved' | 'obsolete';
 type BrowserHandoffOwnership = 'direct' | 'draft_project' | 'unmatched';
+type BrowserHandoffPlatform = Extract<
+  PublisherPlatform,
+  'facebookGroup' | 'instagram' | 'tiktok' | 'xiaohongshu' | 'weibo'
+>;
 
 interface BrowserHandoffArtifactRecord {
   type: 'browser_manual_handoff';
   channelAccountId?: number;
   status: BrowserHandoffArtifactStatus;
-  platform: Extract<PublisherPlatform, 'facebookGroup' | 'xiaohongshu' | 'weibo'>;
+  platform: BrowserHandoffPlatform;
   draftId: string;
   title: string | null;
   content: string;
@@ -34,7 +38,7 @@ export interface BrowserHandoffArtifactSummary {
   channelAccountId?: number;
   accountDisplayName?: string;
   ownership: BrowserHandoffOwnership;
-  platform: Extract<PublisherPlatform, 'facebookGroup' | 'xiaohongshu' | 'weibo'>;
+  platform: BrowserHandoffPlatform;
   draftId: string;
   title: string | null;
   accountKey: string;
@@ -48,7 +52,7 @@ export interface BrowserHandoffArtifactSummary {
 
 export function writeBrowserHandoffArtifact(input: {
   channelAccountId?: number;
-  platform: Extract<PublisherPlatform, 'facebookGroup' | 'xiaohongshu' | 'weibo'>;
+  platform: BrowserHandoffPlatform;
   accountKey: string;
   request: PublishRequest;
   session: SessionSummary;
@@ -86,7 +90,7 @@ export function writeBrowserHandoffArtifact(input: {
 }
 
 export function markBrowserHandoffArtifactObsolete(input: {
-  platform: Extract<PublisherPlatform, 'facebookGroup' | 'xiaohongshu' | 'weibo'>;
+  platform: BrowserHandoffPlatform;
   accountKey: string;
   draftId: string;
   reason: 'request_session' | 'relogin';
@@ -98,7 +102,7 @@ export function markBrowserHandoffArtifactObsolete(input: {
 }
 
 export function markBrowserHandoffArtifactsObsoleteForAccount(input: {
-  platform: Extract<PublisherPlatform, 'facebookGroup' | 'xiaohongshu' | 'weibo'>;
+  platform: BrowserHandoffPlatform;
   accountKey: string;
   reason: 'request_session' | 'relogin';
 }) {
@@ -151,7 +155,7 @@ export function markBrowserHandoffArtifactsObsoleteForAccount(input: {
 }
 
 export function resolveBrowserHandoffArtifact(input: {
-  platform: Extract<PublisherPlatform, 'facebookGroup' | 'xiaohongshu' | 'weibo'>;
+  platform: BrowserHandoffPlatform;
   accountKey: string;
   draftId: string;
   publishStatus: string;
@@ -418,7 +422,7 @@ function resolveArtifactRootDir() {
 
 function updateBrowserHandoffArtifact(
   input: {
-    platform: Extract<PublisherPlatform, 'facebookGroup' | 'xiaohongshu' | 'weibo'>;
+    platform: BrowserHandoffPlatform;
     accountKey: string;
     draftId: string;
   },

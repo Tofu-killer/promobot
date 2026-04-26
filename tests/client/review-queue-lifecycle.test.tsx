@@ -1489,6 +1489,77 @@ describe('Review Queue lifecycle actions', () => {
     });
   });
 
+  it('treats instagram review drafts as manual handoff platforms', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ReviewQueuePage } = await import('../../src/client/pages/ReviewQueue');
+
+    const loadReviewQueueAction = vi.fn().mockResolvedValue({
+      drafts: [
+        {
+          id: 32,
+          platform: 'instagram',
+          title: 'Instagram launch reel',
+          content: 'Draft body',
+          hashtags: ['#launch'],
+          status: 'review',
+          createdAt: '2026-04-27T00:00:00.000Z',
+          updatedAt: '2026-04-27T00:00:00.000Z',
+        },
+      ],
+    });
+    const publishReviewDraftAction = vi.fn().mockResolvedValue({
+      success: false,
+      status: 'manual_required',
+      publishUrl: null,
+      message: 'instagram draft 32 is ready for manual browser handoff with the saved session.',
+      details: {
+        browserHandoff: {
+          readiness: 'ready',
+          sessionAction: null,
+          artifactPath:
+            'artifacts/browser-handoffs/instagram/launch-campaign/instagram-draft-32.json',
+        },
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ReviewQueuePage as never, {
+          loadReviewQueueAction,
+          publishReviewDraftAction,
+        }),
+      );
+      await flush();
+    });
+
+    const publishButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-review-publish-id') === '32',
+    );
+
+    expect(publishButton).not.toBeNull();
+    expect(collectText(publishButton as unknown as FakeNode)).toContain('转入人工接管');
+
+    await act(async () => {
+      publishButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(publishReviewDraftAction).toHaveBeenCalledWith(32);
+    expect(collectText(container)).toContain('已生成人工接管回执：Instagram launch reel');
+    expect(collectText(container)).toContain(
+      'instagram draft 32 is ready for manual browser handoff with the saved session.',
+    );
+    expect(collectText(container)).toContain('Handoff 路径：artifacts/browser-handoffs/instagram/launch-campaign/instagram-draft-32.json');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('shows queued publish feedback when publish returns queued', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');

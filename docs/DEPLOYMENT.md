@@ -585,7 +585,7 @@ pnpm runtime:restore -- --input-dir /tmp/promobot-backup-manual --skip-env
   - 未配置凭证时会返回失败，不会伪造成功发布
 - `facebook-group`
   - 仍然是浏览器 handoff 合同，不会自动发帖
-- `weibo`、`xiaohongshu`
+- `instagram`、`tiktok`、`weibo`、`xiaohongshu`
   - 当前会像 `facebook-group` 一样根据浏览器 session 返回有状态的 manual handoff 合同
   - 缺 session 时返回 `request_session`，session 过期时返回 `relogin`
   - 当 session 已就绪时，发布请求还会生成本地 handoff artifact 文件，便于人工接管或外部 browser lane 消费
@@ -593,7 +593,7 @@ pnpm runtime:restore -- --input-dir /tmp/promobot-backup-manual --skip-env
 - `blog`
   - 当前会把发布内容写入本地 Markdown 文件
   - 默认输出到 `data/blog-posts/`；可用 `BLOG_PUBLISH_OUTPUT_DIR` 覆盖
-- 当前可落地发布范围建议收敛为：`X`、`Reddit`、`Blog（本地文件）`、`Facebook Group / 小红书 / 微博（人工接管）`
+- 当前可落地发布范围建议收敛为：`X`、`Reddit`、`Blog（本地文件）`、`Facebook Group / Instagram / TikTok / 小红书 / 微博（人工接管）`
 - `monitor`、`inbox`、`reputation`
   - `monitor/fetch` 已支持 RSS、V2EX、Reddit search
   - `inbox/fetch` 与 `reputation/fetch` 现在会直接基于 settings/source configs 调用 X、Reddit、V2EX 搜索

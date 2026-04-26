@@ -1,7 +1,9 @@
 import { Router, type Request } from 'express';
 import { publishToBlog } from '../services/publishers/blog.js';
 import { publishToFacebookGroup } from '../services/publishers/facebookGroup.js';
+import { publishToInstagram } from '../services/publishers/instagram.js';
 import { publishToReddit } from '../services/publishers/reddit.js';
+import { publishToTiktok } from '../services/publishers/tiktok.js';
 import type { PublishMode, PublishResult, PublishStatus, Publisher } from '../services/publishers/types.js';
 import { publishToWeibo } from '../services/publishers/weibo.js';
 import { publishToX } from '../services/publishers/x.js';
@@ -73,7 +75,9 @@ const publishersByPlatform: Record<string, Publisher> = {
   blog: publishToBlog,
   'facebook-group': publishToFacebookGroup,
   facebookGroup: publishToFacebookGroup,
+  instagram: publishToInstagram,
   reddit: publishToReddit,
+  tiktok: publishToTiktok,
   weibo: publishToWeibo,
   x: publishToX,
   xiaohongshu: publishToXiaohongshu,
@@ -258,7 +262,13 @@ function normalizePublishMode(mode: PublishMode | undefined, draftPlatform: stri
     return 'api';
   }
 
-  if (platform === 'facebookGroup' || platform === 'xiaohongshu' || platform === 'weibo') {
+  if (
+    platform === 'facebookGroup' ||
+    platform === 'instagram' ||
+    platform === 'tiktok' ||
+    platform === 'xiaohongshu' ||
+    platform === 'weibo'
+  ) {
     return 'browser';
   }
 
@@ -296,7 +306,13 @@ function maybeResolveBrowserHandoffArtifact(
   }
 
   const platform = normalizePlatform(undefined, draft.platform);
-  if (platform !== 'facebookGroup' && platform !== 'xiaohongshu' && platform !== 'weibo') {
+  if (
+    platform !== 'facebookGroup' &&
+    platform !== 'instagram' &&
+    platform !== 'tiktok' &&
+    platform !== 'xiaohongshu' &&
+    platform !== 'weibo'
+  ) {
     return;
   }
 

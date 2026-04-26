@@ -132,7 +132,7 @@ describe('dashboard enhanced metrics page', () => {
     expect(html).toContain('失败发布日志');
     expect(html).toContain('首发运营范围');
     expect(html).toContain('X、Reddit');
-    expect(html).toContain('人工接管：Facebook Group、小红书、微博');
+    expect(html).toContain('人工接管：Facebook Group、Instagram、TikTok、小红书、微博');
     expect(html).toContain('项目 ID（可选）');
   });
 });
