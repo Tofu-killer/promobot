@@ -3,13 +3,21 @@ interface ActionButtonProps {
   tone?: 'primary' | 'secondary';
   onClick?: () => void;
   disabled?: boolean;
+  buttonAttributes?: Record<string, string | undefined>;
 }
 
-export function ActionButton({ label, tone = 'secondary', onClick, disabled = false }: ActionButtonProps) {
+export function ActionButton({
+  label,
+  tone = 'secondary',
+  onClick,
+  disabled = false,
+  buttonAttributes,
+}: ActionButtonProps) {
   const isPrimary = tone === 'primary';
 
   return (
     <button
+      {...buttonAttributes}
       type="button"
       onClick={disabled ? undefined : onClick}
       disabled={disabled}

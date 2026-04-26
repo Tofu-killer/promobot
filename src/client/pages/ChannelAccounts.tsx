@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { apiRequest } from '../lib/api';
 import type { AsyncState } from '../hooks/useAsyncRequest';
 import { useAsyncAction, useAsyncQuery } from '../hooks/useAsyncRequest';
@@ -256,6 +256,11 @@ type LatestSessionMutation =
       accountId: number;
     }
   | null;
+
+interface SessionSaveFeedback {
+  tone: 'success' | 'error';
+  message: string;
+}
 
 interface ChannelAccountsPageProps {
   loadChannelAccountsAction?: () => Promise<ChannelAccountsResponse>;
@@ -552,11 +557,15 @@ export function ChannelAccountsPage({
   const [editFormById, setEditFormById] = useState<Record<number, EditFormValue>>({});
   const [accountFormErrorById, setAccountFormErrorById] = useState<Record<number, string>>({});
   const [sessionFormErrorById, setSessionFormErrorById] = useState<Record<number, string>>({});
+  const [sessionSavePendingById, setSessionSavePendingById] = useState<Record<number, boolean>>({});
+  const [sessionSaveFeedbackById, setSessionSaveFeedbackById] = useState<Record<number, SessionSaveFeedback>>({});
+  const [sessionSavedAccountById, setSessionSavedAccountById] = useState<Record<number, ChannelAccountRecord>>({});
   const [latestSessionMutation, setLatestSessionMutation] = useState<LatestSessionMutation>(null);
   const [latestAccountMutationId, setLatestAccountMutationId] = useState<number | null>(null);
   const [latestBlockedAccountSaveId, setLatestBlockedAccountSaveId] = useState<number | null>(null);
   const [latestBlockedSessionSaveId, setLatestBlockedSessionSaveId] = useState<number | null>(null);
   const [createFormError, setCreateFormError] = useState<string | null>(null);
+  const sessionSaveRequestTokenByIdRef = useRef<Record<number, number>>({});
   const { state: createState, run: createChannelAccount } = useAsyncAction(createChannelAccountAction);
   const { state: updateState, run: updateAccount } = useAsyncAction(
     ({ accountId, input }: { accountId: number; input: UpdateChannelAccountPayload }) =>
@@ -566,7 +575,7 @@ export function ChannelAccountsPage({
     ({ accountId }: { accountId: number }) =>
       runChannelAccountConnectionTest(accountId, testChannelAccountAction, reload),
   );
-  const { state: saveSessionState, run: saveSession } = useAsyncAction(
+  const { run: saveSession } = useAsyncAction(
     ({ accountId, input }: { accountId: number; input: SaveChannelAccountSessionPayload }) =>
       saveChannelAccountSessionAction(accountId, input),
   );
@@ -583,7 +592,6 @@ export function ChannelAccountsPage({
   const displayCreateState = createStateOverride ?? createState;
   const displayUpdateState = updateStateOverride ?? updateState;
   const displayTestConnectionState = testConnectionStateOverride ?? testConnectionState;
-  const displaySaveSessionState = saveSessionStateOverride ?? saveSessionState;
   const displaySessionActionState = sessionActionStateOverride ?? sessionActionState;
   const hasLiveAccounts =
     typeof displayState.data === 'object' &&
@@ -599,14 +607,9 @@ export function ChannelAccountsPage({
   const updatedAccount = displayUpdateState.data?.channelAccount
     ? normalizeChannelAccountRecord(displayUpdateState.data.channelAccount)
     : null;
-  const sessionSavedAccount = displaySaveSessionState.data?.channelAccount
-    ? normalizeChannelAccountRecord(displaySaveSessionState.data.channelAccount)
-    : null;
   const sessionActionAccount = displaySessionActionState.data?.channelAccount
     ? normalizeChannelAccountRecord(displaySessionActionState.data.channelAccount)
     : null;
-  const showSaveSessionFeedback =
-    latestSessionMutation === null || latestSessionMutation.kind === 'save_session';
   const showSessionActionFeedback =
     latestSessionMutation === null || latestSessionMutation.kind === 'session_action';
   const showAccountUpdateSuccess =
@@ -618,27 +621,26 @@ export function ChannelAccountsPage({
     displayUpdateState.status === 'error' &&
     editingAccountId !== null &&
     latestAccountMutationId === editingAccountId;
-  const showSessionSavedOverlay =
-    sessionSavedAccount !== null &&
-    !(
-      sessionActionAccount &&
-      latestSessionMutation?.kind === 'session_action' &&
-      latestSessionMutation.accountId === sessionSavedAccount.id &&
-      sessionActionAccount.id === sessionSavedAccount.id
-    );
+  const sessionSavedAccounts = Object.values(sessionSavedAccountById);
   const showSessionActionOverlay =
     sessionActionAccount !== null &&
     !(
-      sessionSavedAccount &&
       latestSessionMutation?.kind === 'save_session' &&
       latestSessionMutation.accountId === sessionActionAccount.id &&
-      sessionSavedAccount.id === sessionActionAccount.id
+      sessionActionAccount.id in sessionSavedAccountById
     ) &&
     !(
       latestSessionMutation?.kind === 'save_session' &&
       latestSessionMutation.accountId === sessionActionAccount.id &&
       latestBlockedSessionSaveId === sessionActionAccount.id
     );
+  const editingSessionSaveFeedback =
+    editingAccountId !== null ? sessionSaveFeedbackById[editingAccountId] ?? null : null;
+  const showSessionSaveLoading =
+    editingAccountId !== null &&
+    Boolean(sessionSavePendingById[editingAccountId]);
+  const showSessionSaveSuccess = editingSessionSaveFeedback?.tone === 'success';
+  const showSessionSaveError = editingSessionSaveFeedback?.tone === 'error';
 
   const visibleAccounts = useMemo(() => {
     let accounts = [...loadedAccounts];
@@ -653,7 +655,7 @@ export function ChannelAccountsPage({
       );
     }
 
-    if (showSessionSavedOverlay && sessionSavedAccount) {
+    for (const sessionSavedAccount of sessionSavedAccounts) {
       accounts = accounts.map((account) =>
         account.id === sessionSavedAccount.id
           ? mergeChannelAccountRecord(account, sessionSavedAccount)
@@ -674,9 +676,8 @@ export function ChannelAccountsPage({
     loadedAccounts,
     createdAccount,
     updatedAccount,
-    sessionSavedAccount,
+    sessionSavedAccounts,
     sessionActionAccount,
-    showSessionSavedOverlay,
     showSessionActionOverlay,
   ]);
 
@@ -779,6 +780,82 @@ export function ChannelAccountsPage({
       const { [accountId]: _removed, ...rest } = current;
       return rest;
     });
+    setSessionSaveFeedbackById((current) => {
+      if (!(accountId in current)) {
+        return current;
+      }
+
+      const { [accountId]: _removed, ...rest } = current;
+      return rest;
+    });
+  }
+
+  function setSessionSavePending(accountId: number, pending: boolean) {
+    setSessionSavePendingById((current) => {
+      if (pending) {
+        if (current[accountId]) {
+          return current;
+        }
+
+        return {
+          ...current,
+          [accountId]: true,
+        };
+      }
+
+      if (!(accountId in current)) {
+        return current;
+      }
+
+      const { [accountId]: _removed, ...rest } = current;
+      return rest;
+    });
+  }
+
+  function setSessionSaveFeedback(accountId: number, feedback: SessionSaveFeedback | null) {
+    setSessionSaveFeedbackById((current) => {
+      if (feedback === null) {
+        if (!(accountId in current)) {
+          return current;
+        }
+
+        const { [accountId]: _removed, ...rest } = current;
+        return rest;
+      }
+
+      return {
+        ...current,
+        [accountId]: feedback,
+      };
+    });
+  }
+
+  function setSessionSavedAccount(accountId: number, account: ChannelAccountRecord | null) {
+    setSessionSavedAccountById((current) => {
+      if (account === null) {
+        if (!(accountId in current)) {
+          return current;
+        }
+
+        const { [accountId]: _removed, ...rest } = current;
+        return rest;
+      }
+
+      return {
+        ...current,
+        [accountId]: account,
+      };
+    });
+  }
+
+  function createSessionSaveRequestToken(accountId: number) {
+    const nextToken = (sessionSaveRequestTokenByIdRef.current[accountId] ?? 0) + 1;
+    sessionSaveRequestTokenByIdRef.current[accountId] = nextToken;
+    return nextToken;
+  }
+
+  function isLatestSessionSaveRequest(accountId: number, requestToken: number) {
+    return sessionSaveRequestTokenByIdRef.current[accountId] === requestToken;
   }
 
   function handleStartEditing(accountId: number) {
@@ -839,8 +916,11 @@ export function ChannelAccountsPage({
       kind: 'save_session',
       accountId,
     });
+    const requestToken = createSessionSaveRequestToken(accountId);
     const formValue = getEditFormValue(account);
     let parsedStorageState: Record<string, unknown> | undefined;
+    setSessionSaveFeedback(accountId, null);
+    setSessionSavePending(accountId, true);
 
     try {
       parsedStorageState = parseStorageStateJsonInput(formValue.sessionStorageStateJson);
@@ -855,6 +935,7 @@ export function ChannelAccountsPage({
       });
     } catch (error) {
       setLatestBlockedSessionSaveId(accountId);
+      setSessionSavePending(accountId, false);
       setSessionFormErrorById((current) => ({
         ...current,
         [accountId]: error instanceof Error ? error.message : 'storage state JSON 解析失败',
@@ -877,13 +958,38 @@ export function ChannelAccountsPage({
       },
     })
       .then((result) => {
+        if (!isLatestSessionSaveRequest(accountId, requestToken)) {
+          return;
+        }
+
         const normalizedAccount = normalizeChannelAccountRecord(result.channelAccount);
         setEditFormById((current) => ({
           ...current,
           [accountId]: buildEditFormValue(normalizedAccount),
         }));
+        setSessionSavedAccount(accountId, normalizedAccount);
+        setSessionSaveFeedback(accountId, {
+          tone: 'success',
+          message: 'Session 元数据已保存',
+        });
       })
-      .catch(() => undefined);
+      .catch((error) => {
+        if (!isLatestSessionSaveRequest(accountId, requestToken)) {
+          return;
+        }
+
+        setSessionSaveFeedback(accountId, {
+          tone: 'error',
+          message: error instanceof Error ? error.message : 'Session 保存失败',
+        });
+      })
+      .finally(() => {
+        if (!isLatestSessionSaveRequest(accountId, requestToken)) {
+          return;
+        }
+
+        setSessionSavePending(accountId, false);
+      });
   }
 
   function handleRequestSessionAction(account: ChannelAccountRecord, forcedAction?: 'request_session' | 'relogin') {
@@ -1314,7 +1420,11 @@ export function ChannelAccountsPage({
                           ) : null}
                         </div>
                         <div style={{ marginTop: '10px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                          <ActionButton label="编辑账号" onClick={() => handleStartEditing(account.id)} />
+                          <ActionButton
+                            label="编辑账号"
+                            onClick={() => handleStartEditing(account.id)}
+                            buttonAttributes={{ 'data-edit-account-id': String(account.id) }}
+                          />
                           <button
                             type="button"
                             onClick={() => handleStartEditing(account.id)}
@@ -1461,19 +1571,12 @@ export function ChannelAccountsPage({
                                 justifySelf: 'flex-start',
                               }}
                             >
-                              {displaySaveSessionState.status === 'loading'
+                              {sessionSavePendingById[account.id]
                                 ? '正在保存 Session...'
                                 : '保存 Session 元数据'}
                             </button>
                           </div>
-                        ) : (
-                          <button
-                            type="button"
-                            data-edit-account-id={String(account.id)}
-                            onClick={() => handleStartEditing(account.id)}
-                            style={{ display: 'none' }}
-                          />
-                        )}
+                        ) : null}
                       </article>
                     );
                   })}
@@ -1496,20 +1599,18 @@ export function ChannelAccountsPage({
           {editingAccountFormError ? (
             <p style={{ marginTop: '12px', color: '#b91c1c' }}>更新失败：{editingAccountFormError}</p>
           ) : null}
-          {displaySaveSessionState.status === 'loading' ? (
+          {showSessionSaveLoading ? (
             <p style={{ marginTop: '12px', color: '#334155' }}>正在保存 Session...</p>
           ) : null}
           {editingSessionFormError ? (
             <p style={{ marginTop: '12px', color: '#b91c1c' }}>Session 保存失败：{editingSessionFormError}</p>
           ) : null}
-          {showSaveSessionFeedback &&
-          displaySaveSessionState.status === 'success' &&
-          sessionSavedAccount?.id !== latestBlockedSessionSaveId ? (
-            <p style={{ marginTop: '12px', color: '#166534' }}>Session 元数据已保存</p>
+          {showSessionSaveSuccess ? (
+            <p style={{ marginTop: '12px', color: '#166534' }}>{editingSessionSaveFeedback?.message}</p>
           ) : null}
-          {showSaveSessionFeedback && displaySaveSessionState.status === 'error' ? (
+          {showSessionSaveError ? (
             <p style={{ marginTop: '12px', color: '#b91c1c' }}>
-              Session 保存失败：{displaySaveSessionState.error}
+              Session 保存失败：{editingSessionSaveFeedback?.message}
             </p>
           ) : null}
           {showSessionActionFeedback &&
