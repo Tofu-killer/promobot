@@ -627,8 +627,12 @@ export function ChannelAccountsPage({
   const sessionActionAccount = displaySessionActionState.data?.channelAccount
     ? normalizeChannelAccountRecord(displaySessionActionState.data.channelAccount)
     : null;
-  const showSessionActionFeedback =
-    latestSessionMutation === null || latestSessionMutation.kind === 'session_action';
+  const hideSessionActionFeedbackAfterSameAccountSessionSave =
+    sessionActionAccount !== null &&
+    latestSessionMutation?.kind === 'save_session' &&
+    latestSessionMutation.accountId === sessionActionAccount.id &&
+    (sessionActionAccount.id in sessionSavedAccountById || latestBlockedSessionSaveId === sessionActionAccount.id);
+  const showSessionActionFeedback = !hideSessionActionFeedbackAfterSameAccountSessionSave;
   const showAccountUpdateSuccess =
     displayUpdateState.status === 'success' &&
     updatedAccount !== null &&

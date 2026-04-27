@@ -3210,6 +3210,303 @@ describe('channel account edit actions', () => {
     });
   });
 
+  it('keeps relogin receipts visible when saving session metadata for a different account', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ChannelAccountsPage } = await import('../../src/client/pages/ChannelAccounts');
+
+    const saveSessionDeferred = createDeferredPromise<{
+      ok: boolean;
+      session: {
+        hasSession: boolean;
+        id: string;
+        status: string;
+        validatedAt: string | null;
+        storageStatePath: string | null;
+        notes?: string;
+      };
+      channelAccount: {
+        id: number;
+        projectId?: number | null;
+        platform: string;
+        accountKey: string;
+        displayName: string;
+        authType: string;
+        status: string;
+        metadata: Record<string, unknown>;
+        session: {
+          hasSession: boolean;
+          status: string;
+          validatedAt: string | null;
+          storageStatePath: string | null;
+          id?: string;
+          notes?: string;
+        };
+        publishReadiness?: Record<string, unknown>;
+        createdAt: string;
+        updatedAt: string;
+      };
+    }>();
+    const saveChannelAccountSessionAction = vi.fn().mockReturnValue(saveSessionDeferred.promise);
+    const requestChannelAccountSessionAction = vi.fn().mockResolvedValue({
+      ok: true,
+      sessionAction: {
+        action: 'relogin',
+        accountId: 7,
+        status: 'pending',
+        requestedAt: '2026-04-19T03:10:00.000Z',
+        message:
+          'Browser relogin request queued. Refresh login manually and attach updated session metadata after the browser lane picks up the job.',
+        nextStep: '/api/channel-accounts/7/session',
+        jobId: 17,
+        jobStatus: 'pending',
+        artifactPath: 'artifacts/browser-lane-requests/x/acct-browser/relogin-job-17.json',
+      },
+      channelAccount: {
+        id: 7,
+        platform: 'x',
+        accountKey: 'acct-browser',
+        displayName: 'Browser X',
+        authType: 'browser',
+        status: 'healthy',
+        metadata: {},
+        session: {
+          hasSession: true,
+          status: 'expired',
+          validatedAt: '2026-04-19T02:00:00.000Z',
+          storageStatePath: 'artifacts/browser-sessions/acct-browser.json',
+          id: 'x:acct-browser',
+        },
+        latestBrowserLaneArtifact: {
+          action: 'relogin',
+          jobStatus: 'pending',
+          requestedAt: '2026-04-19T03:10:00.000Z',
+          artifactPath: 'artifacts/browser-lane-requests/x/acct-browser/relogin-job-17.json',
+          resolvedAt: null,
+        },
+        publishReadiness: {
+          platform: 'x',
+          ready: false,
+          mode: 'browser',
+          status: 'needs_relogin',
+          message: '已有 X 浏览器 session，但需要重新登录刷新。',
+          action: 'relogin',
+        },
+        createdAt: '2026-04-19T00:00:00.000Z',
+        updatedAt: '2026-04-19T00:00:00.000Z',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ChannelAccountsPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              channelAccounts: [
+                {
+                  id: 7,
+                  platform: 'x',
+                  accountKey: 'acct-browser',
+                  displayName: 'Browser X',
+                  authType: 'browser',
+                  status: 'healthy',
+                  metadata: {},
+                  session: {
+                    hasSession: true,
+                    status: 'expired',
+                    validatedAt: '2026-04-19T02:00:00.000Z',
+                    storageStatePath: 'artifacts/browser-sessions/acct-browser.json',
+                    id: 'x:acct-browser',
+                  },
+                  publishReadiness: {
+                    platform: 'x',
+                    ready: false,
+                    mode: 'browser',
+                    status: 'needs_relogin',
+                    message: '已有 X 浏览器 session，但需要重新登录刷新。',
+                    action: 'relogin',
+                  },
+                  createdAt: '2026-04-19T00:00:00.000Z',
+                  updatedAt: '2026-04-19T00:00:00.000Z',
+                },
+                {
+                  id: 8,
+                  platform: 'reddit',
+                  accountKey: 'acct-reddit',
+                  displayName: 'Reddit Ops',
+                  authType: 'browser',
+                  status: 'healthy',
+                  metadata: {},
+                  session: {
+                    hasSession: false,
+                    status: 'missing',
+                    validatedAt: null,
+                    storageStatePath: null,
+                  },
+                  publishReadiness: {
+                    platform: 'reddit',
+                    ready: false,
+                    mode: 'browser',
+                    status: 'needs_session',
+                    message: 'Reddit 浏览器发布链路缺少可用 session。',
+                    action: 'request_session',
+                  },
+                  createdAt: '2026-04-19T00:00:00.000Z',
+                  updatedAt: '2026-04-19T00:00:00.000Z',
+                },
+              ],
+            },
+          },
+          saveChannelAccountSessionAction,
+          requestChannelAccountSessionAction,
+        }),
+      );
+      await flush();
+    });
+
+    const reloginButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-session-action-id') === '7',
+    );
+
+    await act(async () => {
+      reloginButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(requestChannelAccountSessionAction).toHaveBeenCalledWith(7, {
+      action: 'relogin',
+    });
+    expect(collectText(container)).toContain('重新登录工单已记录');
+    expect(collectText(container)).toContain('Refresh login manually');
+    expect(collectText(container)).toContain(
+      'Artifact Path：artifacts/browser-lane-requests/x/acct-browser/relogin-job-17.json',
+    );
+
+    const editButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-edit-account-id') === '8',
+    );
+
+    await act(async () => {
+      editButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    await act(async () => {
+      updateFieldValue(
+        findElement(
+          container,
+          (element) => element.tagName === 'INPUT' && element.getAttribute('data-edit-session-storage-path-id') === '8',
+        ),
+        'artifacts/browser-sessions/reddit-ops.json',
+        window,
+      );
+      updateFieldValue(
+        findElement(
+          container,
+          (element) => element.tagName === 'INPUT' && element.getAttribute('data-edit-session-status-id') === '8',
+        ),
+        'active',
+        window,
+      );
+      updateFieldValue(
+        findElement(
+          container,
+          (element) => element.tagName === 'INPUT' && element.getAttribute('data-edit-session-validated-at-id') === '8',
+        ),
+        '2026-04-19T03:20:00.000Z',
+        window,
+      );
+      updateFieldValue(
+        findElement(
+          container,
+          (element) => element.tagName === 'INPUT' && element.getAttribute('data-edit-session-notes-id') === '8',
+        ),
+        'fresh reddit cookies',
+        window,
+      );
+      await flush();
+    });
+
+    const saveSessionButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-save-session-id') === '8',
+    );
+
+    await act(async () => {
+      saveSessionButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(saveChannelAccountSessionAction).toHaveBeenCalledWith(8, {
+      storageStatePath: 'artifacts/browser-sessions/reddit-ops.json',
+      status: 'active',
+      validatedAt: '2026-04-19T03:20:00.000Z',
+      notes: 'fresh reddit cookies',
+    });
+    expect(collectText(container)).toContain('正在保存 Session...');
+
+    await act(async () => {
+      saveSessionDeferred.resolve({
+        ok: true,
+        session: {
+          hasSession: true,
+          id: 'reddit:acct-reddit',
+          status: 'active',
+          validatedAt: '2026-04-19T03:20:00.000Z',
+          storageStatePath: 'artifacts/browser-sessions/reddit-ops.json',
+          notes: 'fresh reddit cookies',
+        },
+        channelAccount: {
+          id: 8,
+          platform: 'reddit',
+          accountKey: 'acct-reddit',
+          displayName: 'Reddit Ops',
+          authType: 'browser',
+          status: 'healthy',
+          metadata: {},
+          session: {
+            hasSession: true,
+            id: 'reddit:acct-reddit',
+            status: 'active',
+            validatedAt: '2026-04-19T03:20:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/reddit-ops.json',
+            notes: 'fresh reddit cookies',
+          },
+          publishReadiness: {
+            platform: 'reddit',
+            ready: true,
+            mode: 'browser',
+            status: 'ready',
+            message: 'Reddit 浏览器发布链路已具备可用 session。',
+          },
+          createdAt: '2026-04-19T00:00:00.000Z',
+          updatedAt: '2026-04-19T03:20:00.000Z',
+        },
+      });
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('Session 元数据已保存');
+    expect(collectText(container)).toContain('Storage Path：artifacts/browser-sessions/reddit-ops.json');
+    expect(collectText(container)).toContain('Session 备注：fresh reddit cookies');
+    expect(collectText(container)).toContain('重新登录工单已记录');
+    expect(collectText(container)).toContain('Refresh login manually');
+    expect(collectText(container)).toContain('工单状态：pending');
+    expect(collectText(container)).toContain(
+      'Artifact Path：artifacts/browser-lane-requests/x/acct-browser/relogin-job-17.json',
+    );
+    expect(collectText(container)).toContain('最近工单：重新登录');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('clears stale request-session receipts after saving session metadata for the same account', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
