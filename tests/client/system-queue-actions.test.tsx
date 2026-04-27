@@ -753,6 +753,14 @@ describe('System Queue actions', () => {
     });
 
     expect(html).toContain('System Queue');
+    expect(html).toContain('重点待办');
+    expect(html).toContain('当前 3 条待处理动作');
+    expect(html).toContain('补充 Session · x · acct-browser');
+    expect(html).toContain('回复接管 · x · item #91');
+    expect(html).toContain('发布接管 · weibo · draft #21');
+    expect(html).toContain('前往 Browser Lane 工单');
+    expect(html).toContain('前往 Inbox Reply Handoff 工单');
+    expect(html).toContain('前往 Browser Handoff 工单');
     expect(html).toContain('Pending Jobs');
     expect(html).toContain('Done Jobs');
     expect(html).toContain('Canceled Jobs');
@@ -792,6 +800,118 @@ describe('System Queue actions', () => {
     expect(html).toContain('#17 · monitor_fetch · done');
     expect(html).toContain('lastError: boom');
     expect(html).toContain('重试');
+  });
+
+  it('prioritizes relogin work ahead of other pending ops queue items', async () => {
+    const { SystemQueuePage } = await import('../../src/client/pages/SystemQueue');
+
+    const html = renderPage(SystemQueuePage, {
+      stateOverride: {
+        status: 'success',
+        data: {
+          jobs: [],
+          queue: {
+            pending: 0,
+            running: 0,
+            done: 0,
+            failed: 0,
+            canceled: 0,
+            duePending: 0,
+          },
+          recentJobs: [],
+        },
+      },
+      browserLaneStateOverride: {
+        status: 'success',
+        data: {
+          requests: [
+            {
+              channelAccountId: 18,
+              platform: 'facebookGroup',
+              accountKey: 'fb-relogin',
+              action: 'relogin',
+              jobStatus: 'pending',
+              requestedAt: '2026-04-25T08:00:00.000Z',
+              artifactPath:
+                'artifacts/browser-lane-requests/facebookGroup/fb-relogin/relogin-job-81.json',
+              resolvedAt: null,
+            },
+            {
+              channelAccountId: 7,
+              platform: 'x',
+              accountKey: 'acct-browser',
+              action: 'request_session',
+              jobStatus: 'pending',
+              requestedAt: '2026-04-21T09:00:00.000Z',
+              artifactPath:
+                'artifacts/browser-lane-requests/x/acct-browser/request-session-job-17.json',
+              resolvedAt: null,
+            },
+          ],
+          total: 2,
+        },
+      },
+      browserHandoffStateOverride: {
+        status: 'success',
+        data: {
+          handoffs: [
+            {
+              channelAccountId: 9,
+              accountDisplayName: 'Weibo Manual',
+              platform: 'weibo',
+              draftId: '21',
+              title: 'Weibo launch',
+              accountKey: 'launch-weibo',
+              ownership: 'direct',
+              status: 'pending',
+              artifactPath:
+                'artifacts/browser-handoffs/weibo/launch-weibo/weibo-draft-21.json',
+              createdAt: '2026-04-22T09:10:00.000Z',
+              updatedAt: '2026-04-22T09:10:00.000Z',
+              resolvedAt: null,
+              resolution: null,
+            },
+          ],
+          total: 1,
+        },
+      },
+      inboxReplyHandoffStateOverride: {
+        status: 'success',
+        data: {
+          handoffs: [
+            {
+              channelAccountId: 13,
+              platform: 'x',
+              itemId: '91',
+              source: 'x',
+              title: 'Need pricing help',
+              author: 'prospect-91',
+              accountKey: 'x-main',
+              status: 'pending',
+              artifactPath: 'artifacts/inbox-reply-handoffs/x/x-main/x-item-91.json',
+              createdAt: '2026-04-23T12:10:00.000Z',
+              updatedAt: '2026-04-23T12:10:00.000Z',
+              resolvedAt: null,
+              resolution: null,
+            },
+          ],
+          total: 1,
+        },
+      },
+    });
+
+    const reloginIndex = html.indexOf('重新登录 · facebookGroup · fb-relogin');
+    const requestSessionIndex = html.indexOf('补充 Session · x · acct-browser');
+    const replyHandoffIndex = html.indexOf('回复接管 · x · item #91');
+    const publishHandoffIndex = html.indexOf('发布接管 · weibo · draft #21');
+
+    expect(reloginIndex).toBeGreaterThan(-1);
+    expect(requestSessionIndex).toBeGreaterThan(-1);
+    expect(replyHandoffIndex).toBeGreaterThan(-1);
+    expect(publishHandoffIndex).toBeGreaterThan(-1);
+    expect(reloginIndex).toBeLessThan(requestSessionIndex);
+    expect(requestSessionIndex).toBeLessThan(replyHandoffIndex);
+    expect(replyHandoffIndex).toBeLessThan(publishHandoffIndex);
   });
 
   it('marks a pending browser handoff as published from the System Queue page and reloads handoffs', async () => {
