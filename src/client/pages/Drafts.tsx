@@ -75,10 +75,89 @@ export async function publishDraftRequest(id: number): Promise<PublishDraftRespo
   });
 }
 
+type BrowserSessionAction = 'request_session' | 'relogin';
+
+interface RequestChannelAccountSessionActionPayload {
+  action?: BrowserSessionAction;
+}
+
+interface RequestChannelAccountSessionActionResponse {
+  sessionAction: {
+    action: BrowserSessionAction;
+    message: string;
+    artifactPath?: string | null;
+    path?: string | null;
+  };
+}
+
+interface CompleteBrowserHandoffInput {
+  artifactPath: string;
+  publishStatus: 'published' | 'failed';
+  message?: string;
+  publishUrl?: string;
+}
+
+interface BrowserHandoffCompletionResponse {
+  ok: boolean;
+  imported: boolean;
+  artifactPath: string;
+  draftId: number;
+  draftStatus: string;
+  platform: string;
+  mode: string;
+  status: string;
+  success: boolean;
+  publishUrl: string | null;
+  externalId: string | null;
+  message: string;
+  publishedAt: string | null;
+}
+
+export async function requestDraftSessionActionRequest(
+  accountId: number,
+  input: RequestChannelAccountSessionActionPayload = {},
+): Promise<RequestChannelAccountSessionActionResponse> {
+  return apiRequest<RequestChannelAccountSessionActionResponse>(`/api/channel-accounts/${accountId}/session/request`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(input),
+  });
+}
+
+export async function completeDraftBrowserHandoffRequest(
+  input: CompleteBrowserHandoffInput,
+): Promise<BrowserHandoffCompletionResponse> {
+  return apiRequest<BrowserHandoffCompletionResponse>('/api/system/browser-handoffs/import', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      artifactPath: input.artifactPath,
+      publishStatus: input.publishStatus,
+      message:
+        input.message ??
+        (input.publishStatus === 'published'
+          ? 'browser handoff marked published'
+          : 'browser handoff marked failed'),
+      ...(input.publishUrl !== undefined && input.publishUrl.trim().length > 0
+        ? { publishUrl: input.publishUrl.trim() }
+        : {}),
+    }),
+  });
+}
+
 interface DraftsPageProps {
   loadDraftsAction?: (projectId?: number) => Promise<DraftsResponse>;
   updateDraftAction?: (id: number, input: UpdateDraftPayload) => Promise<UpdateDraftResponse>;
   publishDraftAction?: (id: number) => Promise<PublishDraftResponse>;
+  requestChannelAccountSessionActionAction?: (
+    accountId: number,
+    input?: RequestChannelAccountSessionActionPayload,
+  ) => Promise<RequestChannelAccountSessionActionResponse>;
+  completeBrowserHandoffAction?: (input: CompleteBrowserHandoffInput) => Promise<BrowserHandoffCompletionResponse>;
   stateOverride?: AsyncState<DraftsResponse>;
   draftInteractionStateOverride?: DraftInteractionStateOverride;
 }
@@ -133,6 +212,115 @@ function createLoadingMutationState(): DraftMutationState {
   };
 }
 
+interface BrowserHandoffContract {
+  platform: string | null;
+  accountKey: string | null;
+  channelAccountId?: number;
+  readiness: string | null;
+  sessionAction: BrowserSessionAction | null;
+  artifactPath: string | null;
+}
+
+interface SessionActionMutationState {
+  status: 'idle' | 'loading' | 'success' | 'error';
+  message: string | null;
+  artifactPath: string | null;
+}
+
+interface BrowserHandoffCompletionMutationState {
+  status: 'idle' | 'loading' | 'success' | 'error';
+  error: string | null;
+  result: BrowserHandoffCompletionResponse | null;
+}
+
+function createIdleSessionActionState(): SessionActionMutationState {
+  return {
+    status: 'idle',
+    message: null,
+    artifactPath: null,
+  };
+}
+
+function createIdleBrowserHandoffCompletionState(): BrowserHandoffCompletionMutationState {
+  return {
+    status: 'idle',
+    error: null,
+    result: null,
+  };
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function readString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value : null;
+}
+
+function readPositiveInteger(value: unknown) {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
+function readBrowserHandoffContract(details: Record<string, unknown> | null): BrowserHandoffContract | null {
+  const browserHandoff = asRecord(details?.browserHandoff);
+  if (!browserHandoff) {
+    return null;
+  }
+
+  const artifact = browserHandoff.artifact;
+  const artifactRecord = asRecord(artifact);
+  const sessionActionRecord = asRecord(browserHandoff.sessionAction);
+  const sessionActionValue =
+    readString(browserHandoff.sessionAction) ??
+    readString(sessionActionRecord?.action) ??
+    readString(sessionActionRecord?.type);
+  const sessionAction =
+    sessionActionValue === 'request_session' || sessionActionValue === 'relogin'
+      ? sessionActionValue
+      : null;
+  const artifactPath =
+    readString(browserHandoff.artifactPath) ??
+    readString(artifact) ??
+    readString(artifactRecord?.artifactPath) ??
+    readString(artifactRecord?.path) ??
+    readString(artifactRecord?.relativePath) ??
+    readString(sessionActionRecord?.artifactPath) ??
+    readString(sessionActionRecord?.path);
+  const platform = readString(browserHandoff.platform);
+  const accountKey = readString(browserHandoff.accountKey);
+  const channelAccountId = readPositiveInteger(browserHandoff.channelAccountId);
+  const readiness = readString(browserHandoff.readiness);
+
+  if (!platform && !accountKey && !channelAccountId && !readiness && !sessionAction && !artifactPath) {
+    return null;
+  }
+
+  return {
+    platform,
+    accountKey,
+    channelAccountId,
+    readiness,
+    sessionAction,
+    artifactPath,
+  };
+}
+
+function readSessionActionArtifactPath(result: RequestChannelAccountSessionActionResponse | undefined) {
+  const sessionAction = asRecord(result?.sessionAction);
+
+  return readString(sessionAction?.artifactPath) ?? readString(sessionAction?.path);
+}
+
+function formatSessionActionLabel(action: BrowserSessionAction) {
+  return action === 'relogin' ? '重新登录' : '请求登录';
+}
+
+function formatSessionActionPendingLabel(action: BrowserSessionAction) {
+  return action === 'relogin' ? '正在提交重新登录...' : '正在提交登录请求...';
+}
+
 function isPublishResultHandled(result: PublishDraftResponse) {
   return result.success || result.status === 'manual_required' || result.status === 'queued';
 }
@@ -175,6 +363,8 @@ export function DraftsPage({
   loadDraftsAction = loadDraftsRequest,
   updateDraftAction = updateDraftRequest,
   publishDraftAction = publishDraftRequest,
+  requestChannelAccountSessionActionAction = requestDraftSessionActionRequest,
+  completeBrowserHandoffAction = completeDraftBrowserHandoffRequest,
   stateOverride,
   draftInteractionStateOverride,
 }: DraftsPageProps) {
@@ -192,7 +382,17 @@ export function DraftsPage({
   const [formValuesById, setFormValuesById] = useState<Record<number, DraftFormValues>>({});
   const [saveStateById, setSaveStateById] = useState<Record<number, DraftMutationState>>({});
   const [publishStateById, setPublishStateById] = useState<Record<number, DraftMutationState>>({});
+  const [sessionActionStateById, setSessionActionStateById] = useState<
+    Record<number, SessionActionMutationState>
+  >({});
+  const [browserHandoffCompletionStateById, setBrowserHandoffCompletionStateById] = useState<
+    Record<number, BrowserHandoffCompletionMutationState>
+  >({});
+  const [browserHandoffDraftByArtifactPath, setBrowserHandoffDraftByArtifactPath] = useState<
+    Record<string, { publishUrl: string; message: string }>
+  >({});
   const latestScopeKeyRef = useRef(currentScopeKey);
+  const publishFollowUpAttemptByIdRef = useRef<Record<number, number>>({});
   latestScopeKeyRef.current = currentScopeKey;
   const displayState = stateOverride ?? state;
   const hasLiveDrafts =
@@ -223,6 +423,10 @@ export function DraftsPage({
     setFormValuesById({});
     setSaveStateById({});
     setPublishStateById({});
+    setSessionActionStateById({});
+    setBrowserHandoffCompletionStateById({});
+    setBrowserHandoffDraftByArtifactPath({});
+    publishFollowUpAttemptByIdRef.current = {};
   }, [projectId]);
 
   useEffect(() => {
@@ -281,6 +485,56 @@ export function DraftsPage({
       ...currentValues,
       [result.draft.id]: createDraftFormValues(result.draft),
     }));
+  }
+
+  function nextPublishFollowUpAttempt(draftId: number) {
+    const nextAttempt = (publishFollowUpAttemptByIdRef.current[draftId] ?? 0) + 1;
+    publishFollowUpAttemptByIdRef.current[draftId] = nextAttempt;
+    return nextAttempt;
+  }
+
+  function readPublishFollowUpAttempt(draftId: number) {
+    return publishFollowUpAttemptByIdRef.current[draftId] ?? 0;
+  }
+
+  function clearBrowserHandoffDrafts(...artifactPaths: Array<string | null>) {
+    const normalizedArtifactPaths = artifactPaths.filter((artifactPath): artifactPath is string => !!artifactPath);
+    if (normalizedArtifactPaths.length === 0) {
+      return;
+    }
+
+    setBrowserHandoffDraftByArtifactPath((currentState) => {
+      const nextState = { ...currentState };
+      for (const artifactPath of normalizedArtifactPaths) {
+        delete nextState[artifactPath];
+      }
+      return nextState;
+    });
+  }
+
+  function applyCompletedBrowserHandoff(result: BrowserHandoffCompletionResponse) {
+    setLocalDrafts((currentDrafts) => {
+      const sourceDrafts = currentDrafts.length > 0 ? currentDrafts : visibleDrafts;
+      return sourceDrafts.map((draft) =>
+        draft.id === result.draftId
+          ? {
+              ...draft,
+              status: draftStatusOptions.includes(result.draftStatus as DraftStatus)
+                ? (result.draftStatus as DraftStatus)
+                : draft.status,
+              ...(result.publishedAt ? { publishedAt: result.publishedAt } : {}),
+              updatedAt: result.publishedAt ?? draft.updatedAt,
+            }
+          : draft,
+      );
+    });
+    if (result.draftStatus === 'published' || result.draftStatus === 'failed') {
+      setFormValuesById((currentValues) => {
+        const nextValues = { ...currentValues };
+        delete nextValues[result.draftId];
+        return nextValues;
+      });
+    }
   }
 
   async function handleSaveDraft(draftId: number) {
@@ -348,15 +602,31 @@ export function DraftsPage({
     }
 
     const draftTitle = sourceDraft.title ?? `Draft #${draftId}`;
+    const previousBrowserHandoff = readBrowserHandoffContract(
+      getDraftMutationValue(displayPublishStateById, draftId).contractDetails,
+    );
+    const publishFollowUpAttempt = nextPublishFollowUpAttempt(draftId);
 
     setPublishStateById((currentState) => ({
       ...currentState,
       [draftId]: createLoadingMutationState(),
     }));
+    setSessionActionStateById((currentState) => ({
+      ...currentState,
+      [draftId]: createIdleSessionActionState(),
+    }));
+    setBrowserHandoffCompletionStateById((currentState) => ({
+      ...currentState,
+      [draftId]: createIdleBrowserHandoffCompletionState(),
+    }));
+    clearBrowserHandoffDrafts(previousBrowserHandoff?.artifactPath ?? null);
 
     try {
       const result = await publishDraftAction(draftId);
       if (scopeKeyAtStart !== latestScopeKeyRef.current) {
+        return;
+      }
+      if (publishFollowUpAttempt !== readPublishFollowUpAttempt(draftId)) {
         return;
       }
       if (isPublishResultHandled(result)) {
@@ -367,12 +637,17 @@ export function DraftsPage({
         });
         reload();
       }
+      const nextPublishState = createPublishMutationState(result, draftTitle);
+      clearBrowserHandoffDrafts(readBrowserHandoffContract(nextPublishState.contractDetails)?.artifactPath ?? null);
       setPublishStateById((currentState) => ({
         ...currentState,
-        [draftId]: createPublishMutationState(result, draftTitle),
+        [draftId]: nextPublishState,
       }));
     } catch (error) {
       if (scopeKeyAtStart !== latestScopeKeyRef.current) {
+        return;
+      }
+      if (publishFollowUpAttempt !== readPublishFollowUpAttempt(draftId)) {
         return;
       }
       setPublishStateById((currentState) => ({
@@ -388,6 +663,138 @@ export function DraftsPage({
         },
       }));
     }
+  }
+
+  function handleBrowserHandoffDraftChange(artifactPath: string, field: 'publishUrl' | 'message', value: string) {
+    setBrowserHandoffDraftByArtifactPath((currentState) => ({
+      ...currentState,
+      [artifactPath]: {
+        publishUrl: currentState[artifactPath]?.publishUrl ?? '',
+        message: currentState[artifactPath]?.message ?? '',
+        [field]: value,
+      },
+    }));
+  }
+
+  function handleRequestSessionAction(draftId: number, browserHandoff: BrowserHandoffContract) {
+    if (!browserHandoff.channelAccountId || !browserHandoff.sessionAction) {
+      return;
+    }
+
+    const scopeKeyAtStart = latestScopeKeyRef.current;
+    const publishFollowUpAttempt = readPublishFollowUpAttempt(draftId);
+
+    setSessionActionStateById((currentState) => ({
+      ...currentState,
+      [draftId]: {
+        status: 'loading',
+        message: null,
+        artifactPath: null,
+      },
+    }));
+
+    void requestChannelAccountSessionActionAction(browserHandoff.channelAccountId, {
+      action: browserHandoff.sessionAction,
+    })
+      .then((result) => {
+        if (scopeKeyAtStart !== latestScopeKeyRef.current) {
+          return;
+        }
+        if (publishFollowUpAttempt !== readPublishFollowUpAttempt(draftId)) {
+          return;
+        }
+        setSessionActionStateById((currentState) => ({
+          ...currentState,
+          [draftId]: {
+            status: 'success',
+            message: result.sessionAction.message,
+            artifactPath: readSessionActionArtifactPath(result),
+          },
+        }));
+      })
+      .catch((error) => {
+        if (scopeKeyAtStart !== latestScopeKeyRef.current) {
+          return;
+        }
+        if (publishFollowUpAttempt !== readPublishFollowUpAttempt(draftId)) {
+          return;
+        }
+        setSessionActionStateById((currentState) => ({
+          ...currentState,
+          [draftId]: {
+            status: 'error',
+            message: `提交 browser session 动作失败：${getErrorMessage(error)}`,
+            artifactPath: null,
+          },
+        }));
+      });
+  }
+
+  function handleCompleteBrowserHandoff(
+    draftId: number,
+    browserHandoff: BrowserHandoffContract,
+    publishStatus: 'published' | 'failed',
+  ) {
+    if (!browserHandoff.artifactPath) {
+      return;
+    }
+
+    const scopeKeyAtStart = latestScopeKeyRef.current;
+    const publishFollowUpAttempt = readPublishFollowUpAttempt(draftId);
+    const handoffDraft = browserHandoffDraftByArtifactPath[browserHandoff.artifactPath];
+    const message = handoffDraft?.message.trim();
+    const publishUrl = handoffDraft?.publishUrl.trim();
+
+    setBrowserHandoffCompletionStateById((currentState) => ({
+      ...currentState,
+      [draftId]: {
+        status: 'loading',
+        error: null,
+        result: null,
+      },
+    }));
+
+    void completeBrowserHandoffAction({
+      artifactPath: browserHandoff.artifactPath,
+      publishStatus,
+      ...(message ? { message } : {}),
+      ...(publishUrl ? { publishUrl } : {}),
+    })
+      .then((result) => {
+        if (scopeKeyAtStart !== latestScopeKeyRef.current) {
+          return;
+        }
+        if (publishFollowUpAttempt !== readPublishFollowUpAttempt(draftId)) {
+          return;
+        }
+
+        applyCompletedBrowserHandoff(result);
+        setBrowserHandoffCompletionStateById((currentState) => ({
+          ...currentState,
+          [draftId]: {
+            status: 'success',
+            error: null,
+            result,
+          },
+        }));
+        reload();
+      })
+      .catch((error) => {
+        if (scopeKeyAtStart !== latestScopeKeyRef.current) {
+          return;
+        }
+        if (publishFollowUpAttempt !== readPublishFollowUpAttempt(draftId)) {
+          return;
+        }
+        setBrowserHandoffCompletionStateById((currentState) => ({
+          ...currentState,
+          [draftId]: {
+            status: 'error',
+            error: `Draft browser handoff 结单失败：${getErrorMessage(error)}`,
+            result: null,
+          },
+        }));
+      });
   }
 
   function handleSelectStatusFilter(status: StatusFilter) {
@@ -605,6 +1012,121 @@ export function DraftsPage({
     if (shouldReload) {
       reload();
     }
+  }
+
+  function renderDraftPublishFollowUp(draftId: number, publishState: DraftMutationState) {
+    if (publishState.status !== 'success' || publishState.contractStatus !== 'manual_required') {
+      return null;
+    }
+
+    const browserHandoff = readBrowserHandoffContract(publishState.contractDetails);
+    if (!browserHandoff) {
+      return null;
+    }
+
+    const sessionActionState = sessionActionStateById[draftId] ?? createIdleSessionActionState();
+    const browserHandoffCompletionState =
+      browserHandoffCompletionStateById[draftId] ?? createIdleBrowserHandoffCompletionState();
+    const handoffDraft = browserHandoff.artifactPath
+      ? browserHandoffDraftByArtifactPath[browserHandoff.artifactPath]
+      : undefined;
+    const shouldShowSessionActionButton =
+      !!browserHandoff.channelAccountId &&
+      (browserHandoff.sessionAction === 'request_session' || browserHandoff.sessionAction === 'relogin');
+    const shouldShowBrowserHandoffCompletionActions =
+      !!browserHandoff.artifactPath &&
+      (!browserHandoffCompletionState.result || browserHandoffCompletionState.result.draftId !== draftId);
+
+    return (
+      <div style={{ display: 'grid', gap: '10px' }}>
+        {shouldShowSessionActionButton ? (
+          <div style={{ display: 'grid', gap: '8px' }}>
+            <span style={{ fontWeight: 700, color: '#334155' }}>Browser Session 动作</span>
+            <span style={{ display: 'inline-flex', gap: '8px', flexWrap: 'wrap' }}>
+              <ActionButton
+                label={
+                  sessionActionState.status === 'loading'
+                    ? formatSessionActionPendingLabel(browserHandoff.sessionAction as BrowserSessionAction)
+                    : formatSessionActionLabel(browserHandoff.sessionAction as BrowserSessionAction)
+                }
+                tone="primary"
+                onClick={() => {
+                  handleRequestSessionAction(draftId, browserHandoff);
+                }}
+                disabled={sessionActionState.status === 'loading'}
+                buttonAttributes={{
+                  'data-draft-session-action': browserHandoff.sessionAction ?? undefined,
+                }}
+              />
+            </span>
+            {sessionActionState.message ? <span>{sessionActionState.message}</span> : null}
+            {sessionActionState.artifactPath ? (
+              <span>Session 请求路径：{sessionActionState.artifactPath}</span>
+            ) : null}
+          </div>
+        ) : null}
+        {shouldShowBrowserHandoffCompletionActions ? (
+          <div style={{ display: 'grid', gap: '8px' }}>
+            <span style={{ fontWeight: 700, color: '#334155' }}>Draft browser handoff 结单</span>
+            <input
+              data-draft-browser-handoff-field="publishUrl"
+              value={handoffDraft?.publishUrl ?? ''}
+              onChange={(event) => {
+                handleBrowserHandoffDraftChange(browserHandoff.artifactPath!, 'publishUrl', event.target.value);
+              }}
+              placeholder="publish URL（可选）"
+              style={projectInputStyle}
+            />
+            <input
+              data-draft-browser-handoff-field="message"
+              value={handoffDraft?.message ?? ''}
+              onChange={(event) => {
+                handleBrowserHandoffDraftChange(browserHandoff.artifactPath!, 'message', event.target.value);
+              }}
+              placeholder="结单备注（可选）"
+              style={projectInputStyle}
+            />
+            <span style={{ display: 'inline-flex', gap: '8px', flexWrap: 'wrap' }}>
+              <ActionButton
+                label={browserHandoffCompletionState.status === 'loading' ? '正在结单...' : '标记已发布'}
+                tone="primary"
+                onClick={() => {
+                  handleCompleteBrowserHandoff(draftId, browserHandoff, 'published');
+                }}
+                disabled={browserHandoffCompletionState.status === 'loading'}
+                buttonAttributes={{
+                  'data-draft-browser-handoff-complete': 'published',
+                }}
+              />
+              <ActionButton
+                label={browserHandoffCompletionState.status === 'loading' ? '正在结单...' : '标记失败'}
+                onClick={() => {
+                  handleCompleteBrowserHandoff(draftId, browserHandoff, 'failed');
+                }}
+                disabled={browserHandoffCompletionState.status === 'loading'}
+                buttonAttributes={{
+                  'data-draft-browser-handoff-complete': 'failed',
+                }}
+              />
+            </span>
+          </div>
+        ) : null}
+        {browserHandoffCompletionState.status === 'success' && browserHandoffCompletionState.result ? (
+          <div style={{ display: 'grid', gap: '6px', color: '#166534' }}>
+            <span>{`已结单 draft #${browserHandoffCompletionState.result.draftId} (${browserHandoffCompletionState.result.draftStatus})`}</span>
+            {browserHandoffCompletionState.result.message ? (
+              <span>{browserHandoffCompletionState.result.message}</span>
+            ) : null}
+            {browserHandoffCompletionState.result.publishUrl ? (
+              <span>{browserHandoffCompletionState.result.publishUrl}</span>
+            ) : null}
+          </div>
+        ) : null}
+        {browserHandoffCompletionState.status === 'error' && browserHandoffCompletionState.error ? (
+          <div style={{ color: '#b91c1c' }}>{browserHandoffCompletionState.error}</div>
+        ) : null}
+      </div>
+    );
   }
 
   return (
@@ -866,6 +1388,10 @@ export function DraftsPage({
                     onPublish={() => {
                       void handlePublishDraft(draft.id);
                     }}
+                    publishFollowUp={renderDraftPublishFollowUp(
+                      draft.id,
+                      getDraftMutationValue(displayPublishStateById, draft.id),
+                    )}
                   />
                 </div>
               ))

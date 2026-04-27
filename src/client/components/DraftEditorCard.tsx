@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import {
   type DraftFormValues,
   type DraftMutationState,
@@ -15,6 +16,7 @@ interface DraftEditorCardProps {
   onStatusChange: (value: DraftStatus) => void;
   onSave: () => void;
   onPublish: () => void;
+  publishFollowUp?: ReactNode;
 }
 
 const fieldStyle = {
@@ -97,6 +99,7 @@ export function DraftEditorCard({
   onStatusChange,
   onSave,
   onPublish,
+  publishFollowUp,
 }: DraftEditorCardProps) {
   const titleLabel = formValues.title.trim().length > 0 ? formValues.title : draft.title ?? `Draft #${draft.id}`;
   const publishLabel = manualHandoffPlatforms.has(draft.platform) ? '发起人工接管' : '触发发布';
@@ -220,6 +223,7 @@ export function DraftEditorCard({
       <div style={{ display: 'grid', gap: '8px' }}>
         {renderFeedback(saveState, '查看保存结果')}
         {renderFeedback(publishState, '查看发布结果')}
+        {publishFollowUp}
       </div>
     </article>
   );

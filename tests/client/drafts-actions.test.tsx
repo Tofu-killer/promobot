@@ -1432,4 +1432,420 @@ describe('Drafts publish actions', () => {
       await flush();
     });
   });
+
+  it('requests browser session actions directly from manual-required draft feedback', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { DraftsPage } = await import('../../src/client/pages/Drafts');
+
+    const loadDraftsAction = vi.fn().mockResolvedValue({
+      drafts: [
+        {
+          id: 71,
+          platform: 'instagram',
+          title: 'Instagram launch reel',
+          content: 'Draft body',
+          hashtags: ['#launch'],
+          status: 'draft',
+          createdAt: '2026-04-27T00:00:00.000Z',
+          updatedAt: '2026-04-27T00:00:00.000Z',
+        },
+      ],
+    });
+    const publishDraftAction = vi.fn().mockResolvedValue({
+      success: false,
+      status: 'manual_required',
+      publishUrl: null,
+      message: 'instagram draft 71 requires a saved browser session before manual handoff.',
+      details: {
+        browserHandoff: {
+          platform: 'instagram',
+          channelAccountId: 88,
+          readiness: 'blocked',
+          sessionAction: 'request_session',
+          artifactPath: 'artifacts/browser-handoffs/instagram/relaunch/instagram-draft-71.json',
+        },
+      },
+    });
+    const requestChannelAccountSessionActionAction = vi.fn().mockResolvedValue({
+      sessionAction: {
+        action: 'request_session',
+        message: 'Instagram session request queued for operator pickup.',
+        artifactPath: 'artifacts/browser-lane-requests/instagram/relaunch/session-request-71.json',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(DraftsPage as never, {
+          loadDraftsAction,
+          publishDraftAction,
+          requestChannelAccountSessionActionAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const publishButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('发起人工接管'),
+    );
+
+    await act(async () => {
+      publishButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    const sessionActionButton = findElement(
+      container,
+      (element) => element.getAttribute('data-draft-session-action') === 'request_session',
+    );
+
+    expect(sessionActionButton).not.toBeNull();
+
+    await act(async () => {
+      sessionActionButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(requestChannelAccountSessionActionAction).toHaveBeenCalledWith(88, {
+      action: 'request_session',
+    });
+    expect(collectText(container)).toContain('Instagram session request queued for operator pickup.');
+    expect(collectText(container)).toContain(
+      'Session 请求路径：artifacts/browser-lane-requests/instagram/relaunch/session-request-71.json',
+    );
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('completes browser handoffs directly from manual-required draft feedback', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { DraftsPage } = await import('../../src/client/pages/Drafts');
+
+    const loadDraftsAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        drafts: [
+          {
+            id: 72,
+            platform: 'tiktok',
+            title: 'TikTok launch clip',
+            content: 'Draft body',
+            hashtags: ['#launch'],
+            status: 'draft',
+            createdAt: '2026-04-27T00:00:00.000Z',
+            updatedAt: '2026-04-27T00:00:00.000Z',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        drafts: [
+          {
+            id: 72,
+            platform: 'tiktok',
+            title: 'TikTok launch clip',
+            content: 'Draft body',
+            hashtags: ['#launch'],
+            status: 'draft',
+            createdAt: '2026-04-27T00:00:00.000Z',
+            updatedAt: '2026-04-27T00:00:00.000Z',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        drafts: [
+          {
+            id: 72,
+            platform: 'tiktok',
+            title: 'TikTok launch clip',
+            content: 'Draft body',
+            hashtags: ['#launch'],
+            status: 'published',
+            createdAt: '2026-04-27T00:00:00.000Z',
+            updatedAt: '2026-04-27T01:00:00.000Z',
+            publishedAt: '2026-04-27T01:00:00.000Z',
+          },
+        ],
+      });
+    const publishDraftAction = vi.fn().mockResolvedValue({
+      success: false,
+      status: 'manual_required',
+      publishUrl: null,
+      message: 'tiktok draft 72 is ready for manual browser handoff with the saved session.',
+      details: {
+        browserHandoff: {
+          platform: 'tiktok',
+          readiness: 'ready',
+          artifactPath: 'artifacts/browser-handoffs/tiktok/relaunch/tiktok-draft-72.json',
+        },
+      },
+    });
+    const completeBrowserHandoffAction = vi.fn().mockResolvedValue({
+      ok: true,
+      imported: true,
+      artifactPath: 'artifacts/browser-handoffs/tiktok/relaunch/tiktok-draft-72.json',
+      draftId: 72,
+      draftStatus: 'published',
+      platform: 'tiktok',
+      mode: 'browser_handoff',
+      status: 'published',
+      success: true,
+      publishUrl: 'https://www.tiktok.com/@promobot/video/72',
+      externalId: null,
+      message: 'TikTok browser handoff completed.',
+      publishedAt: '2026-04-27T01:00:00.000Z',
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(DraftsPage as never, {
+          loadDraftsAction,
+          publishDraftAction,
+          completeBrowserHandoffAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const publishButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('发起人工接管'),
+    );
+
+    await act(async () => {
+      publishButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    const publishUrlInput = findElement(
+      container,
+      (element) => element.getAttribute('data-draft-browser-handoff-field') === 'publishUrl',
+    );
+    const messageInput = findElement(
+      container,
+      (element) => element.getAttribute('data-draft-browser-handoff-field') === 'message',
+    );
+    const completeButton = findElement(
+      container,
+      (element) => element.getAttribute('data-draft-browser-handoff-complete') === 'published',
+    );
+
+    expect(publishUrlInput).not.toBeNull();
+    expect(messageInput).not.toBeNull();
+    expect(completeButton).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(
+        publishUrlInput as never,
+        'https://www.tiktok.com/@promobot/video/72',
+        window as never,
+      );
+      updateFieldValue(messageInput as never, 'Posted from browser lane.', window as never);
+      await flush();
+    });
+
+    await act(async () => {
+      completeButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    expect(completeBrowserHandoffAction).toHaveBeenCalledWith({
+      artifactPath: 'artifacts/browser-handoffs/tiktok/relaunch/tiktok-draft-72.json',
+      publishStatus: 'published',
+      publishUrl: 'https://www.tiktok.com/@promobot/video/72',
+      message: 'Posted from browser lane.',
+    });
+    expect(loadDraftsAction).toHaveBeenCalledTimes(3);
+    expect(collectText(container)).toContain('已结单 draft #72 (published)');
+    expect(collectText(container)).toContain('TikTok browser handoff completed.');
+    expect(collectText(container)).toContain('https://www.tiktok.com/@promobot/video/72');
+    expect(collectText(container)).toContain('发布时间');
+    expect(collectText(container)).toContain('2026-04-27T01:00:00.000Z');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('ignores stale browser handoff completions after the operator republishes the draft', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { DraftsPage } = await import('../../src/client/pages/Drafts');
+
+    const pendingCompletion = createDeferredPromise<{
+      ok: boolean;
+      imported: boolean;
+      artifactPath: string;
+      draftId: number;
+      draftStatus: string;
+      platform: string;
+      mode: string;
+      status: string;
+      success: boolean;
+      publishUrl: string | null;
+      externalId: string | null;
+      message: string;
+      publishedAt: string | null;
+    }>();
+    const loadDraftsAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        drafts: [
+          {
+            id: 73,
+            platform: 'instagram',
+            title: 'Instagram relaunch reel',
+            content: 'Draft body',
+            hashtags: ['#launch'],
+            status: 'draft',
+            createdAt: '2026-04-27T00:00:00.000Z',
+            updatedAt: '2026-04-27T00:00:00.000Z',
+          },
+        ],
+      })
+      .mockResolvedValue({
+        drafts: [
+          {
+            id: 73,
+            platform: 'instagram',
+            title: 'Instagram relaunch reel',
+            content: 'Draft body',
+            hashtags: ['#launch'],
+            status: 'draft',
+            createdAt: '2026-04-27T00:00:00.000Z',
+            updatedAt: '2026-04-27T00:00:00.000Z',
+          },
+        ],
+      });
+    const publishDraftAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        success: false,
+        status: 'manual_required',
+        publishUrl: null,
+        message: 'instagram draft 73 is ready for manual browser handoff with the saved session.',
+        details: {
+          browserHandoff: {
+            platform: 'instagram',
+            readiness: 'ready',
+            artifactPath: 'artifacts/browser-handoffs/instagram/relaunch/instagram-draft-73-v1.json',
+          },
+        },
+      })
+      .mockResolvedValueOnce({
+        success: false,
+        status: 'manual_required',
+        publishUrl: null,
+        message: 'instagram draft 73 requires relogin before manual handoff.',
+        details: {
+          browserHandoff: {
+            platform: 'instagram',
+            channelAccountId: 93,
+            readiness: 'blocked',
+            sessionAction: 'relogin',
+            artifactPath: 'artifacts/browser-handoffs/instagram/relaunch/instagram-draft-73-v2.json',
+          },
+        },
+      });
+    const completeBrowserHandoffAction = vi.fn().mockImplementation(() => pendingCompletion.promise);
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(DraftsPage as never, {
+          loadDraftsAction,
+          publishDraftAction,
+          completeBrowserHandoffAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const publishButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('发起人工接管'),
+    );
+
+    await act(async () => {
+      publishButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    const firstCompleteButton = findElement(
+      container,
+      (element) => element.getAttribute('data-draft-browser-handoff-complete') === 'published',
+    );
+
+    expect(firstCompleteButton).not.toBeNull();
+
+    await act(async () => {
+      firstCompleteButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    await act(async () => {
+      publishButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(collectText(container)).toContain(
+      'Handoff 路径：artifacts/browser-handoffs/instagram/relaunch/instagram-draft-73-v2.json',
+    );
+    expect(collectText(container)).toContain('Handoff 动作：relogin');
+
+    await act(async () => {
+      pendingCompletion.resolve({
+        ok: true,
+        imported: true,
+        artifactPath: 'artifacts/browser-handoffs/instagram/relaunch/instagram-draft-73-v1.json',
+        draftId: 73,
+        draftStatus: 'published',
+        platform: 'instagram',
+        mode: 'browser_handoff',
+        status: 'published',
+        success: true,
+        publishUrl: 'https://www.instagram.com/p/stale73/',
+        externalId: null,
+        message: 'Stale browser handoff should be ignored.',
+        publishedAt: '2026-04-27T01:30:00.000Z',
+      });
+      await flush();
+      await flush();
+    });
+
+    expect(completeBrowserHandoffAction).toHaveBeenCalledWith({
+      artifactPath: 'artifacts/browser-handoffs/instagram/relaunch/instagram-draft-73-v1.json',
+      publishStatus: 'published',
+    });
+    expect(loadDraftsAction).toHaveBeenCalledTimes(3);
+    expect(collectText(container)).not.toContain('已结单 draft #73 (published)');
+    expect(collectText(container)).not.toContain('Stale browser handoff should be ignored.');
+    expect(collectText(container)).not.toContain('https://www.instagram.com/p/stale73/');
+    expect(collectText(container)).toContain(
+      'Handoff 路径：artifacts/browser-handoffs/instagram/relaunch/instagram-draft-73-v2.json',
+    );
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
 });
