@@ -144,6 +144,7 @@ interface ScopedProfileValue {
 
 const INSTAGRAM_PROFILE_HOSTS = new Set(['instagram.com', 'www.instagram.com']);
 const TIKTOK_PROFILE_HOSTS = new Set(['tiktok.com', 'www.tiktok.com', 'm.tiktok.com']);
+const CANONICAL_PROFILE_HANDLE_PATTERN = /^[a-z0-9._]+$/;
 const INSTAGRAM_RESERVED_PROFILE_SEGMENTS = new Set([
   'accounts',
   'api',
@@ -435,7 +436,7 @@ function readQueryList(configJson: Record<string, unknown>) {
 }
 
 function readInstagramProfileInput(configJson: Record<string, unknown>) {
-  const configuredHandle = normalizeProfileHandle(
+  const configuredHandle = normalizeInstagramProfileHandle(
     readString(configJson.handle) ?? readString(configJson.username),
   );
   const rawProfileUrl = readString(configJson.profileUrl) ?? readString(configJson.url);
@@ -454,7 +455,7 @@ function readInstagramProfileInput(configJson: Record<string, unknown>) {
 }
 
 function readTiktokProfileInput(configJson: Record<string, unknown>) {
-  const configuredHandle = normalizeProfileHandle(
+  const configuredHandle = normalizeTiktokProfileHandle(
     readString(configJson.handle) ?? readString(configJson.username),
   );
   const rawProfileUrl = readString(configJson.profileUrl) ?? readString(configJson.url);
@@ -472,9 +473,31 @@ function readTiktokProfileInput(configJson: Record<string, unknown>) {
   };
 }
 
-function normalizeProfileHandle(value: string | null) {
+function normalizeRawProfileHandle(value: string | null) {
   const normalized = value?.replace(/^@+/, '').replace(/\/+$/, '').trim().toLowerCase();
   return normalized || null;
+}
+
+function normalizeInstagramProfileHandle(value: string | null) {
+  const normalized = normalizeRawProfileHandle(value);
+  if (!normalized || isReservedInstagramProfileHandle(normalized)) {
+    return null;
+  }
+
+  if (!CANONICAL_PROFILE_HANDLE_PATTERN.test(normalized)) {
+    return null;
+  }
+
+  return normalized;
+}
+
+function normalizeTiktokProfileHandle(value: string | null) {
+  const normalized = normalizeRawProfileHandle(value);
+  if (!normalized || !CANONICAL_PROFILE_HANDLE_PATTERN.test(normalized)) {
+    return null;
+  }
+
+  return normalized;
 }
 
 function normalizeInstagramProfileUrl(rawUrl: string | null, handle: string | null) {
@@ -515,7 +538,7 @@ function readInstagramHandleFromProfileUrl(rawUrl: string) {
       return null;
     }
 
-    const handle = normalizeProfileHandle(segments[0]);
+    const handle = normalizeInstagramProfileHandle(segments[0]);
     if (!handle || isReservedInstagramProfileHandle(handle)) {
       return null;
     }
@@ -542,7 +565,7 @@ function readTiktokHandleFromProfileUrl(rawUrl: string) {
       return null;
     }
 
-    return normalizeProfileHandle(segments[0]);
+    return normalizeTiktokProfileHandle(segments[0]);
   } catch {
     return null;
   }

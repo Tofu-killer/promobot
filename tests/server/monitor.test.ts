@@ -1016,6 +1016,117 @@ describe('monitor api', () => {
     ]);
   });
 
+  it('treats an instagram summary-only response without upstream identity as a failed fetch', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      url: 'https://www.instagram.com/openai/',
+      text: async () => `
+        <html>
+          <head>
+            <meta property="og:description" content="10 Followers, 20 Following, 30 Posts - See Instagram photos and videos from OpenAI" />
+          </head>
+        </html>
+      `,
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { collectConfiguredSignals } = await import('../../src/server/services/monitorFetch');
+    const signals = await collectConfiguredSignals(
+      {
+        fetchFeeds: vi.fn().mockResolvedValue({
+          items: [],
+          failures: [],
+        }),
+      } as never,
+      {
+        monitorRssFeeds: [],
+        monitorXQueries: [],
+        monitorRedditQueries: [],
+        monitorV2exQueries: [],
+      },
+      [
+        {
+          id: 1,
+          projectId: 7,
+          sourceType: 'profile+instagram',
+          platform: 'instagram',
+          label: 'Instagram profile',
+          configJson: {
+            handle: '@openai',
+          },
+          enabled: true,
+          pollIntervalMinutes: 60,
+        },
+      ],
+    );
+
+    expect(signals).toEqual([
+      {
+        projectId: 7,
+        source: 'instagram',
+        title: 'Instagram fetch failed: @openai',
+        detail: 'instagram profile response did not include a verifiable profile identity',
+      },
+    ]);
+  });
+
+  it('treats an instagram response that resolves to a non-profile url as a failed fetch', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      url: 'https://www.instagram.com/p/abc123/',
+      text: async () => `
+        <html>
+          <head>
+            <meta property="og:title" content="OpenAI (@openai) • Instagram photos and videos" />
+            <meta property="og:description" content="10 Followers, 20 Following, 30 Posts - See Instagram photos and videos from OpenAI" />
+          </head>
+        </html>
+      `,
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { collectConfiguredSignals } = await import('../../src/server/services/monitorFetch');
+    const signals = await collectConfiguredSignals(
+      {
+        fetchFeeds: vi.fn().mockResolvedValue({
+          items: [],
+          failures: [],
+        }),
+      } as never,
+      {
+        monitorRssFeeds: [],
+        monitorXQueries: [],
+        monitorRedditQueries: [],
+        monitorV2exQueries: [],
+      },
+      [
+        {
+          id: 1,
+          projectId: 7,
+          sourceType: 'profile+instagram',
+          platform: 'instagram',
+          label: 'Instagram profile',
+          configJson: {
+            handle: '@openai',
+          },
+          enabled: true,
+          pollIntervalMinutes: 60,
+        },
+      ],
+    );
+
+    expect(signals).toEqual([
+      {
+        projectId: 7,
+        source: 'instagram',
+        title: 'Instagram fetch failed: @openai',
+        detail: 'instagram profile response did not resolve to a canonical profile url',
+      },
+    ]);
+  });
+
   it('treats a non-profile tiktok oembed response as a failed fetch instead of a profile update', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
@@ -1127,6 +1238,124 @@ describe('monitor api', () => {
         source: 'tiktok',
         title: 'TikTok fetch failed: @tiktok',
         detail: 'tiktok oembed response did not look like a profile payload',
+      },
+    ]);
+  });
+
+  it('treats a tiktok profile response with a non-canonical author_url as a failed fetch', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          type: 'profile',
+          author_name: 'OpenAI',
+          author_url: 'https://example.com/@openai',
+          title: 'OpenAI on TikTok',
+        }),
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { collectConfiguredSignals } = await import('../../src/server/services/monitorFetch');
+    const signals = await collectConfiguredSignals(
+      {
+        fetchFeeds: vi.fn().mockResolvedValue({
+          items: [],
+          failures: [],
+        }),
+      } as never,
+      {
+        monitorRssFeeds: [],
+        monitorXQueries: [],
+        monitorRedditQueries: [],
+        monitorV2exQueries: [],
+      },
+      [
+        {
+          id: 1,
+          projectId: 7,
+          sourceType: 'profile+tiktok',
+          platform: 'tiktok',
+          label: 'TikTok profile',
+          configJson: {
+            handle: '@openai',
+          },
+          enabled: true,
+          pollIntervalMinutes: 60,
+        },
+      ],
+    );
+
+    expect(signals).toEqual([
+      {
+        projectId: 7,
+        source: 'tiktok',
+        title: 'TikTok fetch failed: @openai',
+        detail: 'tiktok oembed response did not include a canonical profile url',
+      },
+    ]);
+  });
+
+  it('treats a tiktok profile response with a non-profile author_url as a failed fetch', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          type: 'profile',
+          author_name: 'OpenAI',
+          author_url: 'https://www.tiktok.com/@openai/video/123',
+          title: 'OpenAI on TikTok',
+        }),
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { collectConfiguredSignals } = await import('../../src/server/services/monitorFetch');
+    const signals = await collectConfiguredSignals(
+      {
+        fetchFeeds: vi.fn().mockResolvedValue({
+          items: [],
+          failures: [],
+        }),
+      } as never,
+      {
+        monitorRssFeeds: [],
+        monitorXQueries: [],
+        monitorRedditQueries: [],
+        monitorV2exQueries: [],
+      },
+      [
+        {
+          id: 1,
+          projectId: 7,
+          sourceType: 'profile+tiktok',
+          platform: 'tiktok',
+          label: 'TikTok profile',
+          configJson: {
+            handle: '@openai',
+          },
+          enabled: true,
+          pollIntervalMinutes: 60,
+        },
+      ],
+    );
+
+    expect(signals).toEqual([
+      {
+        projectId: 7,
+        source: 'tiktok',
+        title: 'TikTok fetch failed: @openai',
+        detail: 'tiktok oembed response did not include a canonical profile url',
       },
     ]);
   });
@@ -1293,6 +1522,39 @@ describe('monitor api', () => {
         profileUrl: 'https://www.tiktok.com/@openai',
       },
     ]);
+  });
+
+  it('ignores malformed profile handles when no canonical profile url is available', async () => {
+    const { resolveSourceConfigInputs } = await import('../../src/server/services/monitorFetch');
+    const inputs = resolveSourceConfigInputs([
+      {
+        id: 1,
+        projectId: 9,
+        sourceType: 'profile+instagram',
+        platform: 'instagram',
+        label: 'Instagram malformed handle should be ignored',
+        configJson: {
+          handle: '@openai/reel/123',
+        },
+        enabled: true,
+        pollIntervalMinutes: 60,
+      },
+      {
+        id: 2,
+        projectId: 9,
+        sourceType: 'profile+tiktok',
+        platform: 'tiktok',
+        label: 'TikTok malformed handle should be ignored',
+        configJson: {
+          handle: 'open ai',
+        },
+        enabled: true,
+        pollIntervalMinutes: 60,
+      },
+    ]);
+
+    expect(inputs.instagramProfiles).toEqual([]);
+    expect(inputs.tiktokProfiles).toEqual([]);
   });
 
   it('uses canonical profile urls as the source of truth when source config handles conflict', async () => {

@@ -4,6 +4,7 @@ export interface SourceConfigValidationInput {
   label: string;
   configJson: Record<string, unknown>;
   pollIntervalMinutes: number;
+  allowUnsupportedSourceType?: boolean;
 }
 
 const SOURCE_TYPE_PLATFORM_RULES: Record<string, readonly string[]> = {
@@ -16,9 +17,30 @@ const SOURCE_TYPE_PLATFORM_RULES: Record<string, readonly string[]> = {
   'profile+instagram': ['instagram'],
   'profile+tiktok': ['tiktok'],
 };
+const SUPPORTED_SOURCE_TYPES = new Set(Object.keys(SOURCE_TYPE_PLATFORM_RULES));
 
 const QUERY_SOURCE_TYPES = new Set(['keyword', 'keyword+reddit', 'keyword+x', 'v2ex_search']);
 const PROFILE_SOURCE_TYPES = new Set(['profile', 'profile+instagram', 'profile+tiktok']);
+const INSTAGRAM_PROFILE_HOSTS = new Set(['instagram.com', 'www.instagram.com']);
+const TIKTOK_PROFILE_HOSTS = new Set(['tiktok.com', 'www.tiktok.com', 'm.tiktok.com']);
+const CANONICAL_PROFILE_HANDLE_PATTERN = /^[a-z0-9._]+$/;
+const INSTAGRAM_RESERVED_PROFILE_SEGMENTS = new Set([
+  'accounts',
+  'api',
+  'challenge',
+  'checkpoint',
+  'developer',
+  'direct',
+  'explore',
+  'legal',
+  'press',
+  'reel',
+  'reels',
+  'shop',
+  'stories',
+  'tv',
+  'web',
+]);
 
 export function parseSourceConfigJsonText(value: string): Record<string, unknown> | null {
   try {
@@ -46,6 +68,10 @@ export function validateSourceConfigInput(input: SourceConfigValidationInput): s
     return 'Label 不能为空';
   }
 
+  if (!input.allowUnsupportedSourceType && !SUPPORTED_SOURCE_TYPES.has(sourceType)) {
+    return `Unsupported Source Type ${sourceType}`;
+  }
+
   if (!Number.isInteger(input.pollIntervalMinutes) || input.pollIntervalMinutes <= 0) {
     return 'Poll interval 必须是正整数';
   }
@@ -63,14 +89,22 @@ export function validateSourceConfigInput(input: SourceConfigValidationInput): s
     return 'Keyword source config 需要 query 或 keywords';
   }
 
-  if (
-    PROFILE_SOURCE_TYPES.has(sourceType) &&
-    !readConfigString(input.configJson, 'handle', 'username', 'profileUrl', 'url')
-  ) {
-    return 'Profile source config 需要 handle、username、profileUrl 或 url';
+  if (PROFILE_SOURCE_TYPES.has(sourceType)) {
+    if (!readConfigString(input.configJson, 'handle', 'username', 'profileUrl', 'url')) {
+      return 'Profile source config 需要 handle、username、profileUrl 或 url';
+    }
+
+    const profileValidationError = validateProfileSourceConfig(platform, input.configJson);
+    if (profileValidationError) {
+      return profileValidationError;
+    }
   }
 
   return null;
+}
+
+export function isSupportedSourceType(sourceType: string) {
+  return SUPPORTED_SOURCE_TYPES.has(sourceType.trim());
 }
 
 function hasQueryConfig(configJson: Record<string, unknown>) {
@@ -93,8 +127,105 @@ function readConfigString(configJson: Record<string, unknown>, ...keys: string[]
   return null;
 }
 
+function validateProfileSourceConfig(platform: string, configJson: Record<string, unknown>) {
+  const rawHandle = readConfigString(configJson, 'handle', 'username');
+  const rawProfileUrl = readConfigString(configJson, 'profileUrl', 'url');
+
+  if (platform === 'instagram') {
+    const normalizedHandle = normalizeInstagramProfileHandle(rawHandle);
+    const handleFromUrl = rawProfileUrl ? readInstagramHandleFromProfileUrl(rawProfileUrl) : null;
+    const handle = handleFromUrl ?? normalizedHandle;
+    if (!handle) {
+      return 'Instagram profile source config 需要有效的 handle、username、profileUrl 或 url';
+    }
+  }
+
+  if (platform === 'tiktok') {
+    const normalizedHandle = normalizeTiktokProfileHandle(rawHandle);
+    const handleFromUrl = rawProfileUrl ? readTiktokHandleFromProfileUrl(rawProfileUrl) : null;
+    const handle = handleFromUrl ?? normalizedHandle;
+    if (!handle) {
+      return 'TikTok profile source config 需要有效的 handle、username、profileUrl 或 url';
+    }
+  }
+
+  return null;
+}
+
 function formatPlatformList(platforms: readonly string[]) {
   return platforms.length === 1 ? platforms[0] : platforms.join(' 或 ');
+}
+
+function normalizeRawProfileHandle(value: string | null) {
+  const normalized = value?.replace(/^@+/, '').replace(/\/+$/, '').trim().toLowerCase();
+  return normalized || null;
+}
+
+function normalizeInstagramProfileHandle(value: string | null) {
+  const normalized = normalizeRawProfileHandle(value);
+  if (!normalized || isReservedInstagramProfileHandle(normalized)) {
+    return null;
+  }
+
+  if (!CANONICAL_PROFILE_HANDLE_PATTERN.test(normalized)) {
+    return null;
+  }
+
+  return normalized;
+}
+
+function normalizeTiktokProfileHandle(value: string | null) {
+  const normalized = normalizeRawProfileHandle(value);
+  if (!normalized || !CANONICAL_PROFILE_HANDLE_PATTERN.test(normalized)) {
+    return null;
+  }
+
+  return normalized;
+}
+
+function readInstagramHandleFromProfileUrl(rawUrl: string) {
+  try {
+    const url = new URL(rawUrl);
+    if (!INSTAGRAM_PROFILE_HOSTS.has(url.hostname.toLowerCase())) {
+      return null;
+    }
+
+    const segments = url.pathname.split('/').filter(Boolean);
+    if (segments.length !== 1) {
+      return null;
+    }
+
+    const handle = normalizeInstagramProfileHandle(segments[0]);
+    if (!handle || isReservedInstagramProfileHandle(handle)) {
+      return null;
+    }
+
+    return handle;
+  } catch {
+    return null;
+  }
+}
+
+function isReservedInstagramProfileHandle(handle: string) {
+  return INSTAGRAM_RESERVED_PROFILE_SEGMENTS.has(handle.toLowerCase());
+}
+
+function readTiktokHandleFromProfileUrl(rawUrl: string) {
+  try {
+    const url = new URL(rawUrl);
+    if (!TIKTOK_PROFILE_HOSTS.has(url.hostname.toLowerCase())) {
+      return null;
+    }
+
+    const segments = url.pathname.split('/').filter(Boolean);
+    if (segments.length !== 1 || !segments[0]?.startsWith('@')) {
+      return null;
+    }
+
+    return normalizeTiktokProfileHandle(segments[0]);
+  } catch {
+    return null;
+  }
 }
 
 function readString(value: unknown) {

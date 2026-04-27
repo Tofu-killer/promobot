@@ -2476,6 +2476,264 @@ describe('PublishCalendar and Projects pages', () => {
     expect(collectText(container)).toContain('Source Type keyword+reddit 只能搭配 platform reddit');
 
     await act(async () => {
+      updateFieldValue(sourceTypeField, 'custom-rss', window);
+      updateFieldValue(platformField, 'rss', window);
+      updateFieldValue(labelField, 'Unsupported source type', window);
+      updateFieldValue(configJsonField, '{"feedUrl":"https://example.com/feed.xml"}', window);
+      updateFieldValue(pollField, '30', window);
+      await flush();
+    });
+
+    await act(async () => {
+      createButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(createSourceConfigAction).not.toHaveBeenCalled();
+    expect(collectText(container)).toContain('Unsupported Source Type custom-rss');
+
+    await act(async () => {
+      updateFieldValue(sourceTypeField, 'profile+instagram', window);
+      updateFieldValue(platformField, 'instagram', window);
+      updateFieldValue(labelField, 'Instagram profile', window);
+      updateFieldValue(configJsonField, '{"handle":"@Explore"}', window);
+      updateFieldValue(pollField, '60', window);
+      await flush();
+    });
+
+    await act(async () => {
+      createButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(createSourceConfigAction).not.toHaveBeenCalled();
+    expect(collectText(container)).toContain(
+      'Instagram profile source config 需要有效的 handle、username、profileUrl 或 url',
+    );
+
+    await act(async () => {
+      updateFieldValue(sourceTypeField, 'profile+tiktok', window);
+      updateFieldValue(platformField, 'tiktok', window);
+      updateFieldValue(labelField, 'TikTok profile', window);
+      updateFieldValue(configJsonField, '{"profileUrl":"https://www.tiktok.com/@openai/video/123"}', window);
+      updateFieldValue(pollField, '60', window);
+      await flush();
+    });
+
+    await act(async () => {
+      createButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(createSourceConfigAction).not.toHaveBeenCalled();
+    expect(collectText(container)).toContain(
+      'TikTok profile source config 需要有效的 handle、username、profileUrl 或 url',
+    );
+
+    await act(async () => {
+      updateFieldValue(sourceTypeField, 'profile+instagram', window);
+      updateFieldValue(platformField, 'instagram', window);
+      updateFieldValue(labelField, 'Malformed Instagram handle', window);
+      updateFieldValue(configJsonField, '{"handle":"@openai/reel/123"}', window);
+      updateFieldValue(pollField, '60', window);
+      await flush();
+    });
+
+    await act(async () => {
+      createButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(createSourceConfigAction).not.toHaveBeenCalled();
+    expect(collectText(container)).toContain(
+      'Instagram profile source config 需要有效的 handle、username、profileUrl 或 url',
+    );
+
+    await act(async () => {
+      updateFieldValue(sourceTypeField, 'profile+tiktok', window);
+      updateFieldValue(platformField, 'tiktok', window);
+      updateFieldValue(labelField, 'Malformed TikTok handle', window);
+      updateFieldValue(configJsonField, '{"handle":"open ai"}', window);
+      updateFieldValue(pollField, '60', window);
+      await flush();
+    });
+
+    await act(async () => {
+      createButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(createSourceConfigAction).not.toHaveBeenCalled();
+    expect(collectText(container)).toContain(
+      'TikTok profile source config 需要有效的 handle、username、profileUrl 或 url',
+    );
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('allows runtime-supported profile fallback configs on create and save', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ProjectsPage } = await import('../../src/client/pages/Projects');
+
+    const loadProjectsAction = vi.fn().mockResolvedValue({
+      projects: [
+        {
+          id: 7,
+          name: 'Acme Launch',
+          siteName: 'Acme',
+          siteUrl: 'https://acme.test',
+          siteDescription: 'Launch week campaign',
+          sellingPoints: ['Cheap', 'Fast'],
+          createdAt: '2026-04-19T08:00:00.000Z',
+        },
+      ],
+    });
+    const loadSourceConfigsAction = vi.fn().mockResolvedValue({
+      sourceConfigs: [
+        {
+          id: 4,
+          projectId: 7,
+          sourceType: 'profile+tiktok',
+          platform: 'tiktok',
+          label: 'TikTok fallback source',
+          configJson: {
+            handle: 'openai',
+            profileUrl: 'https://vt.tiktok.com/ZSh0rt/',
+          },
+          enabled: true,
+          pollIntervalMinutes: 60,
+        },
+      ],
+    });
+    const createSourceConfigAction = vi.fn().mockResolvedValue({
+      sourceConfig: {
+        id: 5,
+        projectId: 7,
+        sourceType: 'profile+instagram',
+        platform: 'instagram',
+        label: 'Instagram fallback source',
+        configJson: {
+          handle: '@Explore',
+          profileUrl: 'https://www.instagram.com/openai/',
+        },
+        enabled: true,
+        pollIntervalMinutes: 60,
+      },
+    });
+    const updateSourceConfigAction = vi.fn().mockResolvedValue({
+      sourceConfig: {
+        id: 4,
+        projectId: 7,
+        sourceType: 'profile+tiktok',
+        platform: 'tiktok',
+        label: 'TikTok fallback source archived',
+        configJson: {
+          handle: 'openai',
+          profileUrl: 'https://vt.tiktok.com/ZSh0rt/',
+        },
+        enabled: true,
+        pollIntervalMinutes: 60,
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ProjectsPage as never, {
+          loadProjectsAction,
+          loadSourceConfigsAction,
+          createSourceConfigAction,
+          updateSourceConfigAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const presetField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'new-preset-7',
+    );
+    const labelField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'new-label-7',
+    );
+    const configJsonField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'new-config-json-7',
+    );
+    const createButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-source-config-create-id') === '7',
+    );
+
+    await act(async () => {
+      updateFieldValue(presetField, 'profile+instagram', window);
+      updateFieldValue(labelField, 'Instagram fallback source', window);
+      updateFieldValue(configJsonField, '{"handle":"@Explore","profileUrl":"https://www.instagram.com/openai/"}', window);
+      await flush();
+    });
+
+    await act(async () => {
+      createButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(createSourceConfigAction).toHaveBeenCalledWith(7, {
+      projectId: 7,
+      sourceType: 'profile+instagram',
+      platform: 'instagram',
+      label: 'Instagram fallback source',
+      configJson: {
+        handle: '@Explore',
+        profileUrl: 'https://www.instagram.com/openai/',
+      },
+      enabled: true,
+      pollIntervalMinutes: 60,
+    });
+
+    const existingLabelField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'label-4',
+    );
+    const saveButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-source-config-save-id') === '4' &&
+        collectText(element).includes('保存 SourceConfig'),
+    );
+
+    await act(async () => {
+      updateFieldValue(existingLabelField, 'TikTok fallback source archived', window);
+      await flush();
+    });
+
+    await act(async () => {
+      saveButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(updateSourceConfigAction).toHaveBeenCalledWith(7, 4, {
+      projectId: 7,
+      sourceType: 'profile+tiktok',
+      platform: 'tiktok',
+      label: 'TikTok fallback source archived',
+      configJson: {
+        handle: 'openai',
+        profileUrl: 'https://vt.tiktok.com/ZSh0rt/',
+      },
+      enabled: true,
+      pollIntervalMinutes: 60,
+    });
+
+    await act(async () => {
       root.unmount();
       await flush();
     });
@@ -2707,6 +2965,113 @@ describe('PublishCalendar and Projects pages', () => {
     expect(updatedPollField?.value).toBe('60');
     expect(updatedEnabledField?.value).toBe('false');
     expect(updatedConfigJsonField?.value).toBe('{"query":"cursor api","locale":"au"}');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('allows saving metadata-only changes for legacy source configs that keep their existing contract fields', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ProjectsPage } = await import('../../src/client/pages/Projects');
+
+    const loadProjectsAction = vi.fn().mockResolvedValue({
+      projects: [
+        {
+          id: 7,
+          name: 'Acme Launch',
+          siteName: 'Acme',
+          siteUrl: 'https://acme.test',
+          siteDescription: 'Launch week campaign',
+          sellingPoints: ['Cheap', 'Fast'],
+          createdAt: '2026-04-19T08:00:00.000Z',
+        },
+      ],
+    });
+    const loadSourceConfigsAction = vi.fn().mockResolvedValue({
+      sourceConfigs: [
+        {
+          id: 4,
+          projectId: 7,
+          sourceType: 'custom-rss',
+          platform: 'rss',
+          label: 'Legacy RSS source',
+          configJson: { url: 'https://example.com/feed.xml' },
+          enabled: true,
+          pollIntervalMinutes: 45,
+        },
+      ],
+    });
+    const updateSourceConfigAction = vi.fn().mockResolvedValue({
+      sourceConfig: {
+        id: 4,
+        projectId: 7,
+        sourceType: 'custom-rss',
+        platform: 'rss',
+        label: 'Legacy RSS source archived',
+        configJson: { url: 'https://example.com/feed.xml' },
+        enabled: false,
+        pollIntervalMinutes: 60,
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ProjectsPage as never, {
+          loadProjectsAction,
+          loadSourceConfigsAction,
+          updateSourceConfigAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const labelField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'label-4',
+    );
+    const pollField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'poll-4',
+    );
+    const enabledField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'enabled-4',
+    );
+    const saveButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-source-config-save-id') === '4' &&
+        collectText(element).includes('保存 SourceConfig'),
+    );
+
+    await act(async () => {
+      updateFieldValue(labelField, 'Legacy RSS source archived', window);
+      updateFieldValue(pollField, '60', window);
+      updateFieldValue(enabledField, 'false', window);
+      await flush();
+    });
+
+    await act(async () => {
+      saveButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(updateSourceConfigAction).toHaveBeenCalledWith(7, 4, {
+      projectId: 7,
+      sourceType: 'custom-rss',
+      platform: 'rss',
+      label: 'Legacy RSS source archived',
+      configJson: { url: 'https://example.com/feed.xml' },
+      enabled: false,
+      pollIntervalMinutes: 60,
+    });
+    expect(collectText(container)).toContain('SourceConfig 已保存');
 
     await act(async () => {
       root.unmount();

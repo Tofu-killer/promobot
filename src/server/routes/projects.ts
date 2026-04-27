@@ -6,7 +6,7 @@ import {
   type SourceConfigRecord,
   type UpdateSourceConfigInput,
 } from '../store/sourceConfigs.js';
-import { validateSourceConfigInput } from '../lib/sourceConfigValidation.js';
+import { isSupportedSourceType, validateSourceConfigInput } from '../lib/sourceConfigValidation.js';
 
 const projectStore = createProjectStore();
 const sourceConfigStore = createSourceConfigStore();
@@ -301,12 +301,21 @@ function parseUpdateSourceConfigInput(
       : undefined,
   };
 
+  const mergedSourceType = value.sourceType ?? existingSourceConfig.sourceType;
+  const mergedPlatform = value.platform ?? existingSourceConfig.platform;
+  const mergedConfigJson = value.configJson ?? existingSourceConfig.configJson;
+  const allowUnsupportedSourceType =
+    !isSupportedSourceType(mergedSourceType) &&
+    mergedSourceType === existingSourceConfig.sourceType &&
+    mergedPlatform === existingSourceConfig.platform &&
+    areComparableJsonObjectsEqual(mergedConfigJson, existingSourceConfig.configJson);
   const validationError = validateSourceConfigInput({
-    sourceType: value.sourceType ?? existingSourceConfig.sourceType,
-    platform: value.platform ?? existingSourceConfig.platform,
+    sourceType: mergedSourceType,
+    platform: mergedPlatform,
     label: value.label ?? existingSourceConfig.label,
-    configJson: value.configJson ?? existingSourceConfig.configJson,
+    configJson: mergedConfigJson,
     pollIntervalMinutes: value.pollIntervalMinutes ?? existingSourceConfig.pollIntervalMinutes,
+    allowUnsupportedSourceType,
   });
   if (validationError) {
     return {
@@ -338,4 +347,23 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 function isPositiveInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value > 0;
+}
+
+function areComparableJsonObjectsEqual(left: Record<string, unknown>, right: Record<string, unknown>) {
+  return serializeComparableValue(left) === serializeComparableValue(right);
+}
+
+function serializeComparableValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => serializeComparableValue(item)).join(',')}]`;
+  }
+
+  if (typeof value === 'object' && value !== null) {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
+      .map(([key, itemValue]) => `${JSON.stringify(key)}:${serializeComparableValue(itemValue)}`);
+    return `{${entries.join(',')}}`;
+  }
+
+  return JSON.stringify(value);
 }

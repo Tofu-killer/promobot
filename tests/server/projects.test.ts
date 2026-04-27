@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createApp } from '../../src/server/app';
+import { createSourceConfigStore } from '../../src/server/store/sourceConfigs';
 import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
 
 async function requestApp(method: string, url: string, body?: unknown) {
@@ -356,6 +357,91 @@ describe('projects api', () => {
         error: 'Profile source config 需要 handle、username、profileUrl 或 url',
       });
 
+      const invalidInstagramProfileUrl = await requestApp('POST', '/api/projects/1/source-configs', {
+        projectId: 1,
+        sourceType: 'profile+instagram',
+        platform: 'instagram',
+        label: 'Instagram profile',
+        configJson: {
+          profileUrl: 'https://example.com/not-instagram',
+        },
+        enabled: true,
+        pollIntervalMinutes: 60,
+      });
+
+      expect(invalidInstagramProfileUrl.status).toBe(400);
+      expect(JSON.parse(invalidInstagramProfileUrl.body)).toEqual({
+        error: 'Instagram profile source config 需要有效的 handle、username、profileUrl 或 url',
+      });
+
+      const invalidInstagramHandle = await requestApp('POST', '/api/projects/1/source-configs', {
+        projectId: 1,
+        sourceType: 'profile+instagram',
+        platform: 'instagram',
+        label: 'Instagram profile',
+        configJson: {
+          handle: '@Explore',
+        },
+        enabled: true,
+        pollIntervalMinutes: 60,
+      });
+
+      expect(invalidInstagramHandle.status).toBe(400);
+      expect(JSON.parse(invalidInstagramHandle.body)).toEqual({
+        error: 'Instagram profile source config 需要有效的 handle、username、profileUrl 或 url',
+      });
+
+      const malformedInstagramHandle = await requestApp('POST', '/api/projects/1/source-configs', {
+        projectId: 1,
+        sourceType: 'profile+instagram',
+        platform: 'instagram',
+        label: 'Instagram profile',
+        configJson: {
+          handle: '@openai/reel/123',
+        },
+        enabled: true,
+        pollIntervalMinutes: 60,
+      });
+
+      expect(malformedInstagramHandle.status).toBe(400);
+      expect(JSON.parse(malformedInstagramHandle.body)).toEqual({
+        error: 'Instagram profile source config 需要有效的 handle、username、profileUrl 或 url',
+      });
+
+      const invalidTiktokProfileUrl = await requestApp('POST', '/api/projects/1/source-configs', {
+        projectId: 1,
+        sourceType: 'profile+tiktok',
+        platform: 'tiktok',
+        label: 'TikTok profile',
+        configJson: {
+          profileUrl: 'https://www.tiktok.com/@openai/video/123',
+        },
+        enabled: true,
+        pollIntervalMinutes: 60,
+      });
+
+      expect(invalidTiktokProfileUrl.status).toBe(400);
+      expect(JSON.parse(invalidTiktokProfileUrl.body)).toEqual({
+        error: 'TikTok profile source config 需要有效的 handle、username、profileUrl 或 url',
+      });
+
+      const malformedTiktokHandle = await requestApp('POST', '/api/projects/1/source-configs', {
+        projectId: 1,
+        sourceType: 'profile+tiktok',
+        platform: 'tiktok',
+        label: 'TikTok profile',
+        configJson: {
+          handle: 'open ai',
+        },
+        enabled: true,
+        pollIntervalMinutes: 60,
+      });
+
+      expect(malformedTiktokHandle.status).toBe(400);
+      expect(JSON.parse(malformedTiktokHandle.body)).toEqual({
+        error: 'TikTok profile source config 需要有效的 handle、username、profileUrl 或 url',
+      });
+
       const created = await requestApp('POST', '/api/projects/1/source-configs', {
         projectId: 1,
         sourceType: 'keyword+reddit',
@@ -379,6 +465,202 @@ describe('projects api', () => {
       expect(invalidUpdate.status).toBe(400);
       expect(JSON.parse(invalidUpdate.body)).toEqual({
         error: 'Profile source config 需要 handle、username、profileUrl 或 url',
+      });
+
+      const invalidProfileUpdate = await requestApp('PATCH', '/api/projects/1/source-configs/1', {
+        sourceType: 'profile+tiktok',
+        platform: 'tiktok',
+        configJson: {
+          profileUrl: 'https://www.tiktok.com/@openai/video/123',
+        },
+      });
+
+      expect(invalidProfileUpdate.status).toBe(400);
+      expect(JSON.parse(invalidProfileUpdate.body)).toEqual({
+        error: 'TikTok profile source config 需要有效的 handle、username、profileUrl 或 url',
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('accepts profile source configs when either the handle or profile url remains canonical', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const projectResponse = await requestApp('POST', '/api/projects', {
+        name: 'Monitoring Workspace',
+        siteName: 'PromoBot',
+        siteUrl: 'https://example.com',
+        siteDescription: 'Brand monitoring',
+        sellingPoints: ['Fast iteration'],
+      });
+
+      expect(projectResponse.status).toBe(201);
+
+      const instagramHandleFallback = await requestApp('POST', '/api/projects/1/source-configs', {
+        projectId: 1,
+        sourceType: 'profile+instagram',
+        platform: 'instagram',
+        label: 'Instagram handle fallback',
+        configJson: {
+          handle: '@openai',
+          profileUrl: 'https://example.com/not-instagram',
+        },
+        enabled: true,
+        pollIntervalMinutes: 60,
+      });
+
+      expect(instagramHandleFallback.status).toBe(201);
+      expect(JSON.parse(instagramHandleFallback.body)).toEqual({
+        sourceConfig: expect.objectContaining({
+          id: 1,
+          projectId: 1,
+          sourceType: 'profile+instagram',
+          platform: 'instagram',
+          label: 'Instagram handle fallback',
+          configJson: {
+            handle: '@openai',
+            profileUrl: 'https://example.com/not-instagram',
+          },
+        }),
+      });
+
+      const instagramUrlFallback = await requestApp('POST', '/api/projects/1/source-configs', {
+        projectId: 1,
+        sourceType: 'profile+instagram',
+        platform: 'instagram',
+        label: 'Instagram profile url fallback',
+        configJson: {
+          handle: '@Explore',
+          profileUrl: 'https://www.instagram.com/openai/',
+        },
+        enabled: true,
+        pollIntervalMinutes: 60,
+      });
+
+      expect(instagramUrlFallback.status).toBe(201);
+      expect(JSON.parse(instagramUrlFallback.body)).toEqual({
+        sourceConfig: expect.objectContaining({
+          id: 2,
+          projectId: 1,
+          sourceType: 'profile+instagram',
+          platform: 'instagram',
+          label: 'Instagram profile url fallback',
+          configJson: {
+            handle: '@Explore',
+            profileUrl: 'https://www.instagram.com/openai/',
+          },
+        }),
+      });
+
+      const tiktokHandleFallback = await requestApp('POST', '/api/projects/1/source-configs', {
+        projectId: 1,
+        sourceType: 'profile+tiktok',
+        platform: 'tiktok',
+        label: 'TikTok handle fallback',
+        configJson: {
+          handle: 'openai',
+          profileUrl: 'https://vt.tiktok.com/ZSh0rt/',
+        },
+        enabled: true,
+        pollIntervalMinutes: 60,
+      });
+
+      expect(tiktokHandleFallback.status).toBe(201);
+      expect(JSON.parse(tiktokHandleFallback.body)).toEqual({
+        sourceConfig: expect.objectContaining({
+          id: 3,
+          projectId: 1,
+          sourceType: 'profile+tiktok',
+          platform: 'tiktok',
+          label: 'TikTok handle fallback',
+          configJson: {
+            handle: 'openai',
+            profileUrl: 'https://vt.tiktok.com/ZSh0rt/',
+          },
+        }),
+      });
+
+      const labelOnlyUpdate = await requestApp('PATCH', '/api/projects/1/source-configs/3', {
+        label: 'TikTok handle fallback archived',
+      });
+
+      expect(labelOnlyUpdate.status).toBe(200);
+      expect(JSON.parse(labelOnlyUpdate.body)).toEqual({
+        sourceConfig: expect.objectContaining({
+          id: 3,
+          projectId: 1,
+          sourceType: 'profile+tiktok',
+          platform: 'tiktok',
+          label: 'TikTok handle fallback archived',
+          configJson: {
+            handle: 'openai',
+            profileUrl: 'https://vt.tiktok.com/ZSh0rt/',
+          },
+        }),
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('allows metadata-only updates for legacy source types while keeping their contract fields unchanged', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const projectResponse = await requestApp('POST', '/api/projects', {
+        name: 'Monitoring Workspace',
+        siteName: 'PromoBot',
+        siteUrl: 'https://example.com',
+        siteDescription: 'Brand monitoring',
+        sellingPoints: ['Fast iteration'],
+      });
+
+      expect(projectResponse.status).toBe(201);
+
+      const sourceConfigStore = createSourceConfigStore();
+      sourceConfigStore.create({
+        projectId: 1,
+        sourceType: 'custom-rss',
+        platform: 'rss',
+        label: 'Legacy RSS source',
+        configJson: {
+          url: 'https://example.com/feed.xml',
+        },
+        enabled: true,
+        pollIntervalMinutes: 45,
+      });
+
+      const metadataOnlyUpdate = await requestApp('PATCH', '/api/projects/1/source-configs/1', {
+        label: 'Legacy RSS source archived',
+        enabled: false,
+        pollIntervalMinutes: 60,
+      });
+
+      expect(metadataOnlyUpdate.status).toBe(200);
+      expect(JSON.parse(metadataOnlyUpdate.body)).toEqual({
+        sourceConfig: expect.objectContaining({
+          id: 1,
+          projectId: 1,
+          sourceType: 'custom-rss',
+          platform: 'rss',
+          label: 'Legacy RSS source archived',
+          configJson: {
+            url: 'https://example.com/feed.xml',
+          },
+          enabled: false,
+          pollIntervalMinutes: 60,
+        }),
+      });
+
+      const invalidLegacyContractUpdate = await requestApp('PATCH', '/api/projects/1/source-configs/1', {
+        configJson: {
+          url: 'https://example.com/other.xml',
+        },
+      });
+
+      expect(invalidLegacyContractUpdate.status).toBe(400);
+      expect(JSON.parse(invalidLegacyContractUpdate.body)).toEqual({
+        error: 'Unsupported Source Type custom-rss',
       });
     } finally {
       cleanupTestDatabasePath(rootDir);
@@ -436,6 +718,63 @@ describe('projects api', () => {
       expect(invalidUpdate.status).toBe(400);
       expect(JSON.parse(invalidUpdate.body)).toEqual({
         error: 'Source Type keyword+reddit 只能搭配 platform reddit',
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('rejects unsupported source types for create and merged update requests', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const projectResponse = await requestApp('POST', '/api/projects', {
+        name: 'Monitoring Workspace',
+        siteName: 'PromoBot',
+        siteUrl: 'https://example.com',
+        siteDescription: 'Brand monitoring',
+        sellingPoints: ['Fast iteration'],
+      });
+
+      expect(projectResponse.status).toBe(201);
+
+      const invalidCreate = await requestApp('POST', '/api/projects/1/source-configs', {
+        projectId: 1,
+        sourceType: 'custom-rss',
+        platform: 'rss',
+        label: 'Unsupported source type',
+        configJson: {
+          feedUrl: 'https://example.com/feed.xml',
+        },
+        enabled: true,
+        pollIntervalMinutes: 30,
+      });
+
+      expect(invalidCreate.status).toBe(400);
+      expect(JSON.parse(invalidCreate.body)).toEqual({
+        error: 'Unsupported Source Type custom-rss',
+      });
+
+      const created = await requestApp('POST', '/api/projects/1/source-configs', {
+        projectId: 1,
+        sourceType: 'rss',
+        platform: 'rss',
+        label: 'Competitor feed',
+        configJson: {
+          feedUrl: 'https://example.com/feed.xml',
+        },
+        enabled: true,
+        pollIntervalMinutes: 30,
+      });
+
+      expect(created.status).toBe(201);
+
+      const invalidUpdate = await requestApp('PATCH', '/api/projects/1/source-configs/1', {
+        sourceType: 'custom-rss',
+      });
+
+      expect(invalidUpdate.status).toBe(400);
+      expect(JSON.parse(invalidUpdate.body)).toEqual({
+        error: 'Unsupported Source Type custom-rss',
       });
     } finally {
       cleanupTestDatabasePath(rootDir);
