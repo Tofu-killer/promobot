@@ -1408,7 +1408,7 @@ describe('channel account edit actions', () => {
     expect(requestChannelAccountSessionAction).not.toHaveBeenCalledWith(7, {
       action: 'relogin',
     });
-    expect(collectText(container)).toContain('请求登录占位已记录');
+    expect(collectText(container)).toContain('请求登录工单已记录');
 
     await act(async () => {
       root.unmount();
@@ -2917,7 +2917,7 @@ describe('channel account edit actions', () => {
     expect(requestChannelAccountSessionAction).toHaveBeenCalledWith(7, {
       action: 'relogin',
     });
-    expect(collectText(container)).toContain('重新登录占位已记录');
+    expect(collectText(container)).toContain('重新登录工单已记录');
     expect(collectText(container)).toContain('Refresh login manually');
     expect(collectText(container)).toContain('请求时间：2026-04-19T03:10:00.000Z');
     expect(collectText(container)).toContain('工单状态：pending');
@@ -3077,7 +3077,7 @@ describe('channel account edit actions', () => {
     expect(requestChannelAccountSessionAction).toHaveBeenCalledWith(7, {
       action: 'relogin',
     });
-    expect(collectText(container)).toContain('重新登录占位已记录');
+    expect(collectText(container)).toContain('重新登录工单已记录');
     expect(collectText(container)).toContain('Refresh login manually');
     expect(collectText(container)).toContain('工单状态：pending');
     expect(collectText(container)).toContain(
@@ -3196,7 +3196,7 @@ describe('channel account edit actions', () => {
     expect(collectText(container)).toContain('Storage Path：artifacts/browser-sessions/browser-x-fresh.json');
     expect(collectText(container)).toContain('Session 备注：cookie refreshed in headed browser');
     expect(collectText(container)).toContain('发布就绪：已就绪');
-    expect(collectText(container)).not.toContain('重新登录占位已记录');
+    expect(collectText(container)).not.toContain('重新登录工单已记录');
     expect(collectText(container)).not.toContain('Refresh login manually');
     expect(collectText(container)).not.toContain('工单状态：pending');
     expect(collectText(container)).not.toContain(
@@ -3351,7 +3351,7 @@ describe('channel account edit actions', () => {
     expect(requestChannelAccountSessionAction).toHaveBeenCalledWith(7, {
       action: 'request_session',
     });
-    expect(collectText(container)).toContain('请求登录占位已记录');
+    expect(collectText(container)).toContain('请求登录工单已记录');
     expect(collectText(container)).toContain('Browser login requested.');
     expect(collectText(container)).toContain('工单状态：pending');
     expect(collectText(container)).toContain('下一步：/api/channel-accounts/7/session');
@@ -3467,7 +3467,7 @@ describe('channel account edit actions', () => {
     expect(collectText(container)).toContain('Storage Path：artifacts/browser-sessions/reddit-oauth-fresh.json');
     expect(collectText(container)).toContain('Session 备注：oauth refreshed after browser login');
     expect(collectText(container)).toContain('发布就绪：已就绪');
-    expect(collectText(container)).not.toContain('请求登录占位已记录');
+    expect(collectText(container)).not.toContain('请求登录工单已记录');
     expect(collectText(container)).not.toContain('Browser login requested.');
     expect(collectText(container)).not.toContain('工单状态：pending');
     expect(collectText(container)).not.toContain('下一步：/api/channel-accounts/7/session');
@@ -3745,7 +3745,7 @@ describe('channel account edit actions', () => {
     expect(requestChannelAccountSessionAction).toHaveBeenCalledWith(8, {
       action: 'request_session',
     });
-    expect(collectText(container)).toContain('请求登录占位已记录');
+    expect(collectText(container)).toContain('请求登录工单已记录');
     expect(collectText(container)).toContain('Browser login requested.');
     expect(collectText(container)).toContain('Storage Path：artifacts/browser-sessions/browser-x-fresh.json');
     expect(collectText(container)).toContain('Session 备注：cookie refreshed in headed browser');
@@ -4126,7 +4126,7 @@ describe('channel account edit actions', () => {
     });
     expect(collectText(savingButtonWhileActionRuns as never)).toContain('正在保存 Session...');
     expect(collectText(container)).toContain('正在保存 Session...');
-    expect(collectText(container)).toContain('请求登录占位已记录');
+    expect(collectText(container)).toContain('请求登录工单已记录');
 
     await act(async () => {
       saveSessionDeferred.resolve({
@@ -5073,7 +5073,7 @@ describe('channel account edit actions', () => {
 
     expect(saveChannelAccountSessionAction).not.toHaveBeenCalled();
     expect(collectText(container)).toContain('Session 保存失败：storage state JSON 必须是合法 JSON');
-    expect(collectText(container)).not.toContain('重新登录占位已记录');
+    expect(collectText(container)).not.toContain('重新登录工单已记录');
     expect(collectText(container)).not.toContain('最近工单：重新登录');
 
     await act(async () => {

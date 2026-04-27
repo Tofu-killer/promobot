@@ -239,6 +239,8 @@ export function getLatestSessionRequestArtifact(
     channelAccountId: number;
     platform: string;
     accountKey: string;
+    action?: BrowserSessionAction;
+    unresolvedOnly?: boolean;
   },
 ): SessionRequestArtifactSummary | null {
   const artifactRootDir = resolveArtifactRootDir();
@@ -262,7 +264,9 @@ export function getLatestSessionRequestArtifact(
         artifact.type !== 'browser_lane_request' ||
         artifact.channelAccountId !== input.channelAccountId ||
         artifact.platform !== input.platform ||
-        artifact.accountKey !== input.accountKey
+        artifact.accountKey !== input.accountKey ||
+        (input.action !== undefined && artifact.action !== input.action) ||
+        (input.unresolvedOnly === true && artifact.resolvedAt !== undefined)
       ) {
         return null;
       }

@@ -61,7 +61,7 @@ cp .env.example .env
   - 手填 `storageStatePath` 时，该路径必须落在允许的 session 根目录内，并且指向真实存在、结构合法的 Playwright storage state 文件
   - `storageStatePath` 和 `storageState` 只能二选一；直接导入 JSON 时，至少要包含 `cookies` / `origins` 数组
   - 如果 metadata 指向的 storage state 文件已不存在，Channel Accounts / Settings / platform readiness 会把该 session 视为 `missing`
-  - 请求登录 / 重新登录动作会在仓库下的 `artifacts/browser-lane-requests/<platform>/<account>/` 生成工单 JSON
+  - 请求登录 / 重新登录动作会在仓库下的 `artifacts/browser-lane-requests/<platform>/<account>/` 生成工单 JSON；同一渠道账号同一动作若已有未结单工单，后续请求会直接复用现有工单而不再重复排队
   - 当新的 session 元数据保存成功后，匹配的 browser lane request 工单会被回写为 `resolved`，并附带 session 摘要
   - 也可以先把 browser lane 结果写成同目录下的 `*.result.json`，再调用 `POST /api/system/browser-lane-requests/import` 让服务端自动导入 session
   - `POST /api/system/browser-lane-requests/import` 现在既支持旧的 `{ artifactPath }`，也支持直接提交 `{ requestArtifactPath, storageState, sessionStatus?, validatedAt?, notes?, completedAt? }`

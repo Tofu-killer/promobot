@@ -1893,6 +1893,367 @@ describe('channel accounts api', () => {
     }
   });
 
+  it('reuses the latest unresolved session-request job for the same account action', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const jobQueueStore = createJobQueueStore();
+
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'instagram',
+        accountKey: '@promobot.official',
+        displayName: 'PromoBot Instagram',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      const firstResponse = await requestApp('POST', '/api/channel-accounts/1/session/request');
+      expect(firstResponse.status).toBe(200);
+
+      const firstBody = JSON.parse(firstResponse.body) as {
+        job: {
+          id: number;
+          runAt: string;
+          status: string;
+        };
+        sessionAction: {
+          artifactPath: string;
+        };
+      };
+
+      await jobQueueStore.markRunning(firstBody.job.id, '2026-04-27T07:59:00.000Z');
+      await jobQueueStore.markDone(firstBody.job.id, '2026-04-27T08:00:00.000Z');
+
+      const secondResponse = await requestApp('POST', '/api/channel-accounts/1/session/request');
+      expect(secondResponse.status).toBe(200);
+
+      const secondBody = JSON.parse(secondResponse.body) as {
+        ok: boolean;
+        job: {
+          id: number;
+          type: string;
+          status: string;
+          attempts: number;
+          runAt: string;
+          payload: {
+            accountId: number;
+            platform: string;
+            accountKey: string;
+            action: string;
+          };
+        };
+        sessionAction: {
+          action: string;
+          accountId: number;
+          status: string;
+          requestedAt: string;
+          message: string;
+          nextStep: string;
+          jobId: number;
+          jobStatus: string;
+          artifactPath: string;
+          reused: boolean;
+        };
+        channelAccount: {
+          id: number;
+          latestBrowserLaneArtifact: {
+            action: string;
+            jobStatus: string;
+            requestedAt: string;
+            artifactPath: string;
+            resolvedAt: string | null;
+          };
+        };
+      };
+
+      expect(secondBody.ok).toBe(true);
+      expect(secondBody.job).toEqual({
+        id: firstBody.job.id,
+        type: 'channel_account_session_request',
+        status: 'done',
+        attempts: 1,
+        runAt: firstBody.job.runAt,
+        payload: {
+          accountId: 1,
+          platform: 'instagram',
+          accountKey: '@promobot.official',
+          action: 'request_session',
+        },
+      });
+      expect(secondBody.sessionAction).toEqual({
+        action: 'request_session',
+        accountId: 1,
+        status: 'done',
+        requestedAt: firstBody.job.runAt,
+        message:
+          'An unresolved browser session request already exists. Reuse the current browser lane work order and attach session metadata after login is complete.',
+        nextStep: '/api/channel-accounts/1/session',
+        jobId: firstBody.job.id,
+        jobStatus: 'done',
+        artifactPath:
+          'artifacts/browser-lane-requests/instagram/-promobot.official/request-session-job-1.json',
+        reused: true,
+      });
+      expect(secondBody.channelAccount).toEqual(
+        expect.objectContaining({
+          id: 1,
+          latestBrowserLaneArtifact: expect.objectContaining({
+            action: 'request_session',
+            jobStatus: 'pending',
+            requestedAt: firstBody.job.runAt,
+            artifactPath:
+              'artifacts/browser-lane-requests/instagram/-promobot.official/request-session-job-1.json',
+            resolvedAt: null,
+          }),
+        }),
+      );
+
+      expect(
+        JSON.parse(
+          readFileSync(
+            path.join(rootDir, firstBody.sessionAction.artifactPath),
+            'utf8',
+          ),
+        ),
+      ).toEqual({
+        type: 'browser_lane_request',
+        channelAccountId: 1,
+        platform: 'instagram',
+        accountKey: '@promobot.official',
+        action: 'request_session',
+        requestedAt: firstBody.job.runAt,
+        jobId: firstBody.job.id,
+        jobStatus: 'pending',
+        nextStep: '/api/channel-accounts/1/session',
+      });
+
+      expect(jobQueueStore.list({ limit: 10 })).toEqual([
+        expect.objectContaining({
+          id: firstBody.job.id,
+          type: 'channel_account_session_request',
+          status: 'done',
+          attempts: 1,
+        }),
+      ]);
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('reuses the latest unresolved session-request job for the same action even when a newer different-action request exists', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const jobQueueStore = createJobQueueStore();
+
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'instagram',
+        accountKey: '@promobot.official',
+        displayName: 'PromoBot Instagram',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      const requestSessionResponse = await requestApp('POST', '/api/channel-accounts/1/session/request');
+      expect(requestSessionResponse.status).toBe(200);
+      const requestSessionBody = JSON.parse(requestSessionResponse.body) as {
+        job: {
+          id: number;
+          runAt: string;
+        };
+        sessionAction: {
+          artifactPath: string;
+        };
+      };
+
+      const reloginResponse = await requestApp('POST', '/api/channel-accounts/1/session/request', {
+        action: 'relogin',
+      });
+      expect(reloginResponse.status).toBe(200);
+      const reloginBody = JSON.parse(reloginResponse.body) as {
+        job: {
+          id: number;
+        };
+      };
+
+      const repeatedRequestSessionResponse = await requestApp(
+        'POST',
+        '/api/channel-accounts/1/session/request',
+      );
+      expect(repeatedRequestSessionResponse.status).toBe(200);
+
+      const repeatedRequestSessionBody = JSON.parse(repeatedRequestSessionResponse.body) as {
+        job: {
+          id: number;
+          type: string;
+          status: string;
+          attempts: number;
+          runAt: string;
+          payload: {
+            accountId: number;
+            platform: string;
+            accountKey: string;
+            action: string;
+          };
+        };
+        sessionAction: {
+          action: string;
+          accountId: number;
+          status: string;
+          requestedAt: string;
+          message: string;
+          nextStep: string;
+          jobId: number;
+          jobStatus: string;
+          artifactPath: string;
+          reused: boolean;
+        };
+      };
+
+      expect(repeatedRequestSessionBody.job).toEqual({
+        id: requestSessionBody.job.id,
+        type: 'channel_account_session_request',
+        status: 'pending',
+        attempts: 0,
+        runAt: requestSessionBody.job.runAt,
+        payload: {
+          accountId: 1,
+          platform: 'instagram',
+          accountKey: '@promobot.official',
+          action: 'request_session',
+        },
+      });
+      expect(repeatedRequestSessionBody.sessionAction).toEqual({
+        action: 'request_session',
+        accountId: 1,
+        status: 'pending',
+        requestedAt: requestSessionBody.job.runAt,
+        message:
+          'An unresolved browser session request already exists. Reuse the current browser lane work order and attach session metadata after login is complete.',
+        nextStep: '/api/channel-accounts/1/session',
+        jobId: requestSessionBody.job.id,
+        jobStatus: 'pending',
+        artifactPath: requestSessionBody.sessionAction.artifactPath,
+        reused: true,
+      });
+      expect(jobQueueStore.list({ limit: 10 })).toEqual([
+        expect.objectContaining({
+          id: requestSessionBody.job.id,
+          type: 'channel_account_session_request',
+          status: 'pending',
+          attempts: 0,
+        }),
+        expect.objectContaining({
+          id: reloginBody.job.id,
+          type: 'channel_account_session_request',
+          status: 'pending',
+          attempts: 0,
+        }),
+      ]);
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('creates a fresh session-request job when the previous same-action request failed', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const jobQueueStore = createJobQueueStore();
+
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'tiktok',
+        accountKey: '@promobot.live',
+        displayName: 'PromoBot TikTok',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      const firstResponse = await requestApp('POST', '/api/channel-accounts/1/session/request', {
+        action: 'relogin',
+      });
+      expect(firstResponse.status).toBe(200);
+
+      const firstBody = JSON.parse(firstResponse.body) as {
+        job: {
+          id: number;
+        };
+        sessionAction: {
+          artifactPath: string;
+        };
+      };
+
+      await jobQueueStore.markRunning(firstBody.job.id, '2026-04-27T08:04:00.000Z');
+      await jobQueueStore.markFailed(firstBody.job.id, 'browser lane crashed', '2026-04-27T08:05:00.000Z');
+
+      const secondResponse = await requestApp('POST', '/api/channel-accounts/1/session/request', {
+        action: 'relogin',
+      });
+      expect(secondResponse.status).toBe(200);
+
+      const secondBody = JSON.parse(secondResponse.body) as {
+        job: {
+          id: number;
+          status: string;
+          payload: {
+            action: string;
+          };
+        };
+        sessionAction: {
+          action: string;
+          jobId: number;
+          jobStatus: string;
+          artifactPath: string;
+          reused?: boolean;
+        };
+      };
+
+      expect(secondBody.job.id).not.toBe(firstBody.job.id);
+      expect(secondBody.job.status).toBe('pending');
+      expect(secondBody.job.payload.action).toBe('relogin');
+      expect(secondBody.sessionAction).toEqual(
+        expect.objectContaining({
+          action: 'relogin',
+          jobId: secondBody.job.id,
+          jobStatus: 'pending',
+          artifactPath: 'artifacts/browser-lane-requests/tiktok/-promobot.live/relogin-job-2.json',
+        }),
+      );
+      expect(secondBody.sessionAction.reused).toBeUndefined();
+      expect(jobQueueStore.list({ limit: 10 })).toEqual([
+        expect.objectContaining({
+          id: firstBody.job.id,
+          type: 'channel_account_session_request',
+          status: 'failed',
+          attempts: 1,
+        }),
+        expect.objectContaining({
+          id: secondBody.job.id,
+          type: 'channel_account_session_request',
+          status: 'pending',
+          attempts: 0,
+        }),
+      ]);
+      expect(
+        JSON.parse(
+          readFileSync(
+            path.join(rootDir, firstBody.sessionAction.artifactPath),
+            'utf8',
+          ),
+        ),
+      ).toEqual({
+        type: 'browser_lane_request',
+        channelAccountId: 1,
+        platform: 'tiktok',
+        accountKey: '@promobot.live',
+        action: 'relogin',
+        requestedAt: expect.any(String),
+        jobId: firstBody.job.id,
+        jobStatus: 'pending',
+        nextStep: '/api/channel-accounts/1/session',
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('marks browser lane request artifacts as resolved after session metadata is saved', async () => {
     const { rootDir } = createTestDatabasePath();
     try {

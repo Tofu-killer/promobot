@@ -2104,7 +2104,7 @@ describe('client API page wiring', () => {
       },
     } as never);
 
-    expect(html).toContain('请求登录占位已记录');
+    expect(html).toContain('请求登录工单已记录');
     expect(html).not.toContain('请求登录请求已发送');
     expect(html).toContain('Browser session request queued.');
     expect(html).toContain('请求时间：2026-04-19T03:10:00.000Z');

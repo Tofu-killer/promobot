@@ -139,6 +139,7 @@ export interface RequestChannelAccountSessionActionResponse {
     jobId?: number;
     jobStatus?: string;
     artifactPath?: string | null;
+    reused?: boolean;
   };
   channelAccount: ChannelAccountRecord;
 }
@@ -1633,7 +1634,10 @@ export function ChannelAccountsPage({
           displaySessionActionState.status === 'success' &&
           displaySessionActionState.data ? (
             <div style={{ marginTop: '12px', display: 'grid', gap: '6px', color: '#334155' }}>
-              <div>{getSessionActionLabelFromAction(displaySessionActionState.data.sessionAction.action)}占位已记录</div>
+              <div>
+                {getSessionActionLabelFromAction(displaySessionActionState.data.sessionAction.action)}
+                {displaySessionActionState.data.sessionAction.reused ? '工单已存在，继续沿用' : '工单已记录'}
+              </div>
               <div>{displaySessionActionState.data.sessionAction.message}</div>
               <div>请求时间：{displaySessionActionState.data.sessionAction.requestedAt}</div>
               <div>
@@ -1704,9 +1708,9 @@ export function ChannelAccountsPage({
             <div>点击“测试连接”会优先对最近创建账号发起真实连接测试；没有目标账号时，“测试连接”会禁用；先创建账号或选择动作目标账号。</div>
             <div>每个账号卡片都会显式显示 Session 是否存在、当前状态、最近验证时间和 Storage Path。</div>
             <div>
-              “请求登录 / 重新登录”只会记录一个占位动作，仍需手动登录并保存 Session 元数据；“编辑
-              Session 元数据”用于展开表单，“保存 Session 元数据”才会真正提交 storage path 或 storage
-              state JSON、状态、验证时间和备注。
+              “请求登录 / 重新登录”会创建 browser lane 工单；同账号同动作存在未结单工单时，页面会直接复用现有工单，不会重复排队。
+              “编辑 Session 元数据”用于展开表单，“保存 Session 元数据”才会真正提交 storage path 或 storage
+              state JSON、状态、验证时间和备注，并把对应工单结单。
             </div>
             <div>如果服务端返回 404 或 500，这里不会吞掉错误，而是直接在页面中显示。</div>
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>

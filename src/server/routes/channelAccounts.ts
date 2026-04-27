@@ -124,13 +124,62 @@ channelAccountsRouter.post('/:id/session/request', (request, response) => {
     accountKey: channelAccount.accountKey,
     action,
   };
+  const nextStep = `/api/channel-accounts/${channelAccount.id}/session`;
+  const latestSessionRequestArtifact = getLatestSessionRequestArtifact({
+    channelAccountId: channelAccount.id,
+    platform: channelAccount.platform,
+    accountKey: channelAccount.accountKey,
+    action,
+    unresolvedOnly: true,
+  });
+  const latestSessionRequestJobStatus = latestSessionRequestArtifact
+    ? jobQueueStore.get(latestSessionRequestArtifact.jobId)?.status ??
+      latestSessionRequestArtifact.jobStatus
+    : null;
+
+  if (
+    latestSessionRequestArtifact &&
+    latestSessionRequestJobStatus &&
+    isReusableSessionRequestStatus(latestSessionRequestJobStatus)
+  ) {
+    const existingJob = jobQueueStore.get(latestSessionRequestArtifact.jobId);
+    response.json({
+      ok: true,
+      ...(existingJob
+        ? {
+            job: {
+              id: existingJob.id,
+              type: existingJob.type,
+              status: existingJob.status,
+              attempts: existingJob.attempts,
+              runAt: existingJob.runAt,
+              payload,
+            },
+          }
+        : {}),
+      sessionAction: {
+        action,
+        accountId: channelAccount.id,
+        status: latestSessionRequestJobStatus,
+        requestedAt: latestSessionRequestArtifact.requestedAt,
+        message: getSessionRequestMessage(action, { reused: true }),
+        nextStep,
+        jobId: latestSessionRequestArtifact.jobId,
+        jobStatus: latestSessionRequestJobStatus,
+        artifactPath: latestSessionRequestArtifact.artifactPath,
+        reused: true,
+      },
+      channelAccount: attachSessionSummary(channelAccount, createSessionStore()),
+    });
+    return;
+  }
+
   const requestedAt = new Date().toISOString();
   const job = jobQueueStore.enqueue({
     type: channelAccountSessionRequestJobType,
     payload,
     runAt: requestedAt,
   });
-  const nextStep = `/api/channel-accounts/${channelAccount.id}/session`;
   const artifactPath = createSessionRequestArtifact({
     channelAccountId: channelAccount.id,
     platform: channelAccount.platform,
@@ -402,7 +451,22 @@ function omitMetadataSession(metadata: Record<string, unknown>) {
   return rest;
 }
 
-function getSessionRequestMessage(action: BrowserSessionAction) {
+function isReusableSessionRequestStatus(status: string) {
+  return status === 'pending' || status === 'running' || status === 'done';
+}
+
+function getSessionRequestMessage(
+  action: BrowserSessionAction,
+  options: { reused?: boolean } = {},
+) {
+  if (options.reused) {
+    if (action === 'relogin') {
+      return 'An unresolved browser relogin request already exists. Reuse the current browser lane work order and attach refreshed session metadata after login is complete.';
+    }
+
+    return 'An unresolved browser session request already exists. Reuse the current browser lane work order and attach session metadata after login is complete.';
+  }
+
   if (action === 'relogin') {
     return 'Browser relogin request queued. Refresh login manually and attach updated session metadata after the browser lane picks up the job.';
   }
