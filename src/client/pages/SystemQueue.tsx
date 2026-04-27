@@ -117,7 +117,7 @@ export interface InboxReplyHandoffsResponse {
   total: number;
 }
 
-interface PriorityActionRecord {
+interface BasePriorityActionRecord {
   key: string;
   priority: number;
   title: string;
@@ -129,6 +129,26 @@ interface PriorityActionRecord {
   destinationHref: string;
   destinationLabel: string;
 }
+
+interface BrowserLanePriorityActionRecord extends BasePriorityActionRecord {
+  kind: 'browser_lane';
+  request: BrowserLaneRequestRecord;
+}
+
+interface InboxReplyPriorityActionRecord extends BasePriorityActionRecord {
+  kind: 'inbox_reply_handoff';
+  handoff: InboxReplyHandoffRecord;
+}
+
+interface BrowserHandoffPriorityActionRecord extends BasePriorityActionRecord {
+  kind: 'browser_handoff';
+  handoff: BrowserHandoffRecord;
+}
+
+type PriorityActionRecord =
+  | BrowserLanePriorityActionRecord
+  | InboxReplyPriorityActionRecord
+  | BrowserHandoffPriorityActionRecord;
 
 export interface BrowserHandoffCompletionResponse {
   ok: boolean;
@@ -748,6 +768,196 @@ export function SystemQueuePage({
       });
   }
 
+  function renderPriorityActionControls(action: PriorityActionRecord) {
+    if (action.kind === 'browser_lane') {
+      const request = action.request;
+      return (
+        <div style={{ display: 'grid', gap: '10px' }}>
+          <label style={{ display: 'grid', gap: '6px' }}>
+            <span style={{ fontWeight: 700, color: '#334155' }}>storageState JSON</span>
+            <textarea
+              data-priority-browser-lane-field="storageState"
+              value={browserLaneDraftByArtifactPath[request.artifactPath]?.storageState ?? ''}
+              onChange={(event) =>
+                setBrowserLaneDraftByArtifactPath((current) => ({
+                  ...current,
+                  [request.artifactPath]: {
+                    storageState: event.target.value,
+                    notes: current[request.artifactPath]?.notes ?? '',
+                  },
+                }))
+              }
+              rows={4}
+              placeholder='{"cookies":[],"origins":[]}'
+              style={{ ...fieldStyle, resize: 'vertical' }}
+            />
+          </label>
+          <label style={{ display: 'grid', gap: '6px' }}>
+            <span style={{ fontWeight: 700, color: '#334155' }}>导入备注</span>
+            <input
+              data-priority-browser-lane-field="notes"
+              value={browserLaneDraftByArtifactPath[request.artifactPath]?.notes ?? ''}
+              onChange={(event) =>
+                setBrowserLaneDraftByArtifactPath((current) => ({
+                  ...current,
+                  [request.artifactPath]: {
+                    storageState: current[request.artifactPath]?.storageState ?? '',
+                    notes: event.target.value,
+                  },
+                }))
+              }
+              placeholder="可选：记录导入备注"
+              style={fieldStyle}
+            />
+          </label>
+          <ActionButton
+            label={
+              isBrowserLaneRequestMutationPending &&
+              activeBrowserLaneArtifactPath === request.artifactPath
+                ? '正在导入 storageState...'
+                : '导入 storageState'
+            }
+            tone="primary"
+            disabled={isBrowserLaneRequestMutationPending}
+            onClick={() => handleImportBrowserLaneRequest(request)}
+          />
+        </div>
+      );
+    }
+
+    if (action.kind === 'browser_handoff') {
+      const handoff = action.handoff;
+      return (
+        <div style={{ display: 'grid', gap: '10px' }}>
+          <label style={{ display: 'grid', gap: '6px' }}>
+            <span style={{ fontWeight: 700, color: '#334155' }}>发布链接</span>
+            <input
+              data-priority-browser-handoff-field="publishUrl"
+              value={browserHandoffDraftByArtifactPath[handoff.artifactPath]?.publishUrl ?? ''}
+              onChange={(event) =>
+                setBrowserHandoffDraftByArtifactPath((current) => ({
+                  ...current,
+                  [handoff.artifactPath]: {
+                    publishUrl: event.target.value,
+                    message: current[handoff.artifactPath]?.message ?? '',
+                  },
+                }))
+              }
+              placeholder="可选：发布后链接"
+              style={fieldStyle}
+            />
+          </label>
+          <label style={{ display: 'grid', gap: '6px' }}>
+            <span style={{ fontWeight: 700, color: '#334155' }}>结单备注</span>
+            <input
+              data-priority-browser-handoff-field="message"
+              value={browserHandoffDraftByArtifactPath[handoff.artifactPath]?.message ?? ''}
+              onChange={(event) =>
+                setBrowserHandoffDraftByArtifactPath((current) => ({
+                  ...current,
+                  [handoff.artifactPath]: {
+                    publishUrl: current[handoff.artifactPath]?.publishUrl ?? '',
+                    message: event.target.value,
+                  },
+                }))
+              }
+              placeholder="可选：覆盖默认结单消息"
+              style={fieldStyle}
+            />
+          </label>
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+            <ActionButton
+              label={
+                isBrowserHandoffMutationPending &&
+                activeBrowserHandoffArtifactPath === handoff.artifactPath
+                  ? '正在标记已发布...'
+                  : '标记已发布'
+              }
+              tone="primary"
+              disabled={isBrowserHandoffMutationPending}
+              onClick={() => handleCompleteBrowserHandoff(handoff, 'published')}
+            />
+            <ActionButton
+              label={
+                isBrowserHandoffMutationPending &&
+                activeBrowserHandoffArtifactPath === handoff.artifactPath
+                  ? '正在标记失败...'
+                  : '标记失败'
+              }
+              disabled={isBrowserHandoffMutationPending}
+              onClick={() => handleCompleteBrowserHandoff(handoff, 'failed')}
+            />
+          </div>
+        </div>
+      );
+    }
+
+    const handoff = action.handoff;
+    return (
+      <div style={{ display: 'grid', gap: '10px' }}>
+        <label style={{ display: 'grid', gap: '6px' }}>
+          <span style={{ fontWeight: 700, color: '#334155' }}>回复链接</span>
+          <input
+            data-priority-inbox-reply-handoff-field="deliveryUrl"
+            value={inboxReplyHandoffDraftByArtifactPath[handoff.artifactPath]?.deliveryUrl ?? ''}
+            onChange={(event) =>
+              setInboxReplyHandoffDraftByArtifactPath((current) => ({
+                ...current,
+                [handoff.artifactPath]: {
+                  deliveryUrl: event.target.value,
+                  message: current[handoff.artifactPath]?.message ?? '',
+                },
+              }))
+            }
+            placeholder="可选：回复后链接"
+            style={fieldStyle}
+          />
+        </label>
+        <label style={{ display: 'grid', gap: '6px' }}>
+          <span style={{ fontWeight: 700, color: '#334155' }}>结单备注</span>
+          <input
+            data-priority-inbox-reply-handoff-field="message"
+            value={inboxReplyHandoffDraftByArtifactPath[handoff.artifactPath]?.message ?? ''}
+            onChange={(event) =>
+              setInboxReplyHandoffDraftByArtifactPath((current) => ({
+                ...current,
+                [handoff.artifactPath]: {
+                  deliveryUrl: current[handoff.artifactPath]?.deliveryUrl ?? '',
+                  message: event.target.value,
+                },
+              }))
+            }
+            placeholder="可选：覆盖默认结单消息"
+            style={fieldStyle}
+          />
+        </label>
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+          <ActionButton
+            label={
+              isInboxReplyHandoffMutationPending &&
+              activeInboxReplyHandoffArtifactPath === handoff.artifactPath
+                ? '正在标记已发送...'
+                : '标记已发送'
+            }
+            tone="primary"
+            disabled={isInboxReplyHandoffMutationPending}
+            onClick={() => handleCompleteInboxReplyHandoff(handoff, 'sent')}
+          />
+          <ActionButton
+            label={
+              isInboxReplyHandoffMutationPending &&
+              activeInboxReplyHandoffArtifactPath === handoff.artifactPath
+                ? '正在标记失败...'
+                : '标记失败'
+            }
+            disabled={isInboxReplyHandoffMutationPending}
+            onClick={() => handleCompleteInboxReplyHandoff(handoff, 'failed')}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <section>
       <PageHeader
@@ -856,6 +1066,7 @@ export function SystemQueuePage({
                       {action.timestampLabel}: {action.timestampValue}
                     </div>
                     <div style={{ color: '#475569' }}>artifactPath: {action.artifactPath}</div>
+                    {renderPriorityActionControls(action)}
                     <div>
                       <a
                         href={action.destinationHref}
@@ -1544,10 +1755,12 @@ function buildPriorityActionRecords(input: {
   browserLaneRequests: BrowserLaneRequestRecord[];
   browserHandoffs: BrowserHandoffRecord[];
   inboxReplyHandoffs: InboxReplyHandoffRecord[];
-}) {
+}): PriorityActionRecord[] {
   const browserLaneActions = input.browserLaneRequests
     .filter(isPendingBrowserLaneRequest)
     .map((request) => ({
+      kind: 'browser_lane' as const,
+      request,
       key: `browser-lane:${request.artifactPath}`,
       priority: readBrowserLanePriority(request.action),
       title: `${request.action === 'relogin' ? '重新登录' : '补充 Session'} · ${request.platform} · ${request.accountKey}`,
@@ -1565,6 +1778,8 @@ function buildPriorityActionRecords(input: {
   const inboxReplyActions = input.inboxReplyHandoffs
     .filter((handoff) => handoff.status === 'pending')
     .map((handoff) => ({
+      kind: 'inbox_reply_handoff' as const,
+      handoff,
       key: `inbox-reply:${handoff.artifactPath}`,
       priority: 2,
       title: `回复接管 · ${handoff.platform} · item #${handoff.itemId}`,
@@ -1579,6 +1794,8 @@ function buildPriorityActionRecords(input: {
   const browserHandoffActions = input.browserHandoffs
     .filter((handoff) => handoff.status === 'pending')
     .map((handoff) => ({
+      kind: 'browser_handoff' as const,
+      handoff,
       key: `browser-handoff:${handoff.artifactPath}`,
       priority: 3,
       title: `发布接管 · ${handoff.platform} · draft #${handoff.draftId}`,

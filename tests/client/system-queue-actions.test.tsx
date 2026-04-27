@@ -914,6 +914,399 @@ describe('System Queue actions', () => {
     expect(replyHandoffIndex).toBeLessThan(publishHandoffIndex);
   });
 
+  it('completes a pending browser handoff directly from the prioritized ops queue', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { SystemQueuePage } = await import('../../src/client/pages/SystemQueue');
+
+    const loadSystemQueueAction = vi.fn().mockResolvedValue({
+      jobs: [],
+      queue: {
+        pending: 0,
+        running: 0,
+        failed: 0,
+        duePending: 0,
+      },
+      recentJobs: [],
+    });
+    const loadBrowserLaneRequestsAction = vi.fn().mockResolvedValue({
+      requests: [],
+      total: 0,
+    });
+    const loadBrowserHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [
+        {
+          channelAccountId: 7,
+          accountDisplayName: 'FB Group Manual',
+          platform: 'facebookGroup',
+          draftId: '13',
+          title: 'Community update',
+          accountKey: 'launch-campaign',
+          ownership: 'direct',
+          status: 'pending',
+          artifactPath:
+            'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-13.json',
+          createdAt: '2026-04-21T09:10:00.000Z',
+          updatedAt: '2026-04-21T09:10:00.000Z',
+          resolvedAt: null,
+          resolution: null,
+        },
+      ],
+      total: 1,
+    });
+    const loadInboxReplyHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+    const completeBrowserHandoffAction = vi.fn().mockResolvedValue({
+      ok: true,
+      imported: true,
+      artifactPath:
+        'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-13.json',
+      draftId: 13,
+      draftStatus: 'published',
+      platform: 'facebookGroup',
+      mode: 'browser',
+      status: 'published',
+      success: true,
+      publishUrl: null,
+      externalId: null,
+      message: 'browser handoff marked published',
+      publishedAt: '2026-04-23T10:10:00.000Z',
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(SystemQueuePage as never, {
+          loadSystemQueueAction,
+          loadBrowserLaneRequestsAction,
+          loadBrowserHandoffsAction,
+          loadInboxReplyHandoffsAction,
+          completeBrowserHandoffAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const publishButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        collectText(element).includes('标记已发布') &&
+        hasAncestorWithText(element, '发布接管 · facebookGroup · draft #13'),
+    );
+    const publishUrlInput = findElement(
+      container,
+      (element) =>
+        element.getAttribute('data-priority-browser-handoff-field') === 'publishUrl' &&
+        hasAncestorWithText(element, '发布接管 · facebookGroup · draft #13'),
+    );
+    const messageInput = findElement(
+      container,
+      (element) =>
+        element.getAttribute('data-priority-browser-handoff-field') === 'message' &&
+        hasAncestorWithText(element, '发布接管 · facebookGroup · draft #13'),
+    );
+
+    expect(publishButton).not.toBeNull();
+    expect(publishUrlInput).not.toBeNull();
+    expect(messageInput).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(
+        publishUrlInput as never,
+        'https://facebook.com/groups/group-123/posts/42',
+        window as never,
+      );
+      updateFieldValue(messageInput as never, 'browser lane completed publish', window as never);
+      await flush();
+    });
+
+    await act(async () => {
+      publishButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(completeBrowserHandoffAction).toHaveBeenCalledWith({
+      artifactPath:
+        'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-13.json',
+      publishStatus: 'published',
+      publishUrl: 'https://facebook.com/groups/group-123/posts/42',
+      message: 'browser lane completed publish',
+    });
+    expect(loadBrowserHandoffsAction).toHaveBeenCalledTimes(2);
+    expect(collectText(container)).toContain('已结单 handoff draft #13 (published)');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('imports a pending browser lane request directly from the prioritized ops queue', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { SystemQueuePage } = await import('../../src/client/pages/SystemQueue');
+
+    const loadSystemQueueAction = vi.fn().mockResolvedValue({
+      jobs: [],
+      queue: {
+        pending: 0,
+        running: 0,
+        failed: 0,
+        duePending: 0,
+      },
+      recentJobs: [],
+    });
+    const pendingRequest = {
+      channelAccountId: 7,
+      platform: 'x',
+      accountKey: 'acct-browser',
+      action: 'request_session',
+      jobStatus: 'pending',
+      requestedAt: '2026-04-21T09:00:00.000Z',
+      artifactPath:
+        'artifacts/browser-lane-requests/x/acct-browser/request-session-job-17.json',
+      resolvedAt: null,
+      resolution: null,
+    };
+    const loadBrowserLaneRequestsAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        requests: [pendingRequest],
+        total: 1,
+      })
+      .mockResolvedValueOnce({
+        requests: [pendingRequest],
+        total: 1,
+      });
+    const loadBrowserHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+    const loadInboxReplyHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+    const importBrowserLaneRequestResultAction = vi.fn().mockResolvedValue({
+      ok: true,
+      imported: true,
+      artifactPath:
+        'artifacts/browser-lane-requests/x/acct-browser/request-session-job-17.result.json',
+      channelAccount: {
+        id: 7,
+        metadata: {
+          session: {
+            hasSession: true,
+            id: 'x:acct-browser',
+            status: 'active',
+            validatedAt: '2026-04-24T08:15:00.000Z',
+            storageStatePath: 'browser-sessions/managed/x/acct-browser.json',
+            notes: 'browser lane imported',
+          },
+        },
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(SystemQueuePage as never, {
+          loadSystemQueueAction,
+          loadBrowserLaneRequestsAction,
+          loadBrowserHandoffsAction,
+          loadInboxReplyHandoffsAction,
+          importBrowserLaneRequestResultAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const storageStateField = findElement(
+      container,
+      (element) =>
+        element.getAttribute('data-priority-browser-lane-field') === 'storageState' &&
+        hasAncestorWithText(element, '补充 Session · x · acct-browser'),
+    );
+    const notesField = findElement(
+      container,
+      (element) =>
+        element.getAttribute('data-priority-browser-lane-field') === 'notes' &&
+        hasAncestorWithText(element, '补充 Session · x · acct-browser'),
+    );
+    const importButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        collectText(element).includes('导入 storageState') &&
+        hasAncestorWithText(element, '补充 Session · x · acct-browser'),
+    );
+
+    expect(storageStateField).not.toBeNull();
+    expect(notesField).not.toBeNull();
+    expect(importButton).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(storageStateField as never, '{"cookies":[],"origins":[]}', window as never);
+      updateFieldValue(notesField as never, 'browser lane imported', window as never);
+      await flush();
+    });
+
+    await act(async () => {
+      importButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(importBrowserLaneRequestResultAction).toHaveBeenCalledWith({
+      requestArtifactPath:
+        'artifacts/browser-lane-requests/x/acct-browser/request-session-job-17.json',
+      storageState: {
+        cookies: [],
+        origins: [],
+      },
+      notes: 'browser lane imported',
+    });
+    expect(loadBrowserLaneRequestsAction).toHaveBeenCalledTimes(2);
+    expect(collectText(container)).toContain('已导入 browser lane session #7 (active)');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('completes a pending inbox reply handoff directly from the prioritized ops queue', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { SystemQueuePage } = await import('../../src/client/pages/SystemQueue');
+
+    const loadSystemQueueAction = vi.fn().mockResolvedValue({
+      jobs: [],
+      queue: {
+        pending: 0,
+        running: 0,
+        failed: 0,
+        duePending: 0,
+      },
+      recentJobs: [],
+    });
+    const loadBrowserLaneRequestsAction = vi.fn().mockResolvedValue({
+      requests: [],
+      total: 0,
+    });
+    const loadBrowserHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+    const loadInboxReplyHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [
+        {
+          channelAccountId: 12,
+          platform: 'reddit',
+          itemId: '88',
+          source: 'reddit',
+          title: 'Need lower latency in APAC',
+          author: 'user123',
+          accountKey: 'reddit-main',
+          status: 'pending',
+          artifactPath:
+            'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88.json',
+          createdAt: '2026-04-23T09:10:00.000Z',
+          updatedAt: '2026-04-23T09:10:00.000Z',
+          resolvedAt: null,
+          resolution: null,
+        },
+      ],
+      total: 1,
+    });
+    const completeInboxReplyHandoffAction = vi.fn().mockResolvedValue({
+      ok: true,
+      imported: true,
+      artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88.json',
+      itemId: 88,
+      replyStatus: 'sent',
+      status: 'handled',
+      success: true,
+      deliveryUrl: 'https://reddit.com/message/messages/abc123',
+      message: 'inbox reply handoff marked sent',
+      deliveredAt: '2026-04-23T11:15:00.000Z',
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(SystemQueuePage as never, {
+          loadSystemQueueAction,
+          loadBrowserLaneRequestsAction,
+          loadBrowserHandoffsAction,
+          loadInboxReplyHandoffsAction,
+          completeInboxReplyHandoffAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const markSentButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        collectText(element).includes('标记已发送') &&
+        hasAncestorWithText(element, '回复接管 · reddit · item #88'),
+    );
+    const deliveryUrlInput = findElement(
+      container,
+      (element) =>
+        element.getAttribute('data-priority-inbox-reply-handoff-field') === 'deliveryUrl' &&
+        hasAncestorWithText(element, '回复接管 · reddit · item #88'),
+    );
+    const messageInput = findElement(
+      container,
+      (element) =>
+        element.getAttribute('data-priority-inbox-reply-handoff-field') === 'message' &&
+        hasAncestorWithText(element, '回复接管 · reddit · item #88'),
+    );
+
+    expect(markSentButton).not.toBeNull();
+    expect(deliveryUrlInput).not.toBeNull();
+    expect(messageInput).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(
+        deliveryUrlInput as never,
+        'https://reddit.com/message/messages/abc123',
+        window as never,
+      );
+      updateFieldValue(messageInput as never, 'reply sent manually', window as never);
+      await flush();
+    });
+
+    await act(async () => {
+      markSentButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(completeInboxReplyHandoffAction).toHaveBeenCalledWith({
+      artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88.json',
+      replyStatus: 'sent',
+      deliveryUrl: 'https://reddit.com/message/messages/abc123',
+      message: 'reply sent manually',
+    });
+    expect(loadInboxReplyHandoffsAction).toHaveBeenCalledTimes(2);
+    expect(collectText(container)).toContain('已结单 inbox reply item #88 (handled)');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('marks a pending browser handoff as published from the System Queue page and reloads handoffs', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
