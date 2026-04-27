@@ -595,7 +595,7 @@ pnpm runtime:restore -- --input-dir /tmp/promobot-backup-manual --skip-env
   - 默认输出到 `data/blog-posts/`；可用 `BLOG_PUBLISH_OUTPUT_DIR` 覆盖
 - 当前可落地发布范围建议收敛为：`X`、`Reddit`、`Blog（本地文件）`、`Facebook Group / Instagram / TikTok / 小红书 / 微博（人工接管）`
 - `monitor`、`inbox`、`reputation`
-  - `monitor/fetch` 已支持 RSS、V2EX、Reddit search
+  - `monitor/fetch` 已支持 RSS、V2EX、Reddit search，以及 Instagram / TikTok profile source configs
   - `inbox/fetch` 与 `reputation/fetch` 现在会直接基于 settings/source configs 调用 X、Reddit、V2EX 搜索
   - 在开发/测试环境下，只有在完全没有配置时才会退回 seed 数据支撑原型视图
   - 在生产环境下，这些 demo / seed fallback 已禁用；没有真实配置或真实信号时会返回空态

@@ -520,7 +520,7 @@ describe('reputation api', () => {
       {
         projectId: 1,
         sourceType: 'rss',
-        platform: 'blog',
+        platform: 'rss',
         label: 'Competitor RSS',
         configJson: {
           url: 'https://feeds.example.com/monitor.xml',

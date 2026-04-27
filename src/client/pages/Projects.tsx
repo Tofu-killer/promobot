@@ -4,6 +4,10 @@ import type { AsyncState } from '../hooks/useAsyncRequest';
 import { useAsyncAction, useAsyncQuery } from '../hooks/useAsyncRequest';
 import { PageHeader } from '../components/PageHeader';
 import { SectionCard } from '../components/SectionCard';
+import {
+  parseSourceConfigJsonText,
+  validateSourceConfigInput,
+} from '../../server/lib/sourceConfigValidation.js';
 
 export interface ProjectRecord {
   id: number;
@@ -185,6 +189,15 @@ interface SourceConfigFormValue {
   pollIntervalMinutes: string;
 }
 
+type SourceConfigPresetId =
+  | 'custom'
+  | 'keyword+reddit'
+  | 'keyword+x'
+  | 'rss'
+  | 'v2ex_search'
+  | 'profile+instagram'
+  | 'profile+tiktok';
+
 interface ProjectsPageProps {
   loadProjectsAction?: () => Promise<ProjectsResponse>;
   createProjectAction?: (input: CreateProjectPayload) => Promise<CreateProjectResponse>;
@@ -213,6 +226,81 @@ const fieldStyle = {
   font: 'inherit',
   background: '#ffffff',
 } as const;
+
+const defaultNewSourceConfigPresetId: SourceConfigPresetId = 'custom';
+
+const emptyNewSourceConfigForm: SourceConfigFormValue = {
+  sourceType: '',
+  platform: '',
+  label: '',
+  configJson: '{}',
+  enabled: true,
+  pollIntervalMinutes: '30',
+};
+
+const newSourceConfigPresetTemplates: Record<
+  Exclude<SourceConfigPresetId, 'custom'>,
+  SourceConfigFormValue
+> = {
+  'keyword+reddit': {
+    sourceType: 'keyword+reddit',
+    platform: 'reddit',
+    label: 'Reddit keyword watch',
+    configJson: '{"query":""}',
+    enabled: true,
+    pollIntervalMinutes: '30',
+  },
+  'keyword+x': {
+    sourceType: 'keyword+x',
+    platform: 'x',
+    label: 'X keyword watch',
+    configJson: '{"query":""}',
+    enabled: true,
+    pollIntervalMinutes: '30',
+  },
+  rss: {
+    sourceType: 'rss',
+    platform: 'rss',
+    label: 'RSS feed',
+    configJson: '{"feedUrl":""}',
+    enabled: true,
+    pollIntervalMinutes: '30',
+  },
+  v2ex_search: {
+    sourceType: 'v2ex_search',
+    platform: 'v2ex',
+    label: 'V2EX search',
+    configJson: '{"query":""}',
+    enabled: true,
+    pollIntervalMinutes: '30',
+  },
+  'profile+instagram': {
+    sourceType: 'profile+instagram',
+    platform: 'instagram',
+    label: 'Instagram profile',
+    configJson: '{"handle":""}',
+    enabled: true,
+    pollIntervalMinutes: '60',
+  },
+  'profile+tiktok': {
+    sourceType: 'profile+tiktok',
+    platform: 'tiktok',
+    label: 'TikTok profile',
+    configJson: '{"handle":""}',
+    enabled: true,
+    pollIntervalMinutes: '60',
+  },
+};
+
+function createSourceConfigFormFromPreset(
+  presetId: Exclude<SourceConfigPresetId, 'custom'>,
+): SourceConfigFormValue {
+  return { ...newSourceConfigPresetTemplates[presetId] };
+}
+
+function createEmptySourceConfigForm(): SourceConfigFormValue {
+  return { ...emptyNewSourceConfigForm };
+}
 
 function parseCommaSeparatedList(value: string) {
   return value
@@ -295,6 +383,7 @@ export function ProjectsPage({
   const { state, run } = useAsyncAction(createProjectAction);
   const { state: projectsState, reload } = useAsyncQuery(loadProjectsAction, [loadProjectsAction]);
   const [pageMessage, setPageMessage] = useState<string | null>(null);
+  const [pageMessageTone, setPageMessageTone] = useState<'success' | 'error'>('success');
   const [pendingProjectSaveIds, setPendingProjectSaveIds] = useState<Record<number, boolean>>({});
   const [projectSaveMessageById, setProjectSaveMessageById] = useState<Record<number, string>>({});
   const [pendingProjectArchiveId, setPendingProjectArchiveId] = useState<number | null>(null);
@@ -310,6 +399,9 @@ export function ProjectsPage({
   });
   const [sourceConfigsByProject, setSourceConfigsByProject] = useState<Record<number, SourceConfigRecord[]>>({});
   const [sourceConfigForms, setSourceConfigForms] = useState<Record<string, SourceConfigFormValue>>({});
+  const [newSourceConfigPresetByProject, setNewSourceConfigPresetByProject] = useState<
+    Record<number, SourceConfigPresetId>
+  >({});
   const displayState = stateOverride ?? state;
   const displayProjectsState = projectsStateOverride ?? projectsState;
   const displaySourceConfigsState = sourceConfigsStateOverride ?? sourceConfigsState;
@@ -407,7 +499,7 @@ export function ProjectsPage({
   }, [displaySourceConfigsState.data, sourceConfigsStateOverride]);
 
   function handleCreateProject() {
-    setPageMessage(null);
+    clearPageFeedback();
     void run({
       name,
       siteName,
@@ -524,7 +616,7 @@ export function ProjectsPage({
       },
     );
 
-    setPageMessage(null);
+    clearPageFeedback();
     setProjectSaveMessage(projectId, null);
     setProjectSavePending(projectId, true);
     void updateProjectAction(projectId, {
@@ -561,7 +653,7 @@ export function ProjectsPage({
   }
 
   function handleArchiveProject(projectId: number) {
-    setPageMessage(null);
+    clearPageFeedback();
     setPendingProjectArchiveId(projectId);
     void archiveProjectAction(projectId)
       .then((result) => {
@@ -575,7 +667,7 @@ export function ProjectsPage({
           delete nextConfigs[projectId];
           return nextConfigs;
         });
-        setPageMessage(`项目已归档：${result.project.name}`);
+        showPageSuccess(`项目已归档：${result.project.name}`);
         reload();
       })
       .catch(() => undefined)
@@ -601,14 +693,7 @@ export function ProjectsPage({
 
   function getNewSourceConfigForm(projectId: number) {
     const formKey = `new-${projectId}`;
-    return sourceConfigForms[formKey] ?? {
-      sourceType: 'keyword+reddit',
-      platform: 'reddit',
-      label: '',
-      configJson: '{}',
-      enabled: true,
-      pollIntervalMinutes: '30',
-    };
+    return sourceConfigForms[formKey] ?? createEmptySourceConfigForm();
   }
 
   function updateSourceConfigForm(
@@ -620,28 +705,75 @@ export function ProjectsPage({
       ...current,
       [formKey]: {
         ...(current[formKey] ??
-          baseFormValue ?? {
-            sourceType: 'keyword+reddit',
-            platform: 'reddit',
-            label: '',
-            configJson: '{}',
-            enabled: true,
-            pollIntervalMinutes: '30',
-          }),
+          baseFormValue ?? createEmptySourceConfigForm()),
         ...patch,
       },
     }));
   }
 
-  function parseSourceConfigJson(value: string) {
-    try {
-      const parsed = JSON.parse(value) as unknown;
-      return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
-        ? (parsed as Record<string, unknown>)
-        : {};
-    } catch {
-      return {};
+  function getNewSourceConfigPreset(projectId: number) {
+    return newSourceConfigPresetByProject[projectId] ?? defaultNewSourceConfigPresetId;
+  }
+
+  function setNewSourceConfigPreset(projectId: number, presetId: SourceConfigPresetId) {
+    setNewSourceConfigPresetByProject((current) => ({
+      ...current,
+      [projectId]: presetId,
+    }));
+  }
+
+  function updateNewSourceConfigForm(projectId: number, patch: Partial<SourceConfigFormValue>) {
+    setNewSourceConfigPreset(projectId, 'custom');
+    updateSourceConfigForm(`new-${projectId}`, patch, getNewSourceConfigForm(projectId));
+  }
+
+  function applyNewSourceConfigPreset(
+    projectId: number,
+    presetId: Exclude<SourceConfigPresetId, 'custom'>,
+  ) {
+    setNewSourceConfigPreset(projectId, presetId);
+    updateSourceConfigForm(
+      `new-${projectId}`,
+      createSourceConfigFormFromPreset(presetId),
+      getNewSourceConfigForm(projectId),
+    );
+  }
+
+  function clearPageFeedback() {
+    setPageMessage(null);
+  }
+
+  function showPageSuccess(message: string) {
+    setPageMessageTone('success');
+    setPageMessage(message);
+  }
+
+  function showPageError(message: string) {
+    setPageMessageTone('error');
+    setPageMessage(message);
+  }
+
+  function buildSourceConfigPayload(projectId: number, form: SourceConfigFormValue) {
+    const configJson = parseSourceConfigJsonText(form.configJson);
+    if (!configJson) {
+      return { error: 'Config JSON 必须是有效的 JSON object' } as const;
     }
+
+    const payload = {
+      projectId,
+      sourceType: form.sourceType.trim(),
+      platform: form.platform.trim(),
+      label: form.label.trim(),
+      configJson,
+      enabled: form.enabled,
+      pollIntervalMinutes: Number(form.pollIntervalMinutes),
+    };
+    const validationError = validateSourceConfigInput(payload);
+    if (validationError) {
+      return { error: validationError } as const;
+    }
+
+    return { payload } as const;
   }
 
   function setProjectSourceConfigs(projectId: number, nextSourceConfigs: SourceConfigRecord[]) {
@@ -663,18 +795,15 @@ export function ProjectsPage({
 
   function handleCreateSourceConfig(projectId: number) {
     const form = getNewSourceConfigForm(projectId);
+    const prepared = buildSourceConfigPayload(projectId, form);
+    if ('error' in prepared) {
+      showPageError(prepared.error);
+      return;
+    }
 
-    setPageMessage(null);
+    clearPageFeedback();
     setPendingSourceConfigCreateProjectId(projectId);
-    void createSourceConfigAction(projectId, {
-      projectId,
-      sourceType: form.sourceType,
-      platform: form.platform,
-      label: form.label,
-      configJson: parseSourceConfigJson(form.configJson),
-      enabled: form.enabled,
-      pollIntervalMinutes: Number(form.pollIntervalMinutes),
-    })
+    void createSourceConfigAction(projectId, prepared.payload)
       .then((result) => {
         const nextSourceConfigs = mergeSourceConfigLists(
           visibleSourceConfigsByProject[projectId] ?? [],
@@ -682,7 +811,12 @@ export function ProjectsPage({
         );
 
         setProjectSourceConfigs(projectId, nextSourceConfigs);
-        setPageMessage('SourceConfig 已保存');
+        setNewSourceConfigPreset(projectId, defaultNewSourceConfigPresetId);
+        setSourceConfigForms((current) => ({
+          ...current,
+          [`new-${projectId}`]: createEmptySourceConfigForm(),
+        }));
+        showPageSuccess('SourceConfig 已保存');
 
         return loadSourceConfigsAction(projectId)
           .then((reloaded) => {
@@ -701,7 +835,9 @@ export function ProjectsPage({
           })
           .catch(() => undefined);
       })
-      .catch(() => undefined)
+      .catch((error) => {
+        showPageError(getErrorMessage(error));
+      })
       .finally(() => {
         setPendingSourceConfigCreateProjectId((current) => (current === projectId ? null : current));
       });
@@ -715,18 +851,15 @@ export function ProjectsPage({
     }
 
     const form = getSourceConfigFormValue(sourceConfig);
+    const prepared = buildSourceConfigPayload(projectId, form);
+    if ('error' in prepared) {
+      showPageError(prepared.error);
+      return;
+    }
 
-    setPageMessage(null);
+    clearPageFeedback();
     setPendingSourceConfigSaveId(sourceConfigId);
-    void updateSourceConfigAction(projectId, sourceConfigId, {
-      projectId,
-      sourceType: form.sourceType,
-      platform: form.platform,
-      label: form.label,
-      configJson: parseSourceConfigJson(form.configJson),
-      enabled: form.enabled,
-      pollIntervalMinutes: Number(form.pollIntervalMinutes),
-    })
+    void updateSourceConfigAction(projectId, sourceConfigId, prepared.payload)
       .then((result) => {
         const nextSourceConfigs = mergeSourceConfigLists(
           (visibleSourceConfigsByProject[projectId] ?? []).filter((item) => item.id !== sourceConfigId),
@@ -755,9 +888,11 @@ export function ProjectsPage({
           },
           error: null,
         }));
-        setPageMessage('SourceConfig 已保存');
+        showPageSuccess('SourceConfig 已保存');
       })
-      .catch(() => undefined)
+      .catch((error) => {
+        showPageError(getErrorMessage(error));
+      })
       .finally(() => {
         setPendingSourceConfigSaveId((current) => (current === sourceConfigId ? null : current));
       });
@@ -893,7 +1028,16 @@ export function ProjectsPage({
       <SectionCard title="项目列表" description="这里会展示真实项目列表，并支持最小字段编辑。">
         {displayProjectsState.status === 'loading' ? <p style={{ margin: 0, color: '#334155' }}>正在加载项目列表...</p> : null}
         {displayProjectsState.status === 'error' ? <p style={{ margin: 0, color: '#b91c1c' }}>项目列表加载失败：{displayProjectsState.error}</p> : null}
-        {pageMessage ? <p style={{ margin: '0 0 12px', color: '#166534' }}>{pageMessage}</p> : null}
+        {pageMessage ? (
+          <p
+            style={{
+              margin: '0 0 12px',
+              color: pageMessageTone === 'error' ? '#b91c1c' : '#166534',
+            }}
+          >
+            {pageMessage}
+          </p>
+        ) : null}
 
         {displayProjectsState.status === 'success' && projects.length === 0 ? (
           <p style={{ margin: 0, color: '#475569' }}>暂无项目</p>
@@ -1185,16 +1329,43 @@ export function ProjectsPage({
                         <div style={{ fontWeight: 700 }}>新建 Source Config</div>
 
                         <label style={{ display: 'grid', gap: '8px' }}>
+                          <span style={{ fontWeight: 700 }}>Preset</span>
+                          <select
+                            data-source-config-field={`new-preset-${project.id}`}
+                            value={getNewSourceConfigPreset(project.id)}
+                            onChange={(event) => {
+                              const nextPreset = event.target.value as SourceConfigPresetId;
+                              if (nextPreset === 'custom') {
+                                setNewSourceConfigPreset(project.id, 'custom');
+                                updateSourceConfigForm(
+                                  `new-${project.id}`,
+                                  createEmptySourceConfigForm(),
+                                  getNewSourceConfigForm(project.id),
+                                );
+                                return;
+                              }
+
+                              applyNewSourceConfigPreset(project.id, nextPreset);
+                            }}
+                            style={fieldStyle}
+                          >
+                            <option value="keyword+reddit">Reddit keyword</option>
+                            <option value="keyword+x">X keyword</option>
+                            <option value="rss">RSS feed</option>
+                            <option value="v2ex_search">V2EX search</option>
+                            <option value="profile+instagram">Instagram profile</option>
+                            <option value="profile+tiktok">TikTok profile</option>
+                            <option value="custom">Custom</option>
+                          </select>
+                        </label>
+
+                        <label style={{ display: 'grid', gap: '8px' }}>
                           <span style={{ fontWeight: 700 }}>Source Type</span>
                           <input
                             data-source-config-field={`new-source-type-${project.id}`}
                             value={getNewSourceConfigForm(project.id).sourceType}
                             onChange={(event) =>
-                              updateSourceConfigForm(
-                                `new-${project.id}`,
-                                { sourceType: event.target.value },
-                                getNewSourceConfigForm(project.id),
-                              )
+                              updateNewSourceConfigForm(project.id, { sourceType: event.target.value })
                             }
                             style={fieldStyle}
                           />
@@ -1206,11 +1377,7 @@ export function ProjectsPage({
                             data-source-config-field={`new-platform-${project.id}`}
                             value={getNewSourceConfigForm(project.id).platform}
                             onChange={(event) =>
-                              updateSourceConfigForm(
-                                `new-${project.id}`,
-                                { platform: event.target.value },
-                                getNewSourceConfigForm(project.id),
-                              )
+                              updateNewSourceConfigForm(project.id, { platform: event.target.value })
                             }
                             style={fieldStyle}
                           />
@@ -1222,11 +1389,7 @@ export function ProjectsPage({
                             data-source-config-field={`new-label-${project.id}`}
                             value={getNewSourceConfigForm(project.id).label}
                             onChange={(event) =>
-                              updateSourceConfigForm(
-                                `new-${project.id}`,
-                                { label: event.target.value },
-                                getNewSourceConfigForm(project.id),
-                              )
+                              updateNewSourceConfigForm(project.id, { label: event.target.value })
                             }
                             style={fieldStyle}
                           />
@@ -1239,11 +1402,7 @@ export function ProjectsPage({
                             rows={3}
                             value={getNewSourceConfigForm(project.id).configJson}
                             onChange={(event) =>
-                              updateSourceConfigForm(
-                                `new-${project.id}`,
-                                { configJson: event.target.value },
-                                getNewSourceConfigForm(project.id),
-                              )
+                              updateNewSourceConfigForm(project.id, { configJson: event.target.value })
                             }
                             style={{ ...fieldStyle, resize: 'vertical' }}
                           />
@@ -1255,9 +1414,9 @@ export function ProjectsPage({
                             data-source-config-field={`new-poll-${project.id}`}
                             value={getNewSourceConfigForm(project.id).pollIntervalMinutes}
                             onChange={(event) =>
-                              updateSourceConfigForm(`new-${project.id}`, {
+                              updateNewSourceConfigForm(project.id, {
                                 pollIntervalMinutes: event.target.value,
-                              }, getNewSourceConfigForm(project.id))
+                              })
                             }
                             style={fieldStyle}
                           />
@@ -1269,9 +1428,9 @@ export function ProjectsPage({
                             data-source-config-field={`new-enabled-${project.id}`}
                             value={getNewSourceConfigForm(project.id).enabled ? 'true' : 'false'}
                             onChange={(event) =>
-                              updateSourceConfigForm(`new-${project.id}`, {
+                              updateNewSourceConfigForm(project.id, {
                                 enabled: event.target.value === 'true',
-                              }, getNewSourceConfigForm(project.id))
+                              })
                             }
                             style={fieldStyle}
                           />
