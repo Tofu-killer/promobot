@@ -326,6 +326,122 @@ describe('projects api', () => {
     }
   });
 
+  it('rejects invalid source config payloads for create and merged update requests', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const projectResponse = await requestApp('POST', '/api/projects', {
+        name: 'Monitoring Workspace',
+        siteName: 'PromoBot',
+        siteUrl: 'https://example.com',
+        siteDescription: 'Brand monitoring',
+        sellingPoints: ['Fast iteration'],
+      });
+
+      expect(projectResponse.status).toBe(201);
+
+      const invalidCreate = await requestApp('POST', '/api/projects/1/source-configs', {
+        projectId: 1,
+        sourceType: 'profile+instagram',
+        platform: 'instagram',
+        label: 'Instagram profile',
+        configJson: {
+          handle: '',
+        },
+        enabled: true,
+        pollIntervalMinutes: 60,
+      });
+
+      expect(invalidCreate.status).toBe(400);
+      expect(JSON.parse(invalidCreate.body)).toEqual({
+        error: 'Profile source config 需要 handle、username、profileUrl 或 url',
+      });
+
+      const created = await requestApp('POST', '/api/projects/1/source-configs', {
+        projectId: 1,
+        sourceType: 'keyword+reddit',
+        platform: 'reddit',
+        label: 'Competitor mentions',
+        configJson: {
+          query: 'promobot',
+        },
+        enabled: true,
+        pollIntervalMinutes: 30,
+      });
+
+      expect(created.status).toBe(201);
+
+      const invalidUpdate = await requestApp('PATCH', '/api/projects/1/source-configs/1', {
+        sourceType: 'profile+instagram',
+        platform: 'instagram',
+        configJson: {},
+      });
+
+      expect(invalidUpdate.status).toBe(400);
+      expect(JSON.parse(invalidUpdate.body)).toEqual({
+        error: 'Profile source config 需要 handle、username、profileUrl 或 url',
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('rejects mismatched source type and platform combinations for create and merged update requests', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const projectResponse = await requestApp('POST', '/api/projects', {
+        name: 'Monitoring Workspace',
+        siteName: 'PromoBot',
+        siteUrl: 'https://example.com',
+        siteDescription: 'Brand monitoring',
+        sellingPoints: ['Fast iteration'],
+      });
+
+      expect(projectResponse.status).toBe(201);
+
+      const invalidCreate = await requestApp('POST', '/api/projects/1/source-configs', {
+        projectId: 1,
+        sourceType: 'keyword+reddit',
+        platform: 'x',
+        label: 'Cross-wired source config',
+        configJson: {
+          query: 'promobot',
+        },
+        enabled: true,
+        pollIntervalMinutes: 30,
+      });
+
+      expect(invalidCreate.status).toBe(400);
+      expect(JSON.parse(invalidCreate.body)).toEqual({
+        error: 'Source Type keyword+reddit 只能搭配 platform reddit',
+      });
+
+      const created = await requestApp('POST', '/api/projects/1/source-configs', {
+        projectId: 1,
+        sourceType: 'keyword+reddit',
+        platform: 'reddit',
+        label: 'Competitor mentions',
+        configJson: {
+          query: 'promobot',
+        },
+        enabled: true,
+        pollIntervalMinutes: 30,
+      });
+
+      expect(created.status).toBe(201);
+
+      const invalidUpdate = await requestApp('PATCH', '/api/projects/1/source-configs/1', {
+        platform: 'x',
+      });
+
+      expect(invalidUpdate.status).toBe(400);
+      expect(JSON.parse(invalidUpdate.body)).toEqual({
+        error: 'Source Type keyword+reddit 只能搭配 platform reddit',
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('returns 404 for source config operations when the project is missing', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
@@ -336,7 +452,7 @@ describe('projects api', () => {
       const created = await requestApp('POST', '/api/projects/999/source-configs', {
         projectId: 999,
         sourceType: 'rss',
-        platform: 'blog',
+        platform: 'rss',
         label: 'Competitor RSS',
         configJson: { url: 'https://example.com/feed.xml' },
         enabled: true,

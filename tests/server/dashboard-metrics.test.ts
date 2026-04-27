@@ -824,6 +824,51 @@ describe('dashboard metrics api', () => {
     }
   });
 
+  it('counts instagram and tiktok profile source configs in totalInputs', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const sourceConfigStore = createSourceConfigStore();
+
+      sourceConfigStore.create({
+        projectId: 11,
+        sourceType: 'profile+instagram',
+        platform: 'instagram',
+        label: 'Instagram profile',
+        configJson: {
+          handle: 'instagram',
+        },
+        enabled: true,
+        pollIntervalMinutes: 60,
+      });
+
+      sourceConfigStore.create({
+        projectId: 11,
+        sourceType: 'profile+tiktok',
+        platform: 'tiktok',
+        label: 'TikTok profile',
+        configJson: {
+          profileUrl: 'https://www.tiktok.com/@tiktok',
+        },
+        enabled: true,
+        pollIntervalMinutes: 60,
+      });
+
+      const response = await requestApp('GET', '/api/monitor/dashboard?projectId=11');
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toMatchObject({
+        monitorConfig: {
+          directFeeds: 0,
+          directQueries: 0,
+          enabledSourceConfigs: 2,
+          totalInputs: 2,
+        },
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('excludes invalid enabled source configs from totalInputs while preserving enabledSourceConfigs count', async () => {
     const { rootDir } = createTestDatabasePath();
     try {

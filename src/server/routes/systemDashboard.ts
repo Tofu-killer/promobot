@@ -249,7 +249,9 @@ function getMonitorConfigMetrics(projectId?: number) {
     sourceConfigInputs.rssFeeds.length +
     sourceConfigInputs.redditQueries.length +
     sourceConfigInputs.xQueries.length +
-    sourceConfigInputs.v2exQueries.length;
+    sourceConfigInputs.v2exQueries.length +
+    sourceConfigInputs.instagramProfiles.length +
+    sourceConfigInputs.tiktokProfiles.length;
 
   if (projectId !== undefined) {
     return {

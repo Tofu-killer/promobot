@@ -189,8 +189,10 @@ class FakeElement extends FakeNode {
   namespaceURI: string;
   style: Record<string, string>;
   attributes: Map<string, string>;
-  value: string;
+  selected: boolean;
+  multiple: boolean;
   disabled: boolean;
+  private currentValue: string;
   private listeners: Map<string, EventListenerEntry[]>;
 
   constructor(tagName: string, ownerDocument: FakeDocument | null) {
@@ -199,7 +201,9 @@ class FakeElement extends FakeNode {
     this.namespaceURI = 'http://www.w3.org/1999/xhtml';
     this.style = {};
     this.attributes = new Map();
-    this.value = '';
+    this.currentValue = '';
+    this.selected = false;
+    this.multiple = false;
     this.disabled = false;
     this.listeners = new Map();
   }
@@ -214,6 +218,42 @@ class FakeElement extends FakeNode {
     if (name === 'disabled') {
       this.disabled = true;
     }
+
+    if (name === 'selected') {
+      this.selected = true;
+    }
+
+    if (name === 'multiple') {
+      this.multiple = true;
+    }
+  }
+
+  get value() {
+    if (this.tagName === 'SELECT') {
+      const selectedOption = this.options?.find((option) => option.selected);
+      if (selectedOption) {
+        return selectedOption.value;
+      }
+    }
+
+    return this.currentValue;
+  }
+
+  set value(nextValue: string) {
+    this.currentValue = nextValue;
+
+    if (this.tagName !== 'SELECT') {
+      return;
+    }
+
+    const options = this.options;
+    if (!options) {
+      return;
+    }
+
+    options.forEach((option) => {
+      option.selected = option.value === nextValue;
+    });
   }
 
   getAttribute(name: string) {
@@ -225,6 +265,14 @@ class FakeElement extends FakeNode {
 
     if (name === 'disabled') {
       this.disabled = false;
+    }
+
+    if (name === 'selected') {
+      this.selected = false;
+    }
+
+    if (name === 'multiple') {
+      this.multiple = false;
     }
   }
 
@@ -266,6 +314,39 @@ class FakeElement extends FakeNode {
 
   get children() {
     return this.childNodes.filter((child): child is FakeElement => child instanceof FakeElement);
+  }
+
+  get options() {
+    if (this.tagName !== 'SELECT') {
+      return undefined;
+    }
+
+    return this.children.filter((child) => child.tagName === 'OPTION');
+  }
+
+  get selectedIndex() {
+    const options = this.options;
+    if (!options) {
+      return -1;
+    }
+
+    return options.findIndex((option) => option.selected);
+  }
+
+  set selectedIndex(nextIndex: number) {
+    const options = this.options;
+    if (!options) {
+      return;
+    }
+
+    options.forEach((option, index) => {
+      option.selected = index === nextIndex;
+    });
+
+    const nextOption = options[nextIndex];
+    if (nextOption) {
+      this.currentValue = nextOption.value;
+    }
   }
 
   getListeners(type: string) {
@@ -2012,6 +2093,10 @@ describe('PublishCalendar and Projects pages', () => {
       container,
       (element) => element.getAttribute('data-source-config-field') === 'new-label-7',
     );
+    const presetField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'new-preset-7',
+    );
     const configJsonField = findElement(
       container,
       (element) => element.getAttribute('data-source-config-field') === 'new-config-json-7',
@@ -2022,6 +2107,7 @@ describe('PublishCalendar and Projects pages', () => {
     );
 
     await act(async () => {
+      updateFieldValue(presetField, 'keyword+reddit', window);
       updateFieldValue(labelField, 'V2EX mentions', window);
       updateFieldValue(configJsonField, '{\"query\":\"cursor api\"}', window);
       updateFieldValue(pollField, '45', window);
@@ -2087,6 +2173,307 @@ describe('PublishCalendar and Projects pages', () => {
       pollIntervalMinutes: 60,
     });
     expect(collectText(container)).toContain('SourceConfig 已保存');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('applies instagram and tiktok source config presets before creating a new source config', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ProjectsPage } = await import('../../src/client/pages/Projects');
+
+    const loadProjectsAction = vi.fn().mockResolvedValue({
+      projects: [
+        {
+          id: 7,
+          name: 'Acme Launch',
+          siteName: 'Acme',
+          siteUrl: 'https://acme.test',
+          siteDescription: 'Launch week campaign',
+          sellingPoints: ['Cheap', 'Fast'],
+          createdAt: '2026-04-19T08:00:00.000Z',
+        },
+      ],
+    });
+    const loadSourceConfigsAction = vi.fn().mockResolvedValue({
+      sourceConfigs: [],
+    });
+    const createSourceConfigAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        sourceConfig: {
+          id: 4,
+          projectId: 7,
+          sourceType: 'profile+instagram',
+          platform: 'instagram',
+          label: 'Instagram profile',
+          configJson: { handle: '@openai' },
+          enabled: true,
+          pollIntervalMinutes: 60,
+        },
+      })
+      .mockResolvedValueOnce({
+        sourceConfig: {
+          id: 5,
+          projectId: 7,
+          sourceType: 'profile+tiktok',
+          platform: 'tiktok',
+          label: 'TikTok profile',
+          configJson: { handle: 'openai' },
+          enabled: true,
+          pollIntervalMinutes: 60,
+        },
+      });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ProjectsPage as never, {
+          loadProjectsAction,
+          loadSourceConfigsAction,
+          createSourceConfigAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const presetField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'new-preset-7',
+    );
+    const labelField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'new-label-7',
+    );
+    const configJsonField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'new-config-json-7',
+    );
+    const pollField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'new-poll-7',
+    );
+    const createButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-source-config-create-id') === '7',
+    );
+
+    expect(presetField?.value).toBe('custom');
+
+    await act(async () => {
+      updateFieldValue(presetField, 'profile+instagram', window);
+      await flush();
+    });
+
+    expect(configJsonField?.value).toBe('{"handle":""}');
+    expect(pollField?.value).toBe('60');
+
+    await act(async () => {
+      updateFieldValue(labelField, 'Instagram profile', window);
+      updateFieldValue(configJsonField, '{"handle":"@openai"}', window);
+      await flush();
+    });
+
+    await act(async () => {
+      createButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(createSourceConfigAction).toHaveBeenNthCalledWith(1, 7, {
+      projectId: 7,
+      sourceType: 'profile+instagram',
+      platform: 'instagram',
+      label: 'Instagram profile',
+      configJson: { handle: '@openai' },
+      enabled: true,
+      pollIntervalMinutes: 60,
+    });
+
+    await act(async () => {
+      updateFieldValue(presetField, 'profile+tiktok', window);
+      await flush();
+    });
+
+    expect(configJsonField?.value).toBe('{"handle":""}');
+    expect(pollField?.value).toBe('60');
+
+    await act(async () => {
+      updateFieldValue(labelField, 'TikTok profile', window);
+      updateFieldValue(configJsonField, '{"handle":"openai"}', window);
+      await flush();
+    });
+
+    await act(async () => {
+      createButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(createSourceConfigAction).toHaveBeenNthCalledWith(2, 7, {
+      projectId: 7,
+      sourceType: 'profile+tiktok',
+      platform: 'tiktok',
+      label: 'TikTok profile',
+      configJson: { handle: 'openai' },
+      enabled: true,
+      pollIntervalMinutes: 60,
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('blocks invalid source config submissions and clears preset fields when switching back to custom', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ProjectsPage } = await import('../../src/client/pages/Projects');
+
+    const loadProjectsAction = vi.fn().mockResolvedValue({
+      projects: [
+        {
+          id: 7,
+          name: 'Acme Launch',
+          siteName: 'Acme',
+          siteUrl: 'https://acme.test',
+          siteDescription: 'Launch week campaign',
+          sellingPoints: ['Cheap', 'Fast'],
+          createdAt: '2026-04-19T08:00:00.000Z',
+        },
+      ],
+    });
+    const loadSourceConfigsAction = vi.fn().mockResolvedValue({
+      sourceConfigs: [],
+    });
+    const createSourceConfigAction = vi.fn();
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ProjectsPage as never, {
+          loadProjectsAction,
+          loadSourceConfigsAction,
+          createSourceConfigAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const presetField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'new-preset-7',
+    );
+    const sourceTypeField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'new-source-type-7',
+    );
+    const platformField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'new-platform-7',
+    );
+    const labelField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'new-label-7',
+    );
+    const configJsonField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'new-config-json-7',
+    );
+    const pollField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'new-poll-7',
+    );
+    const createButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-source-config-create-id') === '7',
+    );
+
+    expect(presetField?.value).toBe('custom');
+    expect(sourceTypeField?.value).toBe('');
+    expect(platformField?.value).toBe('');
+    expect(labelField?.value).toBe('');
+    expect(configJsonField?.value).toBe('{}');
+    expect(pollField?.value).toBe('30');
+
+    await act(async () => {
+      createButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(createSourceConfigAction).not.toHaveBeenCalled();
+    expect(collectText(container)).toContain('Source Type 不能为空');
+
+    await act(async () => {
+      updateFieldValue(presetField, 'profile+instagram', window);
+      await flush();
+    });
+
+    expect(sourceTypeField?.value).toBe('profile+instagram');
+    expect(platformField?.value).toBe('instagram');
+    expect(labelField?.value).toBe('Instagram profile');
+    expect(configJsonField?.value).toBe('{"handle":""}');
+    expect(pollField?.value).toBe('60');
+
+    await act(async () => {
+      createButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(createSourceConfigAction).not.toHaveBeenCalled();
+    expect(collectText(container)).toContain('Profile source config 需要 handle、username、profileUrl 或 url');
+
+    await act(async () => {
+      updateFieldValue(presetField, 'custom', window);
+      await flush();
+    });
+
+    expect(sourceTypeField?.value).toBe('');
+    expect(platformField?.value).toBe('');
+    expect(labelField?.value).toBe('');
+    expect(configJsonField?.value).toBe('{}');
+    expect(pollField?.value).toBe('30');
+
+    await act(async () => {
+      updateFieldValue(sourceTypeField, 'rss', window);
+      updateFieldValue(platformField, 'rss', window);
+      updateFieldValue(labelField, 'RSS feed', window);
+      updateFieldValue(configJsonField, '{', window);
+      await flush();
+    });
+
+    await act(async () => {
+      createButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(createSourceConfigAction).not.toHaveBeenCalled();
+    expect(collectText(container)).toContain('Config JSON 必须是有效的 JSON object');
+
+    await act(async () => {
+      updateFieldValue(sourceTypeField, 'keyword+reddit', window);
+      updateFieldValue(platformField, 'x', window);
+      updateFieldValue(labelField, 'Cross-wired source config', window);
+      updateFieldValue(configJsonField, '{"query":"promobot"}', window);
+      updateFieldValue(pollField, '30', window);
+      await flush();
+    });
+
+    await act(async () => {
+      createButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(createSourceConfigAction).not.toHaveBeenCalled();
+    expect(collectText(container)).toContain('Source Type keyword+reddit 只能搭配 platform reddit');
 
     await act(async () => {
       root.unmount();
@@ -2444,6 +2831,10 @@ describe('PublishCalendar and Projects pages', () => {
       container,
       (element) => element.getAttribute('data-source-config-field') === 'new-label-7',
     );
+    const newPresetField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'new-preset-7',
+    );
     const newConfigJsonField = findElement(
       container,
       (element) => element.getAttribute('data-source-config-field') === 'new-config-json-7',
@@ -2454,6 +2845,7 @@ describe('PublishCalendar and Projects pages', () => {
     );
 
     await act(async () => {
+      updateFieldValue(newPresetField, 'keyword+reddit', window);
       updateFieldValue(newLabelField, 'V2EX mentions', window);
       updateFieldValue(newConfigJsonField, '{"query":"cursor api"}', window);
       updateFieldValue(newPollField, '45', window);

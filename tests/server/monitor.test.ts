@@ -340,7 +340,7 @@ describe('monitor api', () => {
         {
           projectId: 1,
           sourceType: 'rss',
-          platform: 'blog',
+          platform: 'rss',
           label: 'Competitor RSS',
           configJson: { url: 'https://feeds.example.com/monitor.xml' },
           enabled: true,
@@ -372,6 +372,24 @@ describe('monitor api', () => {
           configJson: { query: 'cursor api' },
           enabled: true,
           pollIntervalMinutes: 15,
+        },
+        {
+          projectId: 1,
+          sourceType: 'profile+instagram',
+          platform: 'instagram',
+          label: 'Instagram profile',
+          configJson: { handle: '@instagram' },
+          enabled: true,
+          pollIntervalMinutes: 60,
+        },
+        {
+          projectId: 1,
+          sourceType: 'profile+tiktok',
+          platform: 'tiktok',
+          label: 'TikTok profile',
+          configJson: { profileUrl: 'https://www.tiktok.com/@tiktok' },
+          enabled: true,
+          pollIntervalMinutes: 60,
         },
         {
           projectId: 1,
@@ -477,6 +495,39 @@ describe('monitor api', () => {
             );
           }
 
+          if (url === 'https://www.instagram.com/instagram/') {
+            return new Response(
+              `
+              <html>
+                <head>
+                  <meta property="og:title" content="Instagram (@instagram) • Instagram photos and videos" />
+                  <meta property="og:description" content="701M Followers, 250 Following, 8,416 Posts - See Instagram photos and videos from Instagram (@instagram)" />
+                </head>
+              </html>
+              `,
+              {
+                status: 200,
+                headers: { 'Content-Type': 'text/html' },
+              },
+            );
+          }
+
+          if (url === 'https://www.tiktok.com/oembed?url=https%3A%2F%2Fwww.tiktok.com%2F%40tiktok') {
+            return new Response(
+              JSON.stringify({
+                title: "TikTok's Creator Profile",
+                author_name: 'TikTok',
+                author_url: 'https://www.tiktok.com/@tiktok',
+                provider_name: 'TikTok',
+                embed_type: 'profile',
+              }),
+              {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+              },
+            );
+          }
+
           throw new Error(`unexpected fetch url: ${url}`);
         }),
       );
@@ -521,13 +572,31 @@ describe('monitor api', () => {
               'V2EX OpenAI · builder · 3 replies\n\nhttps://www.v2ex.com/t/123456',
             status: 'new',
           }),
+          expect.objectContaining({
+            id: 5,
+            projectId: 1,
+            source: 'instagram',
+            title: 'Instagram profile update: @instagram',
+            detail:
+              '701M followers · 250 following · 8,416 posts\n\nhttps://www.instagram.com/instagram/',
+            status: 'new',
+          }),
+          expect.objectContaining({
+            id: 6,
+            projectId: 1,
+            source: 'tiktok',
+            title: 'TikTok profile update: @tiktok',
+            detail:
+              "TikTok · TikTok's Creator Profile\n\nhttps://www.tiktok.com/@tiktok",
+            status: 'new',
+          }),
         ],
-        inserted: 4,
-        total: 4,
+        inserted: 6,
+        total: 6,
       });
 
       const monitorStore = createMonitorStore();
-      expect(monitorStore.list(1).map((item) => item.id)).toEqual([1, 2, 3, 4]);
+      expect(monitorStore.list(1).map((item) => item.id)).toEqual([1, 2, 3, 4, 5, 6]);
       expect(monitorStore.list(2)).toEqual([]);
       expect(requestedUrls.join('\n')).not.toContain('should%20stay%20disabled');
     } finally {
@@ -881,6 +950,643 @@ describe('monitor api', () => {
         title: 'OpenRouter failover thread',
         detail:
           '@routingwatch · matched x search seed for openrouter failover\n\nhttps://x.com/routingwatch/status/1888888888888',
+      },
+    ]);
+  });
+
+  it('treats a non-profile instagram html response as a failed fetch instead of a profile update', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        `
+        <html>
+          <head>
+            <meta property="og:title" content="Instagram (@instagram) • Instagram photos and videos" />
+            <meta property="og:description" content="701M Followers, 250 Following, 8,416 Posts - See Instagram photos and videos from Instagram (@instagram)" />
+          </head>
+          <body>Sign in to see photos and videos from friends.</body>
+        </html>
+        `,
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'text/html',
+          },
+        },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { collectConfiguredSignals } = await import('../../src/server/services/monitorFetch');
+    const signals = await collectConfiguredSignals(
+      {
+        fetchFeeds: vi.fn().mockResolvedValue({
+          items: [],
+          failures: [],
+        }),
+      } as never,
+      {
+        monitorRssFeeds: [],
+        monitorXQueries: [],
+        monitorRedditQueries: [],
+        monitorV2exQueries: [],
+      },
+      [
+        {
+          id: 1,
+          projectId: 7,
+          sourceType: 'profile+instagram',
+          platform: 'instagram',
+          label: 'Instagram profile',
+          configJson: {
+            handle: '@instagram',
+          },
+          enabled: true,
+          pollIntervalMinutes: 60,
+        },
+      ],
+    );
+
+    expect(signals).toEqual([
+      {
+        projectId: 7,
+        source: 'instagram',
+        title: 'Instagram fetch failed: @instagram',
+        detail: 'instagram profile response did not look like a public profile page',
+      },
+    ]);
+  });
+
+  it('treats a non-profile tiktok oembed response as a failed fetch instead of a profile update', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          author_name: 'TikTok',
+        }),
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { collectConfiguredSignals } = await import('../../src/server/services/monitorFetch');
+    const signals = await collectConfiguredSignals(
+      {
+        fetchFeeds: vi.fn().mockResolvedValue({
+          items: [],
+          failures: [],
+        }),
+      } as never,
+      {
+        monitorRssFeeds: [],
+        monitorXQueries: [],
+        monitorRedditQueries: [],
+        monitorV2exQueries: [],
+      },
+      [
+        {
+          id: 1,
+          projectId: 7,
+          sourceType: 'profile+tiktok',
+          platform: 'tiktok',
+          label: 'TikTok profile',
+          configJson: {
+            handle: '@tiktok',
+          },
+          enabled: true,
+          pollIntervalMinutes: 60,
+        },
+      ],
+    );
+
+    expect(signals).toEqual([
+      {
+        projectId: 7,
+        source: 'tiktok',
+        title: 'TikTok fetch failed: @tiktok',
+        detail: 'tiktok oembed response did not look like a profile payload',
+      },
+    ]);
+  });
+
+  it('treats a typed non-profile tiktok oembed response as a failed fetch instead of a profile update', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          type: 'video',
+          author_name: 'TikTok',
+          author_url: 'https://www.tiktok.com/@tiktok',
+          title: 'Pinned clip',
+        }),
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { collectConfiguredSignals } = await import('../../src/server/services/monitorFetch');
+    const signals = await collectConfiguredSignals(
+      {
+        fetchFeeds: vi.fn().mockResolvedValue({
+          items: [],
+          failures: [],
+        }),
+      } as never,
+      {
+        monitorRssFeeds: [],
+        monitorXQueries: [],
+        monitorRedditQueries: [],
+        monitorV2exQueries: [],
+      },
+      [
+        {
+          id: 1,
+          projectId: 7,
+          sourceType: 'profile+tiktok',
+          platform: 'tiktok',
+          label: 'TikTok profile',
+          configJson: {
+            handle: '@tiktok',
+          },
+          enabled: true,
+          pollIntervalMinutes: 60,
+        },
+      ],
+    );
+
+    expect(signals).toEqual([
+      {
+        projectId: 7,
+        source: 'tiktok',
+        title: 'TikTok fetch failed: @tiktok',
+        detail: 'tiktok oembed response did not look like a profile payload',
+      },
+    ]);
+  });
+
+  it('only accepts canonical instagram and tiktok profile urls from source config inputs', async () => {
+    const { resolveSourceConfigInputs } = await import('../../src/server/services/monitorFetch');
+    const inputs = resolveSourceConfigInputs([
+      {
+        id: 1,
+        projectId: 7,
+        sourceType: 'profile+instagram',
+        platform: 'instagram',
+        label: 'Instagram post url should be ignored',
+        configJson: {
+          profileUrl: 'https://www.instagram.com/p/abc123/',
+        },
+        enabled: true,
+        pollIntervalMinutes: 60,
+      },
+      {
+        id: 2,
+        projectId: 7,
+        sourceType: 'profile+instagram',
+        platform: 'instagram',
+        label: 'Instagram reserved route should be ignored',
+        configJson: {
+          profileUrl: 'https://www.instagram.com/explore/',
+        },
+        enabled: true,
+        pollIntervalMinutes: 60,
+      },
+      {
+        id: 3,
+        projectId: 7,
+        sourceType: 'profile+instagram',
+        platform: 'instagram',
+        label: 'Instagram handle fallback remains valid',
+        configJson: {
+          profileUrl: 'https://example.com/not-instagram',
+          handle: '@openai',
+        },
+        enabled: true,
+        pollIntervalMinutes: 60,
+      },
+      {
+        id: 4,
+        projectId: 7,
+        sourceType: 'profile+tiktok',
+        platform: 'tiktok',
+        label: 'TikTok short link should be ignored',
+        configJson: {
+          profileUrl: 'https://vt.tiktok.com/ZSh0rt/',
+        },
+        enabled: true,
+        pollIntervalMinutes: 60,
+      },
+      {
+        id: 5,
+        projectId: 7,
+        sourceType: 'profile+tiktok',
+        platform: 'tiktok',
+        label: 'TikTok handle fallback remains valid',
+        configJson: {
+          profileUrl: 'https://vt.tiktok.com/ZSh0rt/',
+          handle: 'openai',
+        },
+        enabled: true,
+        pollIntervalMinutes: 60,
+      },
+    ]);
+
+    expect(inputs.instagramProfiles).toEqual([
+      {
+        projectId: 7,
+        handle: '@openai',
+        profileUrl: 'https://www.instagram.com/openai/',
+      },
+    ]);
+    expect(inputs.tiktokProfiles).toEqual([
+      {
+        projectId: 7,
+        handle: '@openai',
+        profileUrl: 'https://www.tiktok.com/@openai',
+      },
+    ]);
+  });
+
+  it('normalizes profile handles case-insensitively and rejects reserved instagram handles', async () => {
+    const { resolveSourceConfigInputs } = await import('../../src/server/services/monitorFetch');
+    const inputs = resolveSourceConfigInputs([
+      {
+        id: 1,
+        projectId: 7,
+        sourceType: 'profile+instagram',
+        platform: 'instagram',
+        label: 'Instagram reserved handle should be ignored',
+        configJson: {
+          handle: '@Explore',
+        },
+        enabled: true,
+        pollIntervalMinutes: 60,
+      },
+      {
+        id: 2,
+        projectId: 7,
+        sourceType: 'profile+instagram',
+        platform: 'instagram',
+        label: 'Instagram mixed-case handle should normalize',
+        configJson: {
+          handle: '@OpenAI',
+        },
+        enabled: true,
+        pollIntervalMinutes: 60,
+      },
+      {
+        id: 3,
+        projectId: 7,
+        sourceType: 'profile+instagram',
+        platform: 'instagram',
+        label: 'Instagram lower-case duplicate should dedupe',
+        configJson: {
+          handle: '@openai',
+        },
+        enabled: true,
+        pollIntervalMinutes: 60,
+      },
+      {
+        id: 4,
+        projectId: 7,
+        sourceType: 'profile+tiktok',
+        platform: 'tiktok',
+        label: 'TikTok mixed-case handle should normalize',
+        configJson: {
+          handle: '@OpenAI',
+        },
+        enabled: true,
+        pollIntervalMinutes: 60,
+      },
+      {
+        id: 5,
+        projectId: 7,
+        sourceType: 'profile+tiktok',
+        platform: 'tiktok',
+        label: 'TikTok lower-case duplicate should dedupe',
+        configJson: {
+          handle: '@openai',
+        },
+        enabled: true,
+        pollIntervalMinutes: 60,
+      },
+    ]);
+
+    expect(inputs.instagramProfiles).toEqual([
+      {
+        projectId: 7,
+        handle: '@openai',
+        profileUrl: 'https://www.instagram.com/openai/',
+      },
+    ]);
+    expect(inputs.tiktokProfiles).toEqual([
+      {
+        projectId: 7,
+        handle: '@openai',
+        profileUrl: 'https://www.tiktok.com/@openai',
+      },
+    ]);
+  });
+
+  it('uses canonical profile urls as the source of truth when source config handles conflict', async () => {
+    const { resolveSourceConfigInputs } = await import('../../src/server/services/monitorFetch');
+    const inputs = resolveSourceConfigInputs([
+      {
+        id: 1,
+        projectId: 8,
+        sourceType: 'profile+instagram',
+        platform: 'instagram',
+        label: 'Instagram canonical url wins',
+        configJson: {
+          profileUrl: 'https://www.instagram.com/openai/',
+          handle: '@wronghandle',
+        },
+        enabled: true,
+        pollIntervalMinutes: 60,
+      },
+      {
+        id: 2,
+        projectId: 8,
+        sourceType: 'profile+tiktok',
+        platform: 'tiktok',
+        label: 'TikTok canonical url wins',
+        configJson: {
+          profileUrl: 'https://www.tiktok.com/@openai',
+          handle: 'wronghandle',
+        },
+        enabled: true,
+        pollIntervalMinutes: 60,
+      },
+    ]);
+
+    expect(inputs.instagramProfiles).toEqual([
+      {
+        projectId: 8,
+        handle: '@openai',
+        profileUrl: 'https://www.instagram.com/openai/',
+      },
+    ]);
+    expect(inputs.tiktokProfiles).toEqual([
+      {
+        projectId: 8,
+        handle: '@openai',
+        profileUrl: 'https://www.tiktok.com/@openai',
+      },
+    ]);
+  });
+
+  it('treats case-only upstream handle differences as the same instagram and tiktok profiles', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          `
+          <html>
+            <head>
+              <meta property="og:title" content="OpenAI (@openai) • Instagram photos and videos" />
+              <meta property="og:description" content="1 Followers, 2 Following, 3 Posts - See Instagram photos and videos from OpenAI (@openai)" />
+            </head>
+          </html>
+          `,
+          {
+            status: 200,
+            headers: {
+              'Content-Type': 'text/html',
+            },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            author_name: 'OpenAI',
+            author_url: 'https://www.tiktok.com/@openai',
+            embed_type: 'profile',
+            title: 'OpenAI on TikTok',
+          }),
+          {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          },
+        ),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { collectConfiguredSignals } = await import('../../src/server/services/monitorFetch');
+    const signals = await collectConfiguredSignals(
+      {
+        fetchFeeds: vi.fn().mockResolvedValue({
+          items: [],
+          failures: [],
+        }),
+      } as never,
+      {
+        monitorRssFeeds: [],
+        monitorXQueries: [],
+        monitorRedditQueries: [],
+        monitorV2exQueries: [],
+      },
+      [
+        {
+          id: 1,
+          projectId: 9,
+          sourceType: 'profile+instagram',
+          platform: 'instagram',
+          label: 'Instagram profile',
+          configJson: {
+            handle: '@OpenAI',
+          },
+          enabled: true,
+          pollIntervalMinutes: 60,
+        },
+        {
+          id: 2,
+          projectId: 9,
+          sourceType: 'profile+tiktok',
+          platform: 'tiktok',
+          label: 'TikTok profile',
+          configJson: {
+            handle: '@OpenAI',
+          },
+          enabled: true,
+          pollIntervalMinutes: 60,
+        },
+      ],
+    );
+
+    expect(signals).toEqual([
+      {
+        projectId: 9,
+        source: 'instagram',
+        title: 'Instagram profile update: @openai',
+        detail: '1 followers · 2 following · 3 posts\n\nhttps://www.instagram.com/openai/',
+      },
+      {
+        projectId: 9,
+        source: 'tiktok',
+        title: 'TikTok profile update: @openai',
+        detail: 'OpenAI · OpenAI on TikTok\n\nhttps://www.tiktok.com/@openai',
+      },
+    ]);
+  });
+
+  it('treats mismatched upstream profile identities as failed fetches instead of mislabeling monitor items', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          `
+          <html>
+            <head>
+              <meta property="og:title" content="Mismatch (@otheraccount) • Instagram photos and videos" />
+              <meta property="og:description" content="10 Followers, 20 Following, 30 Posts - See Instagram photos and videos from Mismatch (@otheraccount)" />
+            </head>
+          </html>
+          `,
+          {
+            status: 200,
+            headers: {
+              'Content-Type': 'text/html',
+            },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            author_name: 'Other Account',
+            author_url: 'https://www.tiktok.com/@otheraccount',
+            embed_type: 'profile',
+            title: 'Other Account on TikTok',
+          }),
+          {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          },
+        ),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { collectConfiguredSignals } = await import('../../src/server/services/monitorFetch');
+    const signals = await collectConfiguredSignals(
+      {
+        fetchFeeds: vi.fn().mockResolvedValue({
+          items: [],
+          failures: [],
+        }),
+      } as never,
+      {
+        monitorRssFeeds: [],
+        monitorXQueries: [],
+        monitorRedditQueries: [],
+        monitorV2exQueries: [],
+      },
+      [
+        {
+          id: 1,
+          projectId: 9,
+          sourceType: 'profile+instagram',
+          platform: 'instagram',
+          label: 'Instagram profile',
+          configJson: {
+            handle: '@openai',
+          },
+          enabled: true,
+          pollIntervalMinutes: 60,
+        },
+        {
+          id: 2,
+          projectId: 9,
+          sourceType: 'profile+tiktok',
+          platform: 'tiktok',
+          label: 'TikTok profile',
+          configJson: {
+            handle: '@openai',
+          },
+          enabled: true,
+          pollIntervalMinutes: 60,
+        },
+      ],
+    );
+
+    expect(signals).toEqual([
+      {
+        projectId: 9,
+        source: 'instagram',
+        title: 'Instagram fetch failed: @openai',
+        detail: 'instagram profile response resolved to @otheraccount instead of @openai',
+      },
+      {
+        projectId: 9,
+        source: 'tiktok',
+        title: 'TikTok fetch failed: @openai',
+        detail: 'tiktok oembed response resolved to @otheraccount instead of @openai',
+      },
+    ]);
+  });
+
+  it('treats instagram profile redirects to renamed handles as failed fetches instead of mislabeling monitor items', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      url: 'https://www.instagram.com/newhandle/',
+      text: async () => `
+        <html>
+          <head>
+            <meta property="og:description" content="10 Followers, 20 Following, 30 Posts - See Instagram photos and videos from Renamed Account" />
+          </head>
+        </html>
+      `,
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { collectConfiguredSignals } = await import('../../src/server/services/monitorFetch');
+    const signals = await collectConfiguredSignals(
+      {
+        fetchFeeds: vi.fn().mockResolvedValue({
+          items: [],
+          failures: [],
+        }),
+      } as never,
+      {
+        monitorRssFeeds: [],
+        monitorXQueries: [],
+        monitorRedditQueries: [],
+        monitorV2exQueries: [],
+      },
+      [
+        {
+          id: 1,
+          projectId: 10,
+          sourceType: 'profile+instagram',
+          platform: 'instagram',
+          label: 'Instagram profile',
+          configJson: {
+            handle: '@oldhandle',
+          },
+          enabled: true,
+          pollIntervalMinutes: 60,
+        },
+      ],
+    );
+
+    expect(signals).toEqual([
+      {
+        projectId: 10,
+        source: 'instagram',
+        title: 'Instagram fetch failed: @oldhandle',
+        detail: 'instagram profile response resolved to @newhandle instead of @oldhandle',
       },
     ]);
   });

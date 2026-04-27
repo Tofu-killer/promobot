@@ -41,7 +41,7 @@ PromoBot 现在不是“只有 spec 的空仓库”了。
 
 - `ADMIN_PASSWORD` 现在优先通过服务端 session cookie 保护后端 API；前端首次进入时会要求输入管理员密码。默认登录发会话级 `HttpOnly` cookie；如果勾选“记住这台浏览器”，则会改为持久 cookie。管理员 session 现已落到 SQLite，可跨 app 实例与重启继续生效。为了兼容自动化与 CLI，后端当前仍接受 `x-admin-password` 作为 fallback。
 - allowlist 现在会从共享 settings 状态读取；共享同一 SQLite 的多个进程在下一次请求时都能看到最新 allowlist。
-- `monitor/fetch` 已支持 RSS、V2EX、Reddit search；`inbox/fetch` 与 `reputation/fetch` 现在也会直接基于 settings/source configs 调用 X、Reddit、V2EX 搜索，不再主要依赖 monitor 落库或骨架项。
+- `monitor/fetch` 已支持 RSS、V2EX、Reddit search，以及 Instagram / TikTok profile source configs；`inbox/fetch` 与 `reputation/fetch` 现在也会直接基于 settings/source configs 调用 X、Reddit、V2EX 搜索，不再主要依赖 monitor 落库或骨架项。
 - `Competitor Monitor` 的来源筛选现在也覆盖 `instagram`、`tiktok`、`xiaohongshu`、`weibo`、`v2ex`；`generate-follow-up` 除了 `x` / `reddit` 外，也支持 `instagram`、`tiktok`、`xiaohongshu`、`weibo` 这些已接入发布链路的社媒来源直接落草稿，`v2ex` 仍只作为监控来源筛选。
 - `monitor / inbox / reputation` 在生产环境下已禁用 demo / seed 数据回退；没有真实配置或真实信号时会返回空态。
 - 浏览器 session 的采集 / relogin 还没接自动化；但 Session 元数据现在既支持继续填写现有 `storageStatePath`，也支持直接导入 storage state JSON 到受管 `browser-sessions/managed/` 目录。

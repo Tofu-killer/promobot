@@ -1,6 +1,8 @@
 import type { CreateMonitorItemInput, MonitorItemRecord, MonitorStore } from '../store/monitor.js';
+import { fetchInstagramProfileSignal } from './monitor/instagramProfile.js';
 import { createMonitorRssService } from './monitor/rss.js';
 import { searchReddit } from './monitor/redditSearch.js';
+import { fetchTiktokProfileSignal } from './monitor/tiktokProfile.js';
 import { searchX } from './monitor/xSearch.js';
 import { searchV2ex } from './monitor/v2exSearch.js';
 import { createMonitorStore } from '../store/monitor.js';
@@ -134,6 +136,32 @@ interface ScopedStringValue {
   value: string;
 }
 
+interface ScopedProfileValue {
+  projectId?: number;
+  handle?: string;
+  profileUrl: string;
+}
+
+const INSTAGRAM_PROFILE_HOSTS = new Set(['instagram.com', 'www.instagram.com']);
+const TIKTOK_PROFILE_HOSTS = new Set(['tiktok.com', 'www.tiktok.com', 'm.tiktok.com']);
+const INSTAGRAM_RESERVED_PROFILE_SEGMENTS = new Set([
+  'accounts',
+  'api',
+  'challenge',
+  'checkpoint',
+  'developer',
+  'direct',
+  'explore',
+  'legal',
+  'press',
+  'reel',
+  'reels',
+  'shop',
+  'stories',
+  'tv',
+  'web',
+]);
+
 export async function collectConfiguredSignals(
   rssService: ReturnType<typeof createMonitorRssService>,
   settings: {
@@ -170,6 +198,8 @@ export async function collectConfiguredSignals(
       : sourceConfigInputs.v2exQueries.length > 0
         ? sourceConfigInputs.v2exQueries
       : parseList(process.env.MONITOR_V2EX_QUERIES).map((value) => ({ value }));
+  const instagramProfiles = sourceConfigInputs.instagramProfiles;
+  const tiktokProfiles = sourceConfigInputs.tiktokProfiles;
 
   for (const feed of rssFeeds) {
     const result = await rssService.fetchFeeds([feed.value]);
@@ -255,6 +285,44 @@ export async function collectConfiguredSignals(
     }
   }
 
+  for (const profile of instagramProfiles) {
+    try {
+      const signal = await fetchInstagramProfileSignal(profile);
+      results.push({
+        ...(profile.projectId !== undefined ? { projectId: profile.projectId } : {}),
+        source: signal.source,
+        title: signal.title,
+        detail: signal.detail,
+      });
+    } catch (error) {
+      results.push({
+        ...(profile.projectId !== undefined ? { projectId: profile.projectId } : {}),
+        source: 'instagram',
+        title: `Instagram fetch failed: ${profile.handle ?? profile.profileUrl}`,
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  for (const profile of tiktokProfiles) {
+    try {
+      const signal = await fetchTiktokProfileSignal(profile);
+      results.push({
+        ...(profile.projectId !== undefined ? { projectId: profile.projectId } : {}),
+        source: signal.source,
+        title: signal.title,
+        detail: signal.detail,
+      });
+    } catch (error) {
+      results.push({
+        ...(profile.projectId !== undefined ? { projectId: profile.projectId } : {}),
+        source: 'tiktok',
+        title: `TikTok fetch failed: ${profile.handle ?? profile.profileUrl}`,
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   return results;
 }
 
@@ -270,6 +338,8 @@ export function resolveSourceConfigInputs(sourceConfigs: SourceConfigRecord[]) {
   const redditQueries: ScopedStringValue[] = [];
   const xQueries: ScopedStringValue[] = [];
   const v2exQueries: ScopedStringValue[] = [];
+  const instagramProfiles: ScopedProfileValue[] = [];
+  const tiktokProfiles: ScopedProfileValue[] = [];
 
   for (const sourceConfig of sourceConfigs) {
     if (sourceConfig.sourceType === 'rss') {
@@ -306,6 +376,28 @@ export function resolveSourceConfigInputs(sourceConfigs: SourceConfigRecord[]) {
       for (const query of readQueryList(sourceConfig.configJson)) {
         v2exQueries.push({ projectId: sourceConfig.projectId, value: query });
       }
+      continue;
+    }
+
+    if (
+      sourceConfig.sourceType === 'profile+instagram' ||
+      (sourceConfig.sourceType === 'profile' && sourceConfig.platform === 'instagram')
+    ) {
+      const profileInput = readInstagramProfileInput(sourceConfig.configJson);
+      if (profileInput) {
+        instagramProfiles.push({ projectId: sourceConfig.projectId, ...profileInput });
+      }
+      continue;
+    }
+
+    if (
+      sourceConfig.sourceType === 'profile+tiktok' ||
+      (sourceConfig.sourceType === 'profile' && sourceConfig.platform === 'tiktok')
+    ) {
+      const profileInput = readTiktokProfileInput(sourceConfig.configJson);
+      if (profileInput) {
+        tiktokProfiles.push({ projectId: sourceConfig.projectId, ...profileInput });
+      }
     }
   }
 
@@ -314,6 +406,8 @@ export function resolveSourceConfigInputs(sourceConfigs: SourceConfigRecord[]) {
     redditQueries: dedupeScopedValues(redditQueries),
     xQueries: dedupeScopedValues(xQueries),
     v2exQueries: dedupeScopedValues(v2exQueries),
+    instagramProfiles: dedupeScopedProfiles(instagramProfiles),
+    tiktokProfiles: dedupeScopedProfiles(tiktokProfiles),
   };
 }
 
@@ -340,6 +434,120 @@ function readQueryList(configJson: Record<string, unknown>) {
   return dedupeStrings(queries);
 }
 
+function readInstagramProfileInput(configJson: Record<string, unknown>) {
+  const configuredHandle = normalizeProfileHandle(
+    readString(configJson.handle) ?? readString(configJson.username),
+  );
+  const rawProfileUrl = readString(configJson.profileUrl) ?? readString(configJson.url);
+  const handleFromUrl = rawProfileUrl ? readInstagramHandleFromProfileUrl(rawProfileUrl) : null;
+  const handle = handleFromUrl ?? configuredHandle;
+  const profileUrl = normalizeInstagramProfileUrl(rawProfileUrl, handle);
+
+  if (!profileUrl) {
+    return null;
+  }
+
+  return {
+    ...(handle ? { handle: `@${handle}` } : {}),
+    profileUrl,
+  };
+}
+
+function readTiktokProfileInput(configJson: Record<string, unknown>) {
+  const configuredHandle = normalizeProfileHandle(
+    readString(configJson.handle) ?? readString(configJson.username),
+  );
+  const rawProfileUrl = readString(configJson.profileUrl) ?? readString(configJson.url);
+  const handleFromUrl = rawProfileUrl ? readTiktokHandleFromProfileUrl(rawProfileUrl) : null;
+  const handle = handleFromUrl ?? configuredHandle;
+  const profileUrl = normalizeTiktokProfileUrl(rawProfileUrl, handle);
+
+  if (!profileUrl) {
+    return null;
+  }
+
+  return {
+    ...(handle ? { handle: `@${handle}` } : {}),
+    profileUrl,
+  };
+}
+
+function normalizeProfileHandle(value: string | null) {
+  const normalized = value?.replace(/^@+/, '').replace(/\/+$/, '').trim().toLowerCase();
+  return normalized || null;
+}
+
+function normalizeInstagramProfileUrl(rawUrl: string | null, handle: string | null) {
+  if (rawUrl) {
+    const normalizedHandle = readInstagramHandleFromProfileUrl(rawUrl);
+    if (normalizedHandle) {
+      return `https://www.instagram.com/${normalizedHandle}/`;
+    }
+  }
+
+  if (!handle || isReservedInstagramProfileHandle(handle)) {
+    return null;
+  }
+
+  return `https://www.instagram.com/${handle}/`;
+}
+
+function normalizeTiktokProfileUrl(rawUrl: string | null, handle: string | null) {
+  if (rawUrl) {
+    const normalizedHandle = readTiktokHandleFromProfileUrl(rawUrl);
+    if (normalizedHandle) {
+      return `https://www.tiktok.com/@${normalizedHandle}`;
+    }
+  }
+
+  return handle ? `https://www.tiktok.com/@${handle}` : null;
+}
+
+function readInstagramHandleFromProfileUrl(rawUrl: string) {
+  try {
+    const url = new URL(rawUrl);
+    if (!INSTAGRAM_PROFILE_HOSTS.has(url.hostname.toLowerCase())) {
+      return null;
+    }
+
+    const segments = url.pathname.split('/').filter(Boolean);
+    if (segments.length !== 1) {
+      return null;
+    }
+
+    const handle = normalizeProfileHandle(segments[0]);
+    if (!handle || isReservedInstagramProfileHandle(handle)) {
+      return null;
+    }
+
+    return handle;
+  } catch {
+    return null;
+  }
+}
+
+function isReservedInstagramProfileHandle(handle: string) {
+  return INSTAGRAM_RESERVED_PROFILE_SEGMENTS.has(handle.toLowerCase());
+}
+
+function readTiktokHandleFromProfileUrl(rawUrl: string) {
+  try {
+    const url = new URL(rawUrl);
+    if (!TIKTOK_PROFILE_HOSTS.has(url.hostname.toLowerCase())) {
+      return null;
+    }
+
+    const segments = url.pathname.split('/').filter(Boolean);
+    if (segments.length !== 1 || !segments[0]?.startsWith('@')) {
+      return null;
+    }
+
+    return normalizeProfileHandle(segments[0]);
+  } catch {
+    return null;
+  }
+}
+
 function dedupeStrings(values: string[]) {
   return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
 }
@@ -348,6 +556,18 @@ function dedupeScopedValues(values: ScopedStringValue[]) {
   const seen = new Set<string>();
   return values.filter((value) => {
     const key = `${value.projectId ?? 'global'}:${value.value}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+function dedupeScopedProfiles(values: ScopedProfileValue[]) {
+  const seen = new Set<string>();
+  return values.filter((value) => {
+    const key = `${value.projectId ?? 'global'}:${value.profileUrl}`;
     if (seen.has(key)) {
       return false;
     }

@@ -1,6 +1,12 @@
 import { Router } from 'express';
 import { createProjectStore } from '../store/projects.js';
-import { createSourceConfigStore } from '../store/sourceConfigs.js';
+import {
+  createSourceConfigStore,
+  type CreateSourceConfigInput,
+  type SourceConfigRecord,
+  type UpdateSourceConfigInput,
+} from '../store/sourceConfigs.js';
+import { validateSourceConfigInput } from '../lib/sourceConfigValidation.js';
 
 const projectStore = createProjectStore();
 const sourceConfigStore = createSourceConfigStore();
@@ -80,12 +86,12 @@ projectsRouter.post('/:id/source-configs', (request, response) => {
   }
 
   const input = parseCreateSourceConfigInput(request.body, projectId);
-  if (!input) {
-    response.status(400).json({ error: 'invalid source config payload' });
+  if (!input.ok) {
+    response.status(400).json({ error: input.error });
     return;
   }
 
-  const sourceConfig = sourceConfigStore.create(input);
+  const sourceConfig = sourceConfigStore.create(input.value);
 
   response.status(201).json({
     sourceConfig,
@@ -157,13 +163,21 @@ projectsRouter.patch('/:id/source-configs/:sourceConfigId', (request, response) 
     return;
   }
 
-  const input = parseUpdateSourceConfigInput(request.body, projectId);
-  if (!input) {
-    response.status(400).json({ error: 'invalid source config payload' });
+  const existingSourceConfig = sourceConfigStore
+    .listByProject(projectId)
+    .find((item) => item.id === sourceConfigId);
+  if (!existingSourceConfig) {
+    response.status(404).json({ error: 'source config not found' });
     return;
   }
 
-  const sourceConfig = sourceConfigStore.update(projectId, sourceConfigId, input);
+  const input = parseUpdateSourceConfigInput(request.body, projectId, existingSourceConfig);
+  if (!input.ok) {
+    response.status(400).json({ error: input.error });
+    return;
+  }
+
+  const sourceConfig = sourceConfigStore.update(projectId, sourceConfigId, input.value);
 
   if (!sourceConfig) {
     response.status(404).json({ error: 'source config not found' });
@@ -182,10 +196,23 @@ function projectExists(projectId: number) {
   return projectStore.list().some((project) => project.id === projectId);
 }
 
-function parseCreateSourceConfigInput(body: unknown, projectId: number) {
+type SourceConfigParseResult<T> =
+  | {
+      ok: true;
+      value: T;
+    }
+  | {
+      ok: false;
+      error: string;
+    };
+
+function parseCreateSourceConfigInput(
+  body: unknown,
+  projectId: number,
+): SourceConfigParseResult<CreateSourceConfigInput> {
   const input = asObject(body);
   if (!input) {
-    return undefined;
+    return invalidSourceConfigPayload();
   }
 
   if (
@@ -198,63 +225,106 @@ function parseCreateSourceConfigInput(body: unknown, projectId: number) {
     typeof input.enabled !== 'boolean' ||
     !isPositiveInteger(input.pollIntervalMinutes)
   ) {
-    return undefined;
+    return invalidSourceConfigPayload();
   }
 
-  return {
+  const value: CreateSourceConfigInput = {
     projectId,
-    sourceType: input.sourceType,
-    platform: input.platform,
-    label: input.label,
+    sourceType: input.sourceType.trim(),
+    platform: input.platform.trim(),
+    label: input.label.trim(),
     configJson: input.configJson,
     enabled: input.enabled,
     pollIntervalMinutes: input.pollIntervalMinutes,
   };
-}
 
-function parseUpdateSourceConfigInput(body: unknown, projectId: number) {
-  const input = asObject(body);
-  if (!input) {
-    return undefined;
-  }
-
-  if (input.projectId !== undefined && (!isPositiveInteger(input.projectId) || input.projectId !== projectId)) {
-    return undefined;
-  }
-
-  if (input.sourceType !== undefined && typeof input.sourceType !== 'string') {
-    return undefined;
-  }
-
-  if (input.platform !== undefined && typeof input.platform !== 'string') {
-    return undefined;
-  }
-
-  if (input.label !== undefined && typeof input.label !== 'string') {
-    return undefined;
-  }
-
-  if (input.configJson !== undefined && !isPlainObject(input.configJson)) {
-    return undefined;
-  }
-
-  if (input.enabled !== undefined && typeof input.enabled !== 'boolean') {
-    return undefined;
-  }
-
-  if (input.pollIntervalMinutes !== undefined && !isPositiveInteger(input.pollIntervalMinutes)) {
-    return undefined;
+  const validationError = validateSourceConfigInput(value);
+  if (validationError) {
+    return {
+      ok: false,
+      error: validationError,
+    };
   }
 
   return {
-    sourceType: typeof input.sourceType === 'string' ? input.sourceType : undefined,
-    platform: typeof input.platform === 'string' ? input.platform : undefined,
-    label: typeof input.label === 'string' ? input.label : undefined,
+    ok: true,
+    value,
+  };
+}
+
+function parseUpdateSourceConfigInput(
+  body: unknown,
+  projectId: number,
+  existingSourceConfig: SourceConfigRecord,
+): SourceConfigParseResult<UpdateSourceConfigInput> {
+  const input = asObject(body);
+  if (!input) {
+    return invalidSourceConfigPayload();
+  }
+
+  if (input.projectId !== undefined && (!isPositiveInteger(input.projectId) || input.projectId !== projectId)) {
+    return invalidSourceConfigPayload();
+  }
+
+  if (input.sourceType !== undefined && typeof input.sourceType !== 'string') {
+    return invalidSourceConfigPayload();
+  }
+
+  if (input.platform !== undefined && typeof input.platform !== 'string') {
+    return invalidSourceConfigPayload();
+  }
+
+  if (input.label !== undefined && typeof input.label !== 'string') {
+    return invalidSourceConfigPayload();
+  }
+
+  if (input.configJson !== undefined && !isPlainObject(input.configJson)) {
+    return invalidSourceConfigPayload();
+  }
+
+  if (input.enabled !== undefined && typeof input.enabled !== 'boolean') {
+    return invalidSourceConfigPayload();
+  }
+
+  if (input.pollIntervalMinutes !== undefined && !isPositiveInteger(input.pollIntervalMinutes)) {
+    return invalidSourceConfigPayload();
+  }
+
+  const value: UpdateSourceConfigInput = {
+    sourceType: typeof input.sourceType === 'string' ? input.sourceType.trim() : undefined,
+    platform: typeof input.platform === 'string' ? input.platform.trim() : undefined,
+    label: typeof input.label === 'string' ? input.label.trim() : undefined,
     configJson: isPlainObject(input.configJson) ? input.configJson : undefined,
     enabled: typeof input.enabled === 'boolean' ? input.enabled : undefined,
     pollIntervalMinutes: isPositiveInteger(input.pollIntervalMinutes)
       ? input.pollIntervalMinutes
       : undefined,
+  };
+
+  const validationError = validateSourceConfigInput({
+    sourceType: value.sourceType ?? existingSourceConfig.sourceType,
+    platform: value.platform ?? existingSourceConfig.platform,
+    label: value.label ?? existingSourceConfig.label,
+    configJson: value.configJson ?? existingSourceConfig.configJson,
+    pollIntervalMinutes: value.pollIntervalMinutes ?? existingSourceConfig.pollIntervalMinutes,
+  });
+  if (validationError) {
+    return {
+      ok: false,
+      error: validationError,
+    };
+  }
+
+  return {
+    ok: true,
+    value,
+  };
+}
+
+function invalidSourceConfigPayload(): SourceConfigParseResult<never> {
+  return {
+    ok: false,
+    error: 'invalid source config payload',
   };
 }
 
