@@ -8,6 +8,44 @@ import { SectionCard } from '../components/SectionCard';
 import type { DraftRecord, DraftsResponse, PublishDraftResponse, UpdateDraftResponse } from '../lib/drafts';
 import { upsertDraftRecord } from '../lib/drafts';
 
+type BrowserSessionAction = 'request_session' | 'relogin';
+
+interface RequestChannelAccountSessionActionPayload {
+  action?: BrowserSessionAction;
+}
+
+interface RequestChannelAccountSessionActionResponse {
+  sessionAction: {
+    action: BrowserSessionAction;
+    message: string;
+    artifactPath?: string | null;
+    path?: string | null;
+  };
+}
+
+interface CompleteBrowserHandoffInput {
+  artifactPath: string;
+  publishStatus: 'published' | 'failed';
+  message?: string;
+  publishUrl?: string;
+}
+
+interface BrowserHandoffCompletionResponse {
+  ok: boolean;
+  imported: boolean;
+  artifactPath: string;
+  draftId: number;
+  draftStatus: string;
+  platform: string;
+  mode: string;
+  status: string;
+  success: boolean;
+  publishUrl: string | null;
+  externalId: string | null;
+  message: string;
+  publishedAt: string | null;
+}
+
 interface ReviewQueuePageProps {
   loadReviewQueueAction?: (projectId?: number) => Promise<DraftsResponse>;
   updateReviewDraftAction?: (id: number, input: { status: 'approved' | 'draft' | 'failed' }) => Promise<UpdateDraftResponse>;
@@ -16,6 +54,11 @@ interface ReviewQueuePageProps {
     id: number,
     input: { scheduledAt: string | null; status: 'scheduled' },
   ) => Promise<UpdateDraftResponse>;
+  requestChannelAccountSessionActionAction?: (
+    accountId: number,
+    input?: RequestChannelAccountSessionActionPayload,
+  ) => Promise<RequestChannelAccountSessionActionResponse>;
+  completeBrowserHandoffAction?: (input: CompleteBrowserHandoffInput) => Promise<BrowserHandoffCompletionResponse>;
   stateOverride?: AsyncState<DraftsResponse>;
 }
 
@@ -94,6 +137,42 @@ export async function scheduleReviewDraftRequest(
   });
 }
 
+export async function requestReviewQueueSessionActionRequest(
+  accountId: number,
+  input: RequestChannelAccountSessionActionPayload = {},
+): Promise<RequestChannelAccountSessionActionResponse> {
+  return apiRequest<RequestChannelAccountSessionActionResponse>(`/api/channel-accounts/${accountId}/session/request`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(input),
+  });
+}
+
+export async function completeReviewQueueBrowserHandoffRequest(
+  input: CompleteBrowserHandoffInput,
+): Promise<BrowserHandoffCompletionResponse> {
+  return apiRequest<BrowserHandoffCompletionResponse>('/api/system/browser-handoffs/import', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      artifactPath: input.artifactPath,
+      publishStatus: input.publishStatus,
+      message:
+        input.message ??
+        (input.publishStatus === 'published'
+          ? 'browser handoff marked published'
+          : 'browser handoff marked failed'),
+      ...(input.publishUrl !== undefined && input.publishUrl.trim().length > 0
+        ? { publishUrl: input.publishUrl.trim() }
+        : {}),
+    }),
+  });
+}
+
 function createIdleActionState(): ReviewActionState {
   return {
     status: 'idle',
@@ -139,6 +218,43 @@ const manualHandoffReviewPlatforms = new Set([
   'weibo',
 ]);
 
+interface BrowserHandoffContract {
+  platform: string | null;
+  accountKey: string | null;
+  channelAccountId?: number;
+  readiness: string | null;
+  sessionAction: BrowserSessionAction | null;
+  artifactPath: string | null;
+}
+
+interface SessionActionMutationState {
+  status: 'idle' | 'loading' | 'success' | 'error';
+  message: string | null;
+  artifactPath: string | null;
+}
+
+interface BrowserHandoffCompletionMutationState {
+  status: 'idle' | 'loading' | 'success' | 'error';
+  error: string | null;
+  result: BrowserHandoffCompletionResponse | null;
+}
+
+function createIdleSessionActionState(): SessionActionMutationState {
+  return {
+    status: 'idle',
+    message: null,
+    artifactPath: null,
+  };
+}
+
+function createIdleBrowserHandoffCompletionState(): BrowserHandoffCompletionMutationState {
+  return {
+    status: 'idle',
+    error: null,
+    result: null,
+  };
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -147,6 +263,10 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function readString(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value : null;
+}
+
+function readPositiveInteger(value: unknown) {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined;
 }
 
 function formatReviewDraftBadgeLabel(status: DraftRecord['status']) {
@@ -295,11 +415,56 @@ function readBrowserHandoffContract(details: Record<string, unknown> | null) {
     return null;
   }
 
+  const artifact = browserHandoff.artifact;
+  const artifactRecord = asRecord(artifact);
+  const sessionActionRecord = asRecord(browserHandoff.sessionAction);
+  const sessionActionValue =
+    readString(browserHandoff.sessionAction) ??
+    readString(sessionActionRecord?.action) ??
+    readString(sessionActionRecord?.type);
+  const sessionAction =
+    sessionActionValue === 'request_session' || sessionActionValue === 'relogin'
+      ? sessionActionValue
+      : null;
+  const artifactPath =
+    readString(browserHandoff.artifactPath) ??
+    readString(artifact) ??
+    readString(artifactRecord?.artifactPath) ??
+    readString(artifactRecord?.path) ??
+    readString(artifactRecord?.relativePath) ??
+    readString(sessionActionRecord?.artifactPath) ??
+    readString(sessionActionRecord?.path);
+  const platform = readString(browserHandoff.platform);
+  const accountKey = readString(browserHandoff.accountKey);
+  const channelAccountId = readPositiveInteger(browserHandoff.channelAccountId);
+  const readiness = readString(browserHandoff.readiness);
+
+  if (!platform && !accountKey && !channelAccountId && !readiness && !sessionAction && !artifactPath) {
+    return null;
+  }
+
   return {
-    readiness: readString(browserHandoff.readiness),
-    sessionAction: readString(browserHandoff.sessionAction),
-    artifactPath: readString(browserHandoff.artifactPath),
+    platform,
+    accountKey,
+    channelAccountId,
+    readiness,
+    sessionAction,
+    artifactPath,
   };
+}
+
+function readSessionActionArtifactPath(result: RequestChannelAccountSessionActionResponse | undefined) {
+  const sessionAction = asRecord(result?.sessionAction);
+
+  return readString(sessionAction?.artifactPath) ?? readString(sessionAction?.path);
+}
+
+function formatSessionActionLabel(action: BrowserSessionAction) {
+  return action === 'relogin' ? '重新登录' : '请求登录';
+}
+
+function formatSessionActionPendingLabel(action: BrowserSessionAction) {
+  return action === 'relogin' ? '正在提交重新登录...' : '正在提交登录请求...';
 }
 
 export function ReviewQueuePage({
@@ -307,6 +472,8 @@ export function ReviewQueuePage({
   updateReviewDraftAction = updateReviewDraftRequest,
   publishReviewDraftAction = publishReviewDraftRequest,
   scheduleReviewDraftAction = scheduleReviewDraftRequest,
+  requestChannelAccountSessionActionAction = requestReviewQueueSessionActionRequest,
+  completeBrowserHandoffAction = completeReviewQueueBrowserHandoffRequest,
   stateOverride,
 }: ReviewQueuePageProps) {
   const [projectIdDraft, setProjectIdDraft] = useState('');
@@ -318,7 +485,16 @@ export function ReviewQueuePage({
   const [localDrafts, setLocalDrafts] = useState<DraftRecord[] | null>(null);
   const [scheduledAtById, setScheduledAtById] = useState<Record<number, string>>({});
   const [actionStateById, setActionStateById] = useState<Record<number, ReviewActionState>>({});
+  const [sessionActionStateById, setSessionActionStateById] = useState<Record<number, SessionActionMutationState>>({});
+  const [browserHandoffDraftByArtifactPath, setBrowserHandoffDraftByArtifactPath] = useState<
+    Record<string, { publishUrl: string; message: string }>
+  >({});
+  const [browserHandoffCompletionStateById, setBrowserHandoffCompletionStateById] = useState<
+    Record<number, BrowserHandoffCompletionMutationState>
+  >({});
   const pendingDraftActionIdsRef = useRef<Set<number>>(new Set());
+  const followUpScopeVersionRef = useRef(0);
+  const publishFollowUpAttemptByIdRef = useRef<Record<number, number>>({});
   const displayState = stateOverride ?? state;
   const hasLiveReviewDrafts =
     typeof displayState.data === 'object' &&
@@ -331,7 +507,12 @@ export function ReviewQueuePage({
   const visibleDrafts = hasLiveReviewDrafts ? (localDrafts ?? loadedReviewDrafts) : [];
 
   useEffect(() => {
+    followUpScopeVersionRef.current += 1;
+    publishFollowUpAttemptByIdRef.current = {};
     setActionStateById({});
+    setSessionActionStateById({});
+    setBrowserHandoffDraftByArtifactPath({});
+    setBrowserHandoffCompletionStateById({});
   }, [projectId]);
 
   useEffect(() => {
@@ -376,6 +557,173 @@ export function ReviewQueuePage({
 
   function finishDraftAction(draftId: number) {
     pendingDraftActionIdsRef.current.delete(draftId);
+  }
+
+  function nextPublishFollowUpAttempt(draftId: number) {
+    const nextAttempt = (publishFollowUpAttemptByIdRef.current[draftId] ?? 0) + 1;
+    publishFollowUpAttemptByIdRef.current[draftId] = nextAttempt;
+    return nextAttempt;
+  }
+
+  function readPublishFollowUpAttempt(draftId: number) {
+    return publishFollowUpAttemptByIdRef.current[draftId] ?? 0;
+  }
+
+  function clearBrowserHandoffDrafts(...artifactPaths: Array<string | null>) {
+    const normalizedArtifactPaths = artifactPaths.filter((artifactPath): artifactPath is string => !!artifactPath);
+    if (normalizedArtifactPaths.length === 0) {
+      return;
+    }
+
+    setBrowserHandoffDraftByArtifactPath((currentState) => {
+      const nextState = { ...currentState };
+      for (const artifactPath of normalizedArtifactPaths) {
+        delete nextState[artifactPath];
+      }
+      return nextState;
+    });
+  }
+
+  function handleBrowserHandoffDraftChange(artifactPath: string, field: 'publishUrl' | 'message', value: string) {
+    setBrowserHandoffDraftByArtifactPath((currentState) => ({
+      ...currentState,
+      [artifactPath]: {
+        publishUrl: currentState[artifactPath]?.publishUrl ?? '',
+        message: currentState[artifactPath]?.message ?? '',
+        [field]: value,
+      },
+    }));
+  }
+
+  function applyCompletedBrowserHandoff(result: BrowserHandoffCompletionResponse) {
+    setLocalDrafts((currentDrafts) => {
+      if (result.draftStatus !== 'review') {
+        return removeReviewQueueDraft(currentDrafts ?? visibleDrafts, result.draftId);
+      }
+
+      return currentDrafts ?? visibleDrafts;
+    });
+  }
+
+  function handleRequestSessionAction(draftId: number, browserHandoff: BrowserHandoffContract) {
+    if (!browserHandoff.channelAccountId || !browserHandoff.sessionAction) {
+      return;
+    }
+
+    const scopeVersionAtStart = followUpScopeVersionRef.current;
+    const publishFollowUpAttempt = readPublishFollowUpAttempt(draftId);
+
+    setSessionActionStateById((currentState) => ({
+      ...currentState,
+      [draftId]: {
+        status: 'loading',
+        message: null,
+        artifactPath: null,
+      },
+    }));
+
+    void requestChannelAccountSessionActionAction(browserHandoff.channelAccountId, {
+      action: browserHandoff.sessionAction,
+    })
+      .then((result) => {
+        if (scopeVersionAtStart !== followUpScopeVersionRef.current) {
+          return;
+        }
+        if (publishFollowUpAttempt !== readPublishFollowUpAttempt(draftId)) {
+          return;
+        }
+        setSessionActionStateById((currentState) => ({
+          ...currentState,
+          [draftId]: {
+            status: 'success',
+            message: result.sessionAction.message,
+            artifactPath: readSessionActionArtifactPath(result),
+          },
+        }));
+      })
+      .catch((error) => {
+        if (scopeVersionAtStart !== followUpScopeVersionRef.current) {
+          return;
+        }
+        if (publishFollowUpAttempt !== readPublishFollowUpAttempt(draftId)) {
+          return;
+        }
+        setSessionActionStateById((currentState) => ({
+          ...currentState,
+          [draftId]: {
+            status: 'error',
+            message: `提交 browser session 动作失败：${getErrorMessage(error)}`,
+            artifactPath: null,
+          },
+        }));
+      });
+  }
+
+  function handleCompleteBrowserHandoff(
+    draftId: number,
+    browserHandoff: BrowserHandoffContract,
+    publishStatus: 'published' | 'failed',
+  ) {
+    if (!browserHandoff.artifactPath) {
+      return;
+    }
+
+    const scopeVersionAtStart = followUpScopeVersionRef.current;
+    const publishFollowUpAttempt = readPublishFollowUpAttempt(draftId);
+    const handoffDraft = browserHandoffDraftByArtifactPath[browserHandoff.artifactPath];
+    const message = handoffDraft?.message.trim();
+    const publishUrl = handoffDraft?.publishUrl.trim();
+
+    setBrowserHandoffCompletionStateById((currentState) => ({
+      ...currentState,
+      [draftId]: {
+        status: 'loading',
+        error: null,
+        result: null,
+      },
+    }));
+
+    void completeBrowserHandoffAction({
+      artifactPath: browserHandoff.artifactPath,
+      publishStatus,
+      ...(message ? { message } : {}),
+      ...(publishUrl ? { publishUrl } : {}),
+    })
+      .then((result) => {
+        if (scopeVersionAtStart !== followUpScopeVersionRef.current) {
+          return;
+        }
+        if (publishFollowUpAttempt !== readPublishFollowUpAttempt(draftId)) {
+          return;
+        }
+
+        applyCompletedBrowserHandoff(result);
+        setBrowserHandoffCompletionStateById((currentState) => ({
+          ...currentState,
+          [draftId]: {
+            status: 'success',
+            error: null,
+            result,
+          },
+        }));
+        reload();
+      })
+      .catch((error) => {
+        if (scopeVersionAtStart !== followUpScopeVersionRef.current) {
+          return;
+        }
+        if (publishFollowUpAttempt !== readPublishFollowUpAttempt(draftId)) {
+          return;
+        }
+        setBrowserHandoffCompletionStateById((currentState) => ({
+          ...currentState,
+          [draftId]: {
+            status: 'error',
+            error: `Review browser handoff 结单失败：${getErrorMessage(error)}`,
+            result: null,
+          },
+        }));
+      });
   }
 
   async function handleReviewDraft(draftId: number, nextStatus: 'approved' | 'draft' | 'failed') {
@@ -432,39 +780,67 @@ export function ReviewQueuePage({
       return;
     }
 
+    const scopeVersionAtStart = followUpScopeVersionRef.current;
+    const previousBrowserHandoff = readBrowserHandoffContract(getReviewActionState(actionStateById, draftId).contractDetails);
+    const publishFollowUpAttempt = nextPublishFollowUpAttempt(draftId);
+
+    setSessionActionStateById((currentState) => ({
+      ...currentState,
+      [draftId]: createIdleSessionActionState(),
+    }));
+    setBrowserHandoffCompletionStateById((currentState) => ({
+      ...currentState,
+      [draftId]: createIdleBrowserHandoffCompletionState(),
+    }));
+    clearBrowserHandoffDrafts(previousBrowserHandoff?.artifactPath ?? null);
+
     try {
       const result = await publishReviewDraftAction(draftId);
+      if (scopeVersionAtStart !== followUpScopeVersionRef.current) {
+        return;
+      }
+      if (publishFollowUpAttempt !== readPublishFollowUpAttempt(draftId)) {
+        return;
+      }
       const publishSucceeded = result.success || result.status === 'queued';
       if (publishSucceeded) {
         setLocalDrafts((currentDrafts) => removeReviewQueueDraft(currentDrafts ?? visibleDrafts, draftId));
       }
-      setActionStateById((currentState) => ({
-        ...currentState,
-        [draftId]: {
-          status:
-            result.status === 'manual_required' || publishSucceeded
-              ? 'success'
-              : 'error',
-          message:
-            result.success
-              ? `已发布：${sourceDraft.title ?? sourceDraft.platform}`
-              : result.status === 'queued'
-                ? `已入队等待发布：${sourceDraft.title ?? sourceDraft.platform}`
+      const nextActionState: ReviewActionState = {
+        status:
+          result.status === 'manual_required' || publishSucceeded
+            ? 'success'
+            : 'error',
+        message:
+          result.success
+            ? `已发布：${sourceDraft.title ?? sourceDraft.platform}`
+            : result.status === 'queued'
+              ? `已入队等待发布：${sourceDraft.title ?? sourceDraft.platform}`
               : result.status === 'manual_required'
                 ? `已生成人工接管回执：${sourceDraft.title ?? sourceDraft.platform}`
                 : null,
-          error:
-            result.success || result.status === 'manual_required' || result.status === 'queued'
-              ? null
-              : result.message,
-          action: 'publish',
-          publishUrl: result.publishUrl,
-          contractMessage: result.message,
-          contractStatus: result.status ?? null,
-          contractDetails: asRecord(result.details),
-        },
+        error:
+          result.success || result.status === 'manual_required' || result.status === 'queued'
+            ? null
+            : result.message,
+        action: 'publish',
+        publishUrl: result.publishUrl,
+        contractMessage: result.message,
+        contractStatus: result.status ?? null,
+        contractDetails: asRecord(result.details),
+      };
+      clearBrowserHandoffDrafts(readBrowserHandoffContract(nextActionState.contractDetails)?.artifactPath ?? null);
+      setActionStateById((currentState) => ({
+        ...currentState,
+        [draftId]: nextActionState,
       }));
     } catch (error) {
+      if (scopeVersionAtStart !== followUpScopeVersionRef.current) {
+        return;
+      }
+      if (publishFollowUpAttempt !== readPublishFollowUpAttempt(draftId)) {
+        return;
+      }
       setActionStateById((currentState) => ({
         ...currentState,
         [draftId]: {
@@ -542,8 +918,128 @@ export function ReviewQueuePage({
   }
 
   function handleReloadQueue() {
+    followUpScopeVersionRef.current += 1;
+    publishFollowUpAttemptByIdRef.current = {};
     setActionStateById({});
+    setSessionActionStateById({});
+    setBrowserHandoffDraftByArtifactPath({});
+    setBrowserHandoffCompletionStateById({});
     reload();
+  }
+
+  function renderReviewDraftPublishFollowUp(draftId: number, actionState: ReviewActionState) {
+    if (actionState.status !== 'success' || actionState.contractStatus !== 'manual_required') {
+      return null;
+    }
+
+    const browserHandoff = readBrowserHandoffContract(actionState.contractDetails);
+    if (!browserHandoff) {
+      return null;
+    }
+
+    const sessionActionState = sessionActionStateById[draftId] ?? createIdleSessionActionState();
+    const browserHandoffCompletionState =
+      browserHandoffCompletionStateById[draftId] ?? createIdleBrowserHandoffCompletionState();
+    const handoffDraft = browserHandoff.artifactPath
+      ? browserHandoffDraftByArtifactPath[browserHandoff.artifactPath]
+      : undefined;
+    const shouldShowSessionActionButton =
+      !!browserHandoff.channelAccountId &&
+      (browserHandoff.sessionAction === 'request_session' || browserHandoff.sessionAction === 'relogin');
+    const shouldShowBrowserHandoffCompletionActions =
+      !!browserHandoff.artifactPath &&
+      (!browserHandoffCompletionState.result || browserHandoffCompletionState.result.draftId !== draftId);
+
+    return (
+      <div style={{ display: 'grid', gap: '10px' }}>
+        {shouldShowSessionActionButton ? (
+          <div style={{ display: 'grid', gap: '8px' }}>
+            <span style={{ fontWeight: 700, color: '#334155' }}>Browser Session 动作</span>
+            <span style={{ display: 'inline-flex', gap: '8px', flexWrap: 'wrap' }}>
+              <ActionButton
+                label={
+                  sessionActionState.status === 'loading'
+                    ? formatSessionActionPendingLabel(browserHandoff.sessionAction as BrowserSessionAction)
+                    : formatSessionActionLabel(browserHandoff.sessionAction as BrowserSessionAction)
+                }
+                tone="primary"
+                onClick={() => {
+                  handleRequestSessionAction(draftId, browserHandoff);
+                }}
+                disabled={sessionActionState.status === 'loading'}
+                buttonAttributes={{
+                  'data-review-session-action': browserHandoff.sessionAction ?? undefined,
+                }}
+              />
+            </span>
+            {sessionActionState.message ? <span>{sessionActionState.message}</span> : null}
+            {sessionActionState.artifactPath ? (
+              <span>Session 请求路径：{sessionActionState.artifactPath}</span>
+            ) : null}
+          </div>
+        ) : null}
+        {shouldShowBrowserHandoffCompletionActions ? (
+          <div style={{ display: 'grid', gap: '8px' }}>
+            <span style={{ fontWeight: 700, color: '#334155' }}>Review browser handoff 结单</span>
+            <input
+              data-review-browser-handoff-field="publishUrl"
+              value={handoffDraft?.publishUrl ?? ''}
+              onChange={(event) => {
+                handleBrowserHandoffDraftChange(browserHandoff.artifactPath!, 'publishUrl', event.target.value);
+              }}
+              placeholder="publish URL（可选）"
+              style={projectInputStyle}
+            />
+            <input
+              data-review-browser-handoff-field="message"
+              value={handoffDraft?.message ?? ''}
+              onChange={(event) => {
+                handleBrowserHandoffDraftChange(browserHandoff.artifactPath!, 'message', event.target.value);
+              }}
+              placeholder="结单备注（可选）"
+              style={projectInputStyle}
+            />
+            <span style={{ display: 'inline-flex', gap: '8px', flexWrap: 'wrap' }}>
+              <ActionButton
+                label={browserHandoffCompletionState.status === 'loading' ? '正在结单...' : '标记已发布'}
+                tone="primary"
+                onClick={() => {
+                  handleCompleteBrowserHandoff(draftId, browserHandoff, 'published');
+                }}
+                disabled={browserHandoffCompletionState.status === 'loading'}
+                buttonAttributes={{
+                  'data-review-browser-handoff-complete': 'published',
+                }}
+              />
+              <ActionButton
+                label={browserHandoffCompletionState.status === 'loading' ? '正在结单...' : '标记失败'}
+                onClick={() => {
+                  handleCompleteBrowserHandoff(draftId, browserHandoff, 'failed');
+                }}
+                disabled={browserHandoffCompletionState.status === 'loading'}
+                buttonAttributes={{
+                  'data-review-browser-handoff-complete': 'failed',
+                }}
+              />
+            </span>
+          </div>
+        ) : null}
+        {browserHandoffCompletionState.status === 'success' && browserHandoffCompletionState.result ? (
+          <div style={{ display: 'grid', gap: '6px', color: '#166534' }}>
+            <span>{`已结单 draft #${browserHandoffCompletionState.result.draftId} (${browserHandoffCompletionState.result.draftStatus})`}</span>
+            {browserHandoffCompletionState.result.message ? (
+              <span>{browserHandoffCompletionState.result.message}</span>
+            ) : null}
+            {browserHandoffCompletionState.result.publishUrl ? (
+              <span>{browserHandoffCompletionState.result.publishUrl}</span>
+            ) : null}
+          </div>
+        ) : null}
+        {browserHandoffCompletionState.status === 'error' && browserHandoffCompletionState.error ? (
+          <div style={{ color: '#b91c1c' }}>{browserHandoffCompletionState.error}</div>
+        ) : null}
+      </div>
+    );
   }
 
   return (
@@ -778,6 +1274,8 @@ export function ReviewQueuePage({
                         ) : null}
                         {publishContract.publishError ? <div>最近错误：{publishContract.publishError}</div> : null}
                       </div>
+
+                      {renderReviewDraftPublishFollowUp(draft.id, actionState)}
 
                       {actionState.status === 'loading' ? (
                         <p style={{ margin: 0, color: '#334155' }}>
