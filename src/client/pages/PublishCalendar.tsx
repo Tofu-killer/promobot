@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActionButton } from '../components/ActionButton';
 import { PageHeader } from '../components/PageHeader';
 import { SectionCard } from '../components/SectionCard';
@@ -10,6 +10,7 @@ import { useAsyncAction, useAsyncQuery } from '../hooks/useAsyncRequest';
 export type { DraftRecord, DraftsResponse } from '../lib/drafts';
 
 type CalendarDraftStatus = 'scheduled' | 'published';
+type BrowserSessionAction = 'request_session' | 'relogin';
 
 export interface UpdatePublishCalendarDraftScheduleResponse {
   draft: DraftRecord;
@@ -20,6 +21,52 @@ export interface RetryPublishCalendarDraftResponse {
   status?: string;
   publishUrl: string | null;
   message: string;
+  details?: Record<string, unknown>;
+}
+
+interface RequestChannelAccountSessionActionPayload {
+  action?: BrowserSessionAction;
+}
+
+interface RequestChannelAccountSessionActionResponse {
+  sessionAction: {
+    action: BrowserSessionAction;
+    message: string;
+    artifactPath?: string | null;
+    path?: string | null;
+  };
+}
+
+interface CompleteBrowserHandoffInput {
+  artifactPath: string;
+  publishStatus: 'published' | 'failed';
+  message?: string;
+  publishUrl?: string;
+}
+
+interface BrowserHandoffCompletionResponse {
+  ok: boolean;
+  imported: boolean;
+  artifactPath: string;
+  draftId: number;
+  draftStatus: string;
+  platform: string;
+  mode: string;
+  status: string;
+  success: boolean;
+  publishUrl: string | null;
+  externalId: string | null;
+  message: string;
+  publishedAt: string | null;
+}
+
+interface BrowserHandoffContract {
+  platform: string | null;
+  accountKey: string | null;
+  channelAccountId?: number;
+  readiness: string | null;
+  sessionAction: BrowserSessionAction | null;
+  artifactPath: string | null;
 }
 
 interface PublishCalendarPageProps {
@@ -29,6 +76,11 @@ interface PublishCalendarPageProps {
     input: { scheduledAt: string | null },
   ) => Promise<UpdatePublishCalendarDraftScheduleResponse>;
   retryPublishDraftAction?: (id: number) => Promise<RetryPublishCalendarDraftResponse>;
+  requestChannelAccountSessionActionAction?: (
+    accountId: number,
+    input?: RequestChannelAccountSessionActionPayload,
+  ) => Promise<RequestChannelAccountSessionActionResponse>;
+  completeBrowserHandoffAction?: (input: CompleteBrowserHandoffInput) => Promise<BrowserHandoffCompletionResponse>;
   stateOverride?: AsyncState<DraftsResponse>;
 }
 
@@ -36,6 +88,23 @@ interface ScheduleMutationState {
   status: 'idle' | 'loading' | 'success' | 'error';
   message: string | null;
   error: string | null;
+  action: 'schedule' | 'retry' | null;
+  publishUrl: string | null;
+  contractMessage: string | null;
+  contractStatus: string | null;
+  contractDetails: Record<string, unknown> | null;
+}
+
+interface SessionActionMutationState {
+  status: 'idle' | 'loading' | 'success' | 'error';
+  message: string | null;
+  artifactPath: string | null;
+}
+
+interface BrowserHandoffCompletionMutationState {
+  status: 'idle' | 'loading' | 'success' | 'error';
+  error: string | null;
+  result: BrowserHandoffCompletionResponse | null;
 }
 
 const calendarStatuses: CalendarDraftStatus[] = ['scheduled', 'published'];
@@ -87,6 +156,42 @@ export async function retryPublishCalendarDraftRequest(id: number): Promise<Retr
   });
 }
 
+export async function requestPublishCalendarSessionActionRequest(
+  accountId: number,
+  input: RequestChannelAccountSessionActionPayload = {},
+): Promise<RequestChannelAccountSessionActionResponse> {
+  return apiRequest<RequestChannelAccountSessionActionResponse>(`/api/channel-accounts/${accountId}/session/request`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(input),
+  });
+}
+
+export async function completePublishCalendarBrowserHandoffRequest(
+  input: CompleteBrowserHandoffInput,
+): Promise<BrowserHandoffCompletionResponse> {
+  return apiRequest<BrowserHandoffCompletionResponse>('/api/system/browser-handoffs/import', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      artifactPath: input.artifactPath,
+      publishStatus: input.publishStatus,
+      message:
+        input.message ??
+        (input.publishStatus === 'published'
+          ? 'browser handoff marked published'
+          : 'browser handoff marked failed'),
+      ...(input.publishUrl !== undefined && input.publishUrl.trim().length > 0
+        ? { publishUrl: input.publishUrl.trim() }
+        : {}),
+    }),
+  });
+}
+
 function isCalendarDraftStatus(status: DraftRecord['status']): status is CalendarDraftStatus {
   return calendarStatuses.includes(status as CalendarDraftStatus);
 }
@@ -113,20 +218,66 @@ function readString(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value : null;
 }
 
-function getDraftPublishContract(draft: DraftRecord) {
-  const draftRecord = asRecord(draft);
+function readPositiveInteger(value: unknown) {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
+function readBrowserHandoffContract(details: Record<string, unknown> | null): BrowserHandoffContract | null {
+  const browserHandoff = asRecord(details?.browserHandoff);
+  if (!browserHandoff) {
+    return null;
+  }
+
+  const artifact = browserHandoff.artifact;
+  const artifactRecord = asRecord(artifact);
+  const sessionActionRecord = asRecord(browserHandoff.sessionAction);
+  const sessionActionValue =
+    readString(browserHandoff.sessionAction) ??
+    readString(sessionActionRecord?.action) ??
+    readString(sessionActionRecord?.type);
+  const sessionAction =
+    sessionActionValue === 'request_session' || sessionActionValue === 'relogin'
+      ? sessionActionValue
+      : null;
+  const artifactPath =
+    readString(browserHandoff.artifactPath) ??
+    readString(artifact) ??
+    readString(artifactRecord?.artifactPath) ??
+    readString(artifactRecord?.path) ??
+    readString(artifactRecord?.relativePath) ??
+    readString(sessionActionRecord?.artifactPath) ??
+    readString(sessionActionRecord?.path);
+  const platform = readString(browserHandoff.platform);
+  const accountKey = readString(browserHandoff.accountKey);
+  const channelAccountId = readPositiveInteger(browserHandoff.channelAccountId);
+  const readiness = readString(browserHandoff.readiness);
+
+  if (!platform && !accountKey && !channelAccountId && !readiness && !sessionAction && !artifactPath) {
+    return null;
+  }
 
   return {
-    publishUrl:
-      readString(draftRecord?.publishUrl) ??
-      readString(draftRecord?.lastPublishUrl) ??
-      readString(draftRecord?.url),
-    publishMessage:
-      readString(draftRecord?.publishMessage) ??
-      readString(draftRecord?.lastPublishMessage) ??
-      readString(draftRecord?.message),
-    publishError: readString(draftRecord?.lastPublishError) ?? readString(draftRecord?.publishError),
+    platform,
+    accountKey,
+    channelAccountId,
+    readiness,
+    sessionAction,
+    artifactPath,
   };
+}
+
+function readSessionActionArtifactPath(result: RequestChannelAccountSessionActionResponse | undefined) {
+  const sessionAction = asRecord(result?.sessionAction);
+
+  return readString(sessionAction?.artifactPath) ?? readString(sessionAction?.path);
+}
+
+function formatSessionActionLabel(action: BrowserSessionAction) {
+  return action === 'relogin' ? '重新登录' : '请求登录';
+}
+
+function formatSessionActionPendingLabel(action: BrowserSessionAction) {
+  return action === 'relogin' ? '正在提交重新登录...' : '正在提交登录请求...';
 }
 
 function formatCalendarDraftStateDescription(draft: DraftRecord, scheduledAt: string) {
@@ -150,6 +301,40 @@ function createIdleMutationState(): ScheduleMutationState {
     status: 'idle',
     message: null,
     error: null,
+    action: null,
+    publishUrl: null,
+    contractMessage: null,
+    contractStatus: null,
+    contractDetails: null,
+  };
+}
+
+function createIdleSessionActionState(): SessionActionMutationState {
+  return {
+    status: 'idle',
+    message: null,
+    artifactPath: null,
+  };
+}
+
+function createIdleBrowserHandoffCompletionState(): BrowserHandoffCompletionMutationState {
+  return {
+    status: 'idle',
+    error: null,
+    result: null,
+  };
+}
+
+function createLoadingMutationState(action: ScheduleMutationState['action']): ScheduleMutationState {
+  return {
+    status: 'loading',
+    message: null,
+    error: null,
+    action,
+    publishUrl: null,
+    contractMessage: null,
+    contractStatus: null,
+    contractDetails: null,
   };
 }
 
@@ -162,6 +347,11 @@ function createScheduleSuccessState(scheduledAt: string | null): ScheduleMutatio
     status: 'success',
     message: scheduledAt ? '排程已保存' : '排程已清空',
     error: null,
+    action: 'schedule',
+    publishUrl: null,
+    contractMessage: null,
+    contractStatus: null,
+    contractDetails: null,
   };
 }
 
@@ -170,6 +360,81 @@ function createScheduleErrorState(error: string): ScheduleMutationState {
     status: 'error',
     message: null,
     error,
+    action: 'schedule',
+    publishUrl: null,
+    contractMessage: null,
+    contractStatus: null,
+    contractDetails: null,
+  };
+}
+
+function isHandledRetryResult(result: RetryPublishCalendarDraftResponse) {
+  return result.success || result.status === 'manual_required' || result.status === 'queued';
+}
+
+function formatPublishContractStatus(draft: DraftRecord, mutationState: ScheduleMutationState) {
+  if (mutationState.action === 'retry') {
+    if (mutationState.status === 'loading') {
+      return '处理中';
+    }
+
+    if (mutationState.status === 'success') {
+      if (mutationState.contractStatus === 'queued') {
+        return '已入队';
+      }
+      if (mutationState.contractStatus === 'manual_required') {
+        return '人工接管';
+      }
+      if (mutationState.contractStatus === 'published' || draft.status === 'published') {
+        return '已发布';
+      }
+      return '已确认';
+    }
+
+    if (mutationState.status === 'error') {
+      return '失败';
+    }
+  }
+
+  if (draft.status === 'published') {
+    return '已发布';
+  }
+
+  if (draft.status === 'failed') {
+    return '失败';
+  }
+
+  return '待触发';
+}
+
+function getDraftPublishContract(draft: DraftRecord, mutationState: ScheduleMutationState) {
+  const draftRecord = asRecord(draft);
+  const browserHandoff = readBrowserHandoffContract(mutationState.contractDetails);
+
+  return {
+    publishUrl:
+      mutationState.action === 'retry'
+        ? mutationState.publishUrl ??
+          readString(draftRecord?.publishUrl) ??
+          readString(draftRecord?.lastPublishUrl) ??
+          readString(draftRecord?.url)
+        : readString(draftRecord?.publishUrl) ??
+          readString(draftRecord?.lastPublishUrl) ??
+          readString(draftRecord?.url),
+    contractMessage:
+      mutationState.action === 'retry'
+        ? mutationState.contractMessage ??
+          readString(draftRecord?.publishMessage) ??
+          readString(draftRecord?.lastPublishMessage) ??
+          readString(draftRecord?.message)
+        : readString(draftRecord?.publishMessage) ??
+          readString(draftRecord?.lastPublishMessage) ??
+          readString(draftRecord?.message),
+    publishError:
+      mutationState.action === 'retry'
+        ? mutationState.error ?? readString(draftRecord?.lastPublishError) ?? readString(draftRecord?.publishError)
+        : readString(draftRecord?.lastPublishError) ?? readString(draftRecord?.publishError),
+    browserHandoff,
   };
 }
 
@@ -177,6 +442,8 @@ export function PublishCalendarPage({
   loadDraftsAction = loadPublishCalendarRequest,
   updateDraftScheduleAction = updatePublishCalendarDraftScheduleRequest,
   retryPublishDraftAction = retryPublishCalendarDraftRequest,
+  requestChannelAccountSessionActionAction = requestPublishCalendarSessionActionRequest,
+  completeBrowserHandoffAction = completePublishCalendarBrowserHandoffRequest,
   stateOverride,
 }: PublishCalendarPageProps) {
   const [projectIdDraft, setProjectIdDraft] = useState('');
@@ -194,6 +461,15 @@ export function PublishCalendarPage({
   const [scheduledAtById, setScheduledAtById] = useState<Record<number, string>>({});
   const [mutationStateById, setMutationStateById] = useState<Record<number, ScheduleMutationState>>({});
   const [calendarFeedback, setCalendarFeedback] = useState<ScheduleMutationState>(createIdleMutationState());
+  const [sessionActionStateById, setSessionActionStateById] = useState<Record<number, SessionActionMutationState>>({});
+  const [browserHandoffDraftByArtifactPath, setBrowserHandoffDraftByArtifactPath] = useState<
+    Record<string, { publishUrl: string; message: string }>
+  >({});
+  const [browserHandoffCompletionStateById, setBrowserHandoffCompletionStateById] = useState<
+    Record<number, BrowserHandoffCompletionMutationState>
+  >({});
+  const followUpScopeVersionRef = useRef(0);
+  const retryFollowUpAttemptByIdRef = useRef<Record<number, number>>({});
   const displayState = stateOverride ?? state;
   const hasLiveDrafts =
     typeof displayState.data === 'object' &&
@@ -221,8 +497,13 @@ export function PublishCalendarPage({
   }, [displayState]);
 
   useEffect(() => {
+    followUpScopeVersionRef.current += 1;
+    retryFollowUpAttemptByIdRef.current = {};
     setCalendarFeedback(createIdleMutationState());
     setMutationStateById({});
+    setSessionActionStateById({});
+    setBrowserHandoffDraftByArtifactPath({});
+    setBrowserHandoffCompletionStateById({});
   }, [projectId]);
 
   function getScheduledAtValue(draft: DraftRecord) {
@@ -242,6 +523,81 @@ export function PublishCalendarPage({
     return mutationStateById[draftId] ?? createIdleMutationState();
   }
 
+  function nextRetryFollowUpAttempt(draftId: number) {
+    const nextAttempt = (retryFollowUpAttemptByIdRef.current[draftId] ?? 0) + 1;
+    retryFollowUpAttemptByIdRef.current[draftId] = nextAttempt;
+    return nextAttempt;
+  }
+
+  function readRetryFollowUpAttempt(draftId: number) {
+    return retryFollowUpAttemptByIdRef.current[draftId] ?? 0;
+  }
+
+  function clearBrowserHandoffDrafts(...artifactPaths: Array<string | null>) {
+    const normalizedArtifactPaths = artifactPaths.filter((artifactPath): artifactPath is string => !!artifactPath);
+    if (normalizedArtifactPaths.length === 0) {
+      return;
+    }
+
+    setBrowserHandoffDraftByArtifactPath((currentState) => {
+      const nextState = { ...currentState };
+      for (const artifactPath of normalizedArtifactPaths) {
+        delete nextState[artifactPath];
+      }
+      return nextState;
+    });
+  }
+
+  function handleBrowserHandoffDraftChange(artifactPath: string, field: 'publishUrl' | 'message', value: string) {
+    setBrowserHandoffDraftByArtifactPath((currentState) => ({
+      ...currentState,
+      [artifactPath]: {
+        publishUrl: currentState[artifactPath]?.publishUrl ?? '',
+        message: currentState[artifactPath]?.message ?? '',
+        [field]: value,
+      },
+    }));
+  }
+
+  function applyCompletedBrowserHandoff(result: BrowserHandoffCompletionResponse) {
+    setDraftsById((currentState) => {
+      const sourceDraft = currentState[result.draftId] ?? visibleDrafts.find((draft) => draft.id === result.draftId);
+      if (!sourceDraft) {
+        return currentState;
+      }
+
+      return {
+        ...currentState,
+        [result.draftId]: {
+          ...sourceDraft,
+          status:
+            result.draftStatus === 'published' || result.draftStatus === 'scheduled'
+              ? result.draftStatus
+              : sourceDraft.status,
+          ...(result.publishUrl ? { publishUrl: result.publishUrl, lastPublishUrl: result.publishUrl } : {}),
+          ...(result.message ? { publishMessage: result.message, lastPublishMessage: result.message } : {}),
+          ...(result.publishedAt ? { publishedAt: result.publishedAt } : {}),
+          updatedAt: result.publishedAt ?? sourceDraft.updatedAt,
+        } as DraftRecord,
+      };
+    });
+
+    setMutationStateById((currentState) => ({
+      ...currentState,
+      [result.draftId]: {
+        status: 'success',
+        message: result.message,
+        error: null,
+        action: 'retry',
+        publishUrl: result.publishUrl,
+        contractMessage: result.message,
+        contractStatus: result.status,
+        contractDetails: null,
+      },
+    }));
+    clearBrowserHandoffDrafts(result.artifactPath);
+  }
+
   function updateScheduledAtDraftInput(draftId: number, value: string) {
     setCalendarFeedback(createIdleMutationState());
     setScheduledAtById((current) => ({
@@ -259,11 +615,7 @@ export function PublishCalendarPage({
     setCalendarFeedback(createIdleMutationState());
     setMutationStateById((current) => ({
       ...current,
-      [draft.id]: {
-        status: 'loading',
-        message: null,
-        error: null,
-      },
+      [draft.id]: createLoadingMutationState('schedule'),
     }));
 
     try {
@@ -297,43 +649,94 @@ export function PublishCalendarPage({
   }
 
   async function handleRetryPublish(draft: DraftRecord) {
+    const scopeVersionAtStart = followUpScopeVersionRef.current;
+    const previousBrowserHandoff = readBrowserHandoffContract(getMutationState(draft.id).contractDetails);
+    const retryFollowUpAttempt = nextRetryFollowUpAttempt(draft.id);
+
     setCalendarFeedback(createIdleMutationState());
     setMutationStateById((current) => ({
       ...current,
-      [draft.id]: {
-        status: 'loading',
-        message: null,
-        error: null,
-      },
+      [draft.id]: createLoadingMutationState('retry'),
     }));
+    setSessionActionStateById((currentState) => ({
+      ...currentState,
+      [draft.id]: createIdleSessionActionState(),
+    }));
+    setBrowserHandoffCompletionStateById((currentState) => ({
+      ...currentState,
+      [draft.id]: createIdleBrowserHandoffCompletionState(),
+    }));
+    clearBrowserHandoffDrafts(previousBrowserHandoff?.artifactPath ?? null);
 
     try {
       const result = await retryPublish(draft.id);
+      if (scopeVersionAtStart !== followUpScopeVersionRef.current) {
+        return;
+      }
+      if (retryFollowUpAttempt !== readRetryFollowUpAttempt(draft.id)) {
+        return;
+      }
+
+      const nextMutationState: ScheduleMutationState = {
+        status: isHandledRetryResult(result) ? 'success' : 'error',
+        message:
+          result.success
+            ? result.message
+            : result.status === 'queued'
+              ? `已入队等待发布：${draft.title ?? draft.platform}`
+              : result.status === 'manual_required'
+                ? `已生成人工接管回执：${draft.title ?? draft.platform}`
+                : null,
+        error: isHandledRetryResult(result) ? null : result.message,
+        action: 'retry',
+        publishUrl: result.publishUrl,
+        contractMessage: result.message,
+        contractStatus: result.status ?? (result.success ? 'published' : null),
+        contractDetails: asRecord(result.details),
+      };
 
       setDraftsById((current) => ({
         ...current,
         [draft.id]: {
           ...draft,
-          status: result.status === 'published' ? 'published' : draft.status,
-          ...(result.publishUrl ? { lastPublishUrl: result.publishUrl } : {}),
-          ...(result.message ? { lastPublishMessage: result.message } : {}),
+          status: result.success || result.status === 'published' ? 'published' : draft.status,
+          ...(result.publishUrl ? { publishUrl: result.publishUrl, lastPublishUrl: result.publishUrl } : {}),
+          ...(result.message ? { publishMessage: result.message, lastPublishMessage: result.message } : {}),
         } as DraftRecord,
       }));
-      setCalendarFeedback({
-        status: 'success',
-        message: result.message,
-        error: null,
-      });
+      clearBrowserHandoffDrafts(readBrowserHandoffContract(nextMutationState.contractDetails)?.artifactPath ?? null);
       setMutationStateById((current) => ({
         ...current,
-        [draft.id]: {
-          status: 'success',
-          message: result.message,
-          error: null,
-        },
+        [draft.id]: nextMutationState,
       }));
+      setCalendarFeedback({
+        status: isHandledRetryResult(result) ? 'success' : 'error',
+        message: isHandledRetryResult(result) ? result.message : null,
+        error: isHandledRetryResult(result) ? null : result.message,
+        action: 'retry',
+        publishUrl: result.publishUrl,
+        contractMessage: result.message,
+        contractStatus: nextMutationState.contractStatus,
+        contractDetails: nextMutationState.contractDetails,
+      });
     } catch (error) {
-      const nextErrorState = createScheduleErrorState(getErrorMessage(error));
+      const errorMessage = getErrorMessage(error);
+      const nextErrorState: ScheduleMutationState = {
+        status: 'error',
+        message: null,
+        error: errorMessage,
+        action: 'retry',
+        publishUrl: null,
+        contractMessage: errorMessage,
+        contractStatus: 'failed',
+        contractDetails: null,
+      };
+      if (scopeVersionAtStart !== followUpScopeVersionRef.current) {
+        return;
+      }
+      if (retryFollowUpAttempt !== readRetryFollowUpAttempt(draft.id)) {
+        return;
+      }
       setCalendarFeedback(nextErrorState);
       setMutationStateById((current) => ({
         ...current,
@@ -342,10 +745,247 @@ export function PublishCalendarPage({
     }
   }
 
+  function handleRequestSessionAction(draftId: number, browserHandoff: BrowserHandoffContract) {
+    if (!browserHandoff.channelAccountId || !browserHandoff.sessionAction) {
+      return;
+    }
+
+    const scopeVersionAtStart = followUpScopeVersionRef.current;
+    const retryFollowUpAttempt = readRetryFollowUpAttempt(draftId);
+
+    setSessionActionStateById((currentState) => ({
+      ...currentState,
+      [draftId]: {
+        status: 'loading',
+        message: null,
+        artifactPath: null,
+      },
+    }));
+
+    void requestChannelAccountSessionActionAction(browserHandoff.channelAccountId, {
+      action: browserHandoff.sessionAction,
+    })
+      .then((result) => {
+        if (scopeVersionAtStart !== followUpScopeVersionRef.current) {
+          return;
+        }
+        if (retryFollowUpAttempt !== readRetryFollowUpAttempt(draftId)) {
+          return;
+        }
+        setSessionActionStateById((currentState) => ({
+          ...currentState,
+          [draftId]: {
+            status: 'success',
+            message: result.sessionAction.message,
+            artifactPath: readSessionActionArtifactPath(result),
+          },
+        }));
+      })
+      .catch((error) => {
+        if (scopeVersionAtStart !== followUpScopeVersionRef.current) {
+          return;
+        }
+        if (retryFollowUpAttempt !== readRetryFollowUpAttempt(draftId)) {
+          return;
+        }
+        setSessionActionStateById((currentState) => ({
+          ...currentState,
+          [draftId]: {
+            status: 'error',
+            message: `提交 browser session 动作失败：${getErrorMessage(error)}`,
+            artifactPath: null,
+          },
+        }));
+      });
+  }
+
+  function handleCompleteBrowserHandoff(
+    draftId: number,
+    browserHandoff: BrowserHandoffContract,
+    publishStatus: 'published' | 'failed',
+  ) {
+    if (!browserHandoff.artifactPath) {
+      return;
+    }
+
+    const scopeVersionAtStart = followUpScopeVersionRef.current;
+    const retryFollowUpAttempt = readRetryFollowUpAttempt(draftId);
+    const handoffDraft = browserHandoffDraftByArtifactPath[browserHandoff.artifactPath];
+    const message = handoffDraft?.message.trim();
+    const publishUrl = handoffDraft?.publishUrl.trim();
+
+    setBrowserHandoffCompletionStateById((currentState) => ({
+      ...currentState,
+      [draftId]: {
+        status: 'loading',
+        error: null,
+        result: null,
+      },
+    }));
+
+    void completeBrowserHandoffAction({
+      artifactPath: browserHandoff.artifactPath,
+      publishStatus,
+      ...(message ? { message } : {}),
+      ...(publishUrl ? { publishUrl } : {}),
+    })
+      .then((result) => {
+        if (scopeVersionAtStart !== followUpScopeVersionRef.current) {
+          return;
+        }
+        if (retryFollowUpAttempt !== readRetryFollowUpAttempt(draftId)) {
+          return;
+        }
+
+        applyCompletedBrowserHandoff(result);
+        setBrowserHandoffCompletionStateById((currentState) => ({
+          ...currentState,
+          [draftId]: {
+            status: 'success',
+            error: null,
+            result,
+          },
+        }));
+        reload();
+      })
+      .catch((error) => {
+        if (scopeVersionAtStart !== followUpScopeVersionRef.current) {
+          return;
+        }
+        if (retryFollowUpAttempt !== readRetryFollowUpAttempt(draftId)) {
+          return;
+        }
+        setBrowserHandoffCompletionStateById((currentState) => ({
+          ...currentState,
+          [draftId]: {
+            status: 'error',
+            error: `Publish browser handoff 结单失败：${getErrorMessage(error)}`,
+            result: null,
+          },
+        }));
+      });
+  }
+
   function handleReloadCalendar() {
+    followUpScopeVersionRef.current += 1;
+    retryFollowUpAttemptByIdRef.current = {};
     setCalendarFeedback(createIdleMutationState());
     setMutationStateById({});
+    setSessionActionStateById({});
+    setBrowserHandoffDraftByArtifactPath({});
+    setBrowserHandoffCompletionStateById({});
     reload();
+  }
+
+  function renderRetryPublishFollowUp(draftId: number, mutationState: ScheduleMutationState) {
+    if (mutationState.status !== 'success' || mutationState.action !== 'retry' || mutationState.contractStatus !== 'manual_required') {
+      return null;
+    }
+
+    const browserHandoff = readBrowserHandoffContract(mutationState.contractDetails);
+    if (!browserHandoff) {
+      return null;
+    }
+
+    const sessionActionState = sessionActionStateById[draftId] ?? createIdleSessionActionState();
+    const browserHandoffCompletionState =
+      browserHandoffCompletionStateById[draftId] ?? createIdleBrowserHandoffCompletionState();
+    const handoffDraft = browserHandoff.artifactPath
+      ? browserHandoffDraftByArtifactPath[browserHandoff.artifactPath]
+      : undefined;
+    const shouldShowSessionActionButton =
+      !!browserHandoff.channelAccountId &&
+      (browserHandoff.sessionAction === 'request_session' || browserHandoff.sessionAction === 'relogin');
+    const shouldShowBrowserHandoffCompletionActions =
+      !!browserHandoff.artifactPath &&
+      (!browserHandoffCompletionState.result || browserHandoffCompletionState.result.draftId !== draftId);
+
+    return (
+      <div style={{ display: 'grid', gap: '10px' }}>
+        {shouldShowSessionActionButton ? (
+          <div style={{ display: 'grid', gap: '8px' }}>
+            <span style={{ fontWeight: 700, color: '#334155' }}>Browser Session 动作</span>
+            <span style={{ display: 'inline-flex', gap: '8px', flexWrap: 'wrap' }}>
+              <ActionButton
+                label={
+                  sessionActionState.status === 'loading'
+                    ? formatSessionActionPendingLabel(browserHandoff.sessionAction as BrowserSessionAction)
+                    : formatSessionActionLabel(browserHandoff.sessionAction as BrowserSessionAction)
+                }
+                tone="primary"
+                onClick={() => {
+                  handleRequestSessionAction(draftId, browserHandoff);
+                }}
+                disabled={sessionActionState.status === 'loading'}
+                buttonAttributes={{
+                  'data-calendar-session-action': browserHandoff.sessionAction ?? undefined,
+                }}
+              />
+            </span>
+            {sessionActionState.message ? <span>{sessionActionState.message}</span> : null}
+            {sessionActionState.artifactPath ? <span>Session 请求路径：{sessionActionState.artifactPath}</span> : null}
+          </div>
+        ) : null}
+        {shouldShowBrowserHandoffCompletionActions ? (
+          <div style={{ display: 'grid', gap: '8px' }}>
+            <span style={{ fontWeight: 700, color: '#334155' }}>Publish browser handoff 结单</span>
+            <input
+              data-calendar-browser-handoff-field="publishUrl"
+              value={handoffDraft?.publishUrl ?? ''}
+              onChange={(event) => {
+                handleBrowserHandoffDraftChange(browserHandoff.artifactPath!, 'publishUrl', event.target.value);
+              }}
+              placeholder="publish URL（可选）"
+              style={projectInputStyle}
+            />
+            <input
+              data-calendar-browser-handoff-field="message"
+              value={handoffDraft?.message ?? ''}
+              onChange={(event) => {
+                handleBrowserHandoffDraftChange(browserHandoff.artifactPath!, 'message', event.target.value);
+              }}
+              placeholder="结单备注（可选）"
+              style={projectInputStyle}
+            />
+            <span style={{ display: 'inline-flex', gap: '8px', flexWrap: 'wrap' }}>
+              <ActionButton
+                label={browserHandoffCompletionState.status === 'loading' ? '正在结单...' : '标记已发布'}
+                tone="primary"
+                onClick={() => {
+                  handleCompleteBrowserHandoff(draftId, browserHandoff, 'published');
+                }}
+                disabled={browserHandoffCompletionState.status === 'loading'}
+                buttonAttributes={{
+                  'data-calendar-browser-handoff-complete': 'published',
+                }}
+              />
+              <ActionButton
+                label={browserHandoffCompletionState.status === 'loading' ? '正在结单...' : '标记失败'}
+                onClick={() => {
+                  handleCompleteBrowserHandoff(draftId, browserHandoff, 'failed');
+                }}
+                disabled={browserHandoffCompletionState.status === 'loading'}
+                buttonAttributes={{
+                  'data-calendar-browser-handoff-complete': 'failed',
+                }}
+              />
+            </span>
+          </div>
+        ) : null}
+        {browserHandoffCompletionState.status === 'success' && browserHandoffCompletionState.result ? (
+          <div style={{ display: 'grid', gap: '6px', color: '#166534' }}>
+            <span>{`已结单 draft #${browserHandoffCompletionState.result.draftId} (${browserHandoffCompletionState.result.draftStatus})`}</span>
+            {browserHandoffCompletionState.result.message ? <span>{browserHandoffCompletionState.result.message}</span> : null}
+            {browserHandoffCompletionState.result.publishUrl ? (
+              <span>{browserHandoffCompletionState.result.publishUrl}</span>
+            ) : null}
+          </div>
+        ) : null}
+        {browserHandoffCompletionState.status === 'error' && browserHandoffCompletionState.error ? (
+          <div style={{ color: '#b91c1c' }}>{browserHandoffCompletionState.error}</div>
+        ) : null}
+      </div>
+    );
   }
 
   return (
@@ -444,7 +1084,14 @@ export function PublishCalendarPage({
                 {[...calendarDrafts, ...failedDrafts].map((draft) => {
                   const mutationState = getMutationState(draft.id);
                   const scheduledAt = getScheduledAtValue(draft);
-                  const publishContract = getDraftPublishContract(draft);
+                  const publishContract = getDraftPublishContract(draft, mutationState);
+                  const shouldShowPublishContract =
+                    draft.status === 'published' ||
+                    draft.status === 'failed' ||
+                    !!publishContract.publishUrl ||
+                    !!publishContract.contractMessage ||
+                    !!publishContract.publishError ||
+                    mutationState.action === 'retry';
 
                   return (
                     <article
@@ -527,11 +1174,21 @@ export function PublishCalendarPage({
                         }}
                       >
                         <div style={{ fontWeight: 700 }}>发布 contract</div>
-                        {draft.status === 'published' || draft.status === 'failed' || publishContract.publishUrl || publishContract.publishMessage || publishContract.publishError ? (
+                        {shouldShowPublishContract ? (
                           <>
+                            <div>回执状态：{formatPublishContractStatus(draft, mutationState)}</div>
                             <div>发布链接：{publishContract.publishUrl ?? '未返回'}</div>
-                            <div>回执消息：{publishContract.publishMessage ?? '等待 contract 字段'}</div>
+                            <div>回执消息：{publishContract.contractMessage ?? '等待 contract 字段'}</div>
                             {publishContract.publishError ? <div>最近错误：{publishContract.publishError}</div> : null}
+                            {publishContract.browserHandoff?.readiness ? (
+                              <div>Handoff 状态：{publishContract.browserHandoff.readiness}</div>
+                            ) : null}
+                            {publishContract.browserHandoff?.sessionAction ? (
+                              <div>Handoff 动作：{publishContract.browserHandoff.sessionAction}</div>
+                            ) : null}
+                            {publishContract.browserHandoff?.artifactPath ? (
+                              <div>Handoff 路径：{publishContract.browserHandoff.artifactPath}</div>
+                            ) : null}
                           </>
                         ) : (
                           <div>排程草稿尚未进入发布回执阶段。</div>
@@ -561,6 +1218,7 @@ export function PublishCalendarPage({
                           {mutationState.status === 'error' ? (
                             <div style={{ color: '#b91c1c', fontWeight: 700 }}>重试发布失败：{mutationState.error}</div>
                           ) : null}
+                          {renderRetryPublishFollowUp(draft.id, mutationState)}
                         </div>
                       ) : null}
 
@@ -618,13 +1276,13 @@ export function PublishCalendarPage({
                               {mutationState.status === 'loading' ? '正在保存排程...' : '保存排程'}
                             </button>
                           </div>
-                          {mutationState.status === 'success' ? (
+                          {mutationState.status === 'success' && mutationState.action === 'schedule' ? (
                             <div style={{ color: '#166534', fontWeight: 700 }}>
                               {mutationState.message}
                               {scheduledAt ? `，排程时间：${scheduledAt}` : ''}
                             </div>
                           ) : null}
-                          {mutationState.status === 'error' ? (
+                          {mutationState.status === 'error' && mutationState.action === 'schedule' ? (
                             <div style={{ color: '#b91c1c', fontWeight: 700 }}>
                               排程保存失败：{mutationState.error}
                               {scheduledAt ? `。待保存时间：${scheduledAt}` : '。待保存操作：清空排程'}
