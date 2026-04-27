@@ -56,7 +56,7 @@ PromoBot 现在不是“只有 spec 的空仓库”了。
 - `Social Inbox` 的 reply handoff 也有同级完成入口：外部 lane 或人工接管完成回复后，可调用 `POST /api/system/inbox-reply-handoffs/import` 回写 `sent/failed` 结果，系统会同步更新 inbox item 状态和 handoff artifact；源码 checkout 场景可用 `pnpm inbox:reply:handoff:complete -- --artifact-path <path> --status <sent|failed>` 直接结单，bundle-only 场景则用 `node dist/server/cli/inboxReplyHandoffComplete.js --artifact-path <path> --status <sent|failed>`，两者都支持附带 `--message`、`--delivery-url`、`--external-id`、`--delivered-at`，再加 `--base-url` 和 `--admin-password` 时会改走远程 API。
 - 仓库同时提供了 `pnpm browser:artifacts:archive -- [--older-than-hours <n>] [--include-results]`，用于把足够旧的已结单 browser artifacts 归档到 `artifacts/archive/`；当前归档范围同时覆盖 browser lane request/result、browser handoff 和 inbox reply handoff。默认是 dry-run，只有加 `--apply` 才会真正移动文件。
 - `System Queue` 与 `Settings` 现在会直接展示 browser lane / browser handoff / inbox reply handoff 的最新工单状态与 resolution 摘要；`Dashboard` 提供总量与 pending 汇总，`Channel Accounts` 则展示当前渠道账号上的 session 元数据。其中 `System Queue` 还能直接导入 browser lane request 的 `storageState` JSON 并结掉工单。系统 API 也提供了 `/api/system/browser-lane-requests`、`/api/system/browser-handoffs` 与 `/api/system/inbox-reply-handoffs` 只读汇总入口，`/api/system/health` 里的 `browserArtifacts` 还会额外带上 `inboxReplyHandoffs(total/pending/resolved/obsolete)`。
-- `Drafts` 在 `manual_required` 时现在不只展示 `browserHandoff` 细节，还支持直接发起 `request_session / relogin`，以及把 browser handoff inline 结单成 `published / failed`；`Review Queue` 会同步展示同一套 handoff 回执细节。
+- `Drafts` 在 `manual_required` 时现在不只展示 `browserHandoff` 细节；当 publish contract 能唯一解析到对应 `channelAccountId` 时，还支持直接发起 `request_session / relogin`，并可把 browser handoff inline 结单成 `published / failed`。`Review Queue` 会同步展示同一套 handoff 回执细节。
 
 ## 开发与验证
 

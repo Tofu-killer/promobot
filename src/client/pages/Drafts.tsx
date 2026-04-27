@@ -346,6 +346,27 @@ function createPublishMutationState(result: PublishDraftResponse, draftTitle: st
   };
 }
 
+function areDraftFormValuesEqual(left: DraftFormValues, right: DraftFormValues) {
+  return left.title === right.title && left.content === right.content && left.status === right.status;
+}
+
+function shouldPreserveDraftFormValues(
+  currentValues: DraftFormValues | undefined,
+  previousDraft: DraftRecord | undefined,
+) {
+  return !!currentValues && !!previousDraft && !areDraftFormValuesEqual(currentValues, createDraftFormValues(previousDraft));
+}
+
+const resolvedPublishFollowUpStatuses = new Set<DraftStatus>(['failed', 'published', 'queued', 'scheduled']);
+
+function shouldInvalidatePublishFollowUp(draft: DraftRecord, publishState: DraftMutationState | undefined) {
+  return (
+    publishState?.status === 'success' &&
+    publishState.contractStatus === 'manual_required' &&
+    resolvedPublishFollowUpStatuses.has(draft.status)
+  );
+}
+
 function getBatchStatusSuccessMessage(status: DraftStatus, draftTitle: string) {
   switch (status) {
     case 'review':
@@ -392,8 +413,12 @@ export function DraftsPage({
     Record<string, { publishUrl: string; message: string }>
   >({});
   const latestScopeKeyRef = useRef(currentScopeKey);
+  const localDraftsRef = useRef<DraftRecord[]>([]);
+  const publishStateByIdRef = useRef<Record<number, DraftMutationState>>({});
   const publishFollowUpAttemptByIdRef = useRef<Record<number, number>>({});
   latestScopeKeyRef.current = currentScopeKey;
+  localDraftsRef.current = localDrafts;
+  publishStateByIdRef.current = publishStateById;
   const displayState = stateOverride ?? state;
   const hasLiveDrafts =
     typeof displayState.data === 'object' &&
@@ -434,6 +459,18 @@ export function DraftsPage({
       return;
     }
 
+    const previousDraftsById = new Map(localDraftsRef.current.map((draft) => [draft.id, draft]));
+    const staleFollowUpDraftIds = displayState.data.drafts
+      .filter((draft) => shouldInvalidatePublishFollowUp(draft, publishStateByIdRef.current[draft.id]))
+      .map((draft) => draft.id);
+    const staleFollowUpArtifactPaths = staleFollowUpDraftIds
+      .map(
+        (draftId) =>
+          readBrowserHandoffContract(publishStateByIdRef.current[draftId]?.contractDetails ?? null)?.artifactPath ??
+          null,
+      )
+      .filter((artifactPath): artifactPath is string => !!artifactPath);
+
     setLocalDrafts(displayState.data.drafts);
     setSelectedDraftIds((currentDraftIds) => {
       const nextVisibleDrafts =
@@ -448,14 +485,50 @@ export function DraftsPage({
       return nextSelectedDraftIds.length === currentDraftIds.length ? currentDraftIds : nextSelectedDraftIds;
     });
     setFormValuesById((currentFormValues) => {
-      const nextFormValues = { ...currentFormValues };
+      const nextFormValues: Record<number, DraftFormValues> = {};
 
       for (const draft of displayState.data.drafts) {
-        nextFormValues[draft.id] = createDraftFormValues(draft);
+        const currentDraftValues = currentFormValues[draft.id];
+        nextFormValues[draft.id] =
+          shouldPreserveDraftFormValues(currentDraftValues, previousDraftsById.get(draft.id))
+            ? currentDraftValues
+            : createDraftFormValues(draft);
       }
 
       return nextFormValues;
     });
+
+    if (staleFollowUpDraftIds.length === 0) {
+      return;
+    }
+
+    for (const draftId of staleFollowUpDraftIds) {
+      nextPublishFollowUpAttempt(draftId);
+    }
+
+    const staleDraftIds = new Set(staleFollowUpDraftIds);
+    setPublishStateById((currentState) => {
+      const nextState = { ...currentState };
+      for (const draftId of staleDraftIds) {
+        delete nextState[draftId];
+      }
+      return nextState;
+    });
+    setSessionActionStateById((currentState) => {
+      const nextState = { ...currentState };
+      for (const draftId of staleDraftIds) {
+        delete nextState[draftId];
+      }
+      return nextState;
+    });
+    setBrowserHandoffCompletionStateById((currentState) => {
+      const nextState = { ...currentState };
+      for (const draftId of staleDraftIds) {
+        delete nextState[draftId];
+      }
+      return nextState;
+    });
+    clearBrowserHandoffDrafts(...staleFollowUpArtifactPaths);
   }, [displayState]);
 
   function updateFormValues(draftId: number, updater: (currentValues: DraftFormValues) => DraftFormValues) {

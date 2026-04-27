@@ -1389,6 +1389,15 @@ describe('publish api', () => {
     const response = await requestApp(app, 'POST', `/api/drafts/${draft.id}/publish`);
 
     expect(response.status).toBe(200);
+    expect(JSON.parse(response.body)).toEqual(
+      expect.objectContaining({
+        details: expect.objectContaining({
+          browserHandoff: expect.objectContaining({
+            channelAccountId: 1,
+          }),
+        }),
+      }),
+    );
     const artifactPath = path.join(
       testDatabase.rootDir,
       'artifacts',

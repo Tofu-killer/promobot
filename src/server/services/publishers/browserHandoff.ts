@@ -70,6 +70,7 @@ export function createBrowserHandoffPublisher(
         ...(request.target ? { target: request.target } : {}),
         accountKey,
         browserHandoff: {
+          ...(typeof channelAccountId === 'number' ? { channelAccountId } : {}),
           readiness: resolution.sessionAction ? 'blocked' : 'ready',
           session: resolution.session,
           sessionAction: resolution.sessionAction,
