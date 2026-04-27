@@ -1443,6 +1443,177 @@ describe('System Queue actions', () => {
     });
   });
 
+  it('keeps a completed browser handoff locally resolved until refresh catches up, then yields to server truth', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { SystemQueuePage } = await import('../../src/client/pages/SystemQueue');
+
+    const loadSystemQueueAction = vi.fn().mockResolvedValue({
+      jobs: [],
+      queue: {
+        pending: 0,
+        running: 0,
+        failed: 0,
+        duePending: 0,
+      },
+      recentJobs: [],
+    });
+    const pendingHandoff = {
+      channelAccountId: 7,
+      accountDisplayName: 'FB Group Manual',
+      platform: 'facebookGroup',
+      draftId: '13',
+      title: 'Community update',
+      accountKey: 'launch-campaign',
+      ownership: 'direct',
+      status: 'pending',
+      artifactPath:
+        'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-13.json',
+      createdAt: '2026-04-21T09:10:00.000Z',
+      updatedAt: '2026-04-21T09:10:00.000Z',
+      resolvedAt: null,
+      resolution: null,
+    };
+    const resolvedHandoff = {
+      ...pendingHandoff,
+      status: 'published',
+      updatedAt: '2026-04-23T10:16:00.000Z',
+      resolvedAt: '2026-04-23T10:16:00.000Z',
+      resolution: {
+        status: 'published',
+        draftStatus: 'published',
+        publishUrl: 'https://facebook.com/groups/group-123/posts/84',
+        message: 'server refresh caught up',
+        publishedAt: '2026-04-23T10:16:00.000Z',
+      },
+    };
+    const loadBrowserLaneRequestsAction = vi.fn().mockResolvedValue({
+      requests: [],
+      total: 0,
+    });
+    const loadBrowserHandoffsAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        handoffs: [pendingHandoff],
+        total: 1,
+      })
+      .mockResolvedValueOnce({
+        handoffs: [pendingHandoff],
+        total: 1,
+      })
+      .mockResolvedValueOnce({
+        handoffs: [resolvedHandoff],
+        total: 1,
+      });
+    const loadInboxReplyHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+    const completeBrowserHandoffAction = vi.fn().mockResolvedValue({
+      ok: true,
+      imported: true,
+      artifactPath:
+        'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-13.json',
+      draftId: 13,
+      draftStatus: 'published',
+      platform: 'facebookGroup',
+      mode: 'browser',
+      status: 'published',
+      success: true,
+      publishUrl: 'https://facebook.com/groups/group-123/posts/42',
+      externalId: null,
+      message: 'browser lane completed publish',
+      publishedAt: '2026-04-23T10:15:00.000Z',
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(SystemQueuePage as never, {
+          loadSystemQueueAction,
+          loadBrowserLaneRequestsAction,
+          loadBrowserHandoffsAction,
+          loadInboxReplyHandoffsAction,
+          completeBrowserHandoffAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const publishUrlInput = findElement(
+      container,
+      (element) =>
+        element.getAttribute('data-browser-handoff-field') === 'publishUrl' &&
+        hasAncestorWithText(element, 'facebookGroup · draft #13 · pending'),
+    );
+    const messageInput = findElement(
+      container,
+      (element) =>
+        element.getAttribute('data-browser-handoff-field') === 'message' &&
+        hasAncestorWithText(element, 'facebookGroup · draft #13 · pending'),
+    );
+    const publishButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        collectText(element).includes('标记已发布') &&
+        hasAncestorWithText(element, 'facebookGroup · draft #13 · pending'),
+    );
+
+    expect(publishUrlInput).not.toBeNull();
+    expect(messageInput).not.toBeNull();
+    expect(publishButton).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(
+        publishUrlInput as never,
+        'https://facebook.com/groups/group-123/posts/42',
+        window as never,
+      );
+      updateFieldValue(messageInput as never, 'browser lane completed publish', window as never);
+      await flush();
+    });
+
+    await act(async () => {
+      publishButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(loadBrowserHandoffsAction).toHaveBeenCalledTimes(2);
+    expect(collectText(container)).toContain('facebookGroup · draft #13 · published');
+    expect(collectText(container)).toContain('resolvedAt: 2026-04-23T10:15:00.000Z');
+    expect(collectText(container)).toContain('publishUrl: https://facebook.com/groups/group-123/posts/42');
+    expect(collectText(container)).toContain('message: browser lane completed publish');
+    expect(collectText(container)).not.toContain('facebookGroup · draft #13 · pending');
+    expect(collectText(container)).not.toContain('发布接管 · facebookGroup · draft #13');
+
+    const refreshButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('刷新队列'),
+    );
+
+    expect(refreshButton).not.toBeNull();
+
+    await act(async () => {
+      refreshButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(loadBrowserHandoffsAction).toHaveBeenCalledTimes(3);
+    expect(collectText(container)).toContain('resolvedAt: 2026-04-23T10:16:00.000Z');
+    expect(collectText(container)).toContain('publishUrl: https://facebook.com/groups/group-123/posts/84');
+    expect(collectText(container)).toContain('message: server refresh caught up');
+    expect(collectText(container)).not.toContain('message: browser lane completed publish');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('imports a pending browser lane request from the System Queue page, keeps it locally resolved until refresh catches up, then yields to server truth', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
@@ -2102,6 +2273,174 @@ describe('System Queue actions', () => {
     });
     expect(loadInboxReplyHandoffsAction).toHaveBeenCalledTimes(2);
     expect(collectText(container)).toContain('已结单 inbox reply item #88 (handled)');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('keeps a completed inbox reply handoff locally resolved until refresh catches up, then yields to server truth', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { SystemQueuePage } = await import('../../src/client/pages/SystemQueue');
+
+    const loadSystemQueueAction = vi.fn().mockResolvedValue({
+      jobs: [],
+      queue: {
+        pending: 0,
+        running: 0,
+        failed: 0,
+        duePending: 0,
+      },
+      recentJobs: [],
+    });
+    const loadBrowserLaneRequestsAction = vi.fn().mockResolvedValue({
+      requests: [],
+      total: 0,
+    });
+    const loadBrowserHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+    const pendingHandoff = {
+      channelAccountId: 12,
+      platform: 'reddit',
+      itemId: '88',
+      source: 'reddit',
+      title: 'Need lower latency in APAC',
+      author: 'user123',
+      accountKey: 'reddit-main',
+      status: 'pending',
+      artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88.json',
+      createdAt: '2026-04-23T09:10:00.000Z',
+      updatedAt: '2026-04-23T09:10:00.000Z',
+      resolvedAt: null,
+      resolution: null,
+    };
+    const resolvedHandoff = {
+      ...pendingHandoff,
+      status: 'handled',
+      updatedAt: '2026-04-23T11:16:00.000Z',
+      resolvedAt: '2026-04-23T11:16:00.000Z',
+      resolution: {
+        status: 'handled',
+        replyStatus: 'sent',
+        itemStatus: 'sent',
+        deliveryUrl: 'https://reddit.com/message/messages/xyz789',
+        message: 'server refresh caught up',
+        deliveredAt: '2026-04-23T11:16:00.000Z',
+      },
+    };
+    const loadInboxReplyHandoffsAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        handoffs: [pendingHandoff],
+        total: 1,
+      })
+      .mockResolvedValueOnce({
+        handoffs: [pendingHandoff],
+        total: 1,
+      })
+      .mockResolvedValueOnce({
+        handoffs: [resolvedHandoff],
+        total: 1,
+      });
+    const completeInboxReplyHandoffAction = vi.fn().mockResolvedValue({
+      ok: true,
+      imported: true,
+      artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88.json',
+      itemId: 88,
+      itemStatus: 'sent',
+      replyStatus: 'sent',
+      status: 'handled',
+      success: true,
+      deliveryUrl: 'https://reddit.com/message/messages/abc123',
+      message: 'reply sent manually',
+      deliveredAt: '2026-04-23T11:15:00.000Z',
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(SystemQueuePage as never, {
+          loadSystemQueueAction,
+          loadBrowserLaneRequestsAction,
+          loadBrowserHandoffsAction,
+          loadInboxReplyHandoffsAction,
+          completeInboxReplyHandoffAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const deliveryUrlInput = findElement(
+      container,
+      (element) =>
+        element.getAttribute('data-inbox-reply-handoff-field') === 'deliveryUrl' &&
+        hasAncestorWithText(element, 'reddit · item #88 · pending'),
+    );
+    const messageInput = findElement(
+      container,
+      (element) =>
+        element.getAttribute('data-inbox-reply-handoff-field') === 'message' &&
+        hasAncestorWithText(element, 'reddit · item #88 · pending'),
+    );
+    const markSentButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        collectText(element).includes('标记已发送') &&
+        hasAncestorWithText(element, 'reddit · item #88 · pending'),
+    );
+
+    expect(deliveryUrlInput).not.toBeNull();
+    expect(messageInput).not.toBeNull();
+    expect(markSentButton).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(
+        deliveryUrlInput as never,
+        'https://reddit.com/message/messages/abc123',
+        window as never,
+      );
+      updateFieldValue(messageInput as never, 'reply sent manually', window as never);
+      await flush();
+    });
+
+    await act(async () => {
+      markSentButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(loadInboxReplyHandoffsAction).toHaveBeenCalledTimes(2);
+    expect(collectText(container)).toContain('reddit · item #88 · handled');
+    expect(collectText(container)).toContain('resolvedAt: 2026-04-23T11:15:00.000Z');
+    expect(collectText(container)).toContain('deliveryUrl: https://reddit.com/message/messages/abc123');
+    expect(collectText(container)).toContain('message: reply sent manually');
+    expect(collectText(container)).not.toContain('reddit · item #88 · pending');
+    expect(collectText(container)).not.toContain('回复接管 · reddit · item #88');
+
+    const refreshButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('刷新队列'),
+    );
+
+    expect(refreshButton).not.toBeNull();
+
+    await act(async () => {
+      refreshButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(loadInboxReplyHandoffsAction).toHaveBeenCalledTimes(3);
+    expect(collectText(container)).toContain('resolvedAt: 2026-04-23T11:16:00.000Z');
+    expect(collectText(container)).toContain('deliveryUrl: https://reddit.com/message/messages/xyz789');
+    expect(collectText(container)).toContain('message: server refresh caught up');
+    expect(collectText(container)).not.toContain('message: reply sent manually');
 
     await act(async () => {
       root.unmount();

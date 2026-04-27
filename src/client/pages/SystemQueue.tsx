@@ -159,6 +159,7 @@ export interface BrowserHandoffCompletionResponse {
   platform: string;
   mode: string;
   status: string;
+  publishStatus?: string;
   success: boolean;
   publishUrl: string | null;
   externalId: string | null;
@@ -175,6 +176,7 @@ export interface InboxReplyHandoffCompletionResponse {
   platform: string;
   mode: string;
   status: string;
+  replyStatus?: string;
   success: boolean;
   deliveryUrl: string | null;
   externalId: string | null;
@@ -455,6 +457,12 @@ export function SystemQueuePage({
   const [resolvedBrowserLaneRequestsByArtifactPath, setResolvedBrowserLaneRequestsByArtifactPath] = useState<
     Record<string, { resolvedAt: string; jobStatus: string; resolution?: unknown }>
   >({});
+  const [resolvedBrowserHandoffsByArtifactPath, setResolvedBrowserHandoffsByArtifactPath] = useState<
+    Record<string, { resolvedAt: string; status: string; resolution?: unknown }>
+  >({});
+  const [resolvedInboxReplyHandoffsByArtifactPath, setResolvedInboxReplyHandoffsByArtifactPath] = useState<
+    Record<string, { resolvedAt: string; status: string; resolution?: unknown }>
+  >({});
   const [browserLaneDraftByArtifactPath, setBrowserLaneDraftByArtifactPath] = useState<
     Record<string, { storageState: string; notes: string }>
   >({});
@@ -527,13 +535,56 @@ export function SystemQueuePage({
     typeof displayBrowserHandoffState.data === 'object' &&
     displayBrowserHandoffState.data !== null &&
     Array.isArray(displayBrowserHandoffState.data.handoffs);
-  const visibleBrowserHandoffs = hasLiveBrowserHandoffData ? displayBrowserHandoffState.data.handoffs : [];
+  const visibleBrowserHandoffs = hasLiveBrowserHandoffData
+    ? displayBrowserHandoffState.data.handoffs.map((handoff) => {
+        const resolvedHandoff = resolvedBrowserHandoffsByArtifactPath[handoff.artifactPath];
+        const hasLiveResolution =
+          handoff.resolvedAt !== null ||
+          readResolutionStatus(handoff.resolution) !== null ||
+          handoff.status !== 'pending';
+        if (!resolvedHandoff || hasLiveResolution) {
+          return handoff;
+        }
+
+        return {
+          ...handoff,
+          resolvedAt: resolvedHandoff.resolvedAt,
+          status: resolvedHandoff.status,
+          ...(resolvedHandoff.resolution !== undefined
+            ? { resolution: resolvedHandoff.resolution }
+            : handoff.resolution !== undefined
+              ? { resolution: handoff.resolution }
+              : {}),
+        };
+      })
+    : [];
   const hasLiveInboxReplyHandoffData =
     typeof displayInboxReplyHandoffState.data === 'object' &&
     displayInboxReplyHandoffState.data !== null &&
     Array.isArray(displayInboxReplyHandoffState.data.handoffs);
   const visibleInboxReplyHandoffs = hasLiveInboxReplyHandoffData
-    ? displayInboxReplyHandoffState.data.handoffs
+    ? displayInboxReplyHandoffState.data.handoffs.map((handoff) => {
+        const resolvedHandoff =
+          resolvedInboxReplyHandoffsByArtifactPath[handoff.artifactPath];
+        const hasLiveResolution =
+          handoff.resolvedAt !== null ||
+          readResolutionStatus(handoff.resolution) !== null ||
+          handoff.status !== 'pending';
+        if (!resolvedHandoff || hasLiveResolution) {
+          return handoff;
+        }
+
+        return {
+          ...handoff,
+          resolvedAt: resolvedHandoff.resolvedAt,
+          status: resolvedHandoff.status,
+          ...(resolvedHandoff.resolution !== undefined
+            ? { resolution: resolvedHandoff.resolution }
+            : handoff.resolution !== undefined
+              ? { resolution: handoff.resolution }
+              : {}),
+        };
+      })
     : [];
   const pendingPriorityActions = buildPriorityActionRecords({
     browserLaneRequests: visibleBrowserLaneRequests,
@@ -597,6 +648,62 @@ export function SystemQueuePage({
       return changed ? next : current;
     });
   }, [displayBrowserLaneState.data, hasLiveBrowserLaneData]);
+
+  useEffect(() => {
+    if (!hasLiveBrowserHandoffData) {
+      return;
+    }
+
+    setResolvedBrowserHandoffsByArtifactPath((current) => {
+      let changed = false;
+      const next = { ...current };
+
+      for (const handoff of displayBrowserHandoffState.data.handoffs) {
+        if (!(handoff.artifactPath in next)) {
+          continue;
+        }
+
+        if (
+          handoff.resolvedAt !== null ||
+          readResolutionStatus(handoff.resolution) !== null ||
+          handoff.status !== 'pending'
+        ) {
+          delete next[handoff.artifactPath];
+          changed = true;
+        }
+      }
+
+      return changed ? next : current;
+    });
+  }, [displayBrowserHandoffState.data, hasLiveBrowserHandoffData]);
+
+  useEffect(() => {
+    if (!hasLiveInboxReplyHandoffData) {
+      return;
+    }
+
+    setResolvedInboxReplyHandoffsByArtifactPath((current) => {
+      let changed = false;
+      const next = { ...current };
+
+      for (const handoff of displayInboxReplyHandoffState.data.handoffs) {
+        if (!(handoff.artifactPath in next)) {
+          continue;
+        }
+
+        if (
+          handoff.resolvedAt !== null ||
+          readResolutionStatus(handoff.resolution) !== null ||
+          handoff.status !== 'pending'
+        ) {
+          delete next[handoff.artifactPath];
+          changed = true;
+        }
+      }
+
+      return changed ? next : current;
+    });
+  }, [displayInboxReplyHandoffState.data, hasLiveInboxReplyHandoffData]);
 
   function startQueueMutation(input: QueueMutationInput, onSuccess?: () => void) {
     if (queueMutationPendingRef.current) {
@@ -722,7 +829,11 @@ export function SystemQueuePage({
       ...(message ? { message } : {}),
       ...(publishUrl ? { publishUrl } : {}),
     })
-      .then(() => {
+      .then((response) => {
+        setResolvedBrowserHandoffsByArtifactPath((current) => ({
+          ...current,
+          [handoff.artifactPath]: buildOptimisticBrowserHandoffResolution(response),
+        }));
         setBrowserHandoffDraftByArtifactPath((current) => {
           const { [handoff.artifactPath]: _ignored, ...rest } = current;
           return rest;
@@ -755,7 +866,11 @@ export function SystemQueuePage({
       ...(message ? { message } : {}),
       ...(deliveryUrl ? { deliveryUrl } : {}),
     })
-      .then(() => {
+      .then((response) => {
+        setResolvedInboxReplyHandoffsByArtifactPath((current) => ({
+          ...current,
+          [handoff.artifactPath]: buildOptimisticInboxReplyHandoffResolution(response),
+        }));
         setInboxReplyHandoffDraftByArtifactPath((current) => {
           const { [handoff.artifactPath]: _ignored, ...rest } = current;
           return rest;
@@ -1646,6 +1761,36 @@ function buildOptimisticBrowserLaneRequestResolution(response: BrowserLaneReques
     resolution: {
       status: 'resolved',
       session,
+    },
+  };
+}
+
+function buildOptimisticBrowserHandoffResolution(response: BrowserHandoffCompletionResponse) {
+  return {
+    resolvedAt: response.publishedAt ?? new Date().toISOString(),
+    status: response.status,
+    resolution: {
+      status: response.status,
+      draftStatus: response.draftStatus,
+      publishStatus: response.publishStatus ?? response.status,
+      ...(response.publishUrl ? { publishUrl: response.publishUrl } : {}),
+      ...(response.message ? { message: response.message } : {}),
+      ...(response.publishedAt ? { publishedAt: response.publishedAt } : {}),
+    },
+  };
+}
+
+function buildOptimisticInboxReplyHandoffResolution(response: InboxReplyHandoffCompletionResponse) {
+  return {
+    resolvedAt: response.deliveredAt ?? new Date().toISOString(),
+    status: response.status,
+    resolution: {
+      status: response.status,
+      itemStatus: response.itemStatus,
+      ...(response.replyStatus ? { replyStatus: response.replyStatus } : {}),
+      ...(response.deliveryUrl ? { deliveryUrl: response.deliveryUrl } : {}),
+      ...(response.message ? { message: response.message } : {}),
+      ...(response.deliveredAt ? { deliveredAt: response.deliveredAt } : {}),
     },
   };
 }
