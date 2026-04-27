@@ -32,6 +32,7 @@ export interface PublishDraftResponse {
   status?: string;
   publishUrl: string | null;
   message: string;
+  details?: Record<string, unknown>;
 }
 
 export interface DraftFormValues {
