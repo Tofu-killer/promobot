@@ -2558,6 +2558,125 @@ describe('Inbox action wiring', () => {
     });
   });
 
+  it('marks a manual reply assistant item handled directly from the inbox feedback and clears the stale manual-required prompt', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    const sendReplyAction = vi.fn().mockResolvedValue({
+      item: {
+        id: 7,
+        source: 'v2ex',
+        status: 'needs_reply',
+        author: 'alice',
+        title: 'Cursor API follow-up',
+        excerpt: 'Can you share current response times?\n\nhttps://www.v2ex.com/t/888888',
+        createdAt: '2026-04-19T10:00:00.000Z',
+      },
+      delivery: {
+        success: false,
+        status: 'manual_required',
+        mode: 'manual',
+        message: 'V2EX reply is ready for assisted manual delivery. Copy the reply and open the topic.',
+        reply: 'Manual follow-up reply.',
+        details: {
+          manualReplyAssistant: {
+            platform: 'v2ex',
+            label: 'V2EX',
+            copyText: 'Manual follow-up reply.',
+            sourceUrl: 'https://www.v2ex.com/t/888888',
+            openUrl: 'https://www.v2ex.com/t/888888',
+            title: 'Cursor API follow-up',
+          },
+        },
+      },
+    });
+    const updateInboxAction = vi.fn().mockResolvedValue({
+      item: {
+        id: 7,
+        source: 'v2ex',
+        status: 'handled',
+        author: 'alice',
+        title: 'Cursor API follow-up',
+        excerpt: 'Can you share current response times?\n\nhttps://www.v2ex.com/t/888888',
+        createdAt: '2026-04-19T10:00:00.000Z',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(InboxPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              items: [
+                {
+                  id: 7,
+                  source: 'v2ex',
+                  status: 'needs_reply',
+                  author: 'alice',
+                  title: 'Cursor API follow-up',
+                  excerpt: 'Can you share current response times?\n\nhttps://www.v2ex.com/t/888888',
+                  createdAt: '2026-04-19T10:00:00.000Z',
+                },
+              ],
+              total: 1,
+              unread: 1,
+            },
+          } satisfies ApiState<unknown>,
+          sendReplyAction,
+          updateInboxAction,
+        }),
+      );
+      await flush();
+    });
+
+    const replyDraftField = findElement(container, (element) => element.tagName === 'TEXTAREA');
+    expect(replyDraftField).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(replyDraftField, 'Manual follow-up reply.', window);
+      await flush();
+    });
+
+    const sendReplyButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('发送回复'),
+    );
+    expect(sendReplyButton).not.toBeNull();
+
+    await act(async () => {
+      sendReplyButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    const markHandledButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('标记已处理'),
+    );
+    expect(markHandledButton).not.toBeNull();
+
+    await act(async () => {
+      markHandledButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(updateInboxAction).toHaveBeenCalledWith(7, 'handled');
+    expect(collectText(container)).toContain('已将“Cursor API follow-up”回写为 handled');
+    expect(collectText(container)).toContain('handled');
+    expect(collectText(container)).not.toContain('needs_reply');
+    expect(collectText(container)).not.toContain(
+      'V2EX reply is ready for assisted manual delivery. Copy the reply and open the topic.',
+    );
+    expect(collectText(container)).not.toContain('手工回复辅助：V2EX');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('shows failed delivery feedback without marking the inbox item handled when reply delivery fails', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');

@@ -578,10 +578,12 @@ export function InboxPage({
   const [replyHandoffCompletionItemId, setReplyHandoffCompletionItemId] = useState<number | null>(null);
   const [replyHandoffCompletionResult, setReplyHandoffCompletionResult] =
     useState<InboxReplyHandoffCompletionResponse | null>(null);
+  const [manualReplyAssistantCompletionResult, setManualReplyAssistantCompletionResult] = useState<InboxItem | null>(null);
   const [replyHandoffDraftByArtifactPath, setReplyHandoffDraftByArtifactPath] = useState<
     Record<string, { deliveryUrl: string; message: string }>
   >({});
   const replyHandoffCompletionAttemptRef = useRef(0);
+  const manualReplyAssistantCompletionAttemptRef = useRef(0);
   const [allowReplySuggestionFallback, setAllowReplySuggestionFallback] = useState(true);
   const [enqueueRunAtDraft, setEnqueueRunAtDraft] = useState('');
   const displayState = stateOverride ?? state;
@@ -625,6 +627,11 @@ export function InboxPage({
   if (deliveredReplyItem) {
     displayItems = displayItems.map((item) => (item.id === deliveredReplyItem.id ? deliveredReplyItem : item));
   }
+  if (manualReplyAssistantCompletionResult) {
+    displayItems = displayItems.map((item) =>
+      item.id === manualReplyAssistantCompletionResult.id ? manualReplyAssistantCompletionResult : item,
+    );
+  }
   if (completedReplyHandoff) {
     displayItems = displayItems.map((item) =>
       item.id === completedReplyHandoff.itemId
@@ -658,6 +665,8 @@ export function InboxPage({
     replyHandoffCompletionAttemptRef.current += 1;
     setReplyHandoffCompletionItemId(null);
     setReplyHandoffCompletionResult(null);
+    manualReplyAssistantCompletionAttemptRef.current += 1;
+    setManualReplyAssistantCompletionResult(null);
     setReplyHandoffDraftByArtifactPath({});
     setAllowReplySuggestionFallback(false);
   }, [projectId]);
@@ -705,19 +714,23 @@ export function InboxPage({
       : null;
   const showReplyDeliveryFollowUp =
     replyDeliveryItemId !== null && (selectedItem === null || selectedItem.id === replyDeliveryItemId);
+  const manualReplyAssistantCompletionItemId = manualReplyAssistantCompletionResult?.id ?? null;
+  const replyDeliveryClosedLocally =
+    manualReplyAssistantCompletionItemId !== null && manualReplyAssistantCompletionItemId === replyDeliveryItemId;
+  const shouldShowReplyDeliveryActions = showReplyDeliveryFollowUp && !replyDeliveryClosedLocally;
   const sendReplyFeedback =
-    deliveredReplyFeedback
+    deliveredReplyFeedback && !replyDeliveryClosedLocally
       ? deliveredReplyFeedback.message
       : displaySendReplyState.status === 'error' && replyDeliveryItemId !== null
         ? `发送回复失败：${displaySendReplyState.error}`
         : null;
   const sendReplyBrowserHandoff =
-    showReplyDeliveryFollowUp && deliveredReplyFeedback ? readBrowserReplyHandoff(deliveredReplyFeedback.details) : null;
-  const sendReplyManualReplyAssistant = showReplyDeliveryFollowUp && deliveredReplyFeedback
+    shouldShowReplyDeliveryActions && deliveredReplyFeedback ? readBrowserReplyHandoff(deliveredReplyFeedback.details) : null;
+  const sendReplyManualReplyAssistant = shouldShowReplyDeliveryActions && deliveredReplyFeedback
     ? readManualReplyAssistant(deliveredReplyFeedback.details)
     : null;
   const sendReplyFeedbackTone =
-    deliveredReplyFeedback
+    deliveredReplyFeedback && !replyDeliveryClosedLocally
       ? deliveredReplyFeedback.status === 'sent'
         ? 'success'
         : deliveredReplyFeedback.status === 'manual_required'
@@ -725,6 +738,12 @@ export function InboxPage({
           : 'error'
       : displaySendReplyState.status === 'error'
         ? 'error'
+        : null;
+  const replyDeliveryFeedbackResetKey =
+    deliveredReplyFeedback && replyDeliveryItemId !== null
+      ? `${replyDeliveryItemId}:${deliveredReplyFeedback.status}:${deliveredReplyFeedback.message}`
+      : displaySendReplyState.status === 'error' && replyDeliveryItemId !== null
+        ? `error:${replyDeliveryItemId}:${displaySendReplyState.error}`
         : null;
   const suggestedReply =
     showReplySuggestionForSelectedItem &&
@@ -739,8 +758,10 @@ export function InboxPage({
     replyHandoffCompletionAttemptRef.current += 1;
     setReplyHandoffCompletionItemId(null);
     setReplyHandoffCompletionResult(null);
+    manualReplyAssistantCompletionAttemptRef.current += 1;
+    setManualReplyAssistantCompletionResult(null);
     setReplyHandoffDraftByArtifactPath({});
-  }, [deliveredReplyFeedbackItemId, sendReplyFeedback]);
+  }, [deliveredReplyFeedbackItemId, replyDeliveryFeedbackResetKey]);
 
   const sessionActionFeedback =
     displaySessionActionState.status === 'success' && displaySessionActionState.data && sessionActionItemId !== null
@@ -874,6 +895,29 @@ export function InboxPage({
       .catch(() => {
         setManualReplyAssistantFeedback('复制回复内容失败，请手动复制。');
       });
+  }
+
+  function handleResolveManualReplyAssistant() {
+    if (!selectedItem || replyDeliveryItemId === null || selectedItem.id !== replyDeliveryItemId) {
+      return;
+    }
+
+    const completionAttemptId = manualReplyAssistantCompletionAttemptRef.current + 1;
+    manualReplyAssistantCompletionAttemptRef.current = completionAttemptId;
+    setSelectedItemId(selectedItem.id);
+    setInboxMutationItemId(selectedItem.id);
+
+    void runInboxUpdate({ id: selectedItem.id, status: 'handled' })
+      .then((result) => {
+        if (manualReplyAssistantCompletionAttemptRef.current !== completionAttemptId) {
+          return;
+        }
+
+        setManualReplyAssistantFeedback(null);
+        setManualReplyAssistantCompletionResult(result.item);
+        reload();
+      })
+      .catch(() => undefined);
   }
 
   function handleReplyHandoffDraftChange(artifactPath: string, field: 'deliveryUrl' | 'message', value: string) {
@@ -1177,6 +1221,16 @@ export function InboxPage({
                       }}
                     />
                   ) : null}
+                  <ActionButton
+                    label={
+                      displayInboxUpdateState.status === 'loading' && activeInboxMutationItemId === replyDeliveryItemId
+                        ? '正在结单...'
+                        : '标记已处理'
+                    }
+                    tone="primary"
+                    onClick={handleResolveManualReplyAssistant}
+                    disabled={displayInboxUpdateState.status === 'loading' && activeInboxMutationItemId === replyDeliveryItemId}
+                  />
                   {sendReplyManualReplyAssistant.copyText ? (
                     <ActionButton
                       label="复制回复"
