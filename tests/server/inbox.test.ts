@@ -2073,6 +2073,153 @@ describe('inbox api', () => {
     }
   });
 
+  it('routes a promoted tiktok monitor reply handoff through the metadata-selected channel account', async () => {
+    const { rootDir } = createTestDatabasePath();
+    process.env.BROWSER_HANDOFF_OUTPUT_DIR = rootDir;
+
+    try {
+      const channelAccountStore = createChannelAccountStore();
+      const selectedAccount = channelAccountStore.create({
+        projectId: 1,
+        platform: 'tiktok',
+        accountKey: 'tiktok-selected',
+        displayName: 'TikTok Selected',
+        authType: 'browser',
+        status: 'healthy',
+      });
+      channelAccountStore.create({
+        projectId: 1,
+        platform: 'tiktok',
+        accountKey: 'tiktok-secondary',
+        displayName: 'TikTok Secondary',
+        authType: 'browser',
+        status: 'healthy',
+      });
+      createSessionStore().saveSession({
+        platform: 'tiktok',
+        accountKey: 'tiktok-selected',
+        storageState: {
+          cookies: [],
+          origins: [],
+        },
+        status: 'active',
+        lastValidatedAt: '2026-04-25T10:00:00.000Z',
+      });
+
+      const monitorStore = createMonitorStore();
+      monitorStore.create({
+        projectId: 1,
+        source: 'tiktok',
+        title: 'TikTok 提及跟进',
+        detail: 'tiktok mention · short_video_ops\n需要尽快回复该提及。',
+        metadata: {
+          channelAccountId: selectedAccount.id,
+          accountKey: 'tiktok-selected',
+          sourceUrl: 'https://www.tiktok.com/@short_video_ops/video/selected',
+          profileUrl: 'https://www.tiktok.com/@short_video_ops',
+          profileHandle: '@short_video_ops',
+        },
+      });
+
+      const fetchResponse = await requestApp('POST', '/api/inbox/fetch');
+      expect(fetchResponse.status).toBe(201);
+      expect(JSON.parse(fetchResponse.body)).toEqual({
+        items: [
+          expect.objectContaining({
+            id: 1,
+            projectId: 1,
+            source: 'tiktok',
+            author: 'short_video_ops',
+            status: 'needs_review',
+            title: 'TikTok 提及跟进',
+            metadata: expect.objectContaining({
+              channelAccountId: selectedAccount.id,
+              accountKey: 'tiktok-selected',
+              sourceUrl: 'https://www.tiktok.com/@short_video_ops/video/selected',
+              profileUrl: 'https://www.tiktok.com/@short_video_ops',
+              profileHandle: '@short_video_ops',
+            }),
+          }),
+        ],
+        inserted: 1,
+        total: 1,
+        unread: 1,
+      });
+
+      const replyResponse = await requestApp('POST', '/api/inbox/1/send-reply', {
+        reply: 'Thanks for the mention. We can share current APAC latency benchmarks.',
+      });
+
+      const body = JSON.parse(replyResponse.body) as {
+        delivery: {
+          details?: {
+            browserReplyHandoff?: {
+              channelAccountId?: number;
+              accountKey?: string;
+              artifactPath?: string;
+              readiness?: string;
+            };
+            context?: {
+              selection?: string;
+            };
+          };
+        };
+      };
+      const artifactPath = body.delivery.details?.browserReplyHandoff?.artifactPath;
+
+      expect(replyResponse.status).toBe(200);
+      expect(body).toEqual({
+        item: expect.objectContaining({
+          id: 1,
+          status: 'needs_review',
+        }),
+        delivery: expect.objectContaining({
+          success: false,
+          status: 'manual_required',
+          mode: 'browser',
+          message: 'TikTok reply is ready for manual browser handoff with the saved session.',
+          reply: 'Thanks for the mention. We can share current APAC latency benchmarks.',
+          deliveryUrl: null,
+          externalId: null,
+          details: expect.objectContaining({
+            context: expect.objectContaining({
+              selection: 'channelAccountId',
+            }),
+            browserReplyHandoff: expect.objectContaining({
+              platform: 'tiktok',
+              channelAccountId: selectedAccount.id,
+              accountKey: 'tiktok-selected',
+              readiness: 'ready',
+              sessionAction: null,
+              artifactPath:
+                'artifacts/inbox-reply-handoffs/tiktok/tiktok-selected/tiktok-inbox-item-1.json',
+            }),
+          }),
+        }),
+      });
+      expect(artifactPath).toBeTruthy();
+      expect(
+        JSON.parse(fs.readFileSync(path.join(rootDir, artifactPath as string), 'utf8')),
+      ).toEqual(
+        expect.objectContaining({
+          type: 'browser_inbox_reply_handoff',
+          ownership: 'direct',
+          channelAccountId: selectedAccount.id,
+          projectId: 1,
+          status: 'pending',
+          platform: 'tiktok',
+          itemId: '1',
+          source: 'tiktok',
+          sourceUrl: 'https://www.tiktok.com/@short_video_ops/video/selected',
+          accountKey: 'tiktok-selected',
+          reply: 'Thanks for the mention. We can share current APAC latency benchmarks.',
+        }),
+      );
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('keeps a browser inbox item pending when a browser reply handoff import reports failure', async () => {
     const { rootDir } = createTestDatabasePath();
     process.env.BROWSER_HANDOFF_OUTPUT_DIR = rootDir;
