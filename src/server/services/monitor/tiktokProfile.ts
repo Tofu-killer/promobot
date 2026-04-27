@@ -19,6 +19,7 @@ interface TiktokOEmbedResponse {
 }
 
 const TIKTOK_OEMBED_ENDPOINT = 'https://www.tiktok.com/oembed';
+const TIKTOK_PROFILE_HOSTS = new Set(['tiktok.com', 'www.tiktok.com', 'm.tiktok.com']);
 
 export async function fetchTiktokProfileSignal(
   input: TiktokProfileInput,
@@ -42,19 +43,25 @@ export async function fetchTiktokProfileSignal(
   const authorName = readString(payload.author_name);
   const embedType = readString(payload.embed_type) ?? readString(payload.type);
   const summary = readString(payload.title);
-  const resolvedHandle = normalizeHandle(
-    readHandleFromProfileUrl(authorUrl ?? input.profileUrl) ?? authorName,
-  );
+  const profileUrl = normalizeProfileUrl(authorUrl);
 
-  if (!authorUrl || !authorName || !summary || !resolvedHandle || embedType?.toLowerCase() !== 'profile') {
+  if (!authorUrl || !authorName || !summary || embedType?.toLowerCase() !== 'profile') {
     throw new Error('tiktok oembed response did not look like a profile payload');
+  }
+
+  if (!profileUrl) {
+    throw new Error('tiktok oembed response did not include a canonical profile url');
+  }
+
+  const resolvedHandle = normalizeHandle(readHandleFromProfileUrl(profileUrl));
+  if (!resolvedHandle) {
+    throw new Error('tiktok oembed response did not include a canonical profile url');
   }
 
   if (requestedHandle && requestedHandle !== resolvedHandle) {
     throw new Error(`tiktok oembed response resolved to ${resolvedHandle} instead of ${requestedHandle}`);
   }
 
-  const profileUrl = authorUrl;
   const handle = resolvedHandle;
   const title = handle ? `TikTok profile update: ${handle}` : 'TikTok profile update';
 
@@ -69,11 +76,24 @@ export async function fetchTiktokProfileSignal(
 function readHandleFromProfileUrl(profileUrl: string) {
   try {
     const url = new URL(profileUrl);
-    const [segment] = url.pathname.split('/').filter(Boolean);
-    return segment ? normalizeHandle(segment) : null;
+    if (!TIKTOK_PROFILE_HOSTS.has(url.hostname.toLowerCase())) {
+      return null;
+    }
+
+    const segments = url.pathname.split('/').filter(Boolean);
+    if (segments.length !== 1 || !segments[0]?.startsWith('@')) {
+      return null;
+    }
+
+    return normalizeHandle(segments[0]);
   } catch {
     return null;
   }
+}
+
+function normalizeProfileUrl(profileUrl: string | null) {
+  const handle = readHandleFromProfileUrl(profileUrl ?? '');
+  return handle ? `https://www.tiktok.com/${handle}` : null;
 }
 
 function normalizeHandle(value: string | null | undefined) {

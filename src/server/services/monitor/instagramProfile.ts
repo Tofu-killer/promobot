@@ -27,19 +27,32 @@ export async function fetchInstagramProfileSignal(
   const ogTitle = readMetaContent(html, 'og:title');
   const ogDescription = readMetaContent(html, 'og:description');
   const normalizedSummary = normalizeInstagramSummary(ogDescription);
-  const resolvedProfileUrl = normalizeInstagramProfileUrl(response.url) ?? input.profileUrl;
+  const requestedCanonicalProfileUrl = normalizeInstagramProfileUrl(input.profileUrl);
+  const canonicalResponseProfileUrl = normalizeInstagramProfileUrl(response.url);
+  if (readString(response.url) && !canonicalResponseProfileUrl) {
+    throw new Error('instagram profile response did not resolve to a canonical profile url');
+  }
+
+  const resolvedProfileUrl = canonicalResponseProfileUrl ?? requestedCanonicalProfileUrl ?? input.profileUrl;
   const requestedHandle = normalizeHandle(input.handle) ?? readHandleFromProfileUrl(input.profileUrl);
-  const resolvedHandle = normalizeHandle(
-    readHandleFromOgTitle(ogTitle) ?? readHandleFromProfileUrl(resolvedProfileUrl),
-  );
+  const titleHandle = normalizeHandle(readHandleFromOgTitle(ogTitle));
+  const redirectedHandle =
+    canonicalResponseProfileUrl && canonicalResponseProfileUrl !== requestedCanonicalProfileUrl
+      ? readHandleFromProfileUrl(canonicalResponseProfileUrl)
+      : null;
+  const resolvedHandle = normalizeHandle(titleHandle ?? redirectedHandle);
   if (requestedHandle && resolvedHandle && requestedHandle !== resolvedHandle) {
     throw new Error(
       `instagram profile response resolved to ${resolvedHandle} instead of ${requestedHandle}`,
     );
   }
 
-  const handle = resolvedHandle ?? requestedHandle;
-  if (!looksLikePublicInstagramProfilePage(html, ogTitle, normalizedSummary, handle)) {
+  if (!resolvedHandle) {
+    throw new Error('instagram profile response did not include a verifiable profile identity');
+  }
+
+  const handle = resolvedHandle;
+  if (!looksLikePublicInstagramProfilePage(html, ogTitle, normalizedSummary, resolvedHandle)) {
     throw new Error('instagram profile response did not look like a public profile page');
   }
 
@@ -128,6 +141,10 @@ function normalizeHandle(value: string | null | undefined) {
 function normalizeInstagramProfileUrl(profileUrl: string | null | undefined) {
   const handle = readHandleFromProfileUrl(profileUrl ?? '');
   return handle ? `https://www.instagram.com/${handle.slice(1)}/` : null;
+}
+
+function readString(value: unknown) {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }
 
 function normalizeText(value: string) {

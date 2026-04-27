@@ -5,6 +5,7 @@ import { useAsyncAction, useAsyncQuery } from '../hooks/useAsyncRequest';
 import { PageHeader } from '../components/PageHeader';
 import { SectionCard } from '../components/SectionCard';
 import {
+  isSupportedSourceType,
   parseSourceConfigJsonText,
   validateSourceConfigInput,
 } from '../../server/lib/sourceConfigValidation.js';
@@ -753,7 +754,11 @@ export function ProjectsPage({
     setPageMessage(message);
   }
 
-  function buildSourceConfigPayload(projectId: number, form: SourceConfigFormValue) {
+  function buildSourceConfigPayload(
+    projectId: number,
+    form: SourceConfigFormValue,
+    existingSourceConfig?: SourceConfigRecord,
+  ) {
     const configJson = parseSourceConfigJsonText(form.configJson);
     if (!configJson) {
       return { error: 'Config JSON 必须是有效的 JSON object' } as const;
@@ -768,7 +773,16 @@ export function ProjectsPage({
       enabled: form.enabled,
       pollIntervalMinutes: Number(form.pollIntervalMinutes),
     };
-    const validationError = validateSourceConfigInput(payload);
+    const allowUnsupportedSourceType =
+      !!existingSourceConfig &&
+      !isSupportedSourceType(payload.sourceType) &&
+      payload.sourceType === existingSourceConfig.sourceType &&
+      payload.platform === existingSourceConfig.platform &&
+      areComparableJsonObjectsEqual(payload.configJson, existingSourceConfig.configJson);
+    const validationError = validateSourceConfigInput({
+      ...payload,
+      allowUnsupportedSourceType,
+    });
     if (validationError) {
       return { error: validationError } as const;
     }
@@ -791,6 +805,25 @@ export function ProjectsPage({
       ...current,
       [projectId]: nextSourceConfigs,
     }));
+  }
+
+  function areComparableJsonObjectsEqual(left: Record<string, unknown>, right: Record<string, unknown>) {
+    return serializeComparableValue(left) === serializeComparableValue(right);
+  }
+
+  function serializeComparableValue(value: unknown): string {
+    if (Array.isArray(value)) {
+      return `[${value.map((item) => serializeComparableValue(item)).join(',')}]`;
+    }
+
+    if (typeof value === 'object' && value !== null) {
+      const entries = Object.entries(value as Record<string, unknown>)
+        .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
+        .map(([key, itemValue]) => `${JSON.stringify(key)}:${serializeComparableValue(itemValue)}`);
+      return `{${entries.join(',')}}`;
+    }
+
+    return JSON.stringify(value);
   }
 
   function handleCreateSourceConfig(projectId: number) {
@@ -851,7 +884,7 @@ export function ProjectsPage({
     }
 
     const form = getSourceConfigFormValue(sourceConfig);
-    const prepared = buildSourceConfigPayload(projectId, form);
+    const prepared = buildSourceConfigPayload(projectId, form, sourceConfig);
     if ('error' in prepared) {
       showPageError(prepared.error);
       return;
