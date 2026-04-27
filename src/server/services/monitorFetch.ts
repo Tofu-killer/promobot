@@ -8,6 +8,7 @@ import { searchV2ex } from './monitor/v2exSearch.js';
 import { createMonitorStore } from '../store/monitor.js';
 import { createSettingsStore } from '../store/settings.js';
 import { createSourceConfigStore, type SourceConfigRecord } from '../store/sourceConfigs.js';
+import { readSourceConfigChannelAccountMetadata } from './sourceConfigMetadata.js';
 
 export interface MonitorFetchResult {
   items: MonitorItemRecord[];
@@ -39,6 +40,7 @@ export function createMonitorFetchService() {
             title: item.title,
             detail: item.detail,
             status: 'new',
+            ...(item.metadata ? { metadata: item.metadata } : {}),
           })),
         );
       }
@@ -129,6 +131,7 @@ export interface CollectedSignal {
   source: string;
   title: string;
   detail: string;
+  metadata?: Record<string, unknown>;
 }
 
 interface ScopedStringValue {
@@ -140,6 +143,7 @@ interface ScopedProfileValue {
   projectId?: number;
   handle?: string;
   profileUrl: string;
+  metadata?: Record<string, unknown>;
 }
 
 const INSTAGRAM_PROFILE_HOSTS = new Set(['instagram.com', 'www.instagram.com']);
@@ -289,11 +293,13 @@ export async function collectConfiguredSignals(
   for (const profile of instagramProfiles) {
     try {
       const signal = await fetchInstagramProfileSignal(profile);
+      const metadata = buildProfileMonitorMetadata(profile);
       results.push({
         ...(profile.projectId !== undefined ? { projectId: profile.projectId } : {}),
         source: signal.source,
         title: signal.title,
         detail: signal.detail,
+        ...(metadata ? { metadata } : {}),
       });
     } catch (error) {
       results.push({
@@ -308,11 +314,13 @@ export async function collectConfiguredSignals(
   for (const profile of tiktokProfiles) {
     try {
       const signal = await fetchTiktokProfileSignal(profile);
+      const metadata = buildProfileMonitorMetadata(profile);
       results.push({
         ...(profile.projectId !== undefined ? { projectId: profile.projectId } : {}),
         source: signal.source,
         title: signal.title,
         detail: signal.detail,
+        ...(metadata ? { metadata } : {}),
       });
     } catch (error) {
       results.push({
@@ -386,7 +394,12 @@ export function resolveSourceConfigInputs(sourceConfigs: SourceConfigRecord[]) {
     ) {
       const profileInput = readInstagramProfileInput(sourceConfig.configJson);
       if (profileInput) {
-        instagramProfiles.push({ projectId: sourceConfig.projectId, ...profileInput });
+        const metadata = readSourceConfigChannelAccountMetadata(sourceConfig.configJson);
+        instagramProfiles.push({
+          projectId: sourceConfig.projectId,
+          ...profileInput,
+          ...(metadata ? { metadata } : {}),
+        });
       }
       continue;
     }
@@ -397,7 +410,12 @@ export function resolveSourceConfigInputs(sourceConfigs: SourceConfigRecord[]) {
     ) {
       const profileInput = readTiktokProfileInput(sourceConfig.configJson);
       if (profileInput) {
-        tiktokProfiles.push({ projectId: sourceConfig.projectId, ...profileInput });
+        const metadata = readSourceConfigChannelAccountMetadata(sourceConfig.configJson);
+        tiktokProfiles.push({
+          projectId: sourceConfig.projectId,
+          ...profileInput,
+          ...(metadata ? { metadata } : {}),
+        });
       }
     }
   }
@@ -410,6 +428,20 @@ export function resolveSourceConfigInputs(sourceConfigs: SourceConfigRecord[]) {
     instagramProfiles: dedupeScopedProfiles(instagramProfiles),
     tiktokProfiles: dedupeScopedProfiles(tiktokProfiles),
   };
+}
+
+function buildProfileMonitorMetadata(profile: ScopedProfileValue) {
+  const metadata: Record<string, unknown> = {
+    ...(profile.metadata ?? {}),
+    sourceUrl: profile.profileUrl,
+    profileUrl: profile.profileUrl,
+  };
+
+  if (profile.handle) {
+    metadata.profileHandle = profile.handle;
+  }
+
+  return Object.keys(metadata).length > 0 ? metadata : undefined;
 }
 
 function readString(value: unknown) {

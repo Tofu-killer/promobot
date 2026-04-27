@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS monitor_items (
   title TEXT NOT NULL,
   detail TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'new',
+  metadata_json TEXT NOT NULL DEFAULT '{}',
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
