@@ -663,12 +663,26 @@ describe('inbox api', () => {
         source: 'instagram',
         title: 'Instagram 评论跟进',
         detail: 'instagram comment · creator_ops\n需要人工确认评论语气。',
+        metadata: {
+          channelAccountId: 21,
+          accountKey: 'instagram-main',
+          sourceUrl: 'https://www.instagram.com/p/post-1/',
+          profileUrl: 'https://www.instagram.com/creator_ops/',
+          profileHandle: '@creator_ops',
+        },
       });
       monitorStore.create({
         projectId: 2,
         source: 'tiktok',
         title: 'TikTok 提及跟进',
         detail: 'tiktok mention · short_video_ops\n需要尽快回复该提及。',
+        metadata: {
+          channelAccountId: 22,
+          accountKey: 'tiktok-main',
+          sourceUrl: 'https://www.tiktok.com/@short_video_ops/video/1',
+          profileUrl: 'https://www.tiktok.com/@short_video_ops',
+          profileHandle: '@short_video_ops',
+        },
       });
       monitorStore.create({
         projectId: 3,
@@ -695,6 +709,13 @@ describe('inbox api', () => {
             author: 'creator_ops',
             status: 'needs_review',
             title: 'Instagram 评论跟进',
+            metadata: expect.objectContaining({
+              channelAccountId: 21,
+              accountKey: 'instagram-main',
+              sourceUrl: 'https://www.instagram.com/p/post-1/',
+              profileUrl: 'https://www.instagram.com/creator_ops/',
+              profileHandle: '@creator_ops',
+            }),
           }),
           expect.objectContaining({
             id: 2,
@@ -703,6 +724,13 @@ describe('inbox api', () => {
             author: 'short_video_ops',
             status: 'needs_review',
             title: 'TikTok 提及跟进',
+            metadata: expect.objectContaining({
+              channelAccountId: 22,
+              accountKey: 'tiktok-main',
+              sourceUrl: 'https://www.tiktok.com/@short_video_ops/video/1',
+              profileUrl: 'https://www.tiktok.com/@short_video_ops',
+              profileHandle: '@short_video_ops',
+            }),
           }),
           expect.objectContaining({
             id: 3,
@@ -1891,6 +1919,153 @@ describe('inbox api', () => {
           }),
           resolvedAt: null,
           resolution: null,
+        }),
+      );
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('routes a promoted instagram monitor reply handoff through the metadata-selected channel account', async () => {
+    const { rootDir } = createTestDatabasePath();
+    process.env.BROWSER_HANDOFF_OUTPUT_DIR = rootDir;
+
+    try {
+      const channelAccountStore = createChannelAccountStore();
+      const selectedAccount = channelAccountStore.create({
+        projectId: 1,
+        platform: 'instagram',
+        accountKey: 'instagram-selected',
+        displayName: 'Instagram Selected',
+        authType: 'browser',
+        status: 'healthy',
+      });
+      channelAccountStore.create({
+        projectId: 1,
+        platform: 'instagram',
+        accountKey: 'instagram-secondary',
+        displayName: 'Instagram Secondary',
+        authType: 'browser',
+        status: 'healthy',
+      });
+      createSessionStore().saveSession({
+        platform: 'instagram',
+        accountKey: 'instagram-selected',
+        storageState: {
+          cookies: [],
+          origins: [],
+        },
+        status: 'active',
+        lastValidatedAt: '2026-04-25T10:00:00.000Z',
+      });
+
+      const monitorStore = createMonitorStore();
+      monitorStore.create({
+        projectId: 1,
+        source: 'instagram',
+        title: 'Instagram 评论跟进',
+        detail: 'instagram comment · creator_ops\n需要人工确认评论语气。',
+        metadata: {
+          channelAccountId: selectedAccount.id,
+          accountKey: 'instagram-selected',
+          sourceUrl: 'https://www.instagram.com/p/post-selected/',
+          profileUrl: 'https://www.instagram.com/creator_ops/',
+          profileHandle: '@creator_ops',
+        },
+      });
+
+      const fetchResponse = await requestApp('POST', '/api/inbox/fetch');
+      expect(fetchResponse.status).toBe(201);
+      expect(JSON.parse(fetchResponse.body)).toEqual({
+        items: [
+          expect.objectContaining({
+            id: 1,
+            projectId: 1,
+            source: 'instagram',
+            author: 'creator_ops',
+            status: 'needs_review',
+            title: 'Instagram 评论跟进',
+            metadata: expect.objectContaining({
+              channelAccountId: selectedAccount.id,
+              accountKey: 'instagram-selected',
+              sourceUrl: 'https://www.instagram.com/p/post-selected/',
+              profileUrl: 'https://www.instagram.com/creator_ops/',
+              profileHandle: '@creator_ops',
+            }),
+          }),
+        ],
+        inserted: 1,
+        total: 1,
+        unread: 1,
+      });
+
+      const replyResponse = await requestApp('POST', '/api/inbox/1/send-reply', {
+        reply: 'Thanks for the comment. We can share current APAC latency benchmarks.',
+      });
+
+      const body = JSON.parse(replyResponse.body) as {
+        delivery: {
+          details?: {
+            browserReplyHandoff?: {
+              channelAccountId?: number;
+              accountKey?: string;
+              artifactPath?: string;
+              readiness?: string;
+            };
+            context?: {
+              selection?: string;
+            };
+          };
+        };
+      };
+      const artifactPath = body.delivery.details?.browserReplyHandoff?.artifactPath;
+
+      expect(replyResponse.status).toBe(200);
+      expect(body).toEqual({
+        item: expect.objectContaining({
+          id: 1,
+          status: 'needs_review',
+        }),
+        delivery: expect.objectContaining({
+          success: false,
+          status: 'manual_required',
+          mode: 'browser',
+          message: 'Instagram reply is ready for manual browser handoff with the saved session.',
+          reply: 'Thanks for the comment. We can share current APAC latency benchmarks.',
+          deliveryUrl: null,
+          externalId: null,
+          details: expect.objectContaining({
+            context: expect.objectContaining({
+              selection: 'channelAccountId',
+            }),
+            browserReplyHandoff: expect.objectContaining({
+              platform: 'instagram',
+              channelAccountId: selectedAccount.id,
+              accountKey: 'instagram-selected',
+              readiness: 'ready',
+              sessionAction: null,
+              artifactPath:
+                'artifacts/inbox-reply-handoffs/instagram/instagram-selected/instagram-inbox-item-1.json',
+            }),
+          }),
+        }),
+      });
+      expect(artifactPath).toBeTruthy();
+      expect(
+        JSON.parse(fs.readFileSync(path.join(rootDir, artifactPath as string), 'utf8')),
+      ).toEqual(
+        expect.objectContaining({
+          type: 'browser_inbox_reply_handoff',
+          ownership: 'direct',
+          channelAccountId: selectedAccount.id,
+          projectId: 1,
+          status: 'pending',
+          platform: 'instagram',
+          itemId: '1',
+          source: 'instagram',
+          sourceUrl: 'https://www.instagram.com/p/post-selected/',
+          accountKey: 'instagram-selected',
+          reply: 'Thanks for the comment. We can share current APAC latency benchmarks.',
         }),
       );
     } finally {

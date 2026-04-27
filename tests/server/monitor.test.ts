@@ -378,7 +378,11 @@ describe('monitor api', () => {
           sourceType: 'profile+instagram',
           platform: 'instagram',
           label: 'Instagram profile',
-          configJson: { handle: '@instagram' },
+          configJson: {
+            handle: '@instagram',
+            channelAccountId: 9,
+            accountKey: 'instagram-main',
+          },
           enabled: true,
           pollIntervalMinutes: 60,
         },
@@ -387,7 +391,11 @@ describe('monitor api', () => {
           sourceType: 'profile+tiktok',
           platform: 'tiktok',
           label: 'TikTok profile',
-          configJson: { profileUrl: 'https://www.tiktok.com/@tiktok' },
+          configJson: {
+            profileUrl: 'https://www.tiktok.com/@tiktok',
+            channelAccountId: '11',
+            channelAccountKey: 'tiktok-main',
+          },
           enabled: true,
           pollIntervalMinutes: 60,
         },
@@ -580,6 +588,13 @@ describe('monitor api', () => {
             detail:
               '701M followers · 250 following · 8,416 posts\n\nhttps://www.instagram.com/instagram/',
             status: 'new',
+            metadata: expect.objectContaining({
+              channelAccountId: 9,
+              accountKey: 'instagram-main',
+              sourceUrl: 'https://www.instagram.com/instagram/',
+              profileUrl: 'https://www.instagram.com/instagram/',
+              profileHandle: '@instagram',
+            }),
           }),
           expect.objectContaining({
             id: 6,
@@ -589,6 +604,13 @@ describe('monitor api', () => {
             detail:
               "TikTok · TikTok's Creator Profile\n\nhttps://www.tiktok.com/@tiktok",
             status: 'new',
+            metadata: expect.objectContaining({
+              channelAccountId: 11,
+              accountKey: 'tiktok-main',
+              sourceUrl: 'https://www.tiktok.com/@tiktok',
+              profileUrl: 'https://www.tiktok.com/@tiktok',
+              profileHandle: '@tiktok',
+            }),
           }),
         ],
         inserted: 6,
@@ -711,6 +733,50 @@ describe('monitor api', () => {
           projectId: 1,
           source: 'rss',
           title: 'Latency signal',
+        }),
+      ]);
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('backfills metadata onto an existing deduped monitor item', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const monitorStore = createMonitorStore();
+      const originalItem = monitorStore.create({
+        projectId: 1,
+        source: 'instagram',
+        title: 'Instagram profile update: @instagram',
+        detail: '701M followers · 250 following · 8,416 posts\n\nhttps://www.instagram.com/instagram/',
+        status: 'new',
+      });
+      const duplicateItem = monitorStore.create({
+        projectId: 1,
+        source: 'instagram',
+        title: 'Instagram profile update: @instagram',
+        detail: '701M followers · 250 following · 8,416 posts\n\nhttps://www.instagram.com/instagram/',
+        status: 'new',
+        metadata: {
+          channelAccountId: 9,
+          accountKey: 'instagram-main',
+          sourceUrl: 'https://www.instagram.com/instagram/',
+          profileUrl: 'https://www.instagram.com/instagram/',
+          profileHandle: '@instagram',
+        },
+      });
+
+      expect(duplicateItem.id).toBe(originalItem.id);
+      expect(monitorStore.list(1)).toEqual([
+        expect.objectContaining({
+          id: originalItem.id,
+          metadata: {
+            channelAccountId: 9,
+            accountKey: 'instagram-main',
+            sourceUrl: 'https://www.instagram.com/instagram/',
+            profileUrl: 'https://www.instagram.com/instagram/',
+            profileHandle: '@instagram',
+          },
         }),
       ]);
     } finally {
@@ -1429,12 +1495,22 @@ describe('monitor api', () => {
         source: 'instagram',
         title: 'Instagram profile update: @openai',
         detail: '1 followers · 2 following · 3 posts\n\nhttps://www.instagram.com/openai/',
+        metadata: {
+          sourceUrl: 'https://www.instagram.com/openai/',
+          profileUrl: 'https://www.instagram.com/openai/',
+          profileHandle: '@openai',
+        },
       },
       {
         projectId: 9,
         source: 'tiktok',
         title: 'TikTok profile update: @openai',
         detail: 'OpenAI · OpenAI on TikTok\n\nhttps://www.tiktok.com/@openai',
+        metadata: {
+          sourceUrl: 'https://www.tiktok.com/@openai',
+          profileUrl: 'https://www.tiktok.com/@openai',
+          profileHandle: '@openai',
+        },
       },
     ]);
   });

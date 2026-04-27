@@ -29,6 +29,7 @@ export function createInboxSignalFromMonitorItem(item: MonitorItemRecord): Inbox
     ...(extractAuthor(item.detail) ? { author: extractAuthor(item.detail) } : {}),
     title: item.title,
     excerpt: item.detail,
+    ...(item.metadata && Object.keys(item.metadata).length > 0 ? { metadata: item.metadata } : {}),
   };
 }
 

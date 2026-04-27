@@ -11,6 +11,7 @@ import { searchReddit } from './monitor/redditSearch.js';
 import { searchV2ex } from './monitor/v2exSearch.js';
 import { searchX } from './monitor/xSearch.js';
 import { selectInboxStatus } from './inbox/fetchers/types.js';
+import { readSourceConfigChannelAccountMetadata } from './sourceConfigMetadata.js';
 
 export interface InboxFetchResult {
   items: InboxItemRecord[];
@@ -371,7 +372,7 @@ function resolveInboxSourceConfigQueries(sourceConfigs: SourceConfigRecord[]) {
   const v2exQueries: ScopedQuery[] = [];
 
   for (const sourceConfig of sourceConfigs) {
-    const queryMetadata = readInboxQueryMetadata(sourceConfig.configJson);
+    const queryMetadata = readSourceConfigChannelAccountMetadata(sourceConfig.configJson);
 
     if (
       (sourceConfig.sourceType === 'keyword' || sourceConfig.sourceType === 'keyword+reddit') &&
@@ -476,30 +477,4 @@ function mergeInboxQueryMetadata(
     ...(itemMetadata ?? {}),
     ...(queryMetadata ?? {}),
   };
-}
-
-function readInboxQueryMetadata(configJson: Record<string, unknown>) {
-  const metadata: Record<string, unknown> = {};
-  const channelAccountId = readPositiveInteger(configJson.channelAccountId);
-  const accountKey =
-    readString(configJson.accountKey) ??
-    readString(configJson.channelAccountKey);
-
-  if (channelAccountId !== undefined) {
-    metadata.channelAccountId = channelAccountId;
-  }
-
-  if (accountKey) {
-    metadata.accountKey = accountKey;
-  }
-
-  return Object.keys(metadata).length > 0 ? metadata : undefined;
-}
-
-function readPositiveInteger(value: unknown) {
-  if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
-    return undefined;
-  }
-
-  return value;
 }
