@@ -263,6 +263,13 @@ interface SessionSaveFeedback {
   message: string;
 }
 
+interface SessionActionFeedback {
+  tone: 'success' | 'error';
+  action: 'request_session' | 'relogin';
+  sessionAction?: RequestChannelAccountSessionResponse['sessionAction'];
+  message?: string;
+}
+
 interface ChannelAccountsPageProps {
   loadChannelAccountsAction?: () => Promise<ChannelAccountsResponse>;
   createChannelAccountAction?: (input: CreateChannelAccountPayload) => Promise<CreateChannelAccountResponse>;
@@ -577,12 +584,20 @@ export function ChannelAccountsPage({
   const [sessionSavePendingById, setSessionSavePendingById] = useState<Record<number, boolean>>({});
   const [sessionSaveFeedbackById, setSessionSaveFeedbackById] = useState<Record<number, SessionSaveFeedback>>({});
   const [sessionSavedAccountById, setSessionSavedAccountById] = useState<Record<number, ChannelAccountRecord>>({});
+  const [sessionActionPendingById, setSessionActionPendingById] = useState<
+    Partial<Record<number, 'request_session' | 'relogin'>>
+  >({});
+  const [sessionActionFeedbackById, setSessionActionFeedbackById] = useState<Record<number, SessionActionFeedback>>(
+    {},
+  );
+  const [sessionActionAccountById, setSessionActionAccountById] = useState<Record<number, ChannelAccountRecord>>({});
   const [latestSessionMutation, setLatestSessionMutation] = useState<LatestSessionMutation>(null);
   const [latestAccountMutationId, setLatestAccountMutationId] = useState<number | null>(null);
   const [latestBlockedAccountSaveId, setLatestBlockedAccountSaveId] = useState<number | null>(null);
   const [latestBlockedSessionSaveId, setLatestBlockedSessionSaveId] = useState<number | null>(null);
   const [createFormError, setCreateFormError] = useState<string | null>(null);
   const sessionSaveRequestTokenByIdRef = useRef<Record<number, number>>({});
+  const sessionActionRequestTokenByIdRef = useRef<Record<number, number>>({});
   const { state: createState, run: createChannelAccount } = useAsyncAction(createChannelAccountAction);
   const { state: updateState, run: updateAccount } = useAsyncAction(
     ({ accountId, input }: { accountId: number; input: UpdateChannelAccountPayload }) =>
@@ -596,20 +611,10 @@ export function ChannelAccountsPage({
     ({ accountId, input }: { accountId: number; input: SaveChannelAccountSessionPayload }) =>
       saveChannelAccountSessionAction(accountId, input),
   );
-  const { state: sessionActionState, run: requestSessionAction } = useAsyncAction(
-    ({
-      accountId,
-      input,
-    }: {
-      accountId: number;
-      input?: RequestChannelAccountSessionActionPayload;
-    }) => requestChannelAccountSessionAction(accountId, input),
-  );
   const displayState = stateOverride ?? state;
   const displayCreateState = createStateOverride ?? createState;
   const displayUpdateState = updateStateOverride ?? updateState;
   const displayTestConnectionState = testConnectionStateOverride ?? testConnectionState;
-  const displaySessionActionState = sessionActionStateOverride ?? sessionActionState;
   const hasLiveAccounts =
     typeof displayState.data === 'object' &&
     displayState.data !== null &&
@@ -624,15 +629,30 @@ export function ChannelAccountsPage({
   const updatedAccount = displayUpdateState.data?.channelAccount
     ? normalizeChannelAccountRecord(displayUpdateState.data.channelAccount)
     : null;
-  const sessionActionAccount = displaySessionActionState.data?.channelAccount
-    ? normalizeChannelAccountRecord(displaySessionActionState.data.channelAccount)
+  const sessionActionOverrideAccount = sessionActionStateOverride?.data?.channelAccount
+    ? normalizeChannelAccountRecord(sessionActionStateOverride.data.channelAccount)
     : null;
-  const hideSessionActionFeedbackAfterSameAccountSessionSave =
-    sessionActionAccount !== null &&
+  const sessionActionOverrideFeedback = sessionActionStateOverride?.data?.sessionAction
+    ? {
+        tone: 'success' as const,
+        action: sessionActionStateOverride.data.sessionAction.action,
+        sessionAction: sessionActionStateOverride.data.sessionAction,
+      }
+    : sessionActionStateOverride?.status === 'error' && sessionActionOverrideAccount
+      ? {
+          tone: 'error' as const,
+          action: getDefaultSessionAction(sessionActionOverrideAccount),
+          message: sessionActionStateOverride.error ?? '登录动作失败',
+        }
+      : null;
+  const sessionActionAccounts = sessionActionOverrideAccount
+    ? [sessionActionOverrideAccount]
+    : Object.values(sessionActionAccountById);
+  const hideSessionActionForAccount = (accountId: number) =>
     latestSessionMutation?.kind === 'save_session' &&
-    latestSessionMutation.accountId === sessionActionAccount.id &&
-    (sessionActionAccount.id in sessionSavedAccountById || latestBlockedSessionSaveId === sessionActionAccount.id);
-  const showSessionActionFeedback = !hideSessionActionFeedbackAfterSameAccountSessionSave;
+    latestSessionMutation.accountId === accountId &&
+    (accountId in sessionSavedAccountById || latestBlockedSessionSaveId === accountId);
+  const showSessionActionFeedback = (accountId: number) => !hideSessionActionForAccount(accountId);
   const showAccountUpdateSuccess =
     displayUpdateState.status === 'success' &&
     updatedAccount !== null &&
@@ -643,18 +663,6 @@ export function ChannelAccountsPage({
     editingAccountId !== null &&
     latestAccountMutationId === editingAccountId;
   const sessionSavedAccounts = Object.values(sessionSavedAccountById);
-  const showSessionActionOverlay =
-    sessionActionAccount !== null &&
-    !(
-      latestSessionMutation?.kind === 'save_session' &&
-      latestSessionMutation.accountId === sessionActionAccount.id &&
-      sessionActionAccount.id in sessionSavedAccountById
-    ) &&
-    !(
-      latestSessionMutation?.kind === 'save_session' &&
-      latestSessionMutation.accountId === sessionActionAccount.id &&
-      latestBlockedSessionSaveId === sessionActionAccount.id
-    );
   const editingSessionSaveFeedback =
     editingAccountId !== null ? sessionSaveFeedbackById[editingAccountId] ?? null : null;
   const showSessionSaveLoading =
@@ -684,10 +692,14 @@ export function ChannelAccountsPage({
       );
     }
 
-    if (showSessionActionOverlay && sessionActionAccount) {
+    for (const sessionActionAccountEntry of sessionActionAccounts) {
+      if (hideSessionActionForAccount(sessionActionAccountEntry.id)) {
+        continue;
+      }
+
       accounts = accounts.map((account) =>
-        account.id === sessionActionAccount.id
-          ? mergeChannelAccountRecord(account, sessionActionAccount)
+        account.id === sessionActionAccountEntry.id
+          ? mergeChannelAccountRecord(account, sessionActionAccountEntry)
           : account,
       );
     }
@@ -698,8 +710,10 @@ export function ChannelAccountsPage({
     createdAccount,
     updatedAccount,
     sessionSavedAccounts,
-    sessionActionAccount,
-    showSessionActionOverlay,
+    sessionActionAccounts,
+    latestSessionMutation,
+    sessionSavedAccountById,
+    latestBlockedSessionSaveId,
   ]);
 
   const latestCreatedAccount = createdAccount;
@@ -708,8 +722,18 @@ export function ChannelAccountsPage({
     actionTargetAccountId,
     latestCreatedAccount,
   );
-  const headerSessionActionDisabled = !actionTargetAccount;
-  const headerSessionActionLabel = actionTargetAccount ? getSessionActionLabel(actionTargetAccount) : '暂无登录目标';
+  const headerSessionActionPending = actionTargetAccount ? sessionActionPendingById[actionTargetAccount.id] ?? null : null;
+  const headerSessionActionDisabled = !actionTargetAccount || headerSessionActionPending !== null;
+  const headerSessionActionLabel = !actionTargetAccount
+    ? '暂无登录目标'
+    : headerSessionActionPending
+      ? getPendingSessionActionLabel(headerSessionActionPending)
+      : getSessionActionLabel(actionTargetAccount);
+  const showStandaloneSessionActionFeedback =
+    sessionActionOverrideAccount !== null &&
+    sessionActionOverrideFeedback !== null &&
+    !visibleAccounts.some((account) => account.id === sessionActionOverrideAccount.id) &&
+    showSessionActionFeedback(sessionActionOverrideAccount.id);
   const testConnectionActionDisabled = !actionTargetAccount;
   const testConnectionActionLabel = testConnectionActionDisabled
     ? '暂无测试目标'
@@ -879,6 +903,77 @@ export function ChannelAccountsPage({
     return sessionSaveRequestTokenByIdRef.current[accountId] === requestToken;
   }
 
+  function createSessionActionRequestToken(accountId: number) {
+    const nextToken = (sessionActionRequestTokenByIdRef.current[accountId] ?? 0) + 1;
+    sessionActionRequestTokenByIdRef.current[accountId] = nextToken;
+    return nextToken;
+  }
+
+  function isLatestSessionActionRequest(accountId: number, requestToken: number) {
+    return sessionActionRequestTokenByIdRef.current[accountId] === requestToken;
+  }
+
+  function setSessionActionPending(
+    accountId: number,
+    action: 'request_session' | 'relogin' | null,
+  ) {
+    setSessionActionPendingById((current) => {
+      if (action === null) {
+        if (!(accountId in current)) {
+          return current;
+        }
+
+        const { [accountId]: _removed, ...rest } = current;
+        return rest;
+      }
+
+      if (current[accountId] === action) {
+        return current;
+      }
+
+      return {
+        ...current,
+        [accountId]: action,
+      };
+    });
+  }
+
+  function setSessionActionFeedback(accountId: number, feedback: SessionActionFeedback | null) {
+    setSessionActionFeedbackById((current) => {
+      if (feedback === null) {
+        if (!(accountId in current)) {
+          return current;
+        }
+
+        const { [accountId]: _removed, ...rest } = current;
+        return rest;
+      }
+
+      return {
+        ...current,
+        [accountId]: feedback,
+      };
+    });
+  }
+
+  function setSessionActionAccount(accountId: number, account: ChannelAccountRecord | null) {
+    setSessionActionAccountById((current) => {
+      if (account === null) {
+        if (!(accountId in current)) {
+          return current;
+        }
+
+        const { [accountId]: _removed, ...rest } = current;
+        return rest;
+      }
+
+      return {
+        ...current,
+        [accountId]: account,
+      };
+    });
+  }
+
   function handleStartEditing(accountId: number) {
     setEditingAccountId(accountId);
   }
@@ -1014,16 +1109,47 @@ export function ChannelAccountsPage({
   }
 
   function handleRequestSessionAction(account: ChannelAccountRecord, forcedAction?: 'request_session' | 'relogin') {
+    const action = forcedAction ?? getDefaultSessionAction(account);
+    const requestToken = createSessionActionRequestToken(account.id);
     setLatestSessionMutation({
       kind: 'session_action',
       accountId: account.id,
     });
-    void requestSessionAction({
-      accountId: account.id,
-      input: {
-        action: forcedAction ?? getDefaultSessionAction(account),
-      },
-    }).catch(() => undefined);
+    setSessionActionPending(account.id, action);
+    setSessionActionFeedback(account.id, null);
+    void requestChannelAccountSessionAction(account.id, {
+      action,
+    })
+      .then((result) => {
+        if (!isLatestSessionActionRequest(account.id, requestToken)) {
+          return;
+        }
+
+        setSessionActionAccount(account.id, normalizeChannelAccountRecord(result.channelAccount));
+        setSessionActionFeedback(account.id, {
+          tone: 'success',
+          action,
+          sessionAction: result.sessionAction,
+        });
+      })
+      .catch((error) => {
+        if (!isLatestSessionActionRequest(account.id, requestToken)) {
+          return;
+        }
+
+        setSessionActionFeedback(account.id, {
+          tone: 'error',
+          action,
+          message: error instanceof Error ? error.message : '登录动作失败',
+        });
+      })
+      .finally(() => {
+        if (!isLatestSessionActionRequest(account.id, requestToken)) {
+          return;
+        }
+
+        setSessionActionPending(account.id, null);
+      });
   }
 
   function handleTestConnection(targetAccount: ChannelAccountRecord | null = actionTargetAccount) {
@@ -1294,6 +1420,16 @@ export function ChannelAccountsPage({
                     const editForm = getEditFormValue(account);
                     const session = getSessionSummary(account);
                     const sessionActionLabel = getSessionActionLabel(account);
+                    const sessionActionPending = sessionActionPendingById[account.id] ?? null;
+                    const sessionActionButtonLabel = sessionActionPending
+                      ? getPendingSessionActionLabel(sessionActionPending)
+                      : sessionActionLabel;
+                    const sessionActionFeedback =
+                      sessionActionStateOverride && sessionActionOverrideAccount?.id === account.id
+                        ? sessionActionOverrideFeedback
+                        : sessionActionFeedbackById[account.id] ?? null;
+                    const showCardSessionActionFeedback =
+                      sessionActionFeedback !== null && showSessionActionFeedback(account.id);
                     return (
                       <article
                         key={account.id}
@@ -1463,19 +1599,44 @@ export function ChannelAccountsPage({
                           <button
                             type="button"
                             data-session-action-id={String(account.id)}
+                            disabled={sessionActionPending !== null}
                             onClick={() => handleRequestSessionAction(account)}
                             style={{
                               borderRadius: '12px',
                               border: '1px solid #cbd5e1',
-                              background: '#ffffff',
-                              color: '#122033',
+                              background: sessionActionPending ? '#f8fafc' : '#ffffff',
+                              color: sessionActionPending ? '#94a3b8' : '#122033',
                               padding: '12px 16px',
                               fontWeight: 700,
+                              cursor: sessionActionPending ? 'not-allowed' : 'pointer',
                             }}
                           >
-                            {sessionActionLabel}
+                            {sessionActionButtonLabel}
                           </button>
                         </div>
+                        {showCardSessionActionFeedback && sessionActionFeedback?.tone === 'success' ? (
+                          <div style={{ marginTop: '12px', display: 'grid', gap: '6px', color: '#334155' }}>
+                            <div>
+                              {getSessionActionLabelFromAction(sessionActionFeedback.sessionAction?.action ?? sessionActionFeedback.action)}
+                              {sessionActionFeedback.sessionAction?.reused ? '工单已存在，继续沿用' : '工单已记录'}
+                            </div>
+                            <div>{sessionActionFeedback.sessionAction?.message ?? '登录动作已提交'}</div>
+                            <div>请求时间：{sessionActionFeedback.sessionAction?.requestedAt}</div>
+                            <div>
+                              工单状态：
+                              {sessionActionFeedback.sessionAction?.jobStatus ?? sessionActionFeedback.sessionAction?.status}
+                            </div>
+                            <div>下一步：{sessionActionFeedback.sessionAction?.nextStep}</div>
+                            {sessionActionFeedback.sessionAction?.artifactPath ? (
+                              <div>Artifact Path：{sessionActionFeedback.sessionAction.artifactPath}</div>
+                            ) : null}
+                          </div>
+                        ) : null}
+                        {showCardSessionActionFeedback && sessionActionFeedback?.tone === 'error' ? (
+                          <p style={{ marginTop: '12px', color: '#b91c1c' }}>
+                            登录动作失败：{sessionActionFeedback.message}
+                          </p>
+                        ) : null}
 
                         {editingAccountId === account.id ? (
                           <div style={{ marginTop: '12px', display: 'grid', gap: '10px' }}>
@@ -1610,6 +1771,32 @@ export function ChannelAccountsPage({
           {displayState.status === 'idle' ? (
             <p style={{ margin: 0, color: '#475569' }}>页面挂载后会自动请求真实渠道账号接口。</p>
           ) : null}
+          {showStandaloneSessionActionFeedback && sessionActionOverrideFeedback?.tone === 'success' ? (
+            <div style={{ marginTop: '12px', display: 'grid', gap: '6px', color: '#334155' }}>
+              <div>
+                {getSessionActionLabelFromAction(
+                  sessionActionOverrideFeedback.sessionAction?.action ?? sessionActionOverrideFeedback.action,
+                )}
+                {sessionActionOverrideFeedback.sessionAction?.reused ? '工单已存在，继续沿用' : '工单已记录'}
+              </div>
+              <div>{sessionActionOverrideFeedback.sessionAction?.message ?? '登录动作已提交'}</div>
+              <div>请求时间：{sessionActionOverrideFeedback.sessionAction?.requestedAt}</div>
+              <div>
+                工单状态：
+                {sessionActionOverrideFeedback.sessionAction?.jobStatus ??
+                  sessionActionOverrideFeedback.sessionAction?.status}
+              </div>
+              <div>下一步：{sessionActionOverrideFeedback.sessionAction?.nextStep}</div>
+              {sessionActionOverrideFeedback.sessionAction?.artifactPath ? (
+                <div>Artifact Path：{sessionActionOverrideFeedback.sessionAction.artifactPath}</div>
+              ) : null}
+            </div>
+          ) : null}
+          {showStandaloneSessionActionFeedback && sessionActionOverrideFeedback?.tone === 'error' ? (
+            <p style={{ marginTop: '12px', color: '#b91c1c' }}>
+              登录动作失败：{sessionActionOverrideFeedback.message}
+            </p>
+          ) : null}
 
           {showAccountUpdateSuccess ? (
             <p style={{ marginTop: '12px', color: '#166534' }}>账号已更新</p>
@@ -1632,32 +1819,6 @@ export function ChannelAccountsPage({
           {showSessionSaveError ? (
             <p style={{ marginTop: '12px', color: '#b91c1c' }}>
               Session 保存失败：{editingSessionSaveFeedback?.message}
-            </p>
-          ) : null}
-          {showSessionActionFeedback &&
-          displaySessionActionState.status === 'success' &&
-          displaySessionActionState.data ? (
-            <div style={{ marginTop: '12px', display: 'grid', gap: '6px', color: '#334155' }}>
-              <div>
-                {getSessionActionLabelFromAction(displaySessionActionState.data.sessionAction.action)}
-                {displaySessionActionState.data.sessionAction.reused ? '工单已存在，继续沿用' : '工单已记录'}
-              </div>
-              <div>{displaySessionActionState.data.sessionAction.message}</div>
-              <div>请求时间：{displaySessionActionState.data.sessionAction.requestedAt}</div>
-              <div>
-                工单状态：
-                {displaySessionActionState.data.sessionAction.jobStatus ??
-                  displaySessionActionState.data.sessionAction.status}
-              </div>
-              <div>下一步：{displaySessionActionState.data.sessionAction.nextStep}</div>
-              {displaySessionActionState.data.sessionAction.artifactPath ? (
-                <div>Artifact Path：{displaySessionActionState.data.sessionAction.artifactPath}</div>
-              ) : null}
-            </div>
-          ) : null}
-          {showSessionActionFeedback && displaySessionActionState.status === 'error' ? (
-            <p style={{ marginTop: '12px', color: '#b91c1c' }}>
-              登录动作失败：{displaySessionActionState.error}
             </p>
           ) : null}
         </SectionCard>
@@ -1807,6 +1968,10 @@ function getDefaultSessionAction(account: ChannelAccountRecord): 'request_sessio
 
 function getSessionActionLabel(account: ChannelAccountRecord): '请求登录' | '重新登录' {
   return getDefaultSessionAction(account) === 'relogin' ? '重新登录' : '请求登录';
+}
+
+function getPendingSessionActionLabel(action: 'request_session' | 'relogin') {
+  return action === 'relogin' ? '正在重新登录...' : '正在请求登录...';
 }
 
 function getSessionActionLabelFromAction(action: 'request_session' | 'relogin') {

@@ -4467,6 +4467,358 @@ describe('channel account edit actions', () => {
     });
   });
 
+  it('keeps concurrent session action receipts scoped per account when multiple requests overlap', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ChannelAccountsPage } = await import('../../src/client/pages/ChannelAccounts');
+
+    const firstSessionActionDeferred = createDeferredPromise<{
+      ok: boolean;
+      sessionAction: {
+        action: 'request_session' | 'relogin';
+        accountId: number;
+        status: string;
+        requestedAt: string;
+        message: string;
+        nextStep: string;
+        jobId: number;
+        jobStatus: string;
+        artifactPath: string;
+      };
+      channelAccount: {
+        id: number;
+        platform: string;
+        accountKey: string;
+        displayName: string;
+        authType: string;
+        status: string;
+        metadata: Record<string, unknown>;
+        session: {
+          hasSession: boolean;
+          status: string;
+          validatedAt: string | null;
+          storageStatePath: string | null;
+          id?: string;
+        };
+        latestBrowserLaneArtifact: {
+          action: 'request_session' | 'relogin';
+          jobStatus: string;
+          requestedAt: string;
+          artifactPath: string;
+          resolvedAt: string | null;
+        };
+        publishReadiness: {
+          platform: string;
+          ready: boolean;
+          mode: string;
+          status: string;
+          message: string;
+          action?: 'request_session' | 'relogin';
+        };
+        createdAt: string;
+        updatedAt: string;
+      };
+    }>();
+    const secondSessionActionDeferred = createDeferredPromise<{
+      ok: boolean;
+      sessionAction: {
+        action: 'request_session' | 'relogin';
+        accountId: number;
+        status: string;
+        requestedAt: string;
+        message: string;
+        nextStep: string;
+        jobId: number;
+        jobStatus: string;
+        artifactPath: string;
+      };
+      channelAccount: {
+        id: number;
+        platform: string;
+        accountKey: string;
+        displayName: string;
+        authType: string;
+        status: string;
+        metadata: Record<string, unknown>;
+        session: {
+          hasSession: boolean;
+          status: string;
+          validatedAt: string | null;
+          storageStatePath: string | null;
+          id?: string;
+        };
+        latestBrowserLaneArtifact: {
+          action: 'request_session' | 'relogin';
+          jobStatus: string;
+          requestedAt: string;
+          artifactPath: string;
+          resolvedAt: string | null;
+        };
+        publishReadiness: {
+          platform: string;
+          ready: boolean;
+          mode: string;
+          status: string;
+          message: string;
+          action?: 'request_session' | 'relogin';
+        };
+        createdAt: string;
+        updatedAt: string;
+      };
+    }>();
+    const requestChannelAccountSessionAction = vi.fn((accountId: number) => {
+      if (accountId === 7) {
+        return firstSessionActionDeferred.promise;
+      }
+
+      if (accountId === 8) {
+        return secondSessionActionDeferred.promise;
+      }
+
+      return Promise.reject(new Error(`unexpected account ${accountId}`));
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ChannelAccountsPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              channelAccounts: [
+                {
+                  id: 7,
+                  platform: 'x',
+                  accountKey: 'acct-browser',
+                  displayName: 'Browser X',
+                  authType: 'browser',
+                  status: 'healthy',
+                  metadata: {},
+                  session: {
+                    hasSession: true,
+                    status: 'expired',
+                    validatedAt: '2026-04-19T02:00:00.000Z',
+                    storageStatePath: 'artifacts/browser-sessions/acct-browser.json',
+                    id: 'x:acct-browser',
+                  },
+                  publishReadiness: {
+                    platform: 'x',
+                    ready: false,
+                    mode: 'browser',
+                    status: 'needs_relogin',
+                    message: '已有 X 浏览器 session，但需要重新登录刷新。',
+                    action: 'relogin',
+                  },
+                  createdAt: '2026-04-19T00:00:00.000Z',
+                  updatedAt: '2026-04-19T00:00:00.000Z',
+                },
+                {
+                  id: 8,
+                  platform: 'reddit',
+                  accountKey: 'acct-reddit',
+                  displayName: 'Reddit Ops',
+                  authType: 'oauth',
+                  status: 'healthy',
+                  metadata: {},
+                  session: {
+                    hasSession: false,
+                    status: 'missing',
+                    validatedAt: null,
+                    storageStatePath: null,
+                    id: 'reddit:acct-reddit',
+                  },
+                  publishReadiness: {
+                    platform: 'reddit',
+                    ready: false,
+                    mode: 'oauth',
+                    status: 'needs_session',
+                    message: 'Reddit OAuth 账号尚未保存登录态，请先登录。',
+                    action: 'request_session',
+                  },
+                  createdAt: '2026-04-19T00:00:00.000Z',
+                  updatedAt: '2026-04-19T00:00:00.000Z',
+                },
+              ],
+            },
+          },
+          requestChannelAccountSessionAction,
+        }),
+      );
+      await flush();
+    });
+
+    const reloginButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-session-action-id') === '7',
+    );
+    const requestSessionButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-session-action-id') === '8',
+    );
+
+    expect(reloginButton).not.toBeNull();
+    expect(requestSessionButton).not.toBeNull();
+
+    await act(async () => {
+      reloginButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    const reloginButtonWhilePending = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-session-action-id') === '7',
+    );
+    const requestSessionButtonBeforeSecondRequest = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-session-action-id') === '8',
+    );
+
+    expect(collectText(reloginButtonWhilePending as never)).toContain('正在重新登录...');
+    expect((reloginButtonWhilePending as FakeElement).disabled).toBe(true);
+    expect(collectText(requestSessionButtonBeforeSecondRequest as never)).toContain('请求登录');
+    expect((requestSessionButtonBeforeSecondRequest as FakeElement).disabled).toBe(false);
+
+    await act(async () => {
+      requestSessionButtonBeforeSecondRequest?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(requestChannelAccountSessionAction).toHaveBeenNthCalledWith(1, 7, {
+      action: 'relogin',
+    });
+    expect(requestChannelAccountSessionAction).toHaveBeenNthCalledWith(2, 8, {
+      action: 'request_session',
+    });
+
+    const requestSessionButtonWhilePending = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-session-action-id') === '8',
+    );
+
+    expect(collectText(requestSessionButtonWhilePending as never)).toContain('正在请求登录...');
+    expect((requestSessionButtonWhilePending as FakeElement).disabled).toBe(true);
+
+    await act(async () => {
+      firstSessionActionDeferred.resolve({
+        ok: true,
+        sessionAction: {
+          action: 'relogin',
+          accountId: 7,
+          status: 'pending',
+          requestedAt: '2026-04-19T06:50:00.000Z',
+          message: 'Refresh login manually',
+          nextStep: '/api/channel-accounts/7/session',
+          jobId: 31,
+          jobStatus: 'pending',
+          artifactPath: 'artifacts/browser-lane-requests/x/acct-browser/relogin-job-31.json',
+        },
+        channelAccount: {
+          id: 7,
+          platform: 'x',
+          accountKey: 'acct-browser',
+          displayName: 'Browser X',
+          authType: 'browser',
+          status: 'healthy',
+          metadata: {},
+          session: {
+            hasSession: true,
+            status: 'expired',
+            validatedAt: '2026-04-19T02:00:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/acct-browser.json',
+            id: 'x:acct-browser',
+          },
+          latestBrowserLaneArtifact: {
+            action: 'relogin',
+            jobStatus: 'pending',
+            requestedAt: '2026-04-19T06:50:00.000Z',
+            artifactPath: 'artifacts/browser-lane-requests/x/acct-browser/relogin-job-31.json',
+            resolvedAt: null,
+          },
+          publishReadiness: {
+            platform: 'x',
+            ready: false,
+            mode: 'browser',
+            status: 'needs_relogin',
+            message: '已有 X 浏览器 session，但需要重新登录刷新。',
+            action: 'relogin',
+          },
+          createdAt: '2026-04-19T00:00:00.000Z',
+          updatedAt: '2026-04-19T06:50:00.000Z',
+        },
+      });
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('artifacts/browser-lane-requests/x/acct-browser/relogin-job-31.json');
+    expect(collectText(container)).toContain('重新登录工单已记录');
+    expect(collectText(container)).toContain('Refresh login manually');
+    expect(collectText(container)).toContain('请求登录');
+
+    await act(async () => {
+      secondSessionActionDeferred.resolve({
+        ok: true,
+        sessionAction: {
+          action: 'request_session',
+          accountId: 8,
+          status: 'pending',
+          requestedAt: '2026-04-19T06:51:00.000Z',
+          message: 'Browser login requested.',
+          nextStep: '/api/channel-accounts/8/session',
+          jobId: 32,
+          jobStatus: 'pending',
+          artifactPath: 'artifacts/browser-lane-requests/reddit/acct-reddit/request-session-job-32.json',
+        },
+        channelAccount: {
+          id: 8,
+          platform: 'reddit',
+          accountKey: 'acct-reddit',
+          displayName: 'Reddit Ops',
+          authType: 'oauth',
+          status: 'healthy',
+          metadata: {},
+          session: {
+            hasSession: false,
+            status: 'missing',
+            validatedAt: null,
+            storageStatePath: null,
+            id: 'reddit:acct-reddit',
+          },
+          latestBrowserLaneArtifact: {
+            action: 'request_session',
+            jobStatus: 'pending',
+            requestedAt: '2026-04-19T06:51:00.000Z',
+            artifactPath: 'artifacts/browser-lane-requests/reddit/acct-reddit/request-session-job-32.json',
+            resolvedAt: null,
+          },
+          publishReadiness: {
+            platform: 'reddit',
+            ready: false,
+            mode: 'oauth',
+            status: 'needs_session',
+            message: 'Reddit OAuth 账号尚未保存登录态，请先登录。',
+            action: 'request_session',
+          },
+          createdAt: '2026-04-19T00:00:00.000Z',
+          updatedAt: '2026-04-19T06:51:00.000Z',
+        },
+      });
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('artifacts/browser-lane-requests/x/acct-browser/relogin-job-31.json');
+    expect(collectText(container)).toContain(
+      'artifacts/browser-lane-requests/reddit/acct-reddit/request-session-job-32.json',
+    );
+    expect(collectText(container)).toContain('Browser login requested.');
+    expect(collectText(container)).toContain('最近工单：重新登录');
+    expect(collectText(container)).toContain('最近工单：请求登录');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('keeps concurrent session saves scoped per account when multiple saves overlap', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
