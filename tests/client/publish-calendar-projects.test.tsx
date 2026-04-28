@@ -3291,4 +3291,388 @@ describe('PublishCalendar and Projects pages', () => {
       await flush();
     });
   });
+
+  it('keeps source config save pending scoped when concurrent saves start on different projects', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ProjectsPage } = await import('../../src/client/pages/Projects');
+
+    const firstSaveDeferred = createDeferredPromise<{
+      sourceConfig: {
+        id: number;
+        projectId: number;
+        sourceType: string;
+        platform: string;
+        label: string;
+        configJson: Record<string, unknown>;
+        enabled: boolean;
+        pollIntervalMinutes: number;
+      };
+    }>();
+    const secondSaveDeferred = createDeferredPromise<{
+      sourceConfig: {
+        id: number;
+        projectId: number;
+        sourceType: string;
+        platform: string;
+        label: string;
+        configJson: Record<string, unknown>;
+        enabled: boolean;
+        pollIntervalMinutes: number;
+      };
+    }>();
+    const loadProjectsAction = vi.fn().mockResolvedValue({
+      projects: [
+        {
+          id: 7,
+          name: 'Acme Launch',
+          siteName: 'Acme',
+          siteUrl: 'https://acme.test',
+          siteDescription: 'Launch week campaign',
+          sellingPoints: ['Cheap', 'Fast'],
+          createdAt: '2026-04-19T08:00:00.000Z',
+        },
+        {
+          id: 8,
+          name: 'Acme Expansion',
+          siteName: 'Acme Expansion',
+          siteUrl: 'https://acme.test/expansion',
+          siteDescription: 'Expansion brief',
+          sellingPoints: ['Broader'],
+          createdAt: '2026-04-19T09:00:00.000Z',
+        },
+      ],
+    });
+    const loadSourceConfigsAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        sourceConfigs: [
+          {
+            id: 3,
+            projectId: 7,
+            sourceType: 'keyword+reddit',
+            platform: 'reddit',
+            label: 'Reddit mentions',
+            configJson: { query: 'acme launch' },
+            enabled: true,
+            pollIntervalMinutes: 30,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        sourceConfigs: [
+          {
+            id: 4,
+            projectId: 8,
+            sourceType: 'rss',
+            platform: 'rss',
+            label: 'Expansion RSS',
+            configJson: { feedUrl: 'https://feeds.test/expansion.xml' },
+            enabled: true,
+            pollIntervalMinutes: 45,
+          },
+        ],
+      });
+    const updateSourceConfigAction = vi.fn((_projectId: number, sourceConfigId: number) =>
+      sourceConfigId === 3 ? firstSaveDeferred.promise : secondSaveDeferred.promise,
+    );
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ProjectsPage as never, {
+          loadProjectsAction,
+          loadSourceConfigsAction,
+          updateSourceConfigAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const firstSaveButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-source-config-save-id') === '3',
+    );
+    const secondSaveButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-source-config-save-id') === '4',
+    );
+
+    await act(async () => {
+      firstSaveButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      secondSaveButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    const firstPendingButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-source-config-save-id') === '3',
+    );
+    const secondPendingButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-source-config-save-id') === '4',
+    );
+
+    expect(firstPendingButton?.disabled).toBe(true);
+    expect(collectText(firstPendingButton as FakeElement)).toContain('正在保存 SourceConfig...');
+    expect(secondPendingButton?.disabled).toBe(true);
+    expect(collectText(secondPendingButton as FakeElement)).toContain('正在保存 SourceConfig...');
+
+    await act(async () => {
+      firstSaveDeferred.resolve({
+        sourceConfig: {
+          id: 3,
+          projectId: 7,
+          sourceType: 'keyword+reddit',
+          platform: 'reddit',
+          label: 'Reddit mentions',
+          configJson: { query: 'acme launch' },
+          enabled: true,
+          pollIntervalMinutes: 30,
+        },
+      });
+      await flush();
+      await flush();
+    });
+
+    const firstButtonAfterResolve = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-source-config-save-id') === '3',
+    );
+    const secondButtonAfterFirstResolve = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-source-config-save-id') === '4',
+    );
+
+    expect(firstButtonAfterResolve?.disabled).toBe(false);
+    expect(collectText(firstButtonAfterResolve as FakeElement)).toContain('保存 SourceConfig');
+    expect(secondButtonAfterFirstResolve?.disabled).toBe(true);
+    expect(collectText(secondButtonAfterFirstResolve as FakeElement)).toContain('正在保存 SourceConfig...');
+
+    await act(async () => {
+      secondSaveDeferred.resolve({
+        sourceConfig: {
+          id: 4,
+          projectId: 8,
+          sourceType: 'rss',
+          platform: 'rss',
+          label: 'Expansion RSS',
+          configJson: { feedUrl: 'https://feeds.test/expansion.xml' },
+          enabled: true,
+          pollIntervalMinutes: 45,
+        },
+      });
+      await flush();
+      await flush();
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('keeps source config create pending scoped when concurrent creates start on different projects', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ProjectsPage } = await import('../../src/client/pages/Projects');
+
+    const firstCreateDeferred = createDeferredPromise<{
+      sourceConfig: {
+        id: number;
+        projectId: number;
+        sourceType: string;
+        platform: string;
+        label: string;
+        configJson: Record<string, unknown>;
+        enabled: boolean;
+        pollIntervalMinutes: number;
+      };
+    }>();
+    const secondCreateDeferred = createDeferredPromise<{
+      sourceConfig: {
+        id: number;
+        projectId: number;
+        sourceType: string;
+        platform: string;
+        label: string;
+        configJson: Record<string, unknown>;
+        enabled: boolean;
+        pollIntervalMinutes: number;
+      };
+    }>();
+    const loadProjectsAction = vi.fn().mockResolvedValue({
+      projects: [
+        {
+          id: 7,
+          name: 'Acme Launch',
+          siteName: 'Acme',
+          siteUrl: 'https://acme.test',
+          siteDescription: 'Launch week campaign',
+          sellingPoints: ['Cheap', 'Fast'],
+          createdAt: '2026-04-19T08:00:00.000Z',
+        },
+        {
+          id: 8,
+          name: 'Acme Expansion',
+          siteName: 'Acme Expansion',
+          siteUrl: 'https://acme.test/expansion',
+          siteDescription: 'Expansion brief',
+          sellingPoints: ['Broader'],
+          createdAt: '2026-04-19T09:00:00.000Z',
+        },
+      ],
+    });
+    const loadSourceConfigsAction = vi.fn().mockResolvedValue({
+      sourceConfigs: [],
+    });
+    const createSourceConfigAction = vi.fn((projectId: number) =>
+      projectId === 7 ? firstCreateDeferred.promise : secondCreateDeferred.promise,
+    );
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ProjectsPage as never, {
+          loadProjectsAction,
+          loadSourceConfigsAction,
+          createSourceConfigAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const firstPresetField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'new-preset-7',
+    );
+    const firstConfigJsonField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'new-config-json-7',
+    );
+    const secondPresetField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'new-preset-8',
+    );
+    const secondConfigJsonField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'new-config-json-8',
+    );
+
+    await act(async () => {
+      updateFieldValue(firstPresetField, 'rss', window);
+      updateFieldValue(firstConfigJsonField, '{"feedUrl":"https://feeds.test/launch.xml"}', window);
+      updateFieldValue(secondPresetField, 'rss', window);
+      updateFieldValue(secondConfigJsonField, '{"feedUrl":"https://feeds.test/expansion.xml"}', window);
+      await flush();
+    });
+
+    const firstCreateButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-source-config-create-id') === '7',
+    );
+    const secondCreateButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-source-config-create-id') === '8',
+    );
+
+    await act(async () => {
+      firstCreateButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      secondCreateButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    const firstPendingCreateButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-source-config-create-id') === '7',
+    );
+    const secondPendingCreateButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-source-config-create-id') === '8',
+    );
+
+    expect(firstPendingCreateButton?.disabled).toBe(true);
+    expect(collectText(firstPendingCreateButton as FakeElement)).toContain('正在创建 SourceConfig...');
+    expect(secondPendingCreateButton?.disabled).toBe(true);
+    expect(collectText(secondPendingCreateButton as FakeElement)).toContain('正在创建 SourceConfig...');
+
+    await act(async () => {
+      firstCreateDeferred.resolve({
+        sourceConfig: {
+          id: 5,
+          projectId: 7,
+          sourceType: 'rss',
+          platform: 'rss',
+          label: 'RSS feed',
+          configJson: { feedUrl: 'https://feeds.test/launch.xml' },
+          enabled: true,
+          pollIntervalMinutes: 30,
+        },
+      });
+      await flush();
+      await flush();
+    });
+
+    const firstCreateButtonAfterResolve = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-source-config-create-id') === '7',
+    );
+    const secondCreateButtonAfterFirstResolve = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-source-config-create-id') === '8',
+    );
+
+    expect(firstCreateButtonAfterResolve?.disabled).toBe(false);
+    expect(collectText(firstCreateButtonAfterResolve as FakeElement)).toContain('创建 SourceConfig');
+    expect(secondCreateButtonAfterFirstResolve?.disabled).toBe(true);
+    expect(collectText(secondCreateButtonAfterFirstResolve as FakeElement)).toContain('正在创建 SourceConfig...');
+
+    await act(async () => {
+      secondCreateDeferred.resolve({
+        sourceConfig: {
+          id: 6,
+          projectId: 8,
+          sourceType: 'rss',
+          platform: 'rss',
+          label: 'RSS feed',
+          configJson: { feedUrl: 'https://feeds.test/expansion.xml' },
+          enabled: true,
+          pollIntervalMinutes: 30,
+        },
+      });
+      await flush();
+      await flush();
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
 });

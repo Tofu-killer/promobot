@@ -388,8 +388,10 @@ export function ProjectsPage({
   const [pendingProjectSaveIds, setPendingProjectSaveIds] = useState<Record<number, boolean>>({});
   const [projectSaveMessageById, setProjectSaveMessageById] = useState<Record<number, string>>({});
   const [pendingProjectArchiveId, setPendingProjectArchiveId] = useState<number | null>(null);
-  const [pendingSourceConfigCreateProjectId, setPendingSourceConfigCreateProjectId] = useState<number | null>(null);
-  const [pendingSourceConfigSaveId, setPendingSourceConfigSaveId] = useState<number | null>(null);
+  const [pendingSourceConfigCreateProjectIds, setPendingSourceConfigCreateProjectIds] = useState<
+    Record<number, boolean>
+  >({});
+  const [pendingSourceConfigSaveIds, setPendingSourceConfigSaveIds] = useState<Record<number, boolean>>({});
   const [projectForms, setProjectForms] = useState<Record<number, ProjectFormValue>>({});
   const [sourceConfigsState, setSourceConfigsState] = useState<AsyncState<SourceConfigsByProjectResponse>>({
     status: 'idle',
@@ -600,6 +602,50 @@ export function ProjectsPage({
         ...currentMessages,
         [projectId]: message,
       };
+    });
+  }
+
+  function setSourceConfigCreatePending(projectId: number, pending: boolean) {
+    setPendingSourceConfigCreateProjectIds((current) => {
+      if (pending) {
+        if (current[projectId]) {
+          return current;
+        }
+
+        return {
+          ...current,
+          [projectId]: true,
+        };
+      }
+
+      if (!(projectId in current)) {
+        return current;
+      }
+
+      const { [projectId]: _removed, ...rest } = current;
+      return rest;
+    });
+  }
+
+  function setSourceConfigSavePending(sourceConfigId: number, pending: boolean) {
+    setPendingSourceConfigSaveIds((current) => {
+      if (pending) {
+        if (current[sourceConfigId]) {
+          return current;
+        }
+
+        return {
+          ...current,
+          [sourceConfigId]: true,
+        };
+      }
+
+      if (!(sourceConfigId in current)) {
+        return current;
+      }
+
+      const { [sourceConfigId]: _removed, ...rest } = current;
+      return rest;
     });
   }
 
@@ -835,7 +881,7 @@ export function ProjectsPage({
     }
 
     clearPageFeedback();
-    setPendingSourceConfigCreateProjectId(projectId);
+    setSourceConfigCreatePending(projectId, true);
     void createSourceConfigAction(projectId, prepared.payload)
       .then((result) => {
         const nextSourceConfigs = mergeSourceConfigLists(
@@ -872,7 +918,7 @@ export function ProjectsPage({
         showPageError(getErrorMessage(error));
       })
       .finally(() => {
-        setPendingSourceConfigCreateProjectId((current) => (current === projectId ? null : current));
+        setSourceConfigCreatePending(projectId, false);
       });
   }
 
@@ -891,7 +937,7 @@ export function ProjectsPage({
     }
 
     clearPageFeedback();
-    setPendingSourceConfigSaveId(sourceConfigId);
+    setSourceConfigSavePending(sourceConfigId, true);
     void updateSourceConfigAction(projectId, sourceConfigId, prepared.payload)
       .then((result) => {
         const nextSourceConfigs = mergeSourceConfigLists(
@@ -927,7 +973,7 @@ export function ProjectsPage({
         showPageError(getErrorMessage(error));
       })
       .finally(() => {
-        setPendingSourceConfigSaveId((current) => (current === sourceConfigId ? null : current));
+        setSourceConfigSavePending(sourceConfigId, false);
       });
   }
 
@@ -1330,7 +1376,7 @@ export function ProjectsPage({
                               type="button"
                               data-source-config-save-id={String(sourceConfig.id)}
                               onClick={() => handleSaveSourceConfig(project.id, sourceConfig.id)}
-                              disabled={pendingSourceConfigSaveId === sourceConfig.id}
+                              disabled={Boolean(pendingSourceConfigSaveIds[sourceConfig.id])}
                               style={{
                                 border: 'none',
                                 borderRadius: '12px',
@@ -1341,7 +1387,7 @@ export function ProjectsPage({
                                 justifySelf: 'flex-start',
                               }}
                             >
-                              {pendingSourceConfigSaveId === sourceConfig.id
+                              {pendingSourceConfigSaveIds[sourceConfig.id]
                                 ? '正在保存 SourceConfig...'
                                 : '保存 SourceConfig'}
                             </button>
@@ -1473,7 +1519,7 @@ export function ProjectsPage({
                           type="button"
                           data-source-config-create-id={String(project.id)}
                           onClick={() => handleCreateSourceConfig(project.id)}
-                          disabled={pendingSourceConfigCreateProjectId === project.id}
+                          disabled={Boolean(pendingSourceConfigCreateProjectIds[project.id])}
                           style={{
                             border: 'none',
                             borderRadius: '12px',
@@ -1484,7 +1530,7 @@ export function ProjectsPage({
                             justifySelf: 'flex-start',
                           }}
                         >
-                          {pendingSourceConfigCreateProjectId === project.id
+                          {pendingSourceConfigCreateProjectIds[project.id]
                             ? '正在创建 SourceConfig...'
                             : '创建 SourceConfig'}
                         </button>
