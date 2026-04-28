@@ -72,6 +72,13 @@ function hasAncestorWithText(element: { parentNode: unknown } | null, text: stri
   return false;
 }
 
+function findPriorityActionCard(root: { childNodes?: unknown[] } | null, title: string) {
+  return findElement(
+    root,
+    (element) => element.tagName === 'ARTICLE' && collectText(element).includes(title),
+  );
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -1300,6 +1307,671 @@ describe('System Queue actions', () => {
     });
     expect(loadInboxReplyHandoffsAction).toHaveBeenCalledTimes(2);
     expect(collectText(container)).toContain('已结单 inbox reply item #88 (handled)');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('allows independent prioritized browser lane request imports while another import is pending', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { SystemQueuePage } = await import('../../src/client/pages/SystemQueue');
+
+    const firstImport = createDeferredPromise<{
+      ok: true;
+      imported: true;
+      artifactPath: string;
+      session: {
+        hasSession: true;
+        status: string;
+        validatedAt: string;
+        storageStatePath: string;
+      };
+      channelAccount: {
+        id: number;
+        session: {
+          hasSession: true;
+          status: string;
+          validatedAt: string;
+          storageStatePath: string;
+        };
+      };
+    }>();
+    const secondImport = createDeferredPromise<{
+      ok: true;
+      imported: true;
+      artifactPath: string;
+      session: {
+        hasSession: true;
+        status: string;
+        validatedAt: string;
+        storageStatePath: string;
+      };
+      channelAccount: {
+        id: number;
+        session: {
+          hasSession: true;
+          status: string;
+          validatedAt: string;
+          storageStatePath: string;
+        };
+      };
+    }>();
+    const loadSystemQueueAction = vi.fn().mockResolvedValue({
+      jobs: [],
+      queue: {
+        pending: 0,
+        running: 0,
+        failed: 0,
+        duePending: 0,
+      },
+      recentJobs: [],
+    });
+    const loadBrowserLaneRequestsAction = vi.fn().mockResolvedValue({
+      requests: [
+        {
+          channelAccountId: 7,
+          platform: 'x',
+          accountKey: 'acct-browser-a',
+          action: 'request_session',
+          jobStatus: 'pending',
+          requestedAt: '2026-04-28T09:00:00.000Z',
+          artifactPath:
+            'artifacts/browser-lane-requests/x/acct-browser-a/request-session-job-17.json',
+          resolvedAt: null,
+          resolution: null,
+        },
+        {
+          channelAccountId: 8,
+          platform: 'x',
+          accountKey: 'acct-browser-b',
+          action: 'request_session',
+          jobStatus: 'pending',
+          requestedAt: '2026-04-28T09:01:00.000Z',
+          artifactPath:
+            'artifacts/browser-lane-requests/x/acct-browser-b/request-session-job-18.json',
+          resolvedAt: null,
+          resolution: null,
+        },
+      ],
+      total: 2,
+    });
+    const loadBrowserHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+    const loadInboxReplyHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+    const importBrowserLaneRequestResultAction = vi.fn().mockImplementation(({ requestArtifactPath }) => {
+      return requestArtifactPath.includes('acct-browser-a') ? firstImport.promise : secondImport.promise;
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(SystemQueuePage as never, {
+          loadSystemQueueAction,
+          loadBrowserLaneRequestsAction,
+          loadBrowserHandoffsAction,
+          loadInboxReplyHandoffsAction,
+          importBrowserLaneRequestResultAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const firstCard = findPriorityActionCard(container, '补充 Session · x · acct-browser-a');
+    const secondCard = findPriorityActionCard(container, '补充 Session · x · acct-browser-b');
+    const firstStorageStateField = findElement(
+      firstCard,
+      (element) =>
+        element.getAttribute('data-priority-browser-lane-field') === 'storageState',
+    );
+    const secondStorageStateField = findElement(
+      secondCard,
+      (element) =>
+        element.getAttribute('data-priority-browser-lane-field') === 'storageState',
+    );
+    const firstImportButton = findElement(
+      firstCard,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        collectText(element).includes('导入 storageState'),
+    );
+    const secondImportButton = findElement(
+      secondCard,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        collectText(element).includes('导入 storageState'),
+    );
+
+    expect(firstCard).not.toBeNull();
+    expect(secondCard).not.toBeNull();
+    expect(firstStorageStateField).not.toBeNull();
+    expect(secondStorageStateField).not.toBeNull();
+    expect(firstImportButton).not.toBeNull();
+    expect(secondImportButton).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(firstStorageStateField as never, '{"cookies":[],"origins":[]}', window as never);
+      updateFieldValue(secondStorageStateField as never, '{"cookies":[],"origins":[]}', window as never);
+      await flush();
+    });
+
+    await act(async () => {
+      (firstImportButton as { dispatchEvent: (event: Event) => void }).dispatchEvent(
+        new window.MouseEvent('click', { bubbles: true }),
+      );
+      await flush();
+    });
+
+    expect(importBrowserLaneRequestResultAction).toHaveBeenCalledTimes(1);
+    expect((secondImportButton as { getAttribute: (name: string) => string | null }).getAttribute('disabled')).toBeNull();
+
+    await act(async () => {
+      (secondImportButton as { dispatchEvent: (event: Event) => void }).dispatchEvent(
+        new window.MouseEvent('click', { bubbles: true }),
+      );
+      await flush();
+    });
+
+    expect(importBrowserLaneRequestResultAction).toHaveBeenCalledTimes(2);
+    expect(importBrowserLaneRequestResultAction).toHaveBeenNthCalledWith(1, {
+      requestArtifactPath: 'artifacts/browser-lane-requests/x/acct-browser-a/request-session-job-17.json',
+      storageState: {
+        cookies: [],
+        origins: [],
+      },
+    });
+    expect(importBrowserLaneRequestResultAction).toHaveBeenNthCalledWith(2, {
+      requestArtifactPath: 'artifacts/browser-lane-requests/x/acct-browser-b/request-session-job-18.json',
+      storageState: {
+        cookies: [],
+        origins: [],
+      },
+    });
+
+    await act(async () => {
+      firstImport.resolve({
+        ok: true,
+        imported: true,
+        artifactPath: 'artifacts/browser-lane-requests/x/acct-browser-a/request-session-job-17.json',
+        session: {
+          hasSession: true,
+          status: 'active',
+          validatedAt: '2026-04-28T09:05:00.000Z',
+          storageStatePath: 'artifacts/browser-sessions/x/acct-browser-a.json',
+        },
+        channelAccount: {
+          id: 7,
+          session: {
+            hasSession: true,
+            status: 'active',
+            validatedAt: '2026-04-28T09:05:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/x/acct-browser-a.json',
+          },
+        },
+      });
+      secondImport.resolve({
+        ok: true,
+        imported: true,
+        artifactPath: 'artifacts/browser-lane-requests/x/acct-browser-b/request-session-job-18.json',
+        session: {
+          hasSession: true,
+          status: 'active',
+          validatedAt: '2026-04-28T09:06:00.000Z',
+          storageStatePath: 'artifacts/browser-sessions/x/acct-browser-b.json',
+        },
+        channelAccount: {
+          id: 8,
+          session: {
+            hasSession: true,
+            status: 'active',
+            validatedAt: '2026-04-28T09:06:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/x/acct-browser-b.json',
+          },
+        },
+      });
+      await flush();
+      await flush();
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('allows independent prioritized browser handoff completions while another completion is pending', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { SystemQueuePage } = await import('../../src/client/pages/SystemQueue');
+
+    const firstCompletion = createDeferredPromise<{
+      ok: true;
+      imported: true;
+      artifactPath: string;
+      draftId: number;
+      draftStatus: string;
+      platform: string;
+      mode: string;
+      status: string;
+      publishStatus: string;
+      success: true;
+      publishUrl: string;
+      message: string;
+      publishedAt: string;
+    }>();
+    const secondCompletion = createDeferredPromise<{
+      ok: true;
+      imported: true;
+      artifactPath: string;
+      draftId: number;
+      draftStatus: string;
+      platform: string;
+      mode: string;
+      status: string;
+      publishStatus: string;
+      success: true;
+      publishUrl: string;
+      message: string;
+      publishedAt: string;
+    }>();
+    const loadSystemQueueAction = vi.fn().mockResolvedValue({
+      jobs: [],
+      queue: {
+        pending: 0,
+        running: 0,
+        failed: 0,
+        duePending: 0,
+      },
+      recentJobs: [],
+    });
+    const loadBrowserLaneRequestsAction = vi.fn().mockResolvedValue({
+      requests: [],
+      total: 0,
+    });
+    const loadBrowserHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [
+        {
+          channelAccountId: 13,
+          accountDisplayName: 'Launch A',
+          platform: 'facebookGroup',
+          draftId: '13',
+          title: 'Community update A',
+          accountKey: 'launch-campaign-a',
+          ownership: 'direct',
+          status: 'pending',
+          artifactPath:
+            'artifacts/browser-handoffs/facebookGroup/launch-campaign-a/facebookGroup-draft-13.json',
+          createdAt: '2026-04-28T09:10:00.000Z',
+          updatedAt: '2026-04-28T09:10:00.000Z',
+          resolvedAt: null,
+          resolution: null,
+        },
+        {
+          channelAccountId: 14,
+          accountDisplayName: 'Launch B',
+          platform: 'facebookGroup',
+          draftId: '14',
+          title: 'Community update B',
+          accountKey: 'launch-campaign-b',
+          ownership: 'direct',
+          status: 'pending',
+          artifactPath:
+            'artifacts/browser-handoffs/facebookGroup/launch-campaign-b/facebookGroup-draft-14.json',
+          createdAt: '2026-04-28T09:11:00.000Z',
+          updatedAt: '2026-04-28T09:11:00.000Z',
+          resolvedAt: null,
+          resolution: null,
+        },
+      ],
+      total: 2,
+    });
+    const loadInboxReplyHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+    const completeBrowserHandoffAction = vi.fn().mockImplementation(({ artifactPath }) => {
+      return artifactPath.includes('launch-campaign-a') ? firstCompletion.promise : secondCompletion.promise;
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(SystemQueuePage as never, {
+          loadSystemQueueAction,
+          loadBrowserLaneRequestsAction,
+          loadBrowserHandoffsAction,
+          loadInboxReplyHandoffsAction,
+          completeBrowserHandoffAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const firstCard = findPriorityActionCard(container, '发布接管 · facebookGroup · draft #13');
+    const secondCard = findPriorityActionCard(container, '发布接管 · facebookGroup · draft #14');
+    const firstPublishUrlField = findElement(
+      firstCard,
+      (element) =>
+        element.getAttribute('data-priority-browser-handoff-field') === 'publishUrl',
+    );
+    const secondPublishUrlField = findElement(
+      secondCard,
+      (element) =>
+        element.getAttribute('data-priority-browser-handoff-field') === 'publishUrl',
+    );
+    const firstCompleteButton = findElement(
+      firstCard,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        collectText(element).includes('标记已发布'),
+    );
+    const secondCompleteButton = findElement(
+      secondCard,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        collectText(element).includes('标记已发布'),
+    );
+
+    expect(firstCard).not.toBeNull();
+    expect(secondCard).not.toBeNull();
+    expect(firstPublishUrlField).not.toBeNull();
+    expect(secondPublishUrlField).not.toBeNull();
+    expect(firstCompleteButton).not.toBeNull();
+    expect(secondCompleteButton).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(firstPublishUrlField as never, 'https://facebook.com/groups/a/posts/13', window as never);
+      updateFieldValue(secondPublishUrlField as never, 'https://facebook.com/groups/b/posts/14', window as never);
+      await flush();
+    });
+
+    await act(async () => {
+      (firstCompleteButton as { dispatchEvent: (event: Event) => void }).dispatchEvent(
+        new window.MouseEvent('click', { bubbles: true }),
+      );
+      await flush();
+    });
+
+    expect(completeBrowserHandoffAction).toHaveBeenCalledTimes(1);
+    expect((secondCompleteButton as { getAttribute: (name: string) => string | null }).getAttribute('disabled')).toBeNull();
+
+    await act(async () => {
+      (secondCompleteButton as { dispatchEvent: (event: Event) => void }).dispatchEvent(
+        new window.MouseEvent('click', { bubbles: true }),
+      );
+      await flush();
+    });
+
+    expect(completeBrowserHandoffAction).toHaveBeenCalledTimes(2);
+    expect(completeBrowserHandoffAction).toHaveBeenNthCalledWith(1, {
+      artifactPath: 'artifacts/browser-handoffs/facebookGroup/launch-campaign-a/facebookGroup-draft-13.json',
+      publishStatus: 'published',
+      publishUrl: 'https://facebook.com/groups/a/posts/13',
+    });
+    expect(completeBrowserHandoffAction).toHaveBeenNthCalledWith(2, {
+      artifactPath: 'artifacts/browser-handoffs/facebookGroup/launch-campaign-b/facebookGroup-draft-14.json',
+      publishStatus: 'published',
+      publishUrl: 'https://facebook.com/groups/b/posts/14',
+    });
+
+    await act(async () => {
+      firstCompletion.resolve({
+        ok: true,
+        imported: true,
+        artifactPath: 'artifacts/browser-handoffs/facebookGroup/launch-campaign-a/facebookGroup-draft-13.json',
+        draftId: 13,
+        draftStatus: 'published',
+        platform: 'facebookGroup',
+        mode: 'browser',
+        status: 'resolved',
+        publishStatus: 'published',
+        success: true,
+        publishUrl: 'https://facebook.com/groups/a/posts/13',
+        message: '',
+        publishedAt: '2026-04-28T09:15:00.000Z',
+      });
+      secondCompletion.resolve({
+        ok: true,
+        imported: true,
+        artifactPath: 'artifacts/browser-handoffs/facebookGroup/launch-campaign-b/facebookGroup-draft-14.json',
+        draftId: 14,
+        draftStatus: 'published',
+        platform: 'facebookGroup',
+        mode: 'browser',
+        status: 'resolved',
+        publishStatus: 'published',
+        success: true,
+        publishUrl: 'https://facebook.com/groups/b/posts/14',
+        message: '',
+        publishedAt: '2026-04-28T09:16:00.000Z',
+      });
+      await flush();
+      await flush();
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('allows independent prioritized inbox reply handoff completions while another completion is pending', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { SystemQueuePage } = await import('../../src/client/pages/SystemQueue');
+
+    const firstCompletion = createDeferredPromise<{
+      ok: true;
+      imported: true;
+      artifactPath: string;
+      itemId: number;
+      itemStatus: string;
+      platform: string;
+      mode: string;
+      status: string;
+      replyStatus: string;
+      success: true;
+      deliveryUrl: string;
+      message: string;
+      deliveredAt: string;
+    }>();
+    const secondCompletion = createDeferredPromise<{
+      ok: true;
+      imported: true;
+      artifactPath: string;
+      itemId: number;
+      itemStatus: string;
+      platform: string;
+      mode: string;
+      status: string;
+      replyStatus: string;
+      success: true;
+      deliveryUrl: string;
+      message: string;
+      deliveredAt: string;
+    }>();
+    const loadSystemQueueAction = vi.fn().mockResolvedValue({
+      jobs: [],
+      queue: {
+        pending: 0,
+        running: 0,
+        failed: 0,
+        duePending: 0,
+      },
+      recentJobs: [],
+    });
+    const loadBrowserLaneRequestsAction = vi.fn().mockResolvedValue({
+      requests: [],
+      total: 0,
+    });
+    const loadBrowserHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+    const loadInboxReplyHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [
+        {
+          channelAccountId: 12,
+          platform: 'reddit',
+          itemId: '88',
+          source: 'reddit',
+          title: 'Need lower latency in APAC',
+          author: 'user123',
+          accountKey: 'reddit-main',
+          status: 'pending',
+          artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88.json',
+          createdAt: '2026-04-28T09:10:00.000Z',
+          updatedAt: '2026-04-28T09:10:00.000Z',
+          resolvedAt: null,
+          resolution: null,
+        },
+        {
+          channelAccountId: 13,
+          platform: 'reddit',
+          itemId: '89',
+          source: 'reddit',
+          title: 'Follow-up on deployment',
+          author: 'user456',
+          accountKey: 'reddit-secondary',
+          status: 'pending',
+          artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-secondary/reddit-item-89.json',
+          createdAt: '2026-04-28T09:11:00.000Z',
+          updatedAt: '2026-04-28T09:11:00.000Z',
+          resolvedAt: null,
+          resolution: null,
+        },
+      ],
+      total: 2,
+    });
+    const completeInboxReplyHandoffAction = vi.fn().mockImplementation(({ artifactPath }) => {
+      return artifactPath.includes('reddit-main') ? firstCompletion.promise : secondCompletion.promise;
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(SystemQueuePage as never, {
+          loadSystemQueueAction,
+          loadBrowserLaneRequestsAction,
+          loadBrowserHandoffsAction,
+          loadInboxReplyHandoffsAction,
+          completeInboxReplyHandoffAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const firstCard = findPriorityActionCard(container, '回复接管 · reddit · item #88');
+    const secondCard = findPriorityActionCard(container, '回复接管 · reddit · item #89');
+    const firstDeliveryUrlField = findElement(
+      firstCard,
+      (element) =>
+        element.getAttribute('data-priority-inbox-reply-handoff-field') === 'deliveryUrl',
+    );
+    const secondDeliveryUrlField = findElement(
+      secondCard,
+      (element) =>
+        element.getAttribute('data-priority-inbox-reply-handoff-field') === 'deliveryUrl',
+    );
+    const firstCompleteButton = findElement(
+      firstCard,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        collectText(element).includes('标记已发送'),
+    );
+    const secondCompleteButton = findElement(
+      secondCard,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        collectText(element).includes('标记已发送'),
+    );
+
+    expect(firstCard).not.toBeNull();
+    expect(secondCard).not.toBeNull();
+    expect(firstDeliveryUrlField).not.toBeNull();
+    expect(secondDeliveryUrlField).not.toBeNull();
+    expect(firstCompleteButton).not.toBeNull();
+    expect(secondCompleteButton).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(firstDeliveryUrlField as never, 'https://reddit.com/message/messages/88', window as never);
+      updateFieldValue(secondDeliveryUrlField as never, 'https://reddit.com/message/messages/89', window as never);
+      await flush();
+    });
+
+    await act(async () => {
+      (firstCompleteButton as { dispatchEvent: (event: Event) => void }).dispatchEvent(
+        new window.MouseEvent('click', { bubbles: true }),
+      );
+      await flush();
+    });
+
+    expect(completeInboxReplyHandoffAction).toHaveBeenCalledTimes(1);
+    expect((secondCompleteButton as { getAttribute: (name: string) => string | null }).getAttribute('disabled')).toBeNull();
+
+    await act(async () => {
+      (secondCompleteButton as { dispatchEvent: (event: Event) => void }).dispatchEvent(
+        new window.MouseEvent('click', { bubbles: true }),
+      );
+      await flush();
+    });
+
+    expect(completeInboxReplyHandoffAction).toHaveBeenCalledTimes(2);
+    expect(completeInboxReplyHandoffAction).toHaveBeenNthCalledWith(1, {
+      artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88.json',
+      replyStatus: 'sent',
+      deliveryUrl: 'https://reddit.com/message/messages/88',
+    });
+    expect(completeInboxReplyHandoffAction).toHaveBeenNthCalledWith(2, {
+      artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-secondary/reddit-item-89.json',
+      replyStatus: 'sent',
+      deliveryUrl: 'https://reddit.com/message/messages/89',
+    });
+
+    await act(async () => {
+      firstCompletion.resolve({
+        ok: true,
+        imported: true,
+        artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88.json',
+        itemId: 88,
+        itemStatus: 'handled',
+        platform: 'reddit',
+        mode: 'manual',
+        status: 'resolved',
+        replyStatus: 'sent',
+        success: true,
+        deliveryUrl: 'https://reddit.com/message/messages/88',
+        message: '',
+        deliveredAt: '2026-04-28T09:18:00.000Z',
+      });
+      secondCompletion.resolve({
+        ok: true,
+        imported: true,
+        artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-secondary/reddit-item-89.json',
+        itemId: 89,
+        itemStatus: 'handled',
+        platform: 'reddit',
+        mode: 'manual',
+        status: 'resolved',
+        replyStatus: 'sent',
+        success: true,
+        deliveryUrl: 'https://reddit.com/message/messages/89',
+        message: '',
+        deliveredAt: '2026-04-28T09:19:00.000Z',
+      });
+      await flush();
+      await flush();
+    });
 
     await act(async () => {
       root.unmount();

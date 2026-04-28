@@ -451,9 +451,9 @@ export function SystemQueuePage({
   const displayInboxReplyHandoffState = inboxReplyHandoffStateOverride ?? inboxReplyHandoffState;
   const displayMutationState = mutationStateOverride ?? mutationState;
   const [activeMutation, setActiveMutation] = useState<QueueMutationInput | null>(null);
-  const [activeBrowserLaneArtifactPath, setActiveBrowserLaneArtifactPath] = useState<string | null>(null);
-  const [activeBrowserHandoffArtifactPath, setActiveBrowserHandoffArtifactPath] = useState<string | null>(null);
-  const [activeInboxReplyHandoffArtifactPath, setActiveInboxReplyHandoffArtifactPath] = useState<string | null>(null);
+  const [pendingBrowserLaneArtifactPaths, setPendingBrowserLaneArtifactPaths] = useState<Record<string, true>>({});
+  const [pendingBrowserHandoffArtifactPaths, setPendingBrowserHandoffArtifactPaths] = useState<Record<string, true>>({});
+  const [pendingInboxReplyHandoffArtifactPaths, setPendingInboxReplyHandoffArtifactPaths] = useState<Record<string, true>>({});
   const [resolvedBrowserLaneRequestsByArtifactPath, setResolvedBrowserLaneRequestsByArtifactPath] = useState<
     Record<string, { resolvedAt: string; jobStatus: string; resolution?: unknown }>
   >({});
@@ -617,9 +617,6 @@ export function SystemQueuePage({
         ? `inbox reply handoff 结单失败：${inboxReplyHandoffMutationState.error}`
         : null;
   const isQueueMutationPending = queueMutationPendingRef.current || displayMutationState.status === 'loading';
-  const isBrowserLaneRequestMutationPending = browserLaneRequestMutationState.status === 'loading';
-  const isBrowserHandoffMutationPending = handoffMutationState.status === 'loading';
-  const isInboxReplyHandoffMutationPending = inboxReplyHandoffMutationState.status === 'loading';
 
   useEffect(() => {
     if (!hasLiveBrowserLaneData) {
@@ -774,14 +771,14 @@ export function SystemQueuePage({
   }
 
   function handleImportBrowserLaneRequest(request: BrowserLaneRequestRecord) {
-    if (isBrowserLaneRequestMutationPending) {
+    if (pendingBrowserLaneArtifactPaths[request.artifactPath]) {
       return;
     }
 
     const requestDraft = browserLaneDraftByArtifactPath[request.artifactPath];
     const notes = requestDraft?.notes.trim().length ? requestDraft.notes.trim() : undefined;
 
-    setActiveBrowserLaneArtifactPath(request.artifactPath);
+    setPendingBrowserLaneArtifactPaths((current) => addPendingArtifactPath(current, request.artifactPath));
     void runBrowserLaneRequestImport({
       requestArtifactPath: request.artifactPath,
       storageStateJson: requestDraft?.storageState ?? '',
@@ -800,7 +797,7 @@ export function SystemQueuePage({
       })
       .catch(() => undefined)
       .finally(() => {
-        setActiveBrowserLaneArtifactPath(null);
+        setPendingBrowserLaneArtifactPaths((current) => removePendingArtifactPath(current, request.artifactPath));
       });
   }
 
@@ -808,7 +805,7 @@ export function SystemQueuePage({
     handoff: BrowserHandoffRecord,
     publishStatus: 'published' | 'failed',
   ) {
-    if (isBrowserHandoffMutationPending) {
+    if (pendingBrowserHandoffArtifactPaths[handoff.artifactPath]) {
       return;
     }
 
@@ -822,7 +819,7 @@ export function SystemQueuePage({
         ? handoffDraft.publishUrl.trim()
         : undefined;
 
-    setActiveBrowserHandoffArtifactPath(handoff.artifactPath);
+    setPendingBrowserHandoffArtifactPaths((current) => addPendingArtifactPath(current, handoff.artifactPath));
     void runBrowserHandoffCompletion({
       artifactPath: handoff.artifactPath,
       publishStatus,
@@ -842,7 +839,7 @@ export function SystemQueuePage({
       })
       .catch(() => undefined)
       .finally(() => {
-        setActiveBrowserHandoffArtifactPath(null);
+        setPendingBrowserHandoffArtifactPaths((current) => removePendingArtifactPath(current, handoff.artifactPath));
       });
   }
 
@@ -850,7 +847,7 @@ export function SystemQueuePage({
     handoff: InboxReplyHandoffRecord,
     replyStatus: 'sent' | 'failed',
   ) {
-    if (isInboxReplyHandoffMutationPending) {
+    if (pendingInboxReplyHandoffArtifactPaths[handoff.artifactPath]) {
       return;
     }
 
@@ -859,7 +856,7 @@ export function SystemQueuePage({
     const deliveryUrl =
       handoffDraft?.deliveryUrl.trim().length ? handoffDraft.deliveryUrl.trim() : undefined;
 
-    setActiveInboxReplyHandoffArtifactPath(handoff.artifactPath);
+    setPendingInboxReplyHandoffArtifactPaths((current) => addPendingArtifactPath(current, handoff.artifactPath));
     void runInboxReplyHandoffCompletion({
       artifactPath: handoff.artifactPath,
       replyStatus,
@@ -879,7 +876,9 @@ export function SystemQueuePage({
       })
       .catch(() => undefined)
       .finally(() => {
-        setActiveInboxReplyHandoffArtifactPath(null);
+        setPendingInboxReplyHandoffArtifactPaths((current) =>
+          removePendingArtifactPath(current, handoff.artifactPath),
+        );
       });
   }
 
@@ -927,13 +926,12 @@ export function SystemQueuePage({
           </label>
           <ActionButton
             label={
-              isBrowserLaneRequestMutationPending &&
-              activeBrowserLaneArtifactPath === request.artifactPath
+              pendingBrowserLaneArtifactPaths[request.artifactPath]
                 ? '正在导入 storageState...'
                 : '导入 storageState'
             }
             tone="primary"
-            disabled={isBrowserLaneRequestMutationPending}
+            disabled={Boolean(pendingBrowserLaneArtifactPaths[request.artifactPath])}
             onClick={() => handleImportBrowserLaneRequest(request)}
           />
         </div>
@@ -983,23 +981,21 @@ export function SystemQueuePage({
           <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
             <ActionButton
               label={
-                isBrowserHandoffMutationPending &&
-                activeBrowserHandoffArtifactPath === handoff.artifactPath
+                pendingBrowserHandoffArtifactPaths[handoff.artifactPath]
                   ? '正在标记已发布...'
                   : '标记已发布'
               }
               tone="primary"
-              disabled={isBrowserHandoffMutationPending}
+              disabled={Boolean(pendingBrowserHandoffArtifactPaths[handoff.artifactPath])}
               onClick={() => handleCompleteBrowserHandoff(handoff, 'published')}
             />
             <ActionButton
               label={
-                isBrowserHandoffMutationPending &&
-                activeBrowserHandoffArtifactPath === handoff.artifactPath
+                pendingBrowserHandoffArtifactPaths[handoff.artifactPath]
                   ? '正在标记失败...'
                   : '标记失败'
               }
-              disabled={isBrowserHandoffMutationPending}
+              disabled={Boolean(pendingBrowserHandoffArtifactPaths[handoff.artifactPath])}
               onClick={() => handleCompleteBrowserHandoff(handoff, 'failed')}
             />
           </div>
@@ -1049,23 +1045,21 @@ export function SystemQueuePage({
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
           <ActionButton
             label={
-              isInboxReplyHandoffMutationPending &&
-              activeInboxReplyHandoffArtifactPath === handoff.artifactPath
+              pendingInboxReplyHandoffArtifactPaths[handoff.artifactPath]
                 ? '正在标记已发送...'
                 : '标记已发送'
             }
             tone="primary"
-            disabled={isInboxReplyHandoffMutationPending}
+            disabled={Boolean(pendingInboxReplyHandoffArtifactPaths[handoff.artifactPath])}
             onClick={() => handleCompleteInboxReplyHandoff(handoff, 'sent')}
           />
           <ActionButton
             label={
-              isInboxReplyHandoffMutationPending &&
-              activeInboxReplyHandoffArtifactPath === handoff.artifactPath
+              pendingInboxReplyHandoffArtifactPaths[handoff.artifactPath]
                 ? '正在标记失败...'
                 : '标记失败'
             }
-            disabled={isInboxReplyHandoffMutationPending}
+            disabled={Boolean(pendingInboxReplyHandoffArtifactPaths[handoff.artifactPath])}
             onClick={() => handleCompleteInboxReplyHandoff(handoff, 'failed')}
           />
         </div>
@@ -1424,13 +1418,12 @@ export function SystemQueuePage({
                           </label>
                           <ActionButton
                             label={
-                              isBrowserLaneRequestMutationPending &&
-                              activeBrowserLaneArtifactPath === request.artifactPath
+                              pendingBrowserLaneArtifactPaths[request.artifactPath]
                                 ? '正在导入 storageState...'
                                 : '导入 storageState'
                             }
                             tone="primary"
-                            disabled={isBrowserLaneRequestMutationPending}
+                            disabled={Boolean(pendingBrowserLaneArtifactPaths[request.artifactPath])}
                             onClick={() => handleImportBrowserLaneRequest(request)}
                           />
                         </div>
@@ -1552,23 +1545,21 @@ export function SystemQueuePage({
                           <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                             <ActionButton
                               label={
-                                isBrowserHandoffMutationPending &&
-                                activeBrowserHandoffArtifactPath === handoff.artifactPath
+                                pendingBrowserHandoffArtifactPaths[handoff.artifactPath]
                                   ? '正在标记已发布...'
                                   : '标记已发布'
                               }
                               tone="primary"
-                              disabled={isBrowserHandoffMutationPending}
+                              disabled={Boolean(pendingBrowserHandoffArtifactPaths[handoff.artifactPath])}
                               onClick={() => handleCompleteBrowserHandoff(handoff, 'published')}
                             />
                             <ActionButton
                               label={
-                                isBrowserHandoffMutationPending &&
-                                activeBrowserHandoffArtifactPath === handoff.artifactPath
+                                pendingBrowserHandoffArtifactPaths[handoff.artifactPath]
                                   ? '正在标记失败...'
                                   : '标记失败'
                               }
-                              disabled={isBrowserHandoffMutationPending}
+                              disabled={Boolean(pendingBrowserHandoffArtifactPaths[handoff.artifactPath])}
                               onClick={() => handleCompleteBrowserHandoff(handoff, 'failed')}
                             />
                           </div>
@@ -1690,23 +1681,21 @@ export function SystemQueuePage({
                           <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                             <ActionButton
                               label={
-                                isInboxReplyHandoffMutationPending &&
-                                activeInboxReplyHandoffArtifactPath === handoff.artifactPath
+                                pendingInboxReplyHandoffArtifactPaths[handoff.artifactPath]
                                   ? '正在标记已发送...'
                                   : '标记已发送'
                               }
                               tone="primary"
-                              disabled={isInboxReplyHandoffMutationPending}
+                              disabled={Boolean(pendingInboxReplyHandoffArtifactPaths[handoff.artifactPath])}
                               onClick={() => handleCompleteInboxReplyHandoff(handoff, 'sent')}
                             />
                             <ActionButton
                               label={
-                                isInboxReplyHandoffMutationPending &&
-                                activeInboxReplyHandoffArtifactPath === handoff.artifactPath
+                                pendingInboxReplyHandoffArtifactPaths[handoff.artifactPath]
                                   ? '正在标记失败...'
                                   : '标记失败'
                               }
-                              disabled={isInboxReplyHandoffMutationPending}
+                              disabled={Boolean(pendingInboxReplyHandoffArtifactPaths[handoff.artifactPath])}
                               onClick={() => handleCompleteInboxReplyHandoff(handoff, 'failed')}
                             />
                           </div>
@@ -1793,6 +1782,26 @@ function buildOptimisticInboxReplyHandoffResolution(response: InboxReplyHandoffC
       ...(response.deliveredAt ? { deliveredAt: response.deliveredAt } : {}),
     },
   };
+}
+
+function addPendingArtifactPath(current: Record<string, true>, artifactPath: string) {
+  if (current[artifactPath]) {
+    return current;
+  }
+
+  return {
+    ...current,
+    [artifactPath]: true,
+  };
+}
+
+function removePendingArtifactPath(current: Record<string, true>, artifactPath: string) {
+  if (!(artifactPath in current)) {
+    return current;
+  }
+
+  const { [artifactPath]: _ignored, ...rest } = current;
+  return rest;
 }
 
 function readChannelAccountMetadataSession(value: unknown) {
