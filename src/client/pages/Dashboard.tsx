@@ -3,6 +3,7 @@ import { apiRequest } from '../lib/api';
 import type { AsyncState } from '../hooks/useAsyncRequest';
 import { useAsyncQuery } from '../hooks/useAsyncRequest';
 import { StatCard } from '../components/StatCard';
+import type { AppRoute } from '../lib/types';
 
 export interface DashboardResponse {
   monitor: {
@@ -109,6 +110,7 @@ interface DashboardPageProps {
   stateOverride?: AsyncState<DashboardResponse>;
   projectIdDraft?: string;
   onProjectIdDraftChange?: (value: string) => void;
+  onNavigateToRoute?: (route: AppRoute) => void;
 }
 
 export function DashboardPage({
@@ -116,6 +118,7 @@ export function DashboardPage({
   stateOverride,
   projectIdDraft,
   onProjectIdDraftChange,
+  onNavigateToRoute,
 }: DashboardPageProps) {
   const [localProjectIdDraft, setLocalProjectIdDraft] = useState('');
   const activeProjectIdDraft = projectIdDraft ?? localProjectIdDraft;
@@ -154,6 +157,7 @@ export function DashboardPage({
     failedCount: viewData?.publishLogs?.failedCount,
   };
   const jobQueueMetrics = viewData?.jobQueue ?? null;
+  const priorityItems = viewData ? buildPriorityItems(viewData) : [];
 
   return (
     <section>
@@ -193,6 +197,114 @@ export function DashboardPage({
 
       {hasLiveDashboardData && viewData ? (
         <div style={{ display: 'grid', gap: '16px' }}>
+          <section
+            style={{
+              borderRadius: '18px',
+              background: '#eff6ff',
+              border: '1px solid #bfdbfe',
+              padding: '18px',
+              display: 'grid',
+              gap: '14px',
+            }}
+          >
+            <div style={{ display: 'grid', gap: '4px' }}>
+              <div style={{ fontWeight: 700, color: '#1d4ed8' }}>今日重点待办</div>
+              <div style={{ color: '#1e3a8a' }}>按当前积压和最短处理路径整理，优先把会阻塞发布和回复的工单先清掉。</div>
+            </div>
+
+            {priorityItems.length === 0 ? (
+              <div
+                style={{
+                  borderRadius: '16px',
+                  background: '#ffffff',
+                  border: '1px dashed #93c5fd',
+                  padding: '16px',
+                  display: 'grid',
+                  gap: '6px',
+                }}
+              >
+                <div style={{ fontWeight: 700, color: '#166534' }}>当前没有高优先级待办</div>
+                <div style={{ color: '#475569' }}>可以继续生成内容，或回看项目与监控配置</div>
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gap: '12px' }}>
+                {priorityItems.map((item) => {
+                  const isNavigationAvailable = typeof onNavigateToRoute === 'function';
+
+                  return (
+                    <article
+                      key={item.key}
+                      style={{
+                        borderRadius: '16px',
+                        background: '#ffffff',
+                        border: '1px solid #dbeafe',
+                        padding: '16px',
+                        display: 'grid',
+                        gap: '14px',
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          gap: '16px',
+                          justifyContent: 'space-between',
+                          alignItems: 'flex-start',
+                          flexWrap: 'wrap',
+                        }}
+                      >
+                        <div style={{ display: 'grid', gap: '6px', minWidth: '220px', flex: '1 1 320px' }}>
+                          <div style={{ fontWeight: 700, color: '#0f172a' }}>{item.title}</div>
+                          <div style={{ color: '#475569' }}>{item.detail}</div>
+                        </div>
+                        <div
+                          style={{
+                            minWidth: '68px',
+                            borderRadius: '999px',
+                            padding: '8px 14px',
+                            background: '#dbeafe',
+                            color: '#1d4ed8',
+                            fontWeight: 700,
+                            textAlign: 'center',
+                          }}
+                        >
+                          {item.count}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+                        <button
+                          type="button"
+                          data-dashboard-priority-key={item.key}
+                          data-dashboard-priority-route={item.route}
+                          disabled={!isNavigationAvailable}
+                          aria-disabled={isNavigationAvailable ? undefined : 'true'}
+                          onClick={() => {
+                            if (!isNavigationAvailable) {
+                              return;
+                            }
+
+                            onNavigateToRoute(item.route);
+                          }}
+                          style={{
+                            borderRadius: '999px',
+                            border: '1px solid #2563eb',
+                            background: isNavigationAvailable ? '#2563eb' : '#bfdbfe',
+                            color: '#ffffff',
+                            padding: '10px 16px',
+                            font: 'inherit',
+                            fontWeight: 700,
+                            cursor: isNavigationAvailable ? 'pointer' : 'not-allowed',
+                          }}
+                        >
+                          {item.actionLabel}
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+
           <section
             style={{
               borderRadius: '18px',
@@ -363,4 +475,166 @@ export function DashboardPage({
 
 function formatOptionalMetricValue(value: number | undefined) {
   return typeof value === 'number' ? String(value) : '未提供';
+}
+
+interface DashboardPriorityItem {
+  key: string;
+  title: string;
+  detail: string;
+  count: number;
+  priority: number;
+  route: AppRoute;
+  actionLabel: string;
+}
+
+function buildPriorityItems(data: DashboardResponse) {
+  const items: DashboardPriorityItem[] = [];
+
+  pushPriorityItem(
+    items,
+    {
+      key: 'browser-lane-requests',
+      title: '待处理登录工单',
+      detail: '还有待导入 session 的 request_session 或 relogin 工单，需要先恢复账号登录态。',
+      priority: 1,
+      route: 'queue',
+      actionLabel: '前往 System Queue',
+    },
+    data.browserLaneRequests?.pending,
+  );
+  pushPriorityItem(
+    items,
+    {
+      key: 'browser-handoffs',
+      title: '待完成发布接管',
+      detail: '还有 browser handoff 等待回填 published 或 failed，发布闭环还没走完。',
+      priority: 2,
+      route: 'queue',
+      actionLabel: '前往 System Queue',
+    },
+    data.browserHandoffs?.pending,
+  );
+  pushPriorityItem(
+    items,
+    {
+      key: 'inbox-reply-handoffs',
+      title: '待完成回复接管',
+      detail: '还有 inbox reply handoff 等待导入 sent 或 failed，回复结果还没结单。',
+      priority: 3,
+      route: 'inbox',
+      actionLabel: '前往 Social Inbox',
+    },
+    data.inboxReplyHandoffs?.pending,
+  );
+  pushPriorityItem(
+    items,
+    {
+      key: 'inbox-unread',
+      title: '未处理会话积压',
+      detail: '收件箱里还有未 handled 的会话，容易拖慢首响和跟进节奏。',
+      priority: 4,
+      route: 'inbox',
+      actionLabel: '前往 Social Inbox',
+    },
+    data.inbox?.unread,
+  );
+  pushPriorityItem(
+    items,
+    {
+      key: 'drafts-review',
+      title: '待审核草稿积压',
+      detail: '高风险或需人工确认的草稿还留在 review 队列，会阻塞后续排程。',
+      priority: 5,
+      route: 'review',
+      actionLabel: '前往 Review Queue',
+    },
+    data.drafts.review,
+  );
+  pushPriorityItem(
+    items,
+    {
+      key: 'publish-failures',
+      title: '失败发布待复盘',
+      detail: '失败发布日志需要尽快回看并决定重试、改稿，或转人工接管。',
+      priority: 6,
+      route: 'calendar',
+      actionLabel: '前往 Publish Calendar',
+    },
+    data.publishLogs?.failedCount,
+  );
+  pushPriorityItem(
+    items,
+    {
+      key: 'drafts-scheduled',
+      title: '待发布排程',
+      detail: '已经排程的草稿还没完成发布，需要确认是否按节奏出队。',
+      priority: 7,
+      route: 'calendar',
+      actionLabel: '前往 Publish Calendar',
+    },
+    data.drafts.scheduled,
+  );
+  pushPriorityItem(
+    items,
+    {
+      key: 'channel-accounts-unhealthy',
+      title: '账号登录态待补齐',
+      detail: '部分 channel accounts 还不在 healthy 状态，后续发布和回复会受阻。',
+      priority: 8,
+      route: 'channels',
+      actionLabel: '前往 Channel Accounts',
+    },
+    countUnhealthyChannelAccounts(data.channelAccounts),
+  );
+  pushPriorityItem(
+    items,
+    {
+      key: 'monitor-new',
+      title: '新线索待筛选',
+      detail: '新抓到的监控线索还没转成选题、回复动作，容易错过时效。',
+      priority: 9,
+      route: 'monitor',
+      actionLabel: '前往 Competitor Monitor',
+    },
+    data.monitor.new,
+  );
+
+  return items.sort((left, right) => {
+    if (left.priority !== right.priority) {
+      return left.priority - right.priority;
+    }
+
+    return right.count - left.count;
+  });
+}
+
+function pushPriorityItem(
+  items: DashboardPriorityItem[],
+  item: Omit<DashboardPriorityItem, 'count'>,
+  count: number | undefined,
+) {
+  if (!isPositiveMetric(count)) {
+    return;
+  }
+
+  items.push({
+    ...item,
+    count,
+  });
+}
+
+function countUnhealthyChannelAccounts(metrics: DashboardResponse['channelAccounts']) {
+  if (
+    !metrics ||
+    typeof metrics.total !== 'number' ||
+    typeof metrics.connected !== 'number'
+  ) {
+    return undefined;
+  }
+
+  return Math.max(metrics.total - metrics.connected, 0);
+}
+
+function isPositiveMetric(value: number | undefined): value is number {
+  return typeof value === 'number' && value > 0;
 }

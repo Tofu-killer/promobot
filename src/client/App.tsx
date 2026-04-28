@@ -81,6 +81,7 @@ function renderRoute(
   route: AppRoute,
   sharedProjectIdDraft: string,
   onProjectIdDraftChange: (value: string) => void,
+  onNavigateToRoute: (route: AppRoute) => void,
 ) {
   switch (route) {
     case 'dashboard':
@@ -88,6 +89,7 @@ function renderRoute(
         <DashboardPage
           projectIdDraft={sharedProjectIdDraft}
           onProjectIdDraftChange={onProjectIdDraftChange}
+          onNavigateToRoute={onNavigateToRoute}
         />
       );
     case 'queue':
@@ -129,6 +131,7 @@ function renderRoute(
         <DashboardPage
           projectIdDraft={sharedProjectIdDraft}
           onProjectIdDraftChange={onProjectIdDraftChange}
+          onNavigateToRoute={onNavigateToRoute}
         />
       );
   }
@@ -296,7 +299,7 @@ export default function App({ initialRoute = 'dashboard', initialAdminPassword =
           });
       }}
     >
-      {renderRoute(activeRoute, sharedProjectIdDraft, setSharedProjectIdDraft)}
+      {renderRoute(activeRoute, sharedProjectIdDraft, setSharedProjectIdDraft, handleNavigate)}
     </Layout>
   );
 }

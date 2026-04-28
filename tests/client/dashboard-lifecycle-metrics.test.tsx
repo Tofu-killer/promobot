@@ -372,4 +372,107 @@ describe('dashboard lifecycle metrics', () => {
       await flush();
     });
   });
+
+  it('routes dashboard priority actions to the matching workspace', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { DashboardPage } = await import('../../src/client/pages/Dashboard');
+
+    const onNavigateToRoute = vi.fn();
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(DashboardPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              monitor: {
+                total: 3,
+                new: 1,
+                followUpDrafts: 1,
+              },
+              drafts: {
+                total: 5,
+                review: 2,
+                scheduled: 4,
+                published: 1,
+              },
+              totals: {
+                items: 8,
+                followUps: 1,
+              },
+              publishLogs: {
+                failedCount: 1,
+              },
+              inbox: {
+                total: 4,
+                unread: 3,
+              },
+              channelAccounts: {
+                total: 3,
+                connected: 1,
+              },
+              browserLaneRequests: {
+                total: 2,
+                pending: 1,
+                resolved: 1,
+              },
+              browserHandoffs: {
+                total: 3,
+                pending: 2,
+                resolved: 0,
+                obsolete: 1,
+                unmatched: 0,
+              },
+              inboxReplyHandoffs: {
+                total: 3,
+                pending: 1,
+                resolved: 1,
+                obsolete: 1,
+              },
+            },
+          },
+          onNavigateToRoute,
+        }),
+      );
+      await flush();
+    });
+
+    const queueButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-dashboard-priority-key') === 'browser-lane-requests',
+    );
+
+    expect(queueButton).not.toBeNull();
+
+    await act(async () => {
+      queueButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(onNavigateToRoute).toHaveBeenCalledWith('queue');
+
+    const inboxButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-dashboard-priority-key') === 'inbox-unread',
+    );
+
+    expect(inboxButton).not.toBeNull();
+
+    await act(async () => {
+      inboxButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(onNavigateToRoute).toHaveBeenCalledWith('inbox');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
 });

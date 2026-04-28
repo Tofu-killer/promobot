@@ -98,6 +98,13 @@ describe('dashboard enhanced metrics page', () => {
     });
 
     expect(html).toContain('未 handled 会话');
+    expect(html).toContain('今日重点待办');
+    expect(html).toContain('待处理登录工单');
+    expect(html).toContain('待完成发布接管');
+    expect(html).toContain('待完成回复接管');
+    expect(html).toContain('未处理会话积压');
+    expect(html).toContain('前往 System Queue');
+    expect(html).toContain('前往 Social Inbox');
     expect(html).toContain('监控总条目');
     expect(html).toContain('累计线索');
     expect(html).toContain('累计 Follow-up');
@@ -134,5 +141,65 @@ describe('dashboard enhanced metrics page', () => {
     expect(html).toContain('X、Reddit');
     expect(html).toContain('人工接管：Facebook Group、Instagram、TikTok、小红书、微博');
     expect(html).toContain('项目 ID（可选）');
+  });
+
+  it('shows a calm dashboard message when there are no urgent operational items', async () => {
+    const { DashboardPage } = await import('../../src/client/pages/Dashboard');
+
+    const html = renderPage(DashboardPage, {
+      stateOverride: {
+        status: 'success',
+        data: {
+          monitor: {
+            total: 0,
+            new: 0,
+            followUpDrafts: 0,
+          },
+          drafts: {
+            total: 0,
+            review: 0,
+            scheduled: 0,
+            published: 0,
+          },
+          totals: {
+            items: 0,
+            followUps: 0,
+          },
+          publishLogs: {
+            failedCount: 0,
+          },
+          inbox: {
+            total: 0,
+            unread: 0,
+          },
+          channelAccounts: {
+            total: 2,
+            connected: 2,
+          },
+          browserLaneRequests: {
+            total: 0,
+            pending: 0,
+            resolved: 0,
+          },
+          browserHandoffs: {
+            total: 0,
+            pending: 0,
+            resolved: 0,
+            obsolete: 0,
+            unmatched: 0,
+          },
+          inboxReplyHandoffs: {
+            total: 0,
+            pending: 0,
+            resolved: 0,
+            obsolete: 0,
+          },
+        },
+      },
+    });
+
+    expect(html).toContain('今日重点待办');
+    expect(html).toContain('当前没有高优先级待办');
+    expect(html).toContain('可以继续生成内容，或回看项目与监控配置');
   });
 });
