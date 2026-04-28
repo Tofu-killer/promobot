@@ -868,6 +868,26 @@ function buildOptimisticInboxReplyHandoffResolution(response: InboxReplyHandoffC
   };
 }
 
+function addPendingArtifactPath(current: Record<string, true>, artifactPath: string) {
+  if (current[artifactPath]) {
+    return current;
+  }
+
+  return {
+    ...current,
+    [artifactPath]: true,
+  };
+}
+
+function removePendingArtifactPath(current: Record<string, true>, artifactPath: string) {
+  if (!(artifactPath in current)) {
+    return current;
+  }
+
+  const { [artifactPath]: _ignored, ...rest } = current;
+  return rest;
+}
+
 export function SettingsPage({
   loadSettingsAction = loadSettingsRequest,
   loadSystemJobsAction = defaultLoadSystemJobsAction,
@@ -974,9 +994,13 @@ export function SettingsPage({
   const [controlError, setControlError] = useState<string | null>(null);
   const [activeControl, setActiveControl] = useState<string | null>(null);
   const [controlPending, setControlPending] = useState(false);
-  const [activeBrowserLaneArtifactPath, setActiveBrowserLaneArtifactPath] = useState<string | null>(null);
-  const [activeBrowserHandoffArtifactPath, setActiveBrowserHandoffArtifactPath] = useState<string | null>(null);
-  const [activeInboxReplyHandoffArtifactPath, setActiveInboxReplyHandoffArtifactPath] = useState<string | null>(null);
+  const [pendingBrowserLaneArtifactPaths, setPendingBrowserLaneArtifactPaths] = useState<Record<string, true>>({});
+  const [pendingBrowserHandoffArtifactPaths, setPendingBrowserHandoffArtifactPaths] = useState<Record<string, true>>(
+    {},
+  );
+  const [pendingInboxReplyHandoffArtifactPaths, setPendingInboxReplyHandoffArtifactPaths] = useState<
+    Record<string, true>
+  >({});
   const [resolvedBrowserLaneRequestsByArtifactPath, setResolvedBrowserLaneRequestsByArtifactPath] = useState<
     Record<string, { resolvedAt: string; jobStatus: string; resolution?: unknown }>
   >({});
@@ -1142,9 +1166,6 @@ export function SettingsPage({
       : inboxReplyHandoffMutationState.status === 'error'
         ? `inbox reply handoff 结单失败：${inboxReplyHandoffMutationState.error}`
         : null;
-  const isBrowserLaneRequestMutationPending = browserLaneRequestMutationState.status === 'loading';
-  const isBrowserHandoffMutationPending = browserHandoffMutationState.status === 'loading';
-  const isInboxReplyHandoffMutationPending = inboxReplyHandoffMutationState.status === 'loading';
 
   useEffect(() => {
     if (!hasLiveBrowserLaneData) {
@@ -1353,14 +1374,14 @@ export function SettingsPage({
   }
 
   function handleImportBrowserLaneRequest(request: BrowserLaneRequestRecord) {
-    if (isBrowserLaneRequestMutationPending) {
+    if (pendingBrowserLaneArtifactPaths[request.artifactPath]) {
       return;
     }
 
     const requestDraft = browserLaneDraftByArtifactPath[request.artifactPath];
     const notes = requestDraft?.notes.trim().length ? requestDraft.notes.trim() : undefined;
 
-    setActiveBrowserLaneArtifactPath(request.artifactPath);
+    setPendingBrowserLaneArtifactPaths((current) => addPendingArtifactPath(current, request.artifactPath));
     void runBrowserLaneRequestImport({
       requestArtifactPath: request.artifactPath,
       storageStateJson: requestDraft?.storageState ?? '',
@@ -1379,7 +1400,7 @@ export function SettingsPage({
       })
       .catch(() => undefined)
       .finally(() => {
-        setActiveBrowserLaneArtifactPath(null);
+        setPendingBrowserLaneArtifactPaths((current) => removePendingArtifactPath(current, request.artifactPath));
       });
   }
 
@@ -1387,7 +1408,7 @@ export function SettingsPage({
     handoff: BrowserHandoffRecord,
     publishStatus: 'published' | 'failed',
   ) {
-    if (isBrowserHandoffMutationPending) {
+    if (pendingBrowserHandoffArtifactPaths[handoff.artifactPath]) {
       return;
     }
 
@@ -1395,7 +1416,7 @@ export function SettingsPage({
     const message = handoffDraft?.message.trim().length ? handoffDraft.message.trim() : undefined;
     const publishUrl = handoffDraft?.publishUrl.trim().length ? handoffDraft.publishUrl.trim() : undefined;
 
-    setActiveBrowserHandoffArtifactPath(handoff.artifactPath);
+    setPendingBrowserHandoffArtifactPaths((current) => addPendingArtifactPath(current, handoff.artifactPath));
     void runBrowserHandoffCompletion({
       artifactPath: handoff.artifactPath,
       publishStatus,
@@ -1415,7 +1436,7 @@ export function SettingsPage({
       })
       .catch(() => undefined)
       .finally(() => {
-        setActiveBrowserHandoffArtifactPath(null);
+        setPendingBrowserHandoffArtifactPaths((current) => removePendingArtifactPath(current, handoff.artifactPath));
       });
   }
 
@@ -1423,7 +1444,7 @@ export function SettingsPage({
     handoff: InboxReplyHandoffRecord,
     replyStatus: 'sent' | 'failed',
   ) {
-    if (isInboxReplyHandoffMutationPending) {
+    if (pendingInboxReplyHandoffArtifactPaths[handoff.artifactPath]) {
       return;
     }
 
@@ -1431,7 +1452,7 @@ export function SettingsPage({
     const message = handoffDraft?.message.trim().length ? handoffDraft.message.trim() : undefined;
     const deliveryUrl = handoffDraft?.deliveryUrl.trim().length ? handoffDraft.deliveryUrl.trim() : undefined;
 
-    setActiveInboxReplyHandoffArtifactPath(handoff.artifactPath);
+    setPendingInboxReplyHandoffArtifactPaths((current) => addPendingArtifactPath(current, handoff.artifactPath));
     void runInboxReplyHandoffCompletion({
       artifactPath: handoff.artifactPath,
       replyStatus,
@@ -1451,7 +1472,9 @@ export function SettingsPage({
       })
       .catch(() => undefined)
       .finally(() => {
-        setActiveInboxReplyHandoffArtifactPath(null);
+        setPendingInboxReplyHandoffArtifactPaths((current) =>
+          removePendingArtifactPath(current, handoff.artifactPath),
+        );
       });
   }
 
@@ -1881,13 +1904,12 @@ export function SettingsPage({
                         </label>
                         <ActionButton
                           label={
-                            isBrowserLaneRequestMutationPending &&
-                            activeBrowserLaneArtifactPath === request.artifactPath
+                            pendingBrowserLaneArtifactPaths[request.artifactPath]
                               ? '正在导入 Session...'
                               : '导入 Session'
                           }
                           tone="primary"
-                          disabled={isBrowserLaneRequestMutationPending}
+                          disabled={pendingBrowserLaneArtifactPaths[request.artifactPath] === true}
                           onClick={() => handleImportBrowserLaneRequest(request)}
                         />
                       </div>
@@ -2026,24 +2048,22 @@ export function SettingsPage({
                         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                           <ActionButton
                             label={
-                              isBrowserHandoffMutationPending &&
-                              activeBrowserHandoffArtifactPath === handoff.artifactPath
+                              pendingBrowserHandoffArtifactPaths[handoff.artifactPath]
                                 ? '正在标记已发布...'
                                 : '标记已发布'
                             }
                             tone="primary"
-                            disabled={isBrowserHandoffMutationPending}
+                            disabled={pendingBrowserHandoffArtifactPaths[handoff.artifactPath] === true}
                             onClick={() => handleCompleteBrowserHandoff(handoff, 'published')}
                           />
                           <ActionButton
                             label={
-                              isBrowserHandoffMutationPending &&
-                              activeBrowserHandoffArtifactPath === handoff.artifactPath
+                              pendingBrowserHandoffArtifactPaths[handoff.artifactPath]
                                 ? '正在标记失败...'
                                 : '标记失败'
                             }
                             tone="secondary"
-                            disabled={isBrowserHandoffMutationPending}
+                            disabled={pendingBrowserHandoffArtifactPaths[handoff.artifactPath] === true}
                             onClick={() => handleCompleteBrowserHandoff(handoff, 'failed')}
                           />
                         </div>
@@ -2179,24 +2199,22 @@ export function SettingsPage({
                         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                           <ActionButton
                             label={
-                              isInboxReplyHandoffMutationPending &&
-                              activeInboxReplyHandoffArtifactPath === handoff.artifactPath
+                              pendingInboxReplyHandoffArtifactPaths[handoff.artifactPath]
                                 ? '正在标记已发送...'
                                 : '标记已发送'
                             }
                             tone="primary"
-                            disabled={isInboxReplyHandoffMutationPending}
+                            disabled={pendingInboxReplyHandoffArtifactPaths[handoff.artifactPath] === true}
                             onClick={() => handleCompleteInboxReplyHandoff(handoff, 'sent')}
                           />
                           <ActionButton
                             label={
-                              isInboxReplyHandoffMutationPending &&
-                              activeInboxReplyHandoffArtifactPath === handoff.artifactPath
+                              pendingInboxReplyHandoffArtifactPaths[handoff.artifactPath]
                                 ? '正在标记失败...'
                                 : '标记失败'
                             }
                             tone="secondary"
-                            disabled={isInboxReplyHandoffMutationPending}
+                            disabled={pendingInboxReplyHandoffArtifactPaths[handoff.artifactPath] === true}
                             onClick={() => handleCompleteInboxReplyHandoff(handoff, 'failed')}
                           />
                         </div>

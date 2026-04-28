@@ -24,6 +24,46 @@ function renderPage(Component: unknown, props: Record<string, unknown>) {
   );
 }
 
+function findElements(
+  root: { childNodes?: unknown[] } | null,
+  predicate: (element: {
+    nodeType?: number;
+    tagName?: string;
+    childNodes?: unknown[];
+    getAttribute?: (name: string) => string | null;
+  }) => boolean,
+) {
+  const matches: Array<{
+    tagName?: string;
+    childNodes?: unknown[];
+    getAttribute?: (name: string) => string | null;
+  }> = [];
+
+  function visit(node: unknown) {
+    if (!node || typeof node !== 'object') {
+      return;
+    }
+
+    const element = node as {
+      nodeType?: number;
+      tagName?: string;
+      childNodes?: unknown[];
+      getAttribute?: (name: string) => string | null;
+    };
+
+    if (element.nodeType === 1 && predicate(element)) {
+      matches.push(element);
+    }
+
+    for (const child of element.childNodes ?? []) {
+      visit(child);
+    }
+  }
+
+  visit(root);
+  return matches;
+}
+
 function createDeferredPromise<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
   let reject!: (reason?: unknown) => void;
@@ -1716,6 +1756,235 @@ describe('settings save validation and feedback', () => {
     });
   });
 
+  it('allows independent browser lane request imports to proceed per artifact while another import is still pending', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { SettingsPage } = await import('../../src/client/pages/Settings');
+
+    const firstImport = createDeferredPromise<{
+      ok: boolean;
+      imported: boolean;
+      artifactPath: string;
+      session: {
+        hasSession: boolean;
+        status: string;
+        validatedAt: string;
+        storageStatePath: string;
+      };
+      channelAccount: {
+        id: number;
+        session: {
+          hasSession: boolean;
+          status: string;
+          validatedAt: string;
+          storageStatePath: string;
+        };
+      };
+    }>();
+    const secondImport = createDeferredPromise<{
+      ok: boolean;
+      imported: boolean;
+      artifactPath: string;
+      session: {
+        hasSession: boolean;
+        status: string;
+        validatedAt: string;
+        storageStatePath: string;
+      };
+      channelAccount: {
+        id: number;
+        session: {
+          hasSession: boolean;
+          status: string;
+          validatedAt: string;
+          storageStatePath: string;
+        };
+      };
+    }>();
+    const loadSettingsAction = vi.fn().mockResolvedValue({
+      settings: {
+        allowlist: ['10.0.0.1'],
+        schedulerIntervalMinutes: 45,
+        rssDefaults: ['OpenAI blog'],
+        monitorRssFeeds: ['https://openai.com/blog/rss.xml'],
+        monitorXQueries: ['openrouter failover'],
+        monitorRedditQueries: ['claude api latency'],
+        monitorV2exQueries: ['llm api'],
+      },
+    });
+    const loadSystemJobsAction = vi.fn().mockResolvedValue({
+      jobs: [],
+      queue: {
+        pending: 0,
+        failed: 0,
+      },
+      recentJobs: [],
+    });
+    const loadBrowserLaneRequestsAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        requests: [
+          {
+            channelAccountId: 7,
+            platform: 'x',
+            accountKey: 'acct-browser-a',
+            action: 'request_session',
+            jobStatus: 'pending',
+            requestedAt: '2026-04-28T09:00:00.000Z',
+            artifactPath: 'artifacts/browser-lane-requests/x/acct-browser-a/request-session-job-17.json',
+            resolvedAt: null,
+          },
+          {
+            channelAccountId: 8,
+            platform: 'x',
+            accountKey: 'acct-browser-b',
+            action: 'relogin',
+            jobStatus: 'pending',
+            requestedAt: '2026-04-28T09:01:00.000Z',
+            artifactPath: 'artifacts/browser-lane-requests/x/acct-browser-b/relogin-job-18.json',
+            resolvedAt: null,
+          },
+        ],
+        total: 2,
+      })
+      .mockResolvedValue({
+        requests: [],
+        total: 0,
+      });
+    const loadBrowserHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+    const loadInboxReplyHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+    const importBrowserLaneRequestResultAction = vi.fn().mockImplementation(({ requestArtifactPath }) => {
+      return requestArtifactPath.includes('acct-browser-a') ? firstImport.promise : secondImport.promise;
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(SettingsPage as never, {
+          loadSettingsAction,
+          loadSystemJobsAction,
+          loadBrowserLaneRequestsAction,
+          loadBrowserHandoffsAction,
+          loadInboxReplyHandoffsAction,
+          importBrowserLaneRequestResultAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const storageStateFields = findElements(
+      container,
+      (element) =>
+        element.tagName === 'TEXTAREA' &&
+        element.getAttribute?.('data-settings-browser-lane-field') === 'storageState',
+    );
+    const importButtons = findElements(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('导入 Session'),
+    );
+
+    expect(storageStateFields).toHaveLength(2);
+    expect(importButtons).toHaveLength(2);
+
+    await act(async () => {
+      for (const field of storageStateFields as Array<{ value?: string; dispatchEvent: (event: Event) => void }>) {
+        field.value = '{"cookies":[],"origins":[]}';
+        field.dispatchEvent(new window.Event('input', { bubbles: true }));
+      }
+      await flush();
+    });
+
+    await act(async () => {
+      (importButtons[0] as { dispatchEvent: (event: Event) => void }).dispatchEvent(
+        new window.MouseEvent('click', { bubbles: true }),
+      );
+      await flush();
+    });
+
+    expect(importBrowserLaneRequestResultAction).toHaveBeenCalledTimes(1);
+    expect((importButtons[1] as { getAttribute: (name: string) => string | null }).getAttribute('disabled')).toBeNull();
+
+    await act(async () => {
+      (importButtons[1] as { dispatchEvent: (event: Event) => void }).dispatchEvent(
+        new window.MouseEvent('click', { bubbles: true }),
+      );
+      await flush();
+    });
+
+    expect(importBrowserLaneRequestResultAction).toHaveBeenCalledTimes(2);
+    expect(importBrowserLaneRequestResultAction).toHaveBeenNthCalledWith(1, {
+      requestArtifactPath: 'artifacts/browser-lane-requests/x/acct-browser-a/request-session-job-17.json',
+      storageState: {
+        cookies: [],
+        origins: [],
+      },
+    });
+    expect(importBrowserLaneRequestResultAction).toHaveBeenNthCalledWith(2, {
+      requestArtifactPath: 'artifacts/browser-lane-requests/x/acct-browser-b/relogin-job-18.json',
+      storageState: {
+        cookies: [],
+        origins: [],
+      },
+    });
+
+    await act(async () => {
+      firstImport.resolve({
+        ok: true,
+        imported: true,
+        artifactPath: 'artifacts/browser-lane-requests/x/acct-browser-a/request-session-job-17.json',
+        session: {
+          hasSession: true,
+          status: 'active',
+          validatedAt: '2026-04-28T09:05:00.000Z',
+          storageStatePath: 'artifacts/browser-sessions/x/acct-browser-a.json',
+        },
+        channelAccount: {
+          id: 7,
+          session: {
+            hasSession: true,
+            status: 'active',
+            validatedAt: '2026-04-28T09:05:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/x/acct-browser-a.json',
+          },
+        },
+      });
+      secondImport.resolve({
+        ok: true,
+        imported: true,
+        artifactPath: 'artifacts/browser-lane-requests/x/acct-browser-b/relogin-job-18.json',
+        session: {
+          hasSession: true,
+          status: 'active',
+          validatedAt: '2026-04-28T09:06:00.000Z',
+          storageStatePath: 'artifacts/browser-sessions/x/acct-browser-b.json',
+        },
+        channelAccount: {
+          id: 8,
+          session: {
+            hasSession: true,
+            status: 'active',
+            validatedAt: '2026-04-28T09:06:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/x/acct-browser-b.json',
+          },
+        },
+      });
+      await flush();
+      await flush();
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('completes a pending browser handoff inline from settings and keeps the optimistic resolution visible', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
@@ -1883,6 +2152,225 @@ describe('settings save validation and feedback', () => {
     });
   });
 
+  it('allows independent browser handoff completions to proceed per artifact while another completion is still pending', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { SettingsPage } = await import('../../src/client/pages/Settings');
+
+    const firstCompletion = createDeferredPromise<{
+      ok: boolean;
+      imported: boolean;
+      artifactPath: string;
+      draftId: number;
+      draftStatus: string;
+      platform: string;
+      mode: string;
+      status: string;
+      publishStatus: string;
+      success: boolean;
+      publishUrl: string;
+      message: string;
+      publishedAt: string;
+    }>();
+    const secondCompletion = createDeferredPromise<{
+      ok: boolean;
+      imported: boolean;
+      artifactPath: string;
+      draftId: number;
+      draftStatus: string;
+      platform: string;
+      mode: string;
+      status: string;
+      publishStatus: string;
+      success: boolean;
+      publishUrl: string;
+      message: string;
+      publishedAt: string;
+    }>();
+    const loadSettingsAction = vi.fn().mockResolvedValue({
+      settings: {
+        allowlist: ['10.0.0.1'],
+        schedulerIntervalMinutes: 45,
+        rssDefaults: ['OpenAI blog'],
+        monitorRssFeeds: ['https://openai.com/blog/rss.xml'],
+        monitorXQueries: ['openrouter failover'],
+        monitorRedditQueries: ['claude api latency'],
+        monitorV2exQueries: ['llm api'],
+      },
+    });
+    const loadSystemJobsAction = vi.fn().mockResolvedValue({
+      jobs: [],
+      queue: {
+        pending: 0,
+        failed: 0,
+      },
+      recentJobs: [],
+    });
+    const loadBrowserLaneRequestsAction = vi.fn().mockResolvedValue({
+      requests: [],
+      total: 0,
+    });
+    const loadBrowserHandoffsAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        handoffs: [
+          {
+            channelAccountId: 7,
+            accountDisplayName: 'FB Group A',
+            ownership: 'direct',
+            platform: 'facebookGroup',
+            draftId: '13',
+            title: 'Community update A',
+            accountKey: 'launch-campaign-a',
+            status: 'pending',
+            artifactPath: 'artifacts/browser-handoffs/facebookGroup/launch-campaign-a/facebookGroup-draft-13.json',
+            createdAt: '2026-04-28T09:10:00.000Z',
+            updatedAt: '2026-04-28T09:10:00.000Z',
+            resolvedAt: null,
+          },
+          {
+            channelAccountId: 8,
+            accountDisplayName: 'FB Group B',
+            ownership: 'direct',
+            platform: 'facebookGroup',
+            draftId: '14',
+            title: 'Community update B',
+            accountKey: 'launch-campaign-b',
+            status: 'pending',
+            artifactPath: 'artifacts/browser-handoffs/facebookGroup/launch-campaign-b/facebookGroup-draft-14.json',
+            createdAt: '2026-04-28T09:11:00.000Z',
+            updatedAt: '2026-04-28T09:11:00.000Z',
+            resolvedAt: null,
+          },
+        ],
+        total: 2,
+      })
+      .mockResolvedValue({
+        handoffs: [],
+        total: 0,
+      });
+    const loadInboxReplyHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+    const completeBrowserHandoffAction = vi.fn().mockImplementation(({ artifactPath }) => {
+      return artifactPath.includes('launch-campaign-a') ? firstCompletion.promise : secondCompletion.promise;
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(SettingsPage as never, {
+          loadSettingsAction,
+          loadSystemJobsAction,
+          loadBrowserLaneRequestsAction,
+          loadBrowserHandoffsAction,
+          loadInboxReplyHandoffsAction,
+          completeBrowserHandoffAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const publishUrlFields = findElements(
+      container,
+      (element) =>
+        element.tagName === 'INPUT' &&
+        element.getAttribute?.('data-settings-browser-handoff-field') === 'publishUrl',
+    );
+    const completeButtons = findElements(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('标记已发布'),
+    );
+
+    expect(publishUrlFields).toHaveLength(2);
+    expect(completeButtons).toHaveLength(2);
+
+    await act(async () => {
+      (publishUrlFields[0] as { value?: string; dispatchEvent: (event: Event) => void }).value =
+        'https://facebook.com/groups/a/posts/13';
+      (publishUrlFields[0] as { dispatchEvent: (event: Event) => void }).dispatchEvent(
+        new window.Event('input', { bubbles: true }),
+      );
+      (publishUrlFields[1] as { value?: string; dispatchEvent: (event: Event) => void }).value =
+        'https://facebook.com/groups/b/posts/14';
+      (publishUrlFields[1] as { dispatchEvent: (event: Event) => void }).dispatchEvent(
+        new window.Event('input', { bubbles: true }),
+      );
+      await flush();
+    });
+
+    await act(async () => {
+      (completeButtons[0] as { dispatchEvent: (event: Event) => void }).dispatchEvent(
+        new window.MouseEvent('click', { bubbles: true }),
+      );
+      await flush();
+    });
+
+    expect(completeBrowserHandoffAction).toHaveBeenCalledTimes(1);
+    expect((completeButtons[1] as { getAttribute: (name: string) => string | null }).getAttribute('disabled')).toBeNull();
+
+    await act(async () => {
+      (completeButtons[1] as { dispatchEvent: (event: Event) => void }).dispatchEvent(
+        new window.MouseEvent('click', { bubbles: true }),
+      );
+      await flush();
+    });
+
+    expect(completeBrowserHandoffAction).toHaveBeenCalledTimes(2);
+    expect(completeBrowserHandoffAction).toHaveBeenNthCalledWith(1, {
+      artifactPath: 'artifacts/browser-handoffs/facebookGroup/launch-campaign-a/facebookGroup-draft-13.json',
+      publishStatus: 'published',
+      publishUrl: 'https://facebook.com/groups/a/posts/13',
+    });
+    expect(completeBrowserHandoffAction).toHaveBeenNthCalledWith(2, {
+      artifactPath: 'artifacts/browser-handoffs/facebookGroup/launch-campaign-b/facebookGroup-draft-14.json',
+      publishStatus: 'published',
+      publishUrl: 'https://facebook.com/groups/b/posts/14',
+    });
+
+    await act(async () => {
+      firstCompletion.resolve({
+        ok: true,
+        imported: true,
+        artifactPath: 'artifacts/browser-handoffs/facebookGroup/launch-campaign-a/facebookGroup-draft-13.json',
+        draftId: 13,
+        draftStatus: 'published',
+        platform: 'facebookGroup',
+        mode: 'browser',
+        status: 'resolved',
+        publishStatus: 'published',
+        success: true,
+        publishUrl: 'https://facebook.com/groups/a/posts/13',
+        message: '',
+        publishedAt: '2026-04-28T09:15:00.000Z',
+      });
+      secondCompletion.resolve({
+        ok: true,
+        imported: true,
+        artifactPath: 'artifacts/browser-handoffs/facebookGroup/launch-campaign-b/facebookGroup-draft-14.json',
+        draftId: 14,
+        draftStatus: 'published',
+        platform: 'facebookGroup',
+        mode: 'browser',
+        status: 'resolved',
+        publishStatus: 'published',
+        success: true,
+        publishUrl: 'https://facebook.com/groups/b/posts/14',
+        message: '',
+        publishedAt: '2026-04-28T09:16:00.000Z',
+      });
+      await flush();
+      await flush();
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('completes a pending inbox reply handoff inline from settings and keeps the optimistic resolution visible', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
@@ -2041,6 +2529,225 @@ describe('settings save validation and feedback', () => {
         handoffs: [],
         total: 0,
       });
+      await flush();
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('allows independent inbox reply handoff completions to proceed per artifact while another completion is still pending', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { SettingsPage } = await import('../../src/client/pages/Settings');
+
+    const firstCompletion = createDeferredPromise<{
+      ok: boolean;
+      imported: boolean;
+      artifactPath: string;
+      itemId: number;
+      itemStatus: string;
+      platform: string;
+      mode: string;
+      status: string;
+      replyStatus: string;
+      success: boolean;
+      deliveryUrl: string;
+      message: string;
+      deliveredAt: string;
+    }>();
+    const secondCompletion = createDeferredPromise<{
+      ok: boolean;
+      imported: boolean;
+      artifactPath: string;
+      itemId: number;
+      itemStatus: string;
+      platform: string;
+      mode: string;
+      status: string;
+      replyStatus: string;
+      success: boolean;
+      deliveryUrl: string;
+      message: string;
+      deliveredAt: string;
+    }>();
+    const loadSettingsAction = vi.fn().mockResolvedValue({
+      settings: {
+        allowlist: ['10.0.0.1'],
+        schedulerIntervalMinutes: 45,
+        rssDefaults: ['OpenAI blog'],
+        monitorRssFeeds: ['https://openai.com/blog/rss.xml'],
+        monitorXQueries: ['openrouter failover'],
+        monitorRedditQueries: ['claude api latency'],
+        monitorV2exQueries: ['llm api'],
+      },
+    });
+    const loadSystemJobsAction = vi.fn().mockResolvedValue({
+      jobs: [],
+      queue: {
+        pending: 0,
+        failed: 0,
+      },
+      recentJobs: [],
+    });
+    const loadBrowserLaneRequestsAction = vi.fn().mockResolvedValue({
+      requests: [],
+      total: 0,
+    });
+    const loadBrowserHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+    const loadInboxReplyHandoffsAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        handoffs: [
+          {
+            channelAccountId: 12,
+            platform: 'reddit',
+            itemId: '88',
+            source: 'reddit',
+            title: 'Need lower latency in APAC',
+            author: 'user123',
+            accountKey: 'reddit-main',
+            status: 'pending',
+            artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88.json',
+            createdAt: '2026-04-28T09:10:00.000Z',
+            updatedAt: '2026-04-28T09:10:00.000Z',
+            resolvedAt: null,
+          },
+          {
+            channelAccountId: 13,
+            platform: 'reddit',
+            itemId: '89',
+            source: 'reddit',
+            title: 'Need more community templates',
+            author: 'user456',
+            accountKey: 'reddit-secondary',
+            status: 'pending',
+            artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-secondary/reddit-item-89.json',
+            createdAt: '2026-04-28T09:11:00.000Z',
+            updatedAt: '2026-04-28T09:11:00.000Z',
+            resolvedAt: null,
+          },
+        ],
+        total: 2,
+      })
+      .mockResolvedValue({
+        handoffs: [],
+        total: 0,
+      });
+    const completeInboxReplyHandoffAction = vi.fn().mockImplementation(({ artifactPath }) => {
+      return artifactPath.includes('reddit-item-88') ? firstCompletion.promise : secondCompletion.promise;
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(SettingsPage as never, {
+          loadSettingsAction,
+          loadSystemJobsAction,
+          loadBrowserLaneRequestsAction,
+          loadBrowserHandoffsAction,
+          loadInboxReplyHandoffsAction,
+          completeInboxReplyHandoffAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const deliveryUrlFields = findElements(
+      container,
+      (element) =>
+        element.tagName === 'INPUT' &&
+        element.getAttribute?.('data-settings-inbox-reply-handoff-field') === 'deliveryUrl',
+    );
+    const completeButtons = findElements(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('标记已发送'),
+    );
+
+    expect(deliveryUrlFields).toHaveLength(2);
+    expect(completeButtons).toHaveLength(2);
+
+    await act(async () => {
+      (deliveryUrlFields[0] as { value?: string; dispatchEvent: (event: Event) => void }).value =
+        'https://reddit.com/message/messages/88';
+      (deliveryUrlFields[0] as { dispatchEvent: (event: Event) => void }).dispatchEvent(
+        new window.Event('input', { bubbles: true }),
+      );
+      (deliveryUrlFields[1] as { value?: string; dispatchEvent: (event: Event) => void }).value =
+        'https://reddit.com/message/messages/89';
+      (deliveryUrlFields[1] as { dispatchEvent: (event: Event) => void }).dispatchEvent(
+        new window.Event('input', { bubbles: true }),
+      );
+      await flush();
+    });
+
+    await act(async () => {
+      (completeButtons[0] as { dispatchEvent: (event: Event) => void }).dispatchEvent(
+        new window.MouseEvent('click', { bubbles: true }),
+      );
+      await flush();
+    });
+
+    expect(completeInboxReplyHandoffAction).toHaveBeenCalledTimes(1);
+    expect((completeButtons[1] as { getAttribute: (name: string) => string | null }).getAttribute('disabled')).toBeNull();
+
+    await act(async () => {
+      (completeButtons[1] as { dispatchEvent: (event: Event) => void }).dispatchEvent(
+        new window.MouseEvent('click', { bubbles: true }),
+      );
+      await flush();
+    });
+
+    expect(completeInboxReplyHandoffAction).toHaveBeenCalledTimes(2);
+    expect(completeInboxReplyHandoffAction).toHaveBeenNthCalledWith(1, {
+      artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88.json',
+      replyStatus: 'sent',
+      deliveryUrl: 'https://reddit.com/message/messages/88',
+    });
+    expect(completeInboxReplyHandoffAction).toHaveBeenNthCalledWith(2, {
+      artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-secondary/reddit-item-89.json',
+      replyStatus: 'sent',
+      deliveryUrl: 'https://reddit.com/message/messages/89',
+    });
+
+    await act(async () => {
+      firstCompletion.resolve({
+        ok: true,
+        imported: true,
+        artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88.json',
+        itemId: 88,
+        itemStatus: 'handled',
+        platform: 'reddit',
+        mode: 'manual',
+        status: 'resolved',
+        replyStatus: 'sent',
+        success: true,
+        deliveryUrl: 'https://reddit.com/message/messages/88',
+        message: '',
+        deliveredAt: '2026-04-28T09:18:00.000Z',
+      });
+      secondCompletion.resolve({
+        ok: true,
+        imported: true,
+        artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-secondary/reddit-item-89.json',
+        itemId: 89,
+        itemStatus: 'handled',
+        platform: 'reddit',
+        mode: 'manual',
+        status: 'resolved',
+        replyStatus: 'sent',
+        success: true,
+        deliveryUrl: 'https://reddit.com/message/messages/89',
+        message: '',
+        deliveredAt: '2026-04-28T09:19:00.000Z',
+      });
+      await flush();
       await flush();
     });
 
