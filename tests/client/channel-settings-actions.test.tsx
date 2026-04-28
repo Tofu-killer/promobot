@@ -1548,4 +1548,505 @@ describe('settings save validation and feedback', () => {
       await flush();
     });
   });
+
+  it('imports a pending browser lane request inline from settings and keeps the optimistic resolution visible', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { SettingsPage } = await import('../../src/client/pages/Settings');
+
+    const pendingBrowserLaneReload = createDeferredPromise<{
+      requests: Array<{
+        channelAccountId: number;
+        platform: string;
+        accountKey: string;
+        action: string;
+        jobStatus: string;
+        requestedAt: string;
+        artifactPath: string;
+        resolvedAt: string | null;
+        resolution?: unknown;
+      }>;
+      total: number;
+    }>();
+    const loadSettingsAction = vi.fn().mockResolvedValue({
+      settings: {
+        allowlist: ['10.0.0.1'],
+        schedulerIntervalMinutes: 45,
+        rssDefaults: ['OpenAI blog'],
+        monitorRssFeeds: ['https://openai.com/blog/rss.xml'],
+        monitorXQueries: ['openrouter failover'],
+        monitorRedditQueries: ['claude api latency'],
+        monitorV2exQueries: ['llm api'],
+      },
+    });
+    const loadSystemJobsAction = vi.fn().mockResolvedValue({
+      jobs: [],
+      queue: {
+        pending: 0,
+        failed: 0,
+      },
+      recentJobs: [],
+    });
+    const loadBrowserLaneRequestsAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        requests: [
+          {
+            channelAccountId: 7,
+            platform: 'x',
+            accountKey: 'acct-browser',
+            action: 'request_session',
+            jobStatus: 'pending',
+            requestedAt: '2026-04-28T09:00:00.000Z',
+            artifactPath: 'artifacts/browser-lane-requests/x/acct-browser/request-session-job-17.json',
+            resolvedAt: null,
+          },
+        ],
+        total: 1,
+      })
+      .mockImplementationOnce(() => pendingBrowserLaneReload.promise);
+    const loadBrowserHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+    const loadInboxReplyHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+    const importBrowserLaneRequestResultAction = vi.fn().mockResolvedValue({
+      ok: true,
+      imported: true,
+      artifactPath: 'artifacts/browser-lane-requests/x/acct-browser/request-session-job-17.json',
+      session: {
+        hasSession: true,
+        status: 'active',
+        validatedAt: '2026-04-28T09:05:00.000Z',
+        storageStatePath: 'artifacts/browser-sessions/x/acct-browser.json',
+        notes: 'Manual refresh',
+      },
+      channelAccount: {
+        id: 7,
+        session: {
+          hasSession: true,
+          status: 'active',
+          validatedAt: '2026-04-28T09:05:00.000Z',
+          storageStatePath: 'artifacts/browser-sessions/x/acct-browser.json',
+          notes: 'Manual refresh',
+        },
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(SettingsPage as never, {
+          loadSettingsAction,
+          loadSystemJobsAction,
+          loadBrowserLaneRequestsAction,
+          loadBrowserHandoffsAction,
+          loadInboxReplyHandoffsAction,
+          importBrowserLaneRequestResultAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const storageStateField = findElement(
+      container,
+      (element) => element.getAttribute('data-settings-browser-lane-field') === 'storageState',
+    );
+    const notesField = findElement(
+      container,
+      (element) => element.getAttribute('data-settings-browser-lane-field') === 'notes',
+    );
+    const importButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('导入 Session'),
+    );
+
+    expect(storageStateField).not.toBeNull();
+    expect(notesField).not.toBeNull();
+    expect(importButton).not.toBeNull();
+
+    await act(async () => {
+      if (storageStateField) {
+        storageStateField.value = '{"cookies":[],"origins":[]}';
+        storageStateField.dispatchEvent(new window.Event('input', { bubbles: true }));
+      }
+      if (notesField) {
+        notesField.value = 'Manual refresh';
+        notesField.dispatchEvent(new window.Event('input', { bubbles: true }));
+      }
+      await flush();
+    });
+
+    await act(async () => {
+      importButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(importBrowserLaneRequestResultAction).toHaveBeenCalledWith({
+      requestArtifactPath: 'artifacts/browser-lane-requests/x/acct-browser/request-session-job-17.json',
+      storageState: {
+        cookies: [],
+        origins: [],
+      },
+      notes: 'Manual refresh',
+    });
+    expect(loadBrowserLaneRequestsAction).toHaveBeenCalledTimes(2);
+    expect(collectText(container)).toContain('正在加载 browser lane requests...');
+    expect(collectText(container)).toContain('已导入 browser lane session #7 (active)');
+    expect(collectText(container)).toContain('#7 · x · request_session · resolved');
+    expect(collectText(container)).toContain('storageStatePath: artifacts/browser-sessions/x/acct-browser.json');
+    expect(collectText(container)).toContain('notes: Manual refresh');
+
+    await act(async () => {
+      pendingBrowserLaneReload.resolve({
+        requests: [],
+        total: 0,
+      });
+      await flush();
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('completes a pending browser handoff inline from settings and keeps the optimistic resolution visible', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { SettingsPage } = await import('../../src/client/pages/Settings');
+
+    const pendingBrowserHandoffReload = createDeferredPromise<{
+      handoffs: Array<{
+        channelAccountId?: number;
+        accountDisplayName?: string;
+        ownership?: string;
+        platform: string;
+        draftId: string;
+        title: string | null;
+        accountKey: string;
+        status: string;
+        artifactPath: string;
+        createdAt: string;
+        updatedAt: string;
+        resolvedAt: string | null;
+        resolution?: unknown;
+      }>;
+      total: number;
+    }>();
+    const loadSettingsAction = vi.fn().mockResolvedValue({
+      settings: {
+        allowlist: ['10.0.0.1'],
+        schedulerIntervalMinutes: 45,
+        rssDefaults: ['OpenAI blog'],
+        monitorRssFeeds: ['https://openai.com/blog/rss.xml'],
+        monitorXQueries: ['openrouter failover'],
+        monitorRedditQueries: ['claude api latency'],
+        monitorV2exQueries: ['llm api'],
+      },
+    });
+    const loadSystemJobsAction = vi.fn().mockResolvedValue({
+      jobs: [],
+      queue: {
+        pending: 0,
+        failed: 0,
+      },
+      recentJobs: [],
+    });
+    const loadBrowserLaneRequestsAction = vi.fn().mockResolvedValue({
+      requests: [],
+      total: 0,
+    });
+    const loadBrowserHandoffsAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        handoffs: [
+          {
+            channelAccountId: 7,
+            accountDisplayName: 'FB Group Manual',
+            ownership: 'direct',
+            platform: 'facebookGroup',
+            draftId: '13',
+            title: 'Community update',
+            accountKey: 'launch-campaign',
+            status: 'pending',
+            artifactPath: 'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-13.json',
+            createdAt: '2026-04-28T09:10:00.000Z',
+            updatedAt: '2026-04-28T09:10:00.000Z',
+            resolvedAt: null,
+          },
+        ],
+        total: 1,
+      })
+      .mockImplementationOnce(() => pendingBrowserHandoffReload.promise);
+    const loadInboxReplyHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+    const completeBrowserHandoffAction = vi.fn().mockResolvedValue({
+      ok: true,
+      imported: true,
+      artifactPath: 'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-13.json',
+      draftId: 13,
+      draftStatus: 'published',
+      platform: 'facebookGroup',
+      mode: 'browser',
+      status: 'resolved',
+      publishStatus: 'published',
+      success: true,
+      publishUrl: 'https://facebook.com/groups/launch/posts/13',
+      externalId: '13',
+      message: 'Published from settings',
+      publishedAt: '2026-04-28T09:15:00.000Z',
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(SettingsPage as never, {
+          loadSettingsAction,
+          loadSystemJobsAction,
+          loadBrowserLaneRequestsAction,
+          loadBrowserHandoffsAction,
+          loadInboxReplyHandoffsAction,
+          completeBrowserHandoffAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const publishUrlField = findElement(
+      container,
+      (element) => element.getAttribute('data-settings-browser-handoff-field') === 'publishUrl',
+    );
+    const messageField = findElement(
+      container,
+      (element) => element.getAttribute('data-settings-browser-handoff-field') === 'message',
+    );
+    const completeButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('标记已发布'),
+    );
+
+    expect(publishUrlField).not.toBeNull();
+    expect(messageField).not.toBeNull();
+    expect(completeButton).not.toBeNull();
+
+    await act(async () => {
+      if (publishUrlField) {
+        publishUrlField.value = 'https://facebook.com/groups/launch/posts/13';
+        publishUrlField.dispatchEvent(new window.Event('input', { bubbles: true }));
+      }
+      if (messageField) {
+        messageField.value = 'Published from settings';
+        messageField.dispatchEvent(new window.Event('input', { bubbles: true }));
+      }
+      await flush();
+    });
+
+    await act(async () => {
+      completeButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(completeBrowserHandoffAction).toHaveBeenCalledWith({
+      artifactPath: 'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-13.json',
+      publishStatus: 'published',
+      message: 'Published from settings',
+      publishUrl: 'https://facebook.com/groups/launch/posts/13',
+    });
+    expect(loadBrowserHandoffsAction).toHaveBeenCalledTimes(2);
+    expect(collectText(container)).toContain('正在加载 browser handoffs...');
+    expect(collectText(container)).toContain('已结单 handoff draft #13 (resolved)');
+    expect(collectText(container)).toContain('facebookGroup · draft #13 · resolved');
+    expect(collectText(container)).toContain('publishUrl: https://facebook.com/groups/launch/posts/13');
+    expect(collectText(container)).toContain('message: Published from settings');
+
+    await act(async () => {
+      pendingBrowserHandoffReload.resolve({
+        handoffs: [],
+        total: 0,
+      });
+      await flush();
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('completes a pending inbox reply handoff inline from settings and keeps the optimistic resolution visible', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { SettingsPage } = await import('../../src/client/pages/Settings');
+
+    const pendingInboxReplyHandoffReload = createDeferredPromise<{
+      handoffs: Array<{
+        channelAccountId?: number;
+        platform: string;
+        itemId: string;
+        source: string;
+        title: string | null;
+        author: string | null;
+        accountKey: string;
+        status: string;
+        artifactPath: string;
+        createdAt: string;
+        updatedAt: string;
+        resolvedAt: string | null;
+        resolution?: unknown;
+      }>;
+      total: number;
+    }>();
+    const loadSettingsAction = vi.fn().mockResolvedValue({
+      settings: {
+        allowlist: ['10.0.0.1'],
+        schedulerIntervalMinutes: 45,
+        rssDefaults: ['OpenAI blog'],
+        monitorRssFeeds: ['https://openai.com/blog/rss.xml'],
+        monitorXQueries: ['openrouter failover'],
+        monitorRedditQueries: ['claude api latency'],
+        monitorV2exQueries: ['llm api'],
+      },
+    });
+    const loadSystemJobsAction = vi.fn().mockResolvedValue({
+      jobs: [],
+      queue: {
+        pending: 0,
+        failed: 0,
+      },
+      recentJobs: [],
+    });
+    const loadBrowserLaneRequestsAction = vi.fn().mockResolvedValue({
+      requests: [],
+      total: 0,
+    });
+    const loadBrowserHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+    const loadInboxReplyHandoffsAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        handoffs: [
+          {
+            channelAccountId: 12,
+            platform: 'reddit',
+            itemId: '88',
+            source: 'reddit',
+            title: 'Need lower latency in APAC',
+            author: 'user123',
+            accountKey: 'reddit-main',
+            status: 'pending',
+            artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88.json',
+            createdAt: '2026-04-28T09:10:00.000Z',
+            updatedAt: '2026-04-28T09:10:00.000Z',
+            resolvedAt: null,
+          },
+        ],
+        total: 1,
+      })
+      .mockImplementationOnce(() => pendingInboxReplyHandoffReload.promise);
+    const completeInboxReplyHandoffAction = vi.fn().mockResolvedValue({
+      ok: true,
+      imported: true,
+      artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88.json',
+      itemId: 88,
+      itemStatus: 'handled',
+      platform: 'reddit',
+      mode: 'manual',
+      status: 'resolved',
+      replyStatus: 'sent',
+      success: true,
+      deliveryUrl: 'https://reddit.com/message/messages/88',
+      externalId: '88',
+      message: 'Reply sent from settings',
+      deliveredAt: '2026-04-28T09:18:00.000Z',
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(SettingsPage as never, {
+          loadSettingsAction,
+          loadSystemJobsAction,
+          loadBrowserLaneRequestsAction,
+          loadBrowserHandoffsAction,
+          loadInboxReplyHandoffsAction,
+          completeInboxReplyHandoffAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const deliveryUrlField = findElement(
+      container,
+      (element) => element.getAttribute('data-settings-inbox-reply-handoff-field') === 'deliveryUrl',
+    );
+    const messageField = findElement(
+      container,
+      (element) => element.getAttribute('data-settings-inbox-reply-handoff-field') === 'message',
+    );
+    const completeButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('标记已发送'),
+    );
+
+    expect(deliveryUrlField).not.toBeNull();
+    expect(messageField).not.toBeNull();
+    expect(completeButton).not.toBeNull();
+
+    await act(async () => {
+      if (deliveryUrlField) {
+        deliveryUrlField.value = 'https://reddit.com/message/messages/88';
+        deliveryUrlField.dispatchEvent(new window.Event('input', { bubbles: true }));
+      }
+      if (messageField) {
+        messageField.value = 'Reply sent from settings';
+        messageField.dispatchEvent(new window.Event('input', { bubbles: true }));
+      }
+      await flush();
+    });
+
+    await act(async () => {
+      completeButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(completeInboxReplyHandoffAction).toHaveBeenCalledWith({
+      artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88.json',
+      replyStatus: 'sent',
+      message: 'Reply sent from settings',
+      deliveryUrl: 'https://reddit.com/message/messages/88',
+    });
+    expect(loadInboxReplyHandoffsAction).toHaveBeenCalledTimes(2);
+    expect(collectText(container)).toContain('正在加载 inbox reply handoffs...');
+    expect(collectText(container)).toContain('已结单 inbox reply item #88 (resolved)');
+    expect(collectText(container)).toContain('reddit · item #88 · resolved');
+    expect(collectText(container)).toContain('deliveryUrl: https://reddit.com/message/messages/88');
+    expect(collectText(container)).toContain('message: Reply sent from settings');
+
+    await act(async () => {
+      pendingInboxReplyHandoffReload.resolve({
+        handoffs: [],
+        total: 0,
+      });
+      await flush();
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
 });

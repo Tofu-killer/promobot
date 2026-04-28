@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { apiRequest } from '../lib/api';
 import type { AsyncState } from '../hooks/useAsyncRequest';
 import { useAsyncAction, useAsyncQuery } from '../hooks/useAsyncRequest';
@@ -141,6 +141,62 @@ export interface InboxReplyHandoffsResponse {
   total: number;
 }
 
+export interface BrowserLaneSessionSummary {
+  hasSession: boolean;
+  status: 'active' | 'expired' | 'missing' | string;
+  validatedAt: string | null;
+  storageStatePath: string | null;
+  id?: string;
+  notes?: string;
+}
+
+export interface BrowserLaneRequestImportResponse {
+  ok: boolean;
+  imported: boolean;
+  artifactPath: string;
+  session: BrowserLaneSessionSummary | null;
+  channelAccount: {
+    id: number;
+    metadata?: Record<string, unknown>;
+    session?: BrowserLaneSessionSummary;
+    [key: string]: unknown;
+  };
+}
+
+export interface BrowserHandoffCompletionResponse {
+  ok: boolean;
+  imported: boolean;
+  artifactPath: string;
+  draftId: number;
+  draftStatus: string;
+  platform: string;
+  mode: string;
+  status: string;
+  publishStatus?: string;
+  success: boolean;
+  publishUrl: string | null;
+  externalId: string | null;
+  message: string;
+  publishedAt: string | null;
+}
+
+export interface InboxReplyHandoffCompletionResponse {
+  ok: boolean;
+  imported: boolean;
+  artifactPath: string;
+  itemId: number;
+  itemStatus: string;
+  platform: string;
+  mode: string;
+  status: string;
+  replyStatus?: string;
+  success: boolean;
+  deliveryUrl: string | null;
+  externalId: string | null;
+  message: string;
+  deliveredAt: string | null;
+}
+
 export interface SystemJobMutationResponse {
   job: SystemJobRecord;
   runtime: Record<string, unknown>;
@@ -196,6 +252,76 @@ export async function loadBrowserHandoffsRequest(limit = 20): Promise<BrowserHan
 
 export async function loadInboxReplyHandoffsRequest(limit = 20): Promise<InboxReplyHandoffsResponse> {
   return apiRequest<InboxReplyHandoffsResponse>(`/api/system/inbox-reply-handoffs?limit=${limit}`);
+}
+
+export async function importBrowserLaneRequestResultRequest(input: {
+  requestArtifactPath: string;
+  storageState: Record<string, unknown>;
+  notes?: string;
+}): Promise<BrowserLaneRequestImportResponse> {
+  return apiRequest<BrowserLaneRequestImportResponse>('/api/system/browser-lane-requests/import', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      requestArtifactPath: input.requestArtifactPath,
+      storageState: input.storageState,
+      ...(input.notes !== undefined && input.notes.trim().length > 0 ? { notes: input.notes.trim() } : {}),
+    }),
+  });
+}
+
+export async function completeBrowserHandoffRequest(input: {
+  artifactPath: string;
+  publishStatus: 'published' | 'failed';
+  message?: string;
+  publishUrl?: string;
+}): Promise<BrowserHandoffCompletionResponse> {
+  return apiRequest<BrowserHandoffCompletionResponse>('/api/system/browser-handoffs/import', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      artifactPath: input.artifactPath,
+      publishStatus: input.publishStatus,
+      message:
+        input.message ??
+        (input.publishStatus === 'published'
+          ? 'browser handoff marked published'
+          : 'browser handoff marked failed'),
+      ...(input.publishUrl !== undefined && input.publishUrl.trim().length > 0
+        ? { publishUrl: input.publishUrl.trim() }
+        : {}),
+    }),
+  });
+}
+
+export async function completeInboxReplyHandoffRequest(input: {
+  artifactPath: string;
+  replyStatus: 'sent' | 'failed';
+  message?: string;
+  deliveryUrl?: string;
+}): Promise<InboxReplyHandoffCompletionResponse> {
+  return apiRequest<InboxReplyHandoffCompletionResponse>('/api/system/inbox-reply-handoffs/import', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      artifactPath: input.artifactPath,
+      replyStatus: input.replyStatus,
+      message:
+        input.message ??
+        (input.replyStatus === 'sent'
+          ? 'inbox reply handoff marked sent'
+          : 'inbox reply handoff marked failed'),
+      ...(input.deliveryUrl !== undefined && input.deliveryUrl.trim().length > 0
+        ? { deliveryUrl: input.deliveryUrl.trim() }
+        : {}),
+    }),
+  });
 }
 
 export async function retrySystemJobRequest(
@@ -285,6 +411,23 @@ interface SettingsPageProps {
   loadBrowserLaneRequestsAction?: () => Promise<BrowserLaneRequestsResponse>;
   loadBrowserHandoffsAction?: () => Promise<BrowserHandoffsResponse>;
   loadInboxReplyHandoffsAction?: () => Promise<InboxReplyHandoffsResponse>;
+  importBrowserLaneRequestResultAction?: (input: {
+    requestArtifactPath: string;
+    storageState: Record<string, unknown>;
+    notes?: string;
+  }) => Promise<BrowserLaneRequestImportResponse>;
+  completeBrowserHandoffAction?: (input: {
+    artifactPath: string;
+    publishStatus: 'published' | 'failed';
+    message?: string;
+    publishUrl?: string;
+  }) => Promise<BrowserHandoffCompletionResponse>;
+  completeInboxReplyHandoffAction?: (input: {
+    artifactPath: string;
+    replyStatus: 'sent' | 'failed';
+    message?: string;
+    deliveryUrl?: string;
+  }) => Promise<InboxReplyHandoffCompletionResponse>;
   reloadSchedulerAction?: () => Promise<RuntimeControlResponse>;
   tickSchedulerAction?: () => Promise<RuntimeControlResponse>;
   fetchMonitorAction?: () => Promise<FetchControlResponse>;
@@ -384,6 +527,21 @@ function readResolutionDetail(value: unknown) {
 function readResolutionDeliveryUrl(value: unknown) {
   const record = asRecord(value);
   return readString(record?.deliveryUrl);
+}
+
+function readResolutionPublishUrl(value: unknown) {
+  const record = asRecord(value);
+  return readString(record?.publishUrl);
+}
+
+function readResolutionMessage(value: unknown) {
+  const record = asRecord(value);
+  return readString(record?.message);
+}
+
+function readResolutionPublishedAt(value: unknown) {
+  const record = asRecord(value);
+  return readString(record?.publishedAt);
 }
 
 function readResolutionDeliveredAt(value: unknown) {
@@ -632,12 +790,93 @@ function renderInfoRows(rows: Array<{ label: string; value: string }>) {
   );
 }
 
+function readChannelAccountMetadataSession(value: unknown) {
+  const record = asRecord(value);
+  return asRecord(record?.session) as BrowserLaneSessionSummary | null;
+}
+
+function readBrowserLaneImportSession(response: BrowserLaneRequestImportResponse) {
+  return response.session ?? response.channelAccount.session ?? readChannelAccountMetadataSession(response.channelAccount.metadata);
+}
+
+function parseStorageStateJson(value: string | undefined) {
+  const normalizedValue = value?.trim() ?? '';
+  if (normalizedValue.length === 0) {
+    throw new Error('storageState JSON 不能为空');
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(normalizedValue);
+  } catch {
+    throw new Error('storageState JSON 必须是合法的 JSON 对象');
+  }
+
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new Error('storageState JSON 必须是 JSON 对象');
+  }
+
+  if (
+    !Array.isArray((parsed as { cookies?: unknown }).cookies) ||
+    !Array.isArray((parsed as { origins?: unknown }).origins)
+  ) {
+    throw new Error('storageState JSON 必须包含 cookies 和 origins 数组');
+  }
+
+  return parsed as Record<string, unknown>;
+}
+
+function buildOptimisticBrowserLaneRequestResolution(response: BrowserLaneRequestImportResponse) {
+  const session = readBrowserLaneImportSession(response);
+  return {
+    resolvedAt: session?.validatedAt ?? new Date().toISOString(),
+    jobStatus: 'resolved',
+    resolution: {
+      status: 'resolved',
+      session,
+    },
+  };
+}
+
+function buildOptimisticBrowserHandoffResolution(response: BrowserHandoffCompletionResponse) {
+  return {
+    resolvedAt: response.publishedAt ?? new Date().toISOString(),
+    status: response.status,
+    resolution: {
+      status: response.status,
+      draftStatus: response.draftStatus,
+      publishStatus: response.publishStatus ?? response.status,
+      ...(response.publishUrl ? { publishUrl: response.publishUrl } : {}),
+      ...(response.message ? { message: response.message } : {}),
+      ...(response.publishedAt ? { publishedAt: response.publishedAt } : {}),
+    },
+  };
+}
+
+function buildOptimisticInboxReplyHandoffResolution(response: InboxReplyHandoffCompletionResponse) {
+  return {
+    resolvedAt: response.deliveredAt ?? new Date().toISOString(),
+    status: response.status,
+    resolution: {
+      status: response.status,
+      itemStatus: response.itemStatus,
+      ...(response.replyStatus ? { replyStatus: response.replyStatus } : {}),
+      ...(response.deliveryUrl ? { deliveryUrl: response.deliveryUrl } : {}),
+      ...(response.message ? { message: response.message } : {}),
+      ...(response.deliveredAt ? { deliveredAt: response.deliveredAt } : {}),
+    },
+  };
+}
+
 export function SettingsPage({
   loadSettingsAction = loadSettingsRequest,
   loadSystemJobsAction = defaultLoadSystemJobsAction,
   loadBrowserLaneRequestsAction = defaultLoadBrowserLaneRequestsAction,
   loadBrowserHandoffsAction = defaultLoadBrowserHandoffsAction,
   loadInboxReplyHandoffsAction = defaultLoadInboxReplyHandoffsAction,
+  importBrowserLaneRequestResultAction = importBrowserLaneRequestResultRequest,
+  completeBrowserHandoffAction = completeBrowserHandoffRequest,
+  completeInboxReplyHandoffAction = completeInboxReplyHandoffRequest,
   reloadSchedulerAction = reloadSchedulerRuntimeRequest,
   tickSchedulerAction = tickSchedulerRuntimeRequest,
   fetchMonitorAction = fetchMonitorSignalsRequest,
@@ -674,6 +913,34 @@ export function SettingsPage({
     ({ action, jobId }: { action: 'retry' | 'cancel'; jobId: number }) =>
       action === 'retry' ? retrySystemJobAction(jobId) : cancelSystemJobAction(jobId),
   );
+  const { state: browserLaneRequestMutationState, run: runBrowserLaneRequestImport } = useAsyncAction(
+    (input: {
+      requestArtifactPath: string;
+      storageStateJson: string;
+      notes?: string;
+    }) =>
+      importBrowserLaneRequestResultAction({
+        requestArtifactPath: input.requestArtifactPath,
+        storageState: parseStorageStateJson(input.storageStateJson),
+        ...(input.notes ? { notes: input.notes } : {}),
+      }),
+  );
+  const { state: browserHandoffMutationState, run: runBrowserHandoffCompletion } = useAsyncAction(
+    (input: {
+      artifactPath: string;
+      publishStatus: 'published' | 'failed';
+      message?: string;
+      publishUrl?: string;
+    }) => completeBrowserHandoffAction(input),
+  );
+  const { state: inboxReplyHandoffMutationState, run: runInboxReplyHandoffCompletion } = useAsyncAction(
+    (input: {
+      artifactPath: string;
+      replyStatus: 'sent' | 'failed';
+      message?: string;
+      deliveryUrl?: string;
+    }) => completeInboxReplyHandoffAction(input),
+  );
   const displayState = stateOverride ?? state;
   const displayJobsState = jobsStateOverride ?? jobsState;
   const displayBrowserLaneState = browserLaneStateOverride ?? browserLaneState;
@@ -707,6 +974,27 @@ export function SettingsPage({
   const [controlError, setControlError] = useState<string | null>(null);
   const [activeControl, setActiveControl] = useState<string | null>(null);
   const [controlPending, setControlPending] = useState(false);
+  const [activeBrowserLaneArtifactPath, setActiveBrowserLaneArtifactPath] = useState<string | null>(null);
+  const [activeBrowserHandoffArtifactPath, setActiveBrowserHandoffArtifactPath] = useState<string | null>(null);
+  const [activeInboxReplyHandoffArtifactPath, setActiveInboxReplyHandoffArtifactPath] = useState<string | null>(null);
+  const [resolvedBrowserLaneRequestsByArtifactPath, setResolvedBrowserLaneRequestsByArtifactPath] = useState<
+    Record<string, { resolvedAt: string; jobStatus: string; resolution?: unknown }>
+  >({});
+  const [resolvedBrowserHandoffsByArtifactPath, setResolvedBrowserHandoffsByArtifactPath] = useState<
+    Record<string, { resolvedAt: string; status: string; resolution?: unknown }>
+  >({});
+  const [resolvedInboxReplyHandoffsByArtifactPath, setResolvedInboxReplyHandoffsByArtifactPath] = useState<
+    Record<string, { resolvedAt: string; status: string; resolution?: unknown }>
+  >({});
+  const [browserLaneDraftByArtifactPath, setBrowserLaneDraftByArtifactPath] = useState<
+    Record<string, { storageState: string; notes: string }>
+  >({});
+  const [browserHandoffDraftByArtifactPath, setBrowserHandoffDraftByArtifactPath] = useState<
+    Record<string, { publishUrl: string; message: string }>
+  >({});
+  const [inboxReplyHandoffDraftByArtifactPath, setInboxReplyHandoffDraftByArtifactPath] = useState<
+    Record<string, { deliveryUrl: string; message: string }>
+  >({});
   const controlPendingRef = useRef(false);
   const displayValidationMessage = validationMessageOverride ?? validationMessage;
   const showPersistedSaveFeedback = !displayValidationMessage;
@@ -754,22 +1042,193 @@ export function SettingsPage({
     typeof displayBrowserLaneState.data === 'object' &&
     displayBrowserLaneState.data !== null &&
     Array.isArray(displayBrowserLaneState.data.requests);
-  const visibleBrowserLaneRequests = hasLiveBrowserLaneData ? displayBrowserLaneState.data.requests : [];
+  const visibleBrowserLaneRequests = hasLiveBrowserLaneData
+    ? displayBrowserLaneState.data.requests.map((request) => {
+        const resolvedRequest = resolvedBrowserLaneRequestsByArtifactPath[request.artifactPath];
+        const hasLiveResolution =
+          request.resolvedAt !== null ||
+          readStatusValue(request.resolution) !== null ||
+          request.jobStatus === 'resolved';
+        if (!resolvedRequest || hasLiveResolution) {
+          return request;
+        }
+
+        return {
+          ...request,
+          resolvedAt: resolvedRequest.resolvedAt,
+          jobStatus: resolvedRequest.jobStatus,
+          ...(resolvedRequest.resolution !== undefined
+            ? { resolution: resolvedRequest.resolution }
+            : request.resolution !== undefined
+              ? { resolution: request.resolution }
+              : {}),
+        };
+      })
+    : [];
   const hasLiveBrowserHandoffData =
     typeof displayBrowserHandoffState.data === 'object' &&
     displayBrowserHandoffState.data !== null &&
     Array.isArray(displayBrowserHandoffState.data.handoffs);
-  const visibleBrowserHandoffs = hasLiveBrowserHandoffData ? displayBrowserHandoffState.data.handoffs : [];
+  const visibleBrowserHandoffs = hasLiveBrowserHandoffData
+    ? displayBrowserHandoffState.data.handoffs.map((handoff) => {
+        const resolvedHandoff = resolvedBrowserHandoffsByArtifactPath[handoff.artifactPath];
+        const hasLiveResolution =
+          handoff.resolvedAt !== null ||
+          readStatusValue(handoff.resolution) !== null ||
+          handoff.status !== 'pending';
+        if (!resolvedHandoff || hasLiveResolution) {
+          return handoff;
+        }
+
+        return {
+          ...handoff,
+          resolvedAt: resolvedHandoff.resolvedAt,
+          status: resolvedHandoff.status,
+          ...(resolvedHandoff.resolution !== undefined
+            ? { resolution: resolvedHandoff.resolution }
+            : handoff.resolution !== undefined
+              ? { resolution: handoff.resolution }
+              : {}),
+        };
+      })
+    : [];
   const hasLiveInboxReplyHandoffData =
     typeof displayInboxReplyHandoffState.data === 'object' &&
     displayInboxReplyHandoffState.data !== null &&
     Array.isArray(displayInboxReplyHandoffState.data.handoffs);
-  const visibleInboxReplyHandoffs = hasLiveInboxReplyHandoffData ? displayInboxReplyHandoffState.data.handoffs : [];
+  const visibleInboxReplyHandoffs = hasLiveInboxReplyHandoffData
+    ? displayInboxReplyHandoffState.data.handoffs.map((handoff) => {
+        const resolvedHandoff = resolvedInboxReplyHandoffsByArtifactPath[handoff.artifactPath];
+        const hasLiveResolution =
+          handoff.resolvedAt !== null ||
+          readStatusValue(handoff.resolution) !== null ||
+          handoff.status !== 'pending';
+        if (!resolvedHandoff || hasLiveResolution) {
+          return handoff;
+        }
+
+        return {
+          ...handoff,
+          resolvedAt: resolvedHandoff.resolvedAt,
+          status: resolvedHandoff.status,
+          ...(resolvedHandoff.resolution !== undefined
+            ? { resolution: resolvedHandoff.resolution }
+            : handoff.resolution !== undefined
+              ? { resolution: handoff.resolution }
+              : {}),
+        };
+      })
+    : [];
   const recentJobs =
     hasLiveJobsData && displayJobsState.data?.recentJobs.length > 0
       ? displayJobsState.data.recentJobs
       : readRecordArray(runtimeContract?.recentJobs);
   const isRuntimeControlPending = controlPending || activeControl !== null;
+  const browserLaneRequestFeedback =
+    browserLaneRequestMutationState.status === 'success' && browserLaneRequestMutationState.data
+      ? `已导入 browser lane session #${browserLaneRequestMutationState.data.channelAccount.id} (${readBrowserLaneImportSession(browserLaneRequestMutationState.data)?.status ?? 'unknown'})`
+      : browserLaneRequestMutationState.status === 'error'
+        ? `browser lane session 导入失败：${browserLaneRequestMutationState.error}`
+        : null;
+  const browserHandoffFeedback =
+    browserHandoffMutationState.status === 'success' && browserHandoffMutationState.data
+      ? `已结单 handoff draft #${browserHandoffMutationState.data.draftId} (${browserHandoffMutationState.data.status})`
+      : browserHandoffMutationState.status === 'error'
+        ? `browser handoff 结单失败：${browserHandoffMutationState.error}`
+        : null;
+  const inboxReplyHandoffFeedback =
+    inboxReplyHandoffMutationState.status === 'success' && inboxReplyHandoffMutationState.data
+      ? `已结单 inbox reply item #${inboxReplyHandoffMutationState.data.itemId} (${inboxReplyHandoffMutationState.data.status})`
+      : inboxReplyHandoffMutationState.status === 'error'
+        ? `inbox reply handoff 结单失败：${inboxReplyHandoffMutationState.error}`
+        : null;
+  const isBrowserLaneRequestMutationPending = browserLaneRequestMutationState.status === 'loading';
+  const isBrowserHandoffMutationPending = browserHandoffMutationState.status === 'loading';
+  const isInboxReplyHandoffMutationPending = inboxReplyHandoffMutationState.status === 'loading';
+
+  useEffect(() => {
+    if (!hasLiveBrowserLaneData) {
+      return;
+    }
+
+    setResolvedBrowserLaneRequestsByArtifactPath((current) => {
+      let changed = false;
+      const next = { ...current };
+
+      for (const request of displayBrowserLaneState.data.requests) {
+        if (!(request.artifactPath in next)) {
+          continue;
+        }
+
+        if (
+          request.resolvedAt !== null ||
+          readStatusValue(request.resolution) !== null ||
+          request.jobStatus === 'resolved'
+        ) {
+          delete next[request.artifactPath];
+          changed = true;
+        }
+      }
+
+      return changed ? next : current;
+    });
+  }, [displayBrowserLaneState.data, hasLiveBrowserLaneData]);
+
+  useEffect(() => {
+    if (!hasLiveBrowserHandoffData) {
+      return;
+    }
+
+    setResolvedBrowserHandoffsByArtifactPath((current) => {
+      let changed = false;
+      const next = { ...current };
+
+      for (const handoff of displayBrowserHandoffState.data.handoffs) {
+        if (!(handoff.artifactPath in next)) {
+          continue;
+        }
+
+        if (
+          handoff.resolvedAt !== null ||
+          readStatusValue(handoff.resolution) !== null ||
+          handoff.status !== 'pending'
+        ) {
+          delete next[handoff.artifactPath];
+          changed = true;
+        }
+      }
+
+      return changed ? next : current;
+    });
+  }, [displayBrowserHandoffState.data, hasLiveBrowserHandoffData]);
+
+  useEffect(() => {
+    if (!hasLiveInboxReplyHandoffData) {
+      return;
+    }
+
+    setResolvedInboxReplyHandoffsByArtifactPath((current) => {
+      let changed = false;
+      const next = { ...current };
+
+      for (const handoff of displayInboxReplyHandoffState.data.handoffs) {
+        if (!(handoff.artifactPath in next)) {
+          continue;
+        }
+
+        if (
+          handoff.resolvedAt !== null ||
+          readStatusValue(handoff.resolution) !== null ||
+          handoff.status !== 'pending'
+        ) {
+          delete next[handoff.artifactPath];
+          changed = true;
+        }
+      }
+
+      return changed ? next : current;
+    });
+  }, [displayInboxReplyHandoffState.data, hasLiveInboxReplyHandoffData]);
 
   function handleSaveSettings() {
     if (!canEditSettings) {
@@ -890,6 +1349,109 @@ export function SettingsPage({
         controlPendingRef.current = false;
         setControlPending(false);
         setActiveControl(null);
+      });
+  }
+
+  function handleImportBrowserLaneRequest(request: BrowserLaneRequestRecord) {
+    if (isBrowserLaneRequestMutationPending) {
+      return;
+    }
+
+    const requestDraft = browserLaneDraftByArtifactPath[request.artifactPath];
+    const notes = requestDraft?.notes.trim().length ? requestDraft.notes.trim() : undefined;
+
+    setActiveBrowserLaneArtifactPath(request.artifactPath);
+    void runBrowserLaneRequestImport({
+      requestArtifactPath: request.artifactPath,
+      storageStateJson: requestDraft?.storageState ?? '',
+      ...(notes ? { notes } : {}),
+    })
+      .then((response) => {
+        setResolvedBrowserLaneRequestsByArtifactPath((current) => ({
+          ...current,
+          [request.artifactPath]: buildOptimisticBrowserLaneRequestResolution(response),
+        }));
+        setBrowserLaneDraftByArtifactPath((current) => {
+          const { [request.artifactPath]: _ignored, ...rest } = current;
+          return rest;
+        });
+        reloadBrowserLane();
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        setActiveBrowserLaneArtifactPath(null);
+      });
+  }
+
+  function handleCompleteBrowserHandoff(
+    handoff: BrowserHandoffRecord,
+    publishStatus: 'published' | 'failed',
+  ) {
+    if (isBrowserHandoffMutationPending) {
+      return;
+    }
+
+    const handoffDraft = browserHandoffDraftByArtifactPath[handoff.artifactPath];
+    const message = handoffDraft?.message.trim().length ? handoffDraft.message.trim() : undefined;
+    const publishUrl = handoffDraft?.publishUrl.trim().length ? handoffDraft.publishUrl.trim() : undefined;
+
+    setActiveBrowserHandoffArtifactPath(handoff.artifactPath);
+    void runBrowserHandoffCompletion({
+      artifactPath: handoff.artifactPath,
+      publishStatus,
+      ...(message ? { message } : {}),
+      ...(publishUrl ? { publishUrl } : {}),
+    })
+      .then((response) => {
+        setResolvedBrowserHandoffsByArtifactPath((current) => ({
+          ...current,
+          [handoff.artifactPath]: buildOptimisticBrowserHandoffResolution(response),
+        }));
+        setBrowserHandoffDraftByArtifactPath((current) => {
+          const { [handoff.artifactPath]: _ignored, ...rest } = current;
+          return rest;
+        });
+        reloadBrowserHandoffs();
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        setActiveBrowserHandoffArtifactPath(null);
+      });
+  }
+
+  function handleCompleteInboxReplyHandoff(
+    handoff: InboxReplyHandoffRecord,
+    replyStatus: 'sent' | 'failed',
+  ) {
+    if (isInboxReplyHandoffMutationPending) {
+      return;
+    }
+
+    const handoffDraft = inboxReplyHandoffDraftByArtifactPath[handoff.artifactPath];
+    const message = handoffDraft?.message.trim().length ? handoffDraft.message.trim() : undefined;
+    const deliveryUrl = handoffDraft?.deliveryUrl.trim().length ? handoffDraft.deliveryUrl.trim() : undefined;
+
+    setActiveInboxReplyHandoffArtifactPath(handoff.artifactPath);
+    void runInboxReplyHandoffCompletion({
+      artifactPath: handoff.artifactPath,
+      replyStatus,
+      ...(message ? { message } : {}),
+      ...(deliveryUrl ? { deliveryUrl } : {}),
+    })
+      .then((response) => {
+        setResolvedInboxReplyHandoffsByArtifactPath((current) => ({
+          ...current,
+          [handoff.artifactPath]: buildOptimisticInboxReplyHandoffResolution(response),
+        }));
+        setInboxReplyHandoffDraftByArtifactPath((current) => {
+          const { [handoff.artifactPath]: _ignored, ...rest } = current;
+          return rest;
+        });
+        reloadInboxReplyHandoffs();
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        setActiveInboxReplyHandoffArtifactPath(null);
       });
   }
 
@@ -1204,6 +1766,16 @@ export function SettingsPage({
 
             <div style={{ display: 'grid', gap: '10px' }}>
               <div style={{ fontWeight: 700 }}>Browser Lane 工单</div>
+              {browserLaneRequestFeedback ? (
+                <div
+                  style={{
+                    color: browserLaneRequestMutationState.status === 'error' ? '#b91c1c' : '#166534',
+                    fontWeight: 700,
+                  }}
+                >
+                  {browserLaneRequestFeedback}
+                </div>
+              ) : null}
               {displayBrowserLaneState.status === 'loading' ? (
                 <div style={{ color: '#475569' }}>正在加载 browser lane requests...</div>
               ) : null}
@@ -1248,6 +1820,78 @@ export function SettingsPage({
                     <div style={{ color: '#475569' }}>
                       notes: {formatContractValue(readBrowserLaneSessionNotes(request.resolution))}
                     </div>
+                    {request.resolvedAt === null &&
+                    readStatusValue(request.resolution) === null &&
+                    request.jobStatus !== 'resolved' ? (
+                      <div style={{ display: 'grid', gap: '10px', marginTop: '6px' }}>
+                        <label style={{ display: 'grid', gap: '6px' }}>
+                          <span style={{ fontWeight: 700, color: '#334155' }}>storageState JSON</span>
+                          <textarea
+                            data-settings-browser-lane-field="storageState"
+                            value={browserLaneDraftByArtifactPath[request.artifactPath]?.storageState ?? ''}
+                            onChange={(event) =>
+                              setBrowserLaneDraftByArtifactPath((current) => ({
+                                ...current,
+                                [request.artifactPath]: {
+                                  storageState: event.target.value,
+                                  notes: current[request.artifactPath]?.notes ?? '',
+                                },
+                              }))
+                            }
+                            onInput={(event) =>
+                              setBrowserLaneDraftByArtifactPath((current) => ({
+                                ...current,
+                                [request.artifactPath]: {
+                                  storageState: event.target.value,
+                                  notes: current[request.artifactPath]?.notes ?? '',
+                                },
+                              }))
+                            }
+                            rows={4}
+                            placeholder='{"cookies":[],"origins":[]}'
+                            style={{ ...fieldStyle, resize: 'vertical' }}
+                          />
+                        </label>
+                        <label style={{ display: 'grid', gap: '6px' }}>
+                          <span style={{ fontWeight: 700, color: '#334155' }}>导入备注</span>
+                          <input
+                            data-settings-browser-lane-field="notes"
+                            value={browserLaneDraftByArtifactPath[request.artifactPath]?.notes ?? ''}
+                            onChange={(event) =>
+                              setBrowserLaneDraftByArtifactPath((current) => ({
+                                ...current,
+                                [request.artifactPath]: {
+                                  storageState: current[request.artifactPath]?.storageState ?? '',
+                                  notes: event.target.value,
+                                },
+                              }))
+                            }
+                            onInput={(event) =>
+                              setBrowserLaneDraftByArtifactPath((current) => ({
+                                ...current,
+                                [request.artifactPath]: {
+                                  storageState: current[request.artifactPath]?.storageState ?? '',
+                                  notes: event.target.value,
+                                },
+                              }))
+                            }
+                            placeholder="可选：记录导入备注"
+                            style={fieldStyle}
+                          />
+                        </label>
+                        <ActionButton
+                          label={
+                            isBrowserLaneRequestMutationPending &&
+                            activeBrowserLaneArtifactPath === request.artifactPath
+                              ? '正在导入 Session...'
+                              : '导入 Session'
+                          }
+                          tone="primary"
+                          disabled={isBrowserLaneRequestMutationPending}
+                          onClick={() => handleImportBrowserLaneRequest(request)}
+                        />
+                      </div>
+                    ) : null}
                   </div>
                 ))
               ) : hasLiveBrowserLaneData ? (
@@ -1257,6 +1901,16 @@ export function SettingsPage({
 
             <div style={{ display: 'grid', gap: '10px' }}>
               <div style={{ fontWeight: 700 }}>Browser Handoff 工单</div>
+              {browserHandoffFeedback ? (
+                <div
+                  style={{
+                    color: browserHandoffMutationState.status === 'error' ? '#b91c1c' : '#166534',
+                    fontWeight: 700,
+                  }}
+                >
+                  {browserHandoffFeedback}
+                </div>
+              ) : null}
               {displayBrowserHandoffState.status === 'loading' ? (
                 <div style={{ color: '#475569' }}>正在加载 browser handoffs...</div>
               ) : null}
@@ -1302,6 +1956,99 @@ export function SettingsPage({
                     <div style={{ color: '#475569' }}>
                       resolution detail: {formatContractValue(readResolutionDetail(handoff.resolution))}
                     </div>
+                    <div style={{ color: '#475569' }}>
+                      publishUrl: {formatContractValue(readResolutionPublishUrl(handoff.resolution))}
+                    </div>
+                    <div style={{ color: '#475569' }}>
+                      message: {formatContractValue(readResolutionMessage(handoff.resolution))}
+                    </div>
+                    <div style={{ color: '#475569' }}>
+                      publishedAt: {formatContractValue(readResolutionPublishedAt(handoff.resolution))}
+                    </div>
+                    {handoff.resolvedAt === null &&
+                    readStatusValue(handoff.resolution) === null &&
+                    handoff.status === 'pending' ? (
+                      <div style={{ display: 'grid', gap: '10px', marginTop: '6px' }}>
+                        <label style={{ display: 'grid', gap: '6px' }}>
+                          <span style={{ fontWeight: 700, color: '#334155' }}>publishUrl</span>
+                          <input
+                            data-settings-browser-handoff-field="publishUrl"
+                            value={browserHandoffDraftByArtifactPath[handoff.artifactPath]?.publishUrl ?? ''}
+                            onChange={(event) =>
+                              setBrowserHandoffDraftByArtifactPath((current) => ({
+                                ...current,
+                                [handoff.artifactPath]: {
+                                  publishUrl: event.target.value,
+                                  message: current[handoff.artifactPath]?.message ?? '',
+                                },
+                              }))
+                            }
+                            onInput={(event) =>
+                              setBrowserHandoffDraftByArtifactPath((current) => ({
+                                ...current,
+                                [handoff.artifactPath]: {
+                                  publishUrl: event.target.value,
+                                  message: current[handoff.artifactPath]?.message ?? '',
+                                },
+                              }))
+                            }
+                            placeholder="可选：记录发布链接"
+                            style={fieldStyle}
+                          />
+                        </label>
+                        <label style={{ display: 'grid', gap: '6px' }}>
+                          <span style={{ fontWeight: 700, color: '#334155' }}>处理备注</span>
+                          <input
+                            data-settings-browser-handoff-field="message"
+                            value={browserHandoffDraftByArtifactPath[handoff.artifactPath]?.message ?? ''}
+                            onChange={(event) =>
+                              setBrowserHandoffDraftByArtifactPath((current) => ({
+                                ...current,
+                                [handoff.artifactPath]: {
+                                  publishUrl: current[handoff.artifactPath]?.publishUrl ?? '',
+                                  message: event.target.value,
+                                },
+                              }))
+                            }
+                            onInput={(event) =>
+                              setBrowserHandoffDraftByArtifactPath((current) => ({
+                                ...current,
+                                [handoff.artifactPath]: {
+                                  publishUrl: current[handoff.artifactPath]?.publishUrl ?? '',
+                                  message: event.target.value,
+                                },
+                              }))
+                            }
+                            placeholder="可选：记录发布结果"
+                            style={fieldStyle}
+                          />
+                        </label>
+                        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                          <ActionButton
+                            label={
+                              isBrowserHandoffMutationPending &&
+                              activeBrowserHandoffArtifactPath === handoff.artifactPath
+                                ? '正在标记已发布...'
+                                : '标记已发布'
+                            }
+                            tone="primary"
+                            disabled={isBrowserHandoffMutationPending}
+                            onClick={() => handleCompleteBrowserHandoff(handoff, 'published')}
+                          />
+                          <ActionButton
+                            label={
+                              isBrowserHandoffMutationPending &&
+                              activeBrowserHandoffArtifactPath === handoff.artifactPath
+                                ? '正在标记失败...'
+                                : '标记失败'
+                            }
+                            tone="secondary"
+                            disabled={isBrowserHandoffMutationPending}
+                            onClick={() => handleCompleteBrowserHandoff(handoff, 'failed')}
+                          />
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 ))
               ) : hasLiveBrowserHandoffData ? (
@@ -1311,6 +2058,16 @@ export function SettingsPage({
 
             <div style={{ display: 'grid', gap: '10px' }}>
               <div style={{ fontWeight: 700 }}>Inbox Reply Handoff 工单</div>
+              {inboxReplyHandoffFeedback ? (
+                <div
+                  style={{
+                    color: inboxReplyHandoffMutationState.status === 'error' ? '#b91c1c' : '#166534',
+                    fontWeight: 700,
+                  }}
+                >
+                  {inboxReplyHandoffFeedback}
+                </div>
+              ) : null}
               {displayInboxReplyHandoffState.status === 'loading' ? (
                 <div style={{ color: '#475569' }}>正在加载 inbox reply handoffs...</div>
               ) : null}
@@ -1356,8 +2113,95 @@ export function SettingsPage({
                       deliveryUrl: {formatContractValue(readResolutionDeliveryUrl(handoff.resolution))}
                     </div>
                     <div style={{ color: '#475569' }}>
+                      message: {formatContractValue(readResolutionMessage(handoff.resolution))}
+                    </div>
+                    <div style={{ color: '#475569' }}>
                       deliveredAt: {formatContractValue(readResolutionDeliveredAt(handoff.resolution))}
                     </div>
+                    {handoff.resolvedAt === null &&
+                    readStatusValue(handoff.resolution) === null &&
+                    handoff.status === 'pending' ? (
+                      <div style={{ display: 'grid', gap: '10px', marginTop: '6px' }}>
+                        <label style={{ display: 'grid', gap: '6px' }}>
+                          <span style={{ fontWeight: 700, color: '#334155' }}>deliveryUrl</span>
+                          <input
+                            data-settings-inbox-reply-handoff-field="deliveryUrl"
+                            value={inboxReplyHandoffDraftByArtifactPath[handoff.artifactPath]?.deliveryUrl ?? ''}
+                            onChange={(event) =>
+                              setInboxReplyHandoffDraftByArtifactPath((current) => ({
+                                ...current,
+                                [handoff.artifactPath]: {
+                                  deliveryUrl: event.target.value,
+                                  message: current[handoff.artifactPath]?.message ?? '',
+                                },
+                              }))
+                            }
+                            onInput={(event) =>
+                              setInboxReplyHandoffDraftByArtifactPath((current) => ({
+                                ...current,
+                                [handoff.artifactPath]: {
+                                  deliveryUrl: event.target.value,
+                                  message: current[handoff.artifactPath]?.message ?? '',
+                                },
+                              }))
+                            }
+                            placeholder="可选：记录发送链接"
+                            style={fieldStyle}
+                          />
+                        </label>
+                        <label style={{ display: 'grid', gap: '6px' }}>
+                          <span style={{ fontWeight: 700, color: '#334155' }}>处理备注</span>
+                          <input
+                            data-settings-inbox-reply-handoff-field="message"
+                            value={inboxReplyHandoffDraftByArtifactPath[handoff.artifactPath]?.message ?? ''}
+                            onChange={(event) =>
+                              setInboxReplyHandoffDraftByArtifactPath((current) => ({
+                                ...current,
+                                [handoff.artifactPath]: {
+                                  deliveryUrl: current[handoff.artifactPath]?.deliveryUrl ?? '',
+                                  message: event.target.value,
+                                },
+                              }))
+                            }
+                            onInput={(event) =>
+                              setInboxReplyHandoffDraftByArtifactPath((current) => ({
+                                ...current,
+                                [handoff.artifactPath]: {
+                                  deliveryUrl: current[handoff.artifactPath]?.deliveryUrl ?? '',
+                                  message: event.target.value,
+                                },
+                              }))
+                            }
+                            placeholder="可选：记录发送结果"
+                            style={fieldStyle}
+                          />
+                        </label>
+                        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                          <ActionButton
+                            label={
+                              isInboxReplyHandoffMutationPending &&
+                              activeInboxReplyHandoffArtifactPath === handoff.artifactPath
+                                ? '正在标记已发送...'
+                                : '标记已发送'
+                            }
+                            tone="primary"
+                            disabled={isInboxReplyHandoffMutationPending}
+                            onClick={() => handleCompleteInboxReplyHandoff(handoff, 'sent')}
+                          />
+                          <ActionButton
+                            label={
+                              isInboxReplyHandoffMutationPending &&
+                              activeInboxReplyHandoffArtifactPath === handoff.artifactPath
+                                ? '正在标记失败...'
+                                : '标记失败'
+                            }
+                            tone="secondary"
+                            disabled={isInboxReplyHandoffMutationPending}
+                            onClick={() => handleCompleteInboxReplyHandoff(handoff, 'failed')}
+                          />
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 ))
               ) : hasLiveInboxReplyHandoffData ? (
