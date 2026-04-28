@@ -675,24 +675,10 @@ export function DraftsPage({
     }
 
     const draftTitle = sourceDraft.title ?? `Draft #${draftId}`;
-    const previousBrowserHandoff = readBrowserHandoffContract(
-      getDraftMutationValue(displayPublishStateById, draftId).contractDetails,
+    const publishFollowUpAttempt = beginPublishFollowUpAttempt(
+      draftId,
+      getDraftMutationValue(displayPublishStateById, draftId),
     );
-    const publishFollowUpAttempt = nextPublishFollowUpAttempt(draftId);
-
-    setPublishStateById((currentState) => ({
-      ...currentState,
-      [draftId]: createLoadingMutationState(),
-    }));
-    setSessionActionStateById((currentState) => ({
-      ...currentState,
-      [draftId]: createIdleSessionActionState(),
-    }));
-    setBrowserHandoffCompletionStateById((currentState) => ({
-      ...currentState,
-      [draftId]: createIdleBrowserHandoffCompletionState(),
-    }));
-    clearBrowserHandoffDrafts(previousBrowserHandoff?.artifactPath ?? null);
 
     try {
       const result = await publishDraftAction(draftId);
@@ -747,6 +733,27 @@ export function DraftsPage({
         [field]: value,
       },
     }));
+  }
+
+  function beginPublishFollowUpAttempt(draftId: number, currentPublishState: DraftMutationState | undefined) {
+    const previousBrowserHandoff = readBrowserHandoffContract(currentPublishState?.contractDetails ?? null);
+    const publishFollowUpAttempt = nextPublishFollowUpAttempt(draftId);
+
+    setPublishStateById((currentState) => ({
+      ...currentState,
+      [draftId]: createLoadingMutationState(),
+    }));
+    setSessionActionStateById((currentState) => ({
+      ...currentState,
+      [draftId]: createIdleSessionActionState(),
+    }));
+    setBrowserHandoffCompletionStateById((currentState) => ({
+      ...currentState,
+      [draftId]: createIdleBrowserHandoffCompletionState(),
+    }));
+    clearBrowserHandoffDrafts(previousBrowserHandoff?.artifactPath ?? null);
+
+    return publishFollowUpAttempt;
   }
 
   function handleRequestSessionAction(draftId: number, browserHandoff: BrowserHandoffContract) {
@@ -1007,15 +1014,17 @@ export function DraftsPage({
     for (const draft of draftsToPublish) {
       const draftId = draft.id;
       const draftTitle = draft.title ?? `Draft #${draftId}`;
-
-      setPublishStateById((currentState) => ({
-        ...currentState,
-        [draftId]: createLoadingMutationState(),
-      }));
+      const publishFollowUpAttempt = beginPublishFollowUpAttempt(
+        draftId,
+        getDraftMutationValue(displayPublishStateById, draftId),
+      );
 
       try {
         const result = await publishDraftAction(draftId);
         if (scopeKeyAtStart !== latestScopeKeyRef.current) {
+          return;
+        }
+        if (publishFollowUpAttempt !== readPublishFollowUpAttempt(draftId)) {
           return;
         }
 
@@ -1034,12 +1043,17 @@ export function DraftsPage({
           }
         }
 
+        const nextPublishState = createPublishMutationState(result, draftTitle);
+        clearBrowserHandoffDrafts(readBrowserHandoffContract(nextPublishState.contractDetails)?.artifactPath ?? null);
         setPublishStateById((currentState) => ({
           ...currentState,
-          [draftId]: createPublishMutationState(result, draftTitle),
+          [draftId]: nextPublishState,
         }));
       } catch (error) {
         if (scopeKeyAtStart !== latestScopeKeyRef.current) {
+          return;
+        }
+        if (publishFollowUpAttempt !== readPublishFollowUpAttempt(draftId)) {
           return;
         }
 

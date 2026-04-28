@@ -2135,4 +2135,167 @@ describe('Drafts publish actions', () => {
       await flush();
     });
   });
+
+  it('ignores stale draft session action results after the operator batch republishes the draft', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { DraftsPage } = await import('../../src/client/pages/Drafts');
+
+    const pendingSessionAction = createDeferredPromise<{
+      sessionAction: {
+        action: 'request_session';
+        message: string;
+        artifactPath: string;
+      };
+    }>();
+    const loadDraftsAction = vi.fn().mockResolvedValue({
+      drafts: [
+        {
+          id: 77,
+          platform: 'instagram',
+          title: 'Instagram batch relaunch reel',
+          content: 'Draft body',
+          hashtags: ['#launch'],
+          status: 'draft',
+          createdAt: '2026-04-27T00:00:00.000Z',
+          updatedAt: '2026-04-27T00:00:00.000Z',
+        },
+        {
+          id: 78,
+          platform: 'x',
+          title: 'Companion text post',
+          content: 'Secondary draft body',
+          hashtags: ['#text'],
+          status: 'draft',
+          createdAt: '2026-04-27T00:05:00.000Z',
+          updatedAt: '2026-04-27T00:05:00.000Z',
+        },
+      ],
+    });
+    const publishDraftAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        success: false,
+        status: 'manual_required',
+        publishUrl: null,
+        message: 'instagram draft 77 requires a saved browser session before manual handoff.',
+        details: {
+          browserHandoff: {
+            platform: 'instagram',
+            channelAccountId: 97,
+            readiness: 'blocked',
+            sessionAction: 'request_session',
+            artifactPath: 'artifacts/browser-handoffs/instagram/relaunch/instagram-draft-77-v1.json',
+          },
+        },
+      })
+      .mockResolvedValueOnce({
+        success: false,
+        status: 'manual_required',
+        publishUrl: null,
+        message: 'instagram draft 77 requires relogin before manual handoff.',
+        details: {
+          browserHandoff: {
+            platform: 'instagram',
+            channelAccountId: 97,
+            readiness: 'blocked',
+            sessionAction: 'relogin',
+            artifactPath: 'artifacts/browser-handoffs/instagram/relaunch/instagram-draft-77-v2.json',
+          },
+        },
+      });
+    const requestChannelAccountSessionActionAction = vi.fn().mockImplementation(() => pendingSessionAction.promise);
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(DraftsPage as never, {
+          loadDraftsAction,
+          publishDraftAction,
+          requestChannelAccountSessionActionAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const publishButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('发起人工接管'),
+    );
+
+    expect(publishButton).not.toBeNull();
+
+    await act(async () => {
+      publishButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    const sessionActionButton = findElement(
+      container,
+      (element) => element.getAttribute('data-draft-session-action') === 'request_session',
+    );
+
+    expect(sessionActionButton).not.toBeNull();
+
+    await act(async () => {
+      sessionActionButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    const selectDraftButton = findElement(
+      container,
+      (element) => element.getAttribute('data-drafts-select-id') === '77',
+    );
+    const batchPublishButton = findElement(
+      container,
+      (element) => element.getAttribute('data-drafts-batch-publish') === 'true',
+    );
+
+    expect(selectDraftButton).not.toBeNull();
+    expect(batchPublishButton).not.toBeNull();
+
+    await act(async () => {
+      selectDraftButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    await act(async () => {
+      batchPublishButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(collectText(container)).toContain(
+      'Handoff 路径：artifacts/browser-handoffs/instagram/relaunch/instagram-draft-77-v2.json',
+    );
+    expect(collectText(container)).toContain('Handoff 动作：relogin');
+
+    await act(async () => {
+      pendingSessionAction.resolve({
+        sessionAction: {
+          action: 'request_session',
+          message: 'Stale session request should be ignored.',
+          artifactPath: 'artifacts/browser-lane-requests/instagram/relaunch/session-request-77-v1.json',
+        },
+      });
+      await flush();
+      await flush();
+    });
+
+    expect(requestChannelAccountSessionActionAction).toHaveBeenCalledWith(97, {
+      action: 'request_session',
+    });
+    expect(collectText(container)).not.toContain('Stale session request should be ignored.');
+    expect(collectText(container)).not.toContain(
+      'artifacts/browser-lane-requests/instagram/relaunch/session-request-77-v1.json',
+    );
+    expect(collectText(container)).toContain('Handoff 动作：relogin');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
 });
