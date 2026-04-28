@@ -1662,4 +1662,233 @@ describe('Generate review actions', () => {
       await flush();
     });
   });
+
+  it('requests browser session actions directly from manual-required generated publish feedback', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { GeneratePage } = await import('../../src/client/pages/Generate');
+
+    const publishGeneratedDraftAction = vi.fn().mockResolvedValue({
+      success: false,
+      status: 'manual_required',
+      publishUrl: null,
+      message: 'instagram draft 61 requires a saved browser session before manual handoff.',
+      details: {
+        browserHandoff: {
+          platform: 'instagram',
+          channelAccountId: 88,
+          readiness: 'blocked',
+          sessionAction: 'request_session',
+          artifactPath: 'artifacts/browser-handoffs/instagram/relaunch/instagram-draft-61.json',
+        },
+      },
+    });
+    const requestChannelAccountSessionActionAction = vi.fn().mockResolvedValue({
+      sessionAction: {
+        action: 'request_session',
+        message: 'Instagram session request queued for operator pickup.',
+        artifactPath: 'artifacts/browser-lane-requests/instagram/relaunch/session-request-61.json',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(GeneratePage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              results: [
+                {
+                  platform: 'instagram',
+                  title: 'Instagram relaunch reel',
+                  content: 'Draft body',
+                  hashtags: ['#launch'],
+                  draftId: 61,
+                },
+              ],
+            },
+          },
+          publishGeneratedDraftAction,
+          requestChannelAccountSessionActionAction,
+        }),
+      );
+      await flush();
+    });
+
+    const publishButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-publish-draft-id') === '61' &&
+        collectText(element).includes('立即发布'),
+    );
+
+    expect(publishButton).not.toBeNull();
+
+    await act(async () => {
+      publishButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(publishGeneratedDraftAction).toHaveBeenCalledWith(61);
+    expect(collectText(container)).toContain('已转入人工接管：Instagram relaunch reel');
+    expect(collectText(container)).toContain(
+      'instagram draft 61 requires a saved browser session before manual handoff.',
+    );
+    expect(collectText(container)).toContain('Handoff 状态：blocked');
+    expect(collectText(container)).toContain('Handoff 动作：request_session');
+
+    const sessionActionButton = findElement(
+      container,
+      (element) => element.getAttribute('data-generate-session-action') === 'request_session',
+    );
+
+    expect(sessionActionButton).not.toBeNull();
+
+    await act(async () => {
+      sessionActionButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(requestChannelAccountSessionActionAction).toHaveBeenCalledWith(88, {
+      action: 'request_session',
+    });
+    expect(collectText(container)).toContain('Instagram session request queued for operator pickup.');
+    expect(collectText(container)).toContain(
+      'Session 请求路径：artifacts/browser-lane-requests/instagram/relaunch/session-request-61.json',
+    );
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('completes browser handoffs directly from manual-required generated publish feedback', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { GeneratePage } = await import('../../src/client/pages/Generate');
+
+    const publishGeneratedDraftAction = vi.fn().mockResolvedValue({
+      success: false,
+      status: 'manual_required',
+      publishUrl: null,
+      message: 'tiktok draft 62 is ready for manual browser handoff with the saved session.',
+      details: {
+        browserHandoff: {
+          platform: 'tiktok',
+          readiness: 'ready',
+          artifactPath: 'artifacts/browser-handoffs/tiktok/relaunch/tiktok-draft-62.json',
+        },
+      },
+    });
+    const completeBrowserHandoffAction = vi.fn().mockResolvedValue({
+      ok: true,
+      imported: true,
+      artifactPath: 'artifacts/browser-handoffs/tiktok/relaunch/tiktok-draft-62.json',
+      draftId: 62,
+      draftStatus: 'published',
+      platform: 'tiktok',
+      mode: 'browser_handoff',
+      status: 'published',
+      success: true,
+      publishUrl: 'https://www.tiktok.com/@promobot/video/62',
+      externalId: null,
+      message: 'TikTok browser handoff completed.',
+      publishedAt: '2026-04-27T01:00:00.000Z',
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(GeneratePage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              results: [
+                {
+                  platform: 'tiktok',
+                  title: 'TikTok relaunch clip',
+                  content: 'Draft body',
+                  hashtags: ['#launch'],
+                  draftId: 62,
+                },
+              ],
+            },
+          },
+          publishGeneratedDraftAction,
+          completeBrowserHandoffAction,
+        }),
+      );
+      await flush();
+    });
+
+    const publishButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-publish-draft-id') === '62' &&
+        collectText(element).includes('立即发布'),
+    );
+
+    expect(publishButton).not.toBeNull();
+
+    await act(async () => {
+      publishButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    const publishUrlInput = findElement(
+      container,
+      (element) => element.getAttribute('data-generate-browser-handoff-field') === 'publishUrl',
+    );
+    const messageInput = findElement(
+      container,
+      (element) => element.getAttribute('data-generate-browser-handoff-field') === 'message',
+    );
+    const completeButton = findElement(
+      container,
+      (element) => element.getAttribute('data-generate-browser-handoff-complete') === 'published',
+    );
+
+    expect(publishUrlInput).not.toBeNull();
+    expect(messageInput).not.toBeNull();
+    expect(completeButton).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(
+        publishUrlInput as never,
+        'https://www.tiktok.com/@promobot/video/62',
+        window as never,
+      );
+      updateFieldValue(messageInput as never, 'Posted from browser lane.', window as never);
+      await flush();
+    });
+
+    await act(async () => {
+      completeButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(completeBrowserHandoffAction).toHaveBeenCalledWith({
+      artifactPath: 'artifacts/browser-handoffs/tiktok/relaunch/tiktok-draft-62.json',
+      publishStatus: 'published',
+      publishUrl: 'https://www.tiktok.com/@promobot/video/62',
+      message: 'Posted from browser lane.',
+    });
+    expect(collectText(container)).toContain('TikTok browser handoff completed.');
+    expect(collectText(container)).toContain('status: published');
+    expect(collectText(container)).toContain('https://www.tiktok.com/@promobot/video/62');
+    expect(collectText(container)).not.toContain('Generate browser handoff 结单');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
 });
