@@ -18,6 +18,7 @@ import {
   getLatestSessionRequestArtifact,
   resolveSessionRequestArtifacts,
 } from '../services/browser/sessionRequestArtifacts.js';
+import { resumeBlockedBrowserPublishesForChannelAccount } from '../services/browser/resumeBlockedBrowserPublishes.js';
 import { getLatestBrowserHandoffArtifact } from '../services/publishers/browserHandoffArtifacts.js';
 import { getLatestInboxReplyHandoffArtifact } from '../services/inbox/replyHandoffArtifacts.js';
 
@@ -293,6 +294,9 @@ channelAccountsRouter.post('/:id/session', (request, response) => {
     },
     savedStorageStatePath: sessionMetadata.storageStatePath,
   });
+  if (updatedChannelAccount) {
+    resumeBlockedBrowserPublishesForChannelAccount(updatedChannelAccount, session);
+  }
 
   response.json({
     ok: true,

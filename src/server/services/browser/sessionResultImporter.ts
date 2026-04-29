@@ -6,6 +6,7 @@ import {
   markSessionRequestResultArtifactConsumed,
   resolveSessionRequestArtifacts,
 } from './sessionRequestArtifacts.js';
+import { resumeBlockedBrowserPublishesForChannelAccount } from './resumeBlockedBrowserPublishes.js';
 import { buildSessionSummary, createSessionStore } from './sessionStore.js';
 
 export class SessionRequestResultImportError extends Error {
@@ -113,6 +114,7 @@ export async function importSessionRequestResultArtifact(
     savedStorageStatePath: sessionMetadata.storageStatePath,
     resolution,
   });
+  resumeBlockedBrowserPublishesForChannelAccount(updatedChannelAccount, session);
 
   return {
     ok: true,

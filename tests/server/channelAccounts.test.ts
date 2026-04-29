@@ -7,6 +7,7 @@ import { channelAccountsRouter } from '../../src/server/routes/channelAccounts';
 import { createSQLiteDraftStore } from '../../src/server/store/drafts';
 import { createInboxStore } from '../../src/server/store/inbox';
 import { createJobQueueStore } from '../../src/server/store/jobQueue';
+import { createSQLitePublishLogStore } from '../../src/server/store/publishLogs';
 import { cleanupTestDatabasePath, createTestDatabasePath, isolateProcessCwd } from './testDb';
 
 const defaultStorageState = {
@@ -2532,6 +2533,65 @@ describe('channel accounts api', () => {
         },
         savedStorageStatePath: storageStatePath,
       });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('requeues blocked browser publishes after saving an active session', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const draftStore = createSQLiteDraftStore();
+      const publishLogStore = createSQLitePublishLogStore();
+      const jobQueueStore = createJobQueueStore();
+
+      await requestApp('POST', '/api/channel-accounts', {
+        projectId: 55,
+        platform: 'instagram',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot Instagram',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      const blockedDraft = draftStore.create({
+        projectId: 55,
+        platform: 'instagram',
+        title: 'Resume after saved session',
+        content: 'Retry this after login completes',
+        status: 'review',
+        metadata: {
+          accountKey: 'launch-campaign',
+        },
+      });
+      publishLogStore.create({
+        draftId: blockedDraft.id,
+        projectId: 55,
+        status: 'manual_required',
+        message: `instagram draft ${blockedDraft.id} requires the browser session to be refreshed before manual handoff.`,
+      });
+
+      const storageStatePath = 'artifacts/browser-sessions/instagram-launch-campaign.json';
+      writeStorageStateFile(rootDir, storageStatePath);
+
+      const saveSessionResponse = await requestApp('POST', '/api/channel-accounts/1/session', {
+        storageStatePath,
+        status: 'active',
+        validatedAt: '2026-04-21T08:00:00.000Z',
+      });
+
+      expect(saveSessionResponse.status).toBe(200);
+      expect(jobQueueStore.list({ limit: 10 })).toEqual([
+        expect.objectContaining({
+          type: 'publish',
+          status: 'pending',
+          attempts: 0,
+          payload: JSON.stringify({
+            draftId: blockedDraft.id,
+            projectId: 55,
+          }),
+        }),
+      ]);
     } finally {
       cleanupTestDatabasePath(rootDir);
     }

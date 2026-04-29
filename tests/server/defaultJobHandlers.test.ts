@@ -451,12 +451,32 @@ describe('default job handlers', () => {
 
     try {
       const channelAccountStore = createChannelAccountStore();
+      const draftStore = createSQLiteDraftStore();
+      const publishLogStore = createSQLitePublishLogStore();
+      const jobQueueStore = createJobQueueStore();
       const channelAccount = channelAccountStore.create({
+        projectId: 55,
         platform: 'x',
         accountKey: '@promobot',
         displayName: 'PromoBot X',
         authType: 'browser',
         status: 'healthy',
+      });
+      const blockedDraft = draftStore.create({
+        projectId: 55,
+        platform: 'x',
+        title: 'Resume after session import',
+        content: 'Needs a saved browser session first',
+        status: 'review',
+        metadata: {
+          accountKey: '@promobot',
+        },
+      });
+      publishLogStore.create({
+        draftId: blockedDraft.id,
+        projectId: 55,
+        status: 'manual_required',
+        message: `x draft ${blockedDraft.id} requires a saved browser session before manual handoff.`,
       });
       const requestedAt = '2026-04-21T09:15:00.000Z';
       const completedAt = '2026-04-21T09:17:00.000Z';
@@ -560,6 +580,17 @@ describe('default job handlers', () => {
           }),
         }),
       );
+      expect(jobQueueStore.list({ limit: 10 })).toEqual([
+        expect.objectContaining({
+          type: 'publish',
+          status: 'pending',
+          attempts: 0,
+          payload: JSON.stringify({
+            draftId: blockedDraft.id,
+            projectId: 55,
+          }),
+        }),
+      ]);
     } finally {
       cleanupTestDatabasePath(rootDir);
     }
