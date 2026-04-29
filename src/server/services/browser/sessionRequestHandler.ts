@@ -290,7 +290,10 @@ function findExistingSessionImportCandidate(input: {
   const sessionMetadata = input.sessionStore.getSession(input.platform, input.accountKey);
   if (sessionMetadata?.status === 'active') {
     const storageState = loadStorageState(sessionMetadata.storageStatePath);
-    const completedAt = resolveCandidateCompletedAt(sessionMetadata.updatedAt, input.requestedAt);
+    const completedAt = resolveCandidateCompletedAt(
+      sessionMetadata.lastValidatedAt,
+      input.requestedAt,
+    );
     if (storageState && completedAt) {
       return {
         storageState,
@@ -318,23 +321,23 @@ function findExistingSessionImportCandidate(input: {
   };
 }
 
-function resolveCandidateCompletedAt(updatedAt: string | null, requestedAt: string) {
-  const updatedAtMs = updatedAt ? Date.parse(updatedAt) : Number.NaN;
+function resolveCandidateCompletedAt(timestamp: string | null, requestedAt: string) {
+  const timestampMs = timestamp ? Date.parse(timestamp) : Number.NaN;
   const requestedAtMs = Date.parse(requestedAt);
 
-  if (Number.isFinite(updatedAtMs) && Number.isFinite(requestedAtMs)) {
-    if (updatedAtMs < requestedAtMs) {
+  if (Number.isFinite(timestampMs) && Number.isFinite(requestedAtMs)) {
+    if (timestampMs < requestedAtMs) {
       return null;
     }
 
-    return new Date(updatedAtMs).toISOString();
+    return new Date(timestampMs).toISOString();
   }
 
-  if (!Number.isFinite(updatedAtMs)) {
+  if (!Number.isFinite(timestampMs)) {
     return null;
   }
 
-  return new Date(updatedAtMs).toISOString();
+  return new Date(timestampMs).toISOString();
 }
 
 function buildManagedStorageStatePath(platform: string, accountKey: string) {
