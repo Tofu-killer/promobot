@@ -653,7 +653,7 @@ describe('inbox api', () => {
     }
   });
 
-  it('promotes instagram, tiktok, xiaohongshu, and weibo monitor signals into inbox fetch results', async () => {
+  it('promotes instagram, tiktok, xiaohongshu, weibo, and facebook-group monitor signals into inbox fetch results', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
       const monitorStore = createMonitorStore();
@@ -695,6 +695,19 @@ describe('inbox api', () => {
         source: 'weibo',
         title: '微博提及跟进',
         detail: 'weibo mention · brand_ops\n需要尽快回复该提及。',
+      });
+      monitorStore.create({
+        projectId: 5,
+        source: 'facebook-group',
+        title: 'Facebook Group 帖子回复',
+        detail: 'facebook group post · community_admin\n需要尽快回复这条帖子。',
+        metadata: {
+          channelAccountId: 23,
+          accountKey: 'facebook-group-main',
+          sourceUrl: 'https://www.facebook.com/groups/launch-campaign/posts/42',
+          replyTargetId: 'fb-post-42',
+          replyTargetType: 'facebook_group_post',
+        },
       });
 
       const response = await requestApp('POST', '/api/inbox/fetch');
@@ -748,10 +761,25 @@ describe('inbox api', () => {
             status: 'needs_review',
             title: '微博提及跟进',
           }),
+          expect.objectContaining({
+            id: 5,
+            projectId: 5,
+            source: 'facebook-group',
+            author: 'community_admin',
+            status: 'needs_reply',
+            title: 'Facebook Group 帖子回复',
+            metadata: expect.objectContaining({
+              channelAccountId: 23,
+              accountKey: 'facebook-group-main',
+              sourceUrl: 'https://www.facebook.com/groups/launch-campaign/posts/42',
+              replyTargetId: 'fb-post-42',
+              replyTargetType: 'facebook_group_post',
+            }),
+          }),
         ],
-        inserted: 4,
-        total: 4,
-        unread: 4,
+        inserted: 5,
+        total: 5,
+        unread: 5,
       });
     } finally {
       cleanupTestDatabasePath(rootDir);
@@ -791,6 +819,20 @@ describe('inbox api', () => {
         title: '微博提及跟进',
         detail: 'weibo mention · brand_ops\n这个信号仍应进入 inbox。',
       });
+      monitorStore.create({
+        projectId: 5,
+        source: 'facebook-group',
+        status: 'ignored',
+        title: 'Facebook Group 帖子回复',
+        detail: 'facebook group post · community_admin\n这个信号已被忽略。',
+      });
+      monitorStore.create({
+        projectId: 6,
+        source: 'facebook-group',
+        status: 'saved',
+        title: 'Facebook Group 评论跟进',
+        detail: 'facebook group comment · moderator\n这个信号仍应进入 inbox。',
+      });
 
       const response = await requestApp('POST', '/api/inbox/fetch');
 
@@ -813,10 +855,18 @@ describe('inbox api', () => {
             status: 'needs_review',
             title: '微博提及跟进',
           }),
+          expect.objectContaining({
+            id: 3,
+            projectId: 6,
+            source: 'facebook-group',
+            author: 'moderator',
+            status: 'needs_reply',
+            title: 'Facebook Group 评论跟进',
+          }),
         ],
-        inserted: 2,
-        total: 2,
-        unread: 2,
+        inserted: 3,
+        total: 3,
+        unread: 3,
       });
     } finally {
       cleanupTestDatabasePath(rootDir);
