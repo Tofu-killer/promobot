@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { apiRequest } from '../lib/api';
 import type { AsyncState } from '../hooks/useAsyncRequest';
 import { useAsyncAction, useAsyncQuery } from '../hooks/useAsyncRequest';
@@ -143,6 +143,29 @@ interface ReputationPageProps {
   reputationUpdateStateOverride?: AsyncState<UpdateReputationItemResponse>;
 }
 
+type ReputationMutationStatus = 'handled' | 'escalate';
+
+interface ReputationItemMutationState extends AsyncState<UpdateReputationItemResponse> {
+  nextStatus: ReputationMutationStatus | null;
+}
+
+function createIdleReputationItemMutationState(): ReputationItemMutationState {
+  return {
+    status: 'idle',
+    data: undefined,
+    error: null,
+    nextStatus: null,
+  };
+}
+
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message;
+  }
+
+  return String(error);
+}
+
 const feedbackStyle = {
   borderRadius: '16px',
   padding: '14px 16px',
@@ -190,17 +213,16 @@ export function ReputationPage({
     ({ runAt, projectId: nextProjectId }: { runAt?: string; projectId?: number }) =>
       nextProjectId === undefined ? enqueueFetchJobAction(runAt) : enqueueFetchJobAction(runAt, nextProjectId),
   );
-  const { state: reputationUpdateState, run: runReputationUpdate } = useAsyncAction(
-    ({ id, status }: { id: number; status: string }) => updateReputationAction(id, status),
-  );
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
-  const [reputationMutationItemId, setReputationMutationItemId] = useState<number | null>(null);
-  const [reputationMutationScopeKey, setReputationMutationScopeKey] = useState<string | null>(null);
+  const [reputationUpdateStateById, setReputationUpdateStateById] = useState<Record<number, ReputationItemMutationState>>(
+    {},
+  );
   const [enqueueRunAtDraft, setEnqueueRunAtDraft] = useState('');
+  const reputationMutationScopeVersionRef = useRef(0);
+  const pendingReputationMutationKeysRef = useRef<Set<string>>(new Set());
   const displayState = stateOverride ?? state;
   const displayFetchState = fetchStateOverride ?? fetchState;
   const displayEnqueueState = enqueueStateOverride ?? enqueueState;
-  const displayReputationUpdateState = reputationUpdateStateOverride ?? reputationUpdateState;
   const fallbackData: ReputationStatsResponse = {
     total: 1,
     positive: 0,
@@ -229,58 +251,111 @@ export function ReputationPage({
     Array.isArray((displayState.data as ReputationStatsResponse).items);
   const isPreview = !hasLiveData;
   const viewData = hasLiveData ? (displayState.data as ReputationStatsResponse) : fallbackData;
-  const currentScopeKey = projectId === undefined ? '' : String(projectId);
-  const showReputationMutationForScope =
-    reputationMutationScopeKey === null || reputationMutationScopeKey === currentScopeKey;
-  const updatedReputationItem =
-    showReputationMutationForScope &&
-    displayReputationUpdateState.status === 'success' &&
-    displayReputationUpdateState.data
-      ? displayReputationUpdateState.data.item
-      : null;
-  const displayItems = updatedReputationItem
-    ? viewData.items.map((item) => (item.id === updatedReputationItem.id ? updatedReputationItem : item))
-    : viewData.items;
+  const displayItems = viewData.items.map((item) => {
+    const localMutationState = reputationUpdateStateById[item.id];
+
+    if (localMutationState?.status === 'success' && localMutationState.data) {
+      return localMutationState.data.item;
+    }
+
+    if (
+      reputationUpdateStateOverride?.status === 'success' &&
+      reputationUpdateStateOverride.data &&
+      reputationUpdateStateOverride.data.item.id === item.id
+    ) {
+      return reputationUpdateStateOverride.data.item;
+    }
+
+    return item;
+  });
   const priorityItems = displayItems.filter((item) => item.sentiment === 'negative');
   const selectedItem = isPreview ? null : priorityItems.find((item) => item.id === selectedItemId) ?? priorityItems[0] ?? null;
-  const activeReputationMutationItemId =
-    reputationMutationItemId ?? (showReputationMutationForScope ? selectedItem?.id ?? null : null);
-  const showReputationMutationFeedback = selectedItem !== null && selectedItem.id === activeReputationMutationItemId;
+  const selectedReputationMutationState = reputationUpdateStateOverride
+    ? reputationUpdateStateOverride
+    : selectedItem
+      ? (reputationUpdateStateById[selectedItem.id] ?? createIdleReputationItemMutationState())
+      : createIdleReputationItemMutationState();
   const sentimentBars = viewData.trend.map((bar) => ({
     label: bar.label,
     value: toSentimentPercentage(bar.value, viewData.total),
     color: bar.label === '正向' ? '#16a34a' : bar.label === '负向' ? '#dc2626' : '#64748b',
   }));
   const reputationFeedback =
-    showReputationMutationFeedback &&
-    displayReputationUpdateState.status === 'success' &&
-    displayReputationUpdateState.data
-      ? displayReputationUpdateState.data.inboxItem
-        ? `已将“${displayReputationUpdateState.data.item.title}”回写为 ${displayReputationUpdateState.data.item.status}，并已转入 Social Inbox（inbox #${displayReputationUpdateState.data.inboxItem.id}，状态 ${displayReputationUpdateState.data.inboxItem.status}）`
-        : `已将“${displayReputationUpdateState.data.item.title}”回写为 ${displayReputationUpdateState.data.item.status}`
-      : showReputationMutationFeedback && displayReputationUpdateState.status === 'error'
-        ? `口碑状态更新失败：${displayReputationUpdateState.error}`
+    selectedItem !== null &&
+    selectedReputationMutationState.status === 'success' &&
+    selectedReputationMutationState.data
+      ? selectedReputationMutationState.data.inboxItem
+        ? `已将“${selectedReputationMutationState.data.item.title}”回写为 ${selectedReputationMutationState.data.item.status}，并已转入 Social Inbox（inbox #${selectedReputationMutationState.data.inboxItem.id}，状态 ${selectedReputationMutationState.data.inboxItem.status}）`
+        : `已将“${selectedReputationMutationState.data.item.title}”回写为 ${selectedReputationMutationState.data.item.status}`
+      : selectedItem !== null && selectedReputationMutationState.status === 'error'
+        ? `口碑状态更新失败：${selectedReputationMutationState.error}`
         : null;
 
   useEffect(() => {
+    reputationMutationScopeVersionRef.current += 1;
+    pendingReputationMutationKeysRef.current.clear();
     setSelectedItemId(null);
-    setReputationMutationItemId(null);
-    setReputationMutationScopeKey('__cleared__');
+    setReputationUpdateStateById({});
   }, [projectId]);
 
-  async function handleReputationStatus(item: ReputationItem | null, status: 'handled' | 'escalate') {
+  async function handleReputationStatus(item: ReputationItem | null, status: ReputationMutationStatus) {
     if (!item) {
       return;
     }
 
+    const scopeVersionAtStart = reputationMutationScopeVersionRef.current;
+    const mutationKey = `${scopeVersionAtStart}:${item.id}`;
+
+    if (pendingReputationMutationKeysRef.current.has(mutationKey)) {
+      return;
+    }
+
+    pendingReputationMutationKeysRef.current.add(mutationKey);
     setSelectedItemId(item.id);
-    setReputationMutationItemId(item.id);
-    setReputationMutationScopeKey(currentScopeKey);
+    setReputationUpdateStateById((currentState) => ({
+      ...currentState,
+      [item.id]: {
+        status: 'loading',
+        data: undefined,
+        error: null,
+        nextStatus: status,
+      },
+    }));
 
     try {
-      await runReputationUpdate({ id: item.id, status });
+      const response = await updateReputationAction(item.id, status);
+
+      if (scopeVersionAtStart !== reputationMutationScopeVersionRef.current) {
+        return;
+      }
+
+      setReputationUpdateStateById((currentState) => ({
+        ...currentState,
+        [item.id]: {
+          status: 'success',
+          data: response,
+          error: null,
+          nextStatus: status,
+        },
+      }));
       reload();
-    } catch {}
+    } catch (error) {
+      if (scopeVersionAtStart !== reputationMutationScopeVersionRef.current) {
+        return;
+      }
+
+      setReputationUpdateStateById((currentState) => ({
+        ...currentState,
+        [item.id]: {
+          status: 'error',
+          data: undefined,
+          error: getErrorMessage(error),
+          nextStatus: status,
+        },
+      }));
+    } finally {
+      pendingReputationMutationKeysRef.current.delete(mutationKey);
+    }
   }
 
   function handleFetchReputation() {
@@ -321,13 +396,12 @@ export function ReputationPage({
             />
             <ActionButton
               label={
-                displayReputationUpdateState.status === 'loading' &&
-                selectedItem?.id === activeReputationMutationItemId
+                selectedReputationMutationState.status === 'loading'
                   ? '正在回写状态...'
                   : '标记已处理'
               }
               tone="primary"
-              disabled={isPreview}
+              disabled={isPreview || selectedReputationMutationState.status === 'loading'}
               onClick={() => {
                 void handleReputationStatus(selectedItem, 'handled');
               }}
@@ -382,13 +456,13 @@ export function ReputationPage({
           口碑排程失败：{displayEnqueueState.error}
         </p>
       ) : null}
-      {reputationFeedback ? (
+          {reputationFeedback ? (
         <p
           style={{
             ...feedbackStyle,
             margin: '0 0 16px',
-            background: displayReputationUpdateState.status === 'error' ? '#fef2f2' : '#ecfdf5',
-            color: displayReputationUpdateState.status === 'error' ? '#b91c1c' : '#166534',
+            background: selectedReputationMutationState.status === 'error' ? '#fef2f2' : '#ecfdf5',
+            color: selectedReputationMutationState.status === 'error' ? '#b91c1c' : '#166534',
           }}
         >
           {reputationFeedback}
@@ -441,67 +515,76 @@ export function ReputationPage({
                 {priorityItems.length === 0 ? (
                   <p style={{ margin: 0, color: '#475569' }}>暂无重点负面提及</p>
                 ) : (
-                  priorityItems.map((item) => (
-                    <article
-                      key={item.id}
-                      onClick={() => {
-                        if (!isPreview) {
-                          setSelectedItemId(item.id);
-                        }
-                      }}
-                      style={{
-                        borderRadius: '16px',
-                        border:
-                          item.id === selectedItem?.id
-                            ? '1px solid #fca5a5'
-                            : item.sentiment === 'negative'
-                              ? '1px solid #fecaca'
-                              : '1px solid #dbe4f0',
-                        background: item.id === selectedItem?.id ? '#fff1f2' : item.sentiment === 'negative' ? '#fef2f2' : '#f8fafc',
-                        padding: '18px',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
-                        <div style={{ fontWeight: 700 }}>{item.title}</div>
-                        <span style={negativeSentimentBadgeStyle}>负面</span>
-                      </div>
-                      <p style={{ margin: '12px 0 0', color: item.sentiment === 'negative' ? '#7f1d1d' : '#475569', lineHeight: 1.5 }}>
-                        {item.detail}
-                      </p>
-                      <div style={{ marginTop: '10px', color: '#64748b', fontSize: '13px' }}>
-                        {item.source} · {item.status} · {item.createdAt}
-                      </div>
-                      <div style={{ marginTop: '10px', color: '#475569', lineHeight: 1.5 }}>
-                        {isPreview ? '预览数据不可设为重点项' : item.id === selectedItem?.id ? '当前重点跟进项' : '点击卡片可将其设为当前重点项'}
-                      </div>
-                      <div style={{ marginTop: '16px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                        <ActionButton
-                          label={
-                            displayReputationUpdateState.status === 'loading' && item.id === activeReputationMutationItemId
-                              ? '正在回写状态...'
-                              : '标记已处理'
+                  priorityItems.map((item) => {
+                    const itemMutationState = reputationUpdateStateOverride
+                      ? selectedItem?.id === item.id
+                        ? reputationUpdateStateOverride
+                        : createIdleReputationItemMutationState()
+                      : (reputationUpdateStateById[item.id] ?? createIdleReputationItemMutationState());
+
+                    return (
+                      <article
+                        key={item.id}
+                        onClick={() => {
+                          if (!isPreview) {
+                            setSelectedItemId(item.id);
                           }
-                          tone="primary"
-                          disabled={isPreview}
-                          onClick={() => {
-                            void handleReputationStatus(item, 'handled');
-                          }}
-                        />
-                        <ActionButton
-                          label={
-                            displayReputationUpdateState.status === 'loading' && item.id === activeReputationMutationItemId
-                              ? '正在回写状态...'
-                              : '转入 Social Inbox'
-                          }
-                          disabled={isPreview}
-                          onClick={() => {
-                            void handleReputationStatus(item, 'escalate');
-                          }}
-                        />
-                      </div>
-                    </article>
-                  ))
+                        }}
+                        style={{
+                          borderRadius: '16px',
+                          border:
+                            item.id === selectedItem?.id
+                              ? '1px solid #fca5a5'
+                              : item.sentiment === 'negative'
+                                ? '1px solid #fecaca'
+                                : '1px solid #dbe4f0',
+                          background:
+                            item.id === selectedItem?.id ? '#fff1f2' : item.sentiment === 'negative' ? '#fef2f2' : '#f8fafc',
+                          padding: '18px',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <div
+                          style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}
+                        >
+                          <div style={{ fontWeight: 700 }}>{item.title}</div>
+                          <span style={negativeSentimentBadgeStyle}>负面</span>
+                        </div>
+                        <p
+                          style={{ margin: '12px 0 0', color: item.sentiment === 'negative' ? '#7f1d1d' : '#475569', lineHeight: 1.5 }}
+                        >
+                          {item.detail}
+                        </p>
+                        <div style={{ marginTop: '10px', color: '#64748b', fontSize: '13px' }}>
+                          {item.source} · {item.status} · {item.createdAt}
+                        </div>
+                        <div style={{ marginTop: '10px', color: '#475569', lineHeight: 1.5 }}>
+                          {isPreview
+                            ? '预览数据不可设为重点项'
+                            : item.id === selectedItem?.id
+                              ? '当前重点跟进项'
+                              : '点击卡片可将其设为当前重点项'}
+                        </div>
+                        <div style={{ marginTop: '16px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                          <ActionButton
+                            label={itemMutationState.status === 'loading' ? '正在回写状态...' : '标记已处理'}
+                            tone="primary"
+                            disabled={isPreview || itemMutationState.status === 'loading'}
+                            onClick={() => {
+                              void handleReputationStatus(item, 'handled');
+                            }}
+                          />
+                          <ActionButton
+                            label={itemMutationState.status === 'loading' ? '正在回写状态...' : '转入 Social Inbox'}
+                            disabled={isPreview || itemMutationState.status === 'loading'}
+                            onClick={() => {
+                              void handleReputationStatus(item, 'escalate');
+                            }}
+                          />
+                        </div>
+                      </article>
+                    );
+                  })
                 )}
               </div>
             </SectionCard>

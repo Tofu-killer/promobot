@@ -3506,6 +3506,165 @@ describe('Reputation action wiring', () => {
     });
   });
 
+  it('keeps reputation article loading feedback scoped per item when multiple updates overlap', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ReputationPage } = await import('../../src/client/pages/Reputation');
+
+    const firstPendingUpdate = createDeferredPromise<{
+      item: {
+        id: number;
+        source: string;
+        sentiment: 'negative';
+        status: string;
+        title: string;
+        detail: string;
+        createdAt: string;
+      };
+    }>();
+    const secondPendingUpdate = createDeferredPromise<{
+      item: {
+        id: number;
+        source: string;
+        sentiment: 'negative';
+        status: string;
+        title: string;
+        detail: string;
+        createdAt: string;
+      };
+    }>();
+    const updateReputationAction = vi
+      .fn()
+      .mockReturnValueOnce(firstPendingUpdate.promise)
+      .mockReturnValueOnce(secondPendingUpdate.promise);
+    const reputationState = {
+      total: 2,
+      positive: 0,
+      neutral: 0,
+      negative: 2,
+      trend: [
+        { label: '正向', value: 0 },
+        { label: '中性', value: 0 },
+        { label: '负向', value: 2 },
+      ],
+      items: [
+        {
+          id: 4,
+          source: 'x',
+          sentiment: 'negative' as const,
+          status: 'new',
+          title: 'Session expired complaint',
+          detail: 'Users report being logged out unexpectedly.',
+          createdAt: '2026-04-19T10:00:00.000Z',
+        },
+        {
+          id: 5,
+          source: 'reddit',
+          sentiment: 'negative' as const,
+          status: 'new',
+          title: 'Pricing feedback thread',
+          detail: 'Prospects think the pricing page is unclear.',
+          createdAt: '2026-04-19T10:30:00.000Z',
+        },
+      ],
+    };
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ReputationPage as never, {
+          loadReputationAction: async () => reputationState,
+          stateOverride: {
+            status: 'success',
+            data: reputationState,
+          } satisfies ApiState<unknown>,
+          updateReputationAction,
+        }),
+      );
+      await flush();
+    });
+
+    const firstArticle = findElement(
+      container,
+      (element) => element.tagName === 'ARTICLE' && collectText(element).includes('Session expired complaint'),
+    );
+    const secondArticle = findElement(
+      container,
+      (element) => element.tagName === 'ARTICLE' && collectText(element).includes('Pricing feedback thread'),
+    );
+    const firstHandledButton = findElement(
+      firstArticle,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('标记已处理'),
+    );
+    const secondHandledButton = findElement(
+      secondArticle,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('标记已处理'),
+    );
+
+    expect(firstArticle).not.toBeNull();
+    expect(secondArticle).not.toBeNull();
+    expect(firstHandledButton).not.toBeNull();
+    expect(secondHandledButton).not.toBeNull();
+
+    await act(async () => {
+      firstHandledButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(updateReputationAction).toHaveBeenNthCalledWith(1, 4, 'handled');
+    expect(collectText(firstArticle as never)).toContain('正在回写状态...');
+    expect(collectText(secondArticle as never)).not.toContain('正在回写状态...');
+
+    await act(async () => {
+      secondHandledButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    const firstArticleDuringOverlap = findElement(
+      container,
+      (element) => element.tagName === 'ARTICLE' && collectText(element).includes('Session expired complaint'),
+    );
+    const secondArticleDuringOverlap = findElement(
+      container,
+      (element) => element.tagName === 'ARTICLE' && collectText(element).includes('Pricing feedback thread'),
+    );
+
+    expect(updateReputationAction).toHaveBeenNthCalledWith(2, 5, 'handled');
+    expect(collectText(firstArticleDuringOverlap as never)).toContain('正在回写状态...');
+    expect(collectText(secondArticleDuringOverlap as never)).toContain('正在回写状态...');
+
+    await act(async () => {
+      firstPendingUpdate.resolve({
+        item: {
+          id: 4,
+          source: 'x',
+          sentiment: 'negative',
+          status: 'handled',
+          title: 'Session expired complaint',
+          detail: 'Users report being logged out unexpectedly.',
+          createdAt: '2026-04-19T10:00:00.000Z',
+        },
+      });
+      secondPendingUpdate.resolve({
+        item: {
+          id: 5,
+          source: 'reddit',
+          sentiment: 'negative',
+          status: 'handled',
+          title: 'Pricing feedback thread',
+          detail: 'Prospects think the pricing page is unclear.',
+          createdAt: '2026-04-19T10:30:00.000Z',
+        },
+      });
+      await flush();
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('keeps the reputation header action scoped to the selected item while another item is updating', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
