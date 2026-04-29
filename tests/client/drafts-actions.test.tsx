@@ -1918,7 +1918,7 @@ describe('Drafts publish actions', () => {
         container,
         (element) => element.getAttribute('data-draft-browser-handoff-complete') === 'published',
       ),
-    ).not.toBeNull();
+    ).toBeNull();
 
     const reloadButton = findElement(
       container,
@@ -1962,6 +1962,445 @@ describe('Drafts publish actions', () => {
     ).toBeNull();
     expect(collectText(container)).toContain('published');
     expect(collectText(container)).toContain('2026-04-27T02:00:00.000Z');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('restores a blocked persisted draft browser handoff after reload and only allows queuing the required session action', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { DraftsPage } = await import('../../src/client/pages/Drafts');
+
+    const loadDraftsAction = vi.fn().mockResolvedValue({
+      drafts: [
+        {
+          id: 79,
+          platform: 'weibo',
+          title: 'Weibo relaunch draft',
+          content: 'Draft body',
+          hashtags: ['#launch'],
+          status: 'draft',
+          createdAt: '2026-04-27T00:00:00.000Z',
+          updatedAt: '2026-04-27T00:00:00.000Z',
+        },
+      ],
+    });
+    const requestChannelAccountSessionActionAction = vi.fn().mockResolvedValue({
+      sessionAction: {
+        action: 'relogin',
+        message: 'Browser relogin request queued for the restored draft handoff.',
+        artifactPath: 'artifacts/browser-lane-requests/weibo/weibo-main/relogin-job-79.json',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(DraftsPage as never, {
+          loadDraftsAction,
+          stateOverride: {
+            status: 'success',
+            data: {
+              drafts: [
+                {
+                  id: 79,
+                  platform: 'weibo',
+                  title: 'Weibo relaunch draft',
+                  content: 'Draft body',
+                  hashtags: ['#launch'],
+                  status: 'draft',
+                  createdAt: '2026-04-27T00:00:00.000Z',
+                  updatedAt: '2026-04-27T00:00:00.000Z',
+                },
+              ],
+            },
+          },
+          browserHandoffsStateOverride: {
+            status: 'success',
+            data: {
+              handoffs: [
+                {
+                  platform: 'weibo',
+                  draftId: 79,
+                  title: 'Weibo relaunch draft',
+                  accountKey: 'weibo-main',
+                  channelAccountId: 12,
+                  status: 'pending',
+                  readiness: 'blocked',
+                  sessionAction: 'relogin',
+                  artifactPath: 'artifacts/browser-handoffs/weibo/weibo-main/weibo-draft-79.json',
+                  createdAt: '2026-04-24T10:00:00.000Z',
+                  updatedAt: '2026-04-24T10:00:00.000Z',
+                  resolvedAt: null,
+                },
+              ],
+              total: 1,
+            },
+          },
+          requestChannelAccountSessionActionAction,
+        }),
+      );
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('等待刷新 Session 后继续发布接管。');
+    expect(collectText(container)).toContain('Handoff 状态：blocked');
+    expect(collectText(container)).toContain('Handoff 动作：relogin');
+    expect(collectText(container)).toContain(
+      'Handoff 路径：artifacts/browser-handoffs/weibo/weibo-main/weibo-draft-79.json',
+    );
+    expect(
+      findElement(
+        container,
+        (element) => element.getAttribute('data-draft-browser-handoff-complete') === 'published',
+      ),
+    ).toBeNull();
+
+    const reloginButton = findElement(
+      container,
+      (element) => element.getAttribute('data-draft-session-action') === 'relogin',
+    );
+
+    expect(reloginButton).not.toBeNull();
+
+    await act(async () => {
+      reloginButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(requestChannelAccountSessionActionAction).toHaveBeenCalledWith(12, {
+      action: 'relogin',
+    });
+    expect(collectText(container)).toContain('Browser relogin request queued for the restored draft handoff.');
+    expect(collectText(container)).toContain(
+      'Session 请求路径：artifacts/browser-lane-requests/weibo/weibo-main/relogin-job-79.json',
+    );
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('restores a ready persisted draft browser handoff after reload and allows completing it inline', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { DraftsPage } = await import('../../src/client/pages/Drafts');
+
+    const loadDraftsAction = vi.fn().mockResolvedValue({
+      drafts: [
+        {
+          id: 80,
+          platform: 'facebookGroup',
+          title: 'Facebook Group relaunch draft',
+          content: 'Draft body',
+          hashtags: ['#launch'],
+          status: 'draft',
+          createdAt: '2026-04-27T00:00:00.000Z',
+          updatedAt: '2026-04-27T00:00:00.000Z',
+        },
+      ],
+    });
+    const completeBrowserHandoffAction = vi.fn().mockResolvedValue({
+      ok: true,
+      imported: true,
+      artifactPath: 'artifacts/browser-handoffs/facebookGroup/fb-main/facebookGroup-draft-80.json',
+      draftId: 80,
+      draftStatus: 'published',
+      platform: 'facebookGroup',
+      mode: 'browser_handoff',
+      status: 'published',
+      success: true,
+      publishUrl: 'https://facebook.com/groups/promobot/posts/80',
+      externalId: null,
+      message: 'Restored draft browser handoff completed after reload.',
+      publishedAt: '2026-04-27T01:00:00.000Z',
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(DraftsPage as never, {
+          loadDraftsAction,
+          stateOverride: {
+            status: 'success',
+            data: {
+              drafts: [
+                {
+                  id: 80,
+                  platform: 'facebookGroup',
+                  title: 'Facebook Group relaunch draft',
+                  content: 'Draft body',
+                  hashtags: ['#launch'],
+                  status: 'draft',
+                  createdAt: '2026-04-27T00:00:00.000Z',
+                  updatedAt: '2026-04-27T00:00:00.000Z',
+                },
+              ],
+            },
+          },
+          browserHandoffsStateOverride: {
+            status: 'success',
+            data: {
+              handoffs: [
+                {
+                  platform: 'facebookGroup',
+                  draftId: 80,
+                  title: 'Facebook Group relaunch draft',
+                  accountKey: 'fb-main',
+                  channelAccountId: 18,
+                  status: 'pending',
+                  readiness: 'ready',
+                  sessionAction: null,
+                  artifactPath: 'artifacts/browser-handoffs/facebookGroup/fb-main/facebookGroup-draft-80.json',
+                  createdAt: '2026-04-24T10:00:00.000Z',
+                  updatedAt: '2026-04-24T10:00:00.000Z',
+                  resolvedAt: null,
+                },
+              ],
+              total: 1,
+            },
+          },
+          completeBrowserHandoffAction,
+        }),
+      );
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('发现待处理的 browser handoff，可以直接结单。');
+    expect(collectText(container)).toContain('Handoff 状态：ready');
+    expect(collectText(container)).toContain(
+      'Handoff 路径：artifacts/browser-handoffs/facebookGroup/fb-main/facebookGroup-draft-80.json',
+    );
+
+    const publishUrlInput = findElement(
+      container,
+      (element) => element.getAttribute('data-draft-browser-handoff-field') === 'publishUrl',
+    );
+    const messageInput = findElement(
+      container,
+      (element) => element.getAttribute('data-draft-browser-handoff-field') === 'message',
+    );
+    const markPublishedButton = findElement(
+      container,
+      (element) => element.getAttribute('data-draft-browser-handoff-complete') === 'published',
+    );
+
+    expect(publishUrlInput).not.toBeNull();
+    expect(messageInput).not.toBeNull();
+    expect(markPublishedButton).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(
+        publishUrlInput as never,
+        'https://facebook.com/groups/promobot/posts/80',
+        window as never,
+      );
+      updateFieldValue(
+        messageInput as never,
+        'Restored draft browser handoff completed after reload.',
+        window as never,
+      );
+      await flush();
+    });
+
+    await act(async () => {
+      markPublishedButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    expect(completeBrowserHandoffAction).toHaveBeenCalledWith({
+      artifactPath: 'artifacts/browser-handoffs/facebookGroup/fb-main/facebookGroup-draft-80.json',
+      publishStatus: 'published',
+      publishUrl: 'https://facebook.com/groups/promobot/posts/80',
+      message: 'Restored draft browser handoff completed after reload.',
+    });
+    expect(collectText(container)).not.toContain('发现待处理的 browser handoff，可以直接结单。');
+    expect(collectText(container)).not.toContain(
+      'Handoff 路径：artifacts/browser-handoffs/facebookGroup/fb-main/facebookGroup-draft-80.json',
+    );
+    expect(collectText(container)).toContain('发布时间');
+    expect(collectText(container)).toContain('2026-04-27T01:00:00.000Z');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('loads persisted draft browser handoffs live when only drafts use a state override and clears them after reload', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { DraftsPage } = await import('../../src/client/pages/Drafts');
+
+    const draftRecord = {
+      id: 81,
+      platform: 'instagram',
+      title: 'Instagram relaunch draft',
+      content: 'Draft body',
+      hashtags: ['#launch'],
+      status: 'draft',
+      createdAt: '2026-04-27T00:00:00.000Z',
+      updatedAt: '2026-04-27T00:00:00.000Z',
+    } as const;
+    const loadDraftsAction = vi.fn().mockResolvedValue({
+      drafts: [draftRecord],
+    });
+    const loadBrowserHandoffsAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        handoffs: [
+          {
+            platform: 'instagram',
+            draftId: 81,
+            title: 'Instagram relaunch draft',
+            accountKey: 'ig-main',
+            channelAccountId: 14,
+            status: 'pending',
+            readiness: 'ready',
+            sessionAction: null,
+            artifactPath: 'artifacts/browser-handoffs/instagram/ig-main/instagram-draft-81.json',
+            createdAt: '2026-04-24T10:00:00.000Z',
+            updatedAt: '2026-04-24T10:00:00.000Z',
+            resolvedAt: null,
+          },
+        ],
+        total: 1,
+      })
+      .mockResolvedValue({
+        handoffs: [],
+        total: 0,
+      });
+    const completeBrowserHandoffAction = vi.fn().mockResolvedValue({
+      ok: true,
+      imported: true,
+      artifactPath: 'artifacts/browser-handoffs/instagram/ig-main/instagram-draft-81.json',
+      draftId: 81,
+      draftStatus: 'published',
+      platform: 'instagram',
+      mode: 'browser_handoff',
+      status: 'published',
+      success: true,
+      publishUrl: 'https://instagram.com/p/promobot-81',
+      externalId: null,
+      message: 'Instagram browser handoff completed from live reload path.',
+      publishedAt: '2026-04-27T01:00:00.000Z',
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(DraftsPage as never, {
+          loadDraftsAction,
+          loadBrowserHandoffsAction,
+          completeBrowserHandoffAction,
+          stateOverride: {
+            status: 'success',
+            data: {
+              drafts: [draftRecord],
+            },
+          },
+        }),
+      );
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    expect(loadBrowserHandoffsAction).toHaveBeenCalledTimes(1);
+    expect(collectText(container)).toContain('发现待处理的 browser handoff，可以直接结单。');
+    expect(collectText(container)).toContain(
+      'Handoff 路径：artifacts/browser-handoffs/instagram/ig-main/instagram-draft-81.json',
+    );
+
+    const publishUrlInput = findElement(
+      container,
+      (element) => element.getAttribute('data-draft-browser-handoff-field') === 'publishUrl',
+    );
+    const messageInput = findElement(
+      container,
+      (element) => element.getAttribute('data-draft-browser-handoff-field') === 'message',
+    );
+    const markPublishedButton = findElement(
+      container,
+      (element) => element.getAttribute('data-draft-browser-handoff-complete') === 'published',
+    );
+
+    expect(publishUrlInput).not.toBeNull();
+    expect(messageInput).not.toBeNull();
+    expect(markPublishedButton).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(
+        publishUrlInput as never,
+        'https://instagram.com/p/promobot-81',
+        window as never,
+      );
+      updateFieldValue(
+        messageInput as never,
+        'Instagram browser handoff completed from live reload path.',
+        window as never,
+      );
+      await flush();
+    });
+
+    await act(async () => {
+      markPublishedButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    expect(completeBrowserHandoffAction).toHaveBeenCalledWith({
+      artifactPath: 'artifacts/browser-handoffs/instagram/ig-main/instagram-draft-81.json',
+      publishStatus: 'published',
+      publishUrl: 'https://instagram.com/p/promobot-81',
+      message: 'Instagram browser handoff completed from live reload path.',
+    });
+    expect(loadBrowserHandoffsAction).toHaveBeenCalledTimes(2);
+    expect(collectText(container)).not.toContain('发现待处理的 browser handoff，可以直接结单。');
+    expect(collectText(container)).not.toContain(
+      'Handoff 路径：artifacts/browser-handoffs/instagram/ig-main/instagram-draft-81.json',
+    );
+    expect(collectText(container)).toContain('发布时间');
+    expect(collectText(container)).toContain('2026-04-27T01:00:00.000Z');
+
+    const reloadButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('重新加载'),
+    );
+
+    expect(reloadButton).not.toBeNull();
+
+    await act(async () => {
+      reloadButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    expect(loadBrowserHandoffsAction).toHaveBeenCalledTimes(3);
+    expect(collectText(container)).not.toContain('发现待处理的 browser handoff，可以直接结单。');
+    expect(collectText(container)).not.toContain(
+      'Handoff 路径：artifacts/browser-handoffs/instagram/ig-main/instagram-draft-81.json',
+    );
+    expect(
+      findElement(
+        container,
+        (element) => element.getAttribute('data-draft-browser-handoff-complete') === 'published',
+      ),
+    ).toBeNull();
+    expect(
+      findElement(
+        container,
+        (element) => element.tagName === 'BUTTON' && collectText(element).includes('发起人工接管'),
+      ),
+    ).toBeNull();
 
     await act(async () => {
       root.unmount();

@@ -113,6 +113,35 @@ interface BrowserHandoffCompletionResponse {
   publishedAt: string | null;
 }
 
+interface BrowserHandoffRecord {
+  channelAccountId?: number;
+  platform: string;
+  draftId: string | number;
+  title: string | null;
+  accountKey: string;
+  status: string;
+  readiness?: string;
+  sessionAction?: string | null;
+  artifactPath: string;
+  createdAt: string;
+  updatedAt: string;
+  resolvedAt: string | null;
+  resolution?: unknown;
+}
+
+interface BrowserHandoffsResponse {
+  handoffs: BrowserHandoffRecord[];
+  total: number;
+}
+
+export async function loadDraftBrowserHandoffsRequest(limit = 100): Promise<BrowserHandoffsResponse> {
+  return apiRequest<BrowserHandoffsResponse>(`/api/system/browser-handoffs?limit=${limit}`);
+}
+
+function defaultLoadDraftBrowserHandoffsAction() {
+  return loadDraftBrowserHandoffsRequest(100);
+}
+
 export async function requestDraftSessionActionRequest(
   accountId: number,
   input: RequestChannelAccountSessionActionPayload = {},
@@ -151,6 +180,7 @@ export async function completeDraftBrowserHandoffRequest(
 
 interface DraftsPageProps {
   loadDraftsAction?: (projectId?: number) => Promise<DraftsResponse>;
+  loadBrowserHandoffsAction?: () => Promise<BrowserHandoffsResponse>;
   updateDraftAction?: (id: number, input: UpdateDraftPayload) => Promise<UpdateDraftResponse>;
   publishDraftAction?: (id: number) => Promise<PublishDraftResponse>;
   requestChannelAccountSessionActionAction?: (
@@ -159,6 +189,7 @@ interface DraftsPageProps {
   ) => Promise<RequestChannelAccountSessionActionResponse>;
   completeBrowserHandoffAction?: (input: CompleteBrowserHandoffInput) => Promise<BrowserHandoffCompletionResponse>;
   stateOverride?: AsyncState<DraftsResponse>;
+  browserHandoffsStateOverride?: AsyncState<BrowserHandoffsResponse>;
   draftInteractionStateOverride?: DraftInteractionStateOverride;
 }
 
@@ -263,6 +294,11 @@ function readPositiveInteger(value: unknown) {
   return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined;
 }
 
+function readBrowserSessionAction(value: unknown): BrowserSessionAction | null {
+  const normalizedValue = readString(value);
+  return normalizedValue === 'request_session' || normalizedValue === 'relogin' ? normalizedValue : null;
+}
+
 function readBrowserHandoffContract(details: Record<string, unknown> | null): BrowserHandoffContract | null {
   const browserHandoff = asRecord(details?.browserHandoff);
   if (!browserHandoff) {
@@ -272,14 +308,10 @@ function readBrowserHandoffContract(details: Record<string, unknown> | null): Br
   const artifact = browserHandoff.artifact;
   const artifactRecord = asRecord(artifact);
   const sessionActionRecord = asRecord(browserHandoff.sessionAction);
-  const sessionActionValue =
-    readString(browserHandoff.sessionAction) ??
-    readString(sessionActionRecord?.action) ??
-    readString(sessionActionRecord?.type);
   const sessionAction =
-    sessionActionValue === 'request_session' || sessionActionValue === 'relogin'
-      ? sessionActionValue
-      : null;
+    readBrowserSessionAction(browserHandoff.sessionAction) ??
+    readBrowserSessionAction(sessionActionRecord?.action) ??
+    readBrowserSessionAction(sessionActionRecord?.type);
   const artifactPath =
     readString(browserHandoff.artifactPath) ??
     readString(artifact) ??
@@ -304,6 +336,37 @@ function readBrowserHandoffContract(details: Record<string, unknown> | null): Br
     readiness,
     sessionAction,
     artifactPath,
+  };
+}
+
+function readBrowserHandoffDraftId(handoff: BrowserHandoffRecord) {
+  return typeof handoff.draftId === 'number'
+    ? readPositiveInteger(handoff.draftId)
+    : readPositiveInteger(Number(handoff.draftId));
+}
+
+function findPendingBrowserHandoff(handoffs: BrowserHandoffRecord[], draftId: number) {
+  return handoffs.find((handoff) => handoff.status === 'pending' && readBrowserHandoffDraftId(handoff) === draftId) ?? null;
+}
+
+function isReadyBrowserHandoff(handoff: BrowserHandoffRecord) {
+  return handoff.status === 'pending' && (handoff.readiness ?? 'ready') === 'ready';
+}
+
+function getBrowserHandoffBlockedMessage(handoff: BrowserHandoffRecord) {
+  return handoff.sessionAction === 'relogin'
+    ? '等待刷新 Session 后继续发布接管。'
+    : '等待补充 Session 后继续发布接管。';
+}
+
+function toBrowserHandoffContract(handoff: BrowserHandoffRecord): BrowserHandoffContract {
+  return {
+    platform: handoff.platform,
+    accountKey: handoff.accountKey,
+    channelAccountId: handoff.channelAccountId,
+    readiness: handoff.readiness ?? 'ready',
+    sessionAction: readBrowserSessionAction(handoff.sessionAction),
+    artifactPath: handoff.artifactPath,
   };
 }
 
@@ -382,11 +445,13 @@ function getBatchStatusSuccessMessage(status: DraftStatus, draftTitle: string) {
 
 export function DraftsPage({
   loadDraftsAction = loadDraftsRequest,
+  loadBrowserHandoffsAction = defaultLoadDraftBrowserHandoffsAction,
   updateDraftAction = updateDraftRequest,
   publishDraftAction = publishDraftRequest,
   requestChannelAccountSessionActionAction = requestDraftSessionActionRequest,
   completeBrowserHandoffAction = completeDraftBrowserHandoffRequest,
   stateOverride,
+  browserHandoffsStateOverride,
   draftInteractionStateOverride,
 }: DraftsPageProps) {
   const [projectIdDraft, setProjectIdDraft] = useState('');
@@ -395,9 +460,20 @@ export function DraftsPage({
   const [batchFeedback, setBatchFeedback] = useState<BatchFeedback | null>(null);
   const projectId = parseProjectId(projectIdDraft);
   const currentScopeKey = projectId === undefined ? '' : String(projectId);
+  const shouldLoadBrowserHandoffsLive = browserHandoffsStateOverride === undefined;
   const { state, reload } = useAsyncQuery(
     () => (projectId === undefined ? loadDraftsAction() : loadDraftsAction(projectId)),
     [loadDraftsAction, projectId],
+  );
+  const { state: browserHandoffsState, reload: reloadBrowserHandoffs } = useAsyncQuery(
+    () =>
+      shouldLoadBrowserHandoffsLive
+        ? loadBrowserHandoffsAction()
+        : Promise.resolve({
+            handoffs: [],
+            total: 0,
+          } satisfies BrowserHandoffsResponse),
+    [loadBrowserHandoffsAction, shouldLoadBrowserHandoffsLive],
   );
   const [localDrafts, setLocalDrafts] = useState<DraftRecord[]>([]);
   const [formValuesById, setFormValuesById] = useState<Record<number, DraftFormValues>>({});
@@ -420,10 +496,15 @@ export function DraftsPage({
   localDraftsRef.current = localDrafts;
   publishStateByIdRef.current = publishStateById;
   const displayState = stateOverride ?? state;
+  const displayBrowserHandoffsState = browserHandoffsStateOverride ?? browserHandoffsState;
   const hasLiveDrafts =
     typeof displayState.data === 'object' &&
     displayState.data !== null &&
     Array.isArray((displayState.data as DraftsResponse).drafts);
+  const browserHandoffs =
+    displayBrowserHandoffsState.status === 'success' && displayBrowserHandoffsState.data
+      ? displayBrowserHandoffsState.data.handoffs
+      : [];
   const visibleDrafts = hasLiveDrafts
     ? localDrafts.length > 0
       ? localDrafts
@@ -610,6 +691,37 @@ export function DraftsPage({
     }
   }
 
+  function reloadDraftsSurface() {
+    void reload();
+    void reloadBrowserHandoffs();
+  }
+
+  function getDisplayPublishStateForDraft(draft: DraftRecord) {
+    const currentPublishState = getDraftMutationValue(displayPublishStateById, draft.id);
+    if (currentPublishState.status !== 'idle') {
+      return currentPublishState;
+    }
+
+    const persistedBrowserHandoff = findPendingBrowserHandoff(browserHandoffs, draft.id);
+    if (!persistedBrowserHandoff || resolvedPublishFollowUpStatuses.has(draft.status)) {
+      return currentPublishState;
+    }
+
+    return {
+      status: 'success',
+      message: `已恢复人工接管：${draft.title ?? `Draft #${draft.id}`}`,
+      error: null,
+      publishUrl: null,
+      contractMessage: isReadyBrowserHandoff(persistedBrowserHandoff)
+        ? '发现待处理的 browser handoff，可以直接结单。'
+        : getBrowserHandoffBlockedMessage(persistedBrowserHandoff),
+      contractStatus: 'manual_required',
+      contractDetails: {
+        browserHandoff: toBrowserHandoffContract(persistedBrowserHandoff),
+      },
+    } satisfies DraftMutationState;
+  }
+
   async function handleSaveDraft(draftId: number) {
     const scopeKeyAtStart = latestScopeKeyRef.current;
     const sourceDraft =
@@ -694,7 +806,7 @@ export function DraftsPage({
           delete nextValues[draftId];
           return nextValues;
         });
-        reload();
+        reloadDraftsSurface();
       }
       const nextPublishState = createPublishMutationState(result, draftTitle);
       clearBrowserHandoffDrafts(readBrowserHandoffContract(nextPublishState.contractDetails)?.artifactPath ?? null);
@@ -857,7 +969,7 @@ export function DraftsPage({
             result,
           },
         }));
-        reload();
+        reloadDraftsSurface();
       })
       .catch((error) => {
         if (scopeKeyAtStart !== latestScopeKeyRef.current) {
@@ -1097,7 +1209,7 @@ export function DraftsPage({
     );
 
     if (shouldReload) {
-      reload();
+      reloadDraftsSurface();
     }
   }
 
@@ -1122,6 +1234,7 @@ export function DraftsPage({
       (browserHandoff.sessionAction === 'request_session' || browserHandoff.sessionAction === 'relogin');
     const shouldShowBrowserHandoffCompletionActions =
       !!browserHandoff.artifactPath &&
+      (browserHandoff.readiness ?? 'ready') === 'ready' &&
       (!browserHandoffCompletionState.result || browserHandoffCompletionState.result.draftId !== draftId);
 
     return (
@@ -1222,7 +1335,7 @@ export function DraftsPage({
         eyebrow="Content Queue"
         title="Drafts"
         description="草稿列表会集中展示不同项目和渠道的候选内容，并支持审核与人工接管前的内容整理。"
-        actions={<ActionButton label="重新加载" onClick={reload} />}
+        actions={<ActionButton label="重新加载" onClick={reloadDraftsSurface} />}
       />
 
       <label style={{ display: 'grid', gap: '8px', marginBottom: '20px' }}>
@@ -1415,72 +1528,75 @@ export function DraftsPage({
               <p style={{ margin: 0, color: '#475569' }}>暂无草稿</p>
             ) : (
               filteredDrafts.map((draft) => (
-                <div key={draft.id} style={{ display: 'grid', gap: '8px' }}>
-                  {isBatchSelectableDraft(draft) ? (
-                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
-                      <button
-                        type="button"
-                        data-drafts-select-id={String(draft.id)}
-                        aria-pressed={selectedDraftIds.includes(draft.id) ? 'true' : 'false'}
-                        onClick={() => handleToggleDraftSelection(draft.id)}
-                        style={{
-                          width: 'fit-content',
-                          borderRadius: '999px',
-                          border: '1px solid #cbd5e1',
-                          background: selectedDraftIds.includes(draft.id) ? '#dbeafe' : '#ffffff',
-                          color: selectedDraftIds.includes(draft.id) ? '#1d4ed8' : '#334155',
-                          padding: '8px 12px',
-                          fontWeight: 700,
+                (() => {
+                  const displayPublishState = getDisplayPublishStateForDraft(draft);
+
+                  return (
+                    <div key={draft.id} style={{ display: 'grid', gap: '8px' }}>
+                      {isBatchSelectableDraft(draft) ? (
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                          <button
+                            type="button"
+                            data-drafts-select-id={String(draft.id)}
+                            aria-pressed={selectedDraftIds.includes(draft.id) ? 'true' : 'false'}
+                            onClick={() => handleToggleDraftSelection(draft.id)}
+                            style={{
+                              width: 'fit-content',
+                              borderRadius: '999px',
+                              border: '1px solid #cbd5e1',
+                              background: selectedDraftIds.includes(draft.id) ? '#dbeafe' : '#ffffff',
+                              color: selectedDraftIds.includes(draft.id) ? '#1d4ed8' : '#334155',
+                              padding: '8px 12px',
+                              fontWeight: 700,
+                            }}
+                          >
+                            {selectedDraftIds.includes(draft.id) ? '已加入批量' : '加入批量'}
+                          </button>
+                          <input
+                            type="checkbox"
+                            checked={selectedDraftIds.includes(draft.id)}
+                            data-draft-select-item={String(draft.id)}
+                            aria-pressed={selectedDraftIds.includes(draft.id) ? 'true' : 'false'}
+                            onChange={() => {
+                              handleToggleDraftSelection(draft.id);
+                            }}
+                          />
+                        </div>
+                      ) : null}
+                      <DraftEditorCard
+                        draft={draft}
+                        formValues={getDraftFormValue(displayFormValuesById, draft)}
+                        saveState={getDraftMutationValue(displaySaveStateById, draft.id)}
+                        publishState={displayPublishState}
+                        onTitleChange={(value) =>
+                          updateFormValues(draft.id, (currentValues) => ({
+                            ...currentValues,
+                            title: value,
+                          }))
+                        }
+                        onContentChange={(value) =>
+                          updateFormValues(draft.id, (currentValues) => ({
+                            ...currentValues,
+                            content: value,
+                          }))
+                        }
+                        onStatusChange={(value) =>
+                          updateFormValues(draft.id, (currentValues) => ({
+                            ...currentValues,
+                            status: value,
+                          }))
+                        }
+                        onSave={() => {
+                          void handleSaveDraft(draft.id);
                         }}
-                      >
-                        {selectedDraftIds.includes(draft.id) ? '已加入批量' : '加入批量'}
-                      </button>
-                      <input
-                        type="checkbox"
-                        checked={selectedDraftIds.includes(draft.id)}
-                        data-draft-select-item={String(draft.id)}
-                        aria-pressed={selectedDraftIds.includes(draft.id) ? 'true' : 'false'}
-                        onChange={() => {
-                          handleToggleDraftSelection(draft.id);
+                        onPublish={() => {
+                          void handlePublishDraft(draft.id);
                         }}
+                        publishFollowUp={renderDraftPublishFollowUp(draft.id, displayPublishState)}
                       />
                     </div>
-                  ) : null}
-                  <DraftEditorCard
-                    draft={draft}
-                    formValues={getDraftFormValue(displayFormValuesById, draft)}
-                    saveState={getDraftMutationValue(displaySaveStateById, draft.id)}
-                    publishState={getDraftMutationValue(displayPublishStateById, draft.id)}
-                    onTitleChange={(value) =>
-                      updateFormValues(draft.id, (currentValues) => ({
-                        ...currentValues,
-                        title: value,
-                      }))
-                    }
-                    onContentChange={(value) =>
-                      updateFormValues(draft.id, (currentValues) => ({
-                        ...currentValues,
-                        content: value,
-                      }))
-                    }
-                    onStatusChange={(value) =>
-                      updateFormValues(draft.id, (currentValues) => ({
-                        ...currentValues,
-                        status: value,
-                      }))
-                    }
-                    onSave={() => {
-                      void handleSaveDraft(draft.id);
-                    }}
-                    onPublish={() => {
-                      void handlePublishDraft(draft.id);
-                    }}
-                    publishFollowUp={renderDraftPublishFollowUp(
-                      draft.id,
-                      getDraftMutationValue(displayPublishStateById, draft.id),
-                    )}
-                  />
-                </div>
+                  );
+                })()
               ))
             )}
           </div>
