@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -28,10 +28,16 @@ const browserHandoffPollJobType = 'browser_handoff_poll';
 const inboxReplyHandoffPollJobType = 'inbox_reply_handoff_poll';
 let restoreCwd: (() => void) | null = null;
 
-function writeStorageStateFile(rootDir: string, storageStatePath: string) {
+function writeStorageStateFile(rootDir: string, storageStatePath: string, modifiedAt?: string) {
   const filePath = path.join(rootDir, storageStatePath);
   mkdirSync(path.dirname(filePath), { recursive: true });
   writeFileSync(filePath, JSON.stringify(defaultStorageState, null, 2));
+  if (typeof modifiedAt === 'string' && modifiedAt.trim().length > 0) {
+    const modifiedTime = new Date(modifiedAt);
+    utimesSync(filePath, modifiedTime, modifiedTime);
+  }
+
+  return filePath;
 }
 
 function writePendingBrowserHandoffArtifact(rootDir: string) {
@@ -453,6 +459,103 @@ describe('default job handlers', () => {
     }
   });
 
+  it('auto-imports a freshly written managed storage state when the session request handler runs', async () => {
+    const { rootDir } = createTestDatabasePath();
+
+    try {
+      const channelAccountStore = createChannelAccountStore();
+      const jobQueueStore = createJobQueueStore();
+      const channelAccount = channelAccountStore.create({
+        platform: 'x',
+        accountKey: '@promobot',
+        displayName: 'PromoBot X',
+        authType: 'browser',
+        status: 'healthy',
+      });
+      const requestedAt = '2026-04-21T09:15:00.000Z';
+      const requestArtifactPath = createSessionRequestArtifact({
+        channelAccountId: channelAccount.id,
+        platform: channelAccount.platform,
+        accountKey: channelAccount.accountKey,
+        action: 'request_session',
+        requestedAt,
+        jobId: 41,
+        jobStatus: 'pending',
+        nextStep: `/api/channel-accounts/${channelAccount.id}/session`,
+      });
+      writeStorageStateFile(
+        rootDir,
+        'browser-sessions/managed/x/-promobot.json',
+        '2026-04-21T09:16:30.000Z',
+      );
+
+      const handlers = createDefaultJobHandlers();
+      await handlers[channelAccountSessionRequestJobType](
+        {
+          accountId: channelAccount.id,
+          platform: channelAccount.platform,
+          accountKey: channelAccount.accountKey,
+          action: 'request_session',
+        },
+        createJobRecord({
+          id: 41,
+          type: channelAccountSessionRequestJobType,
+          payload: {
+            accountId: channelAccount.id,
+            platform: channelAccount.platform,
+            accountKey: channelAccount.accountKey,
+            action: 'request_session',
+          },
+          runAt: requestedAt,
+        }),
+      );
+
+      expect(channelAccountStore.getById(channelAccount.id)?.metadata.session).toEqual({
+        hasSession: true,
+        id: 'x:-promobot',
+        status: 'active',
+        validatedAt: '2026-04-21T09:16:30.000Z',
+        storageStatePath: 'browser-sessions/managed/x/-promobot.json',
+      });
+      expect(
+        JSON.parse(readFileSync(path.join(rootDir, requestArtifactPath), 'utf8')),
+      ).toEqual(
+        expect.objectContaining({
+          jobStatus: 'resolved',
+          resolvedAt: expect.any(String),
+          resolution: expect.objectContaining({
+            status: 'resolved',
+            source: 'browser_lane_result',
+            completedAt: '2026-04-21T09:16:30.000Z',
+            session: expect.objectContaining({
+              hasSession: true,
+              status: 'active',
+              validatedAt: '2026-04-21T09:16:30.000Z',
+              storageStatePath: 'browser-sessions/managed/x/-promobot.json',
+            }),
+          }),
+          savedStorageStatePath: 'browser-sessions/managed/x/-promobot.json',
+        }),
+      );
+      expect(
+        getSessionRequestResultArtifact({
+          platform: channelAccount.platform,
+          accountKey: channelAccount.accountKey,
+          action: 'request_session',
+          requestJobId: 41,
+        }),
+      ).toEqual(
+        expect.objectContaining({
+          consumedAt: expect.any(String),
+          savedStorageStatePath: 'browser-sessions/managed/x/-promobot.json',
+        }),
+      );
+      expect(jobQueueStore.list({ limit: 10 })).toEqual([]);
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('imports matching browser-lane result artifacts when the poll handler runs', async () => {
     const { rootDir } = createTestDatabasePath();
 
@@ -679,6 +782,91 @@ describe('default job handlers', () => {
       });
     } finally {
       vi.useRealTimers();
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('auto-imports a freshly written managed storage state when the session request poll handler runs', async () => {
+    const { rootDir } = createTestDatabasePath();
+
+    try {
+      const channelAccountStore = createChannelAccountStore();
+      const jobQueueStore = createJobQueueStore();
+      const channelAccount = channelAccountStore.create({
+        platform: 'instagram',
+        accountKey: '@promobot.official',
+        displayName: 'PromoBot Instagram',
+        authType: 'browser',
+        status: 'healthy',
+      });
+      createSessionRequestArtifact({
+        channelAccountId: channelAccount.id,
+        platform: channelAccount.platform,
+        accountKey: channelAccount.accountKey,
+        action: 'relogin',
+        requestedAt: '2026-04-21T09:15:00.000Z',
+        jobId: 41,
+        jobStatus: 'pending',
+        nextStep: `/api/channel-accounts/${channelAccount.id}/session`,
+      });
+      writeStorageStateFile(
+        rootDir,
+        'browser-sessions/managed/instagram/-promobot.official.json',
+        '2026-04-21T09:17:15.000Z',
+      );
+
+      const handlers = createDefaultJobHandlers();
+      await handlers[channelAccountSessionRequestPollJobType](
+        {
+          accountId: channelAccount.id,
+          platform: channelAccount.platform,
+          accountKey: channelAccount.accountKey,
+          action: 'relogin',
+          requestJobId: 41,
+          attempt: 0,
+          maxAttempts: 3,
+          pollDelayMs: 60_000,
+        },
+        createJobRecord({
+          id: 42,
+          type: channelAccountSessionRequestPollJobType,
+          payload: {
+            accountId: channelAccount.id,
+            platform: channelAccount.platform,
+            accountKey: channelAccount.accountKey,
+            action: 'relogin',
+            requestJobId: 41,
+            attempt: 0,
+            maxAttempts: 3,
+            pollDelayMs: 60_000,
+          },
+          runAt: '2026-04-21T09:17:15.000Z',
+        }),
+      );
+
+      expect(channelAccountStore.getById(channelAccount.id)?.metadata.session).toEqual({
+        hasSession: true,
+        id: 'instagram:-promobot.official',
+        status: 'active',
+        validatedAt: '2026-04-21T09:17:15.000Z',
+        storageStatePath: 'browser-sessions/managed/instagram/-promobot.official.json',
+      });
+      expect(jobQueueStore.list({ limit: 10 })).toEqual([]);
+      expect(
+        getSessionRequestResultArtifact({
+          platform: channelAccount.platform,
+          accountKey: channelAccount.accountKey,
+          action: 'relogin',
+          requestJobId: 41,
+        }),
+      ).toEqual(
+        expect.objectContaining({
+          consumedAt: expect.any(String),
+          savedStorageStatePath:
+            'browser-sessions/managed/instagram/-promobot.official.json',
+        }),
+      );
+    } finally {
       cleanupTestDatabasePath(rootDir);
     }
   });

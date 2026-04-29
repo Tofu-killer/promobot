@@ -1,11 +1,19 @@
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import path from 'node:path';
+
 import type { JobHandler, JobRecord } from '../../lib/jobs.js';
+import { getDatabasePath } from '../../lib/persistence.js';
 import { createChannelAccountStore, type ChannelAccountStore } from '../../store/channelAccounts.js';
 import { createJobQueueStore, type JobQueueStore } from '../../store/jobQueue.js';
 import {
   getSessionRequestArtifact,
   getSessionRequestResultArtifact,
 } from './sessionRequestArtifacts.js';
-import { importSessionRequestResultArtifact } from './sessionResultImporter.js';
+import {
+  importInlineSessionRequestResult,
+  importSessionRequestResultArtifact,
+} from './sessionResultImporter.js';
+import { createSessionStore } from './sessionStore.js';
 import type { BrowserSessionAction } from './sessionStore.js';
 
 export const channelAccountSessionRequestJobType = 'channel_account_session_request';
@@ -50,6 +58,8 @@ export interface ChannelAccountSessionRequestJobHandlerDependencies {
   jobQueueStore?: Pick<JobQueueStore, 'enqueue' | 'list'>;
   now?: () => Date;
   importSessionRequestResultArtifact?: typeof importSessionRequestResultArtifact;
+  importInlineSessionRequestResult?: typeof importInlineSessionRequestResult;
+  sessionStore?: Pick<ReturnType<typeof createSessionStore>, 'getSession'>;
 }
 
 export function createChannelAccountSessionRequestJobHandler(
@@ -60,10 +70,13 @@ export function createChannelAccountSessionRequestJobHandler(
   const now = dependencies.now ?? (() => new Date());
   const importSessionResultArtifact =
     dependencies.importSessionRequestResultArtifact ?? importSessionRequestResultArtifact;
+  const importInlineSessionResult =
+    dependencies.importInlineSessionRequestResult ?? importInlineSessionRequestResult;
+  const sessionStore = dependencies.sessionStore ?? createSessionStore();
 
   return async (payload, job) => {
     const normalizedPayload = normalizeSessionRequestPayload(payload);
-    validateChannelAccount(channelAccountStore, normalizedPayload);
+    const channelAccount = validateChannelAccount(channelAccountStore, normalizedPayload);
 
     const requestArtifact = getSessionRequestArtifact({
       platform: normalizedPayload.platform,
@@ -90,6 +103,18 @@ export function createChannelAccountSessionRequestJobHandler(
 
     if (resultArtifact?.consumedAt === null) {
       await importSessionResultArtifact(resultArtifact.artifactPath);
+      return;
+    }
+
+    if (
+      await tryImportExistingSession({
+        channelAccount,
+        requestArtifactPath: requestArtifact.artifactPath,
+        requestedAt: requestArtifact.requestedAt,
+        sessionStore,
+        importInlineSessionResult,
+      })
+    ) {
       return;
     }
 
@@ -126,10 +151,13 @@ export function createChannelAccountSessionRequestPollJobHandler(
   const now = dependencies.now ?? (() => new Date());
   const importSessionResultArtifact =
     dependencies.importSessionRequestResultArtifact ?? importSessionRequestResultArtifact;
+  const importInlineSessionResult =
+    dependencies.importInlineSessionRequestResult ?? importInlineSessionRequestResult;
+  const sessionStore = dependencies.sessionStore ?? createSessionStore();
 
   return async (payload, job) => {
     const normalizedPayload = normalizeSessionRequestPollPayload(payload);
-    validateChannelAccount(channelAccountStore, normalizedPayload);
+    const channelAccount = validateChannelAccount(channelAccountStore, normalizedPayload);
 
     const requestArtifact = getSessionRequestArtifact({
       platform: normalizedPayload.platform,
@@ -156,6 +184,18 @@ export function createChannelAccountSessionRequestPollJobHandler(
 
     if (resultArtifact?.consumedAt === null) {
       await importSessionResultArtifact(resultArtifact.artifactPath);
+      return;
+    }
+
+    if (
+      await tryImportExistingSession({
+        channelAccount,
+        requestArtifactPath: requestArtifact.artifactPath,
+        requestedAt: requestArtifact.requestedAt,
+        sessionStore,
+        importInlineSessionResult,
+      })
+    ) {
       return;
     }
 
@@ -208,6 +248,199 @@ function validateChannelAccount(
       `channel account ${payload.accountId} payload mismatch for ${channelAccountSessionRequestJobType}`,
     );
   }
+
+  return channelAccount;
+}
+
+async function tryImportExistingSession(input: {
+  channelAccount: NonNullable<ReturnType<Pick<ChannelAccountStore, 'getById'>['getById']>>;
+  requestArtifactPath: string;
+  requestedAt: string;
+  sessionStore: Pick<ReturnType<typeof createSessionStore>, 'getSession'>;
+  importInlineSessionResult: typeof importInlineSessionRequestResult;
+}) {
+  const candidate = findExistingSessionImportCandidate({
+    platform: input.channelAccount.platform,
+    accountKey: input.channelAccount.accountKey,
+    requestedAt: input.requestedAt,
+    sessionStore: input.sessionStore,
+  });
+  if (!candidate) {
+    return false;
+  }
+
+  await input.importInlineSessionResult({
+    requestArtifactPath: input.requestArtifactPath,
+    storageState: candidate.storageState,
+    sessionStatus: candidate.sessionStatus,
+    validatedAt: candidate.validatedAt,
+    completedAt: candidate.completedAt,
+    ...(candidate.notes !== undefined ? { notes: candidate.notes } : {}),
+  });
+
+  return true;
+}
+
+function findExistingSessionImportCandidate(input: {
+  platform: string;
+  accountKey: string;
+  requestedAt: string;
+  sessionStore: Pick<ReturnType<typeof createSessionStore>, 'getSession'>;
+}) {
+  const sessionMetadata = input.sessionStore.getSession(input.platform, input.accountKey);
+  if (sessionMetadata?.status === 'active') {
+    const storageState = loadStorageState(sessionMetadata.storageStatePath);
+    const completedAt = resolveCandidateCompletedAt(sessionMetadata.updatedAt, input.requestedAt);
+    if (storageState && completedAt) {
+      return {
+        storageState,
+        sessionStatus: sessionMetadata.status,
+        validatedAt: completedAt,
+        completedAt,
+        notes: sessionMetadata.notes,
+      };
+    }
+  }
+
+  const managedStorageStatePath = buildManagedStorageStatePath(input.platform, input.accountKey);
+  const storageState = loadStorageState(managedStorageStatePath);
+  const completedAt = readStorageStateModifiedAt(managedStorageStatePath, input.requestedAt);
+  if (!storageState || !completedAt) {
+    return null;
+  }
+
+  return {
+    storageState,
+    sessionStatus: 'active' as const,
+    validatedAt: completedAt,
+    completedAt,
+    notes: undefined,
+  };
+}
+
+function resolveCandidateCompletedAt(updatedAt: string | null, requestedAt: string) {
+  const updatedAtMs = updatedAt ? Date.parse(updatedAt) : Number.NaN;
+  const requestedAtMs = Date.parse(requestedAt);
+
+  if (Number.isFinite(updatedAtMs) && Number.isFinite(requestedAtMs)) {
+    if (updatedAtMs < requestedAtMs) {
+      return null;
+    }
+
+    return new Date(updatedAtMs).toISOString();
+  }
+
+  if (!Number.isFinite(updatedAtMs)) {
+    return null;
+  }
+
+  return new Date(updatedAtMs).toISOString();
+}
+
+function buildManagedStorageStatePath(platform: string, accountKey: string) {
+  return toPortablePath(
+    path.join('browser-sessions', 'managed', sanitizePlatformKey(platform), `${sanitizeAccountKey(accountKey)}.json`),
+  );
+}
+
+function readStorageStateModifiedAt(storageStatePath: string, requestedAt: string) {
+  try {
+    const absolutePath = resolveStorageStateAbsolutePath(storageStatePath);
+    if (!absolutePath || !existsSync(absolutePath)) {
+      return null;
+    }
+
+    const modifiedAtMs = statSync(absolutePath).mtime.getTime();
+    const requestedAtMs = Date.parse(requestedAt);
+    if (Number.isFinite(requestedAtMs) && modifiedAtMs < requestedAtMs) {
+      return null;
+    }
+
+    return new Date(modifiedAtMs).toISOString();
+  } catch {
+    return null;
+  }
+}
+
+function loadStorageState(storageStatePath: string) {
+  try {
+    const absolutePath = resolveStorageStateAbsolutePath(storageStatePath);
+    if (!absolutePath || !existsSync(absolutePath)) {
+      return null;
+    }
+
+    const parsed = JSON.parse(readFileSync(absolutePath, 'utf8')) as Record<string, unknown>;
+    return isValidStorageStatePayload(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveStorageStateAbsolutePath(storageStatePath: string) {
+  const normalizedPath = storageStatePath.trim();
+  if (!normalizedPath) {
+    return null;
+  }
+
+  for (const allowedRoot of getAllowedStorageStateRoots()) {
+    const candidate = path.isAbsolute(normalizedPath)
+      ? path.resolve(normalizedPath)
+      : path.resolve(allowedRoot, normalizedPath);
+    if (!isPathWithinRoot(candidate, allowedRoot)) {
+      continue;
+    }
+
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+function getAllowedStorageStateRoots() {
+  const databasePath = getDatabasePath();
+  const sessionRoot =
+    databasePath === ':memory:' || databasePath.startsWith('file:')
+      ? path.resolve(process.cwd(), 'data/browser-sessions')
+      : path.join(path.dirname(databasePath), 'browser-sessions');
+
+  return Array.from(
+    new Set([
+      path.resolve(process.cwd()),
+      path.resolve(sessionRoot),
+      path.resolve(path.dirname(sessionRoot)),
+    ]),
+  );
+}
+
+function isPathWithinRoot(candidatePath: string, rootPath: string) {
+  const relativePath = path.relative(rootPath, candidatePath);
+  return relativePath === '' || (!relativePath.startsWith('..') && !path.isAbsolute(relativePath));
+}
+
+function sanitizeAccountKey(accountKey: string) {
+  const sanitized = accountKey.trim().replace(/[^a-zA-Z0-9._-]+/g, '-');
+  return sanitized.length > 0 ? sanitized : 'default';
+}
+
+function sanitizePlatformKey(platform: string) {
+  const sanitized = platform.trim().replace(/[^a-zA-Z0-9._-]+/g, '-');
+  return sanitized.length > 0 ? sanitized : 'default';
+}
+
+function toPortablePath(value: string) {
+  return value.split(path.sep).join('/');
+}
+
+function isValidStorageStatePayload(value: Record<string, unknown>) {
+  return (
+    isPlainObject(value) &&
+    Array.isArray(value.cookies) &&
+    value.cookies.every(isPlainObject) &&
+    Array.isArray(value.origins) &&
+    value.origins.every(isPlainObject)
+  );
 }
 
 function normalizeSessionRequestPayload(
