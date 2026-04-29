@@ -2034,6 +2034,75 @@ describe('Monitor follow-up actions', () => {
     expect(html).toContain('V2EX');
   });
 
+  it('renders setup guidance when the monitor has no live signals yet', async () => {
+    const { MonitorPage } = await import('../../src/client/pages/Monitor');
+
+    const html = renderPage(MonitorPage, {
+      stateOverride: {
+        status: 'success',
+        data: {
+          items: [],
+          total: 0,
+        },
+      },
+    });
+
+    expect(html).toContain('这里还没有真实监控动态');
+    expect(html).toContain('前往 Settings 配置监控源');
+    expect(html).toContain('href="/settings"');
+    expect(html).toContain('前往 Projects 配置 Source Config');
+    expect(html).toContain('href="/projects"');
+  });
+
+  it('keeps the filter-empty monitor message when live data exists but the current source filter has no matches', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { MonitorPage } = await import('../../src/client/pages/Monitor');
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(MonitorPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              items: [
+                {
+                  id: 31,
+                  source: 'rss',
+                  title: 'Only RSS signal',
+                  detail: 'No Reddit signal yet.',
+                  status: 'new',
+                  createdAt: '2026-04-19T03:00:00.000Z',
+                },
+              ],
+              total: 1,
+            },
+          },
+        }),
+      );
+      await flush();
+    });
+
+    const redditFilter = findElement(
+      container,
+      (element) => element.getAttribute('data-monitor-filter-source') === 'reddit',
+    );
+
+    await act(async () => {
+      redditFilter?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('当前筛选下暂无监控动态。');
+    expect(collectText(container)).not.toContain('这里还没有真实监控动态');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('shows monitor fetch feedback after clicking the action', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');

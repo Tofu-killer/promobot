@@ -3,6 +3,7 @@ import { apiRequest } from '../lib/api';
 import type { AsyncState } from '../hooks/useAsyncRequest';
 import { useAsyncAction, useAsyncQuery } from '../hooks/useAsyncRequest';
 import { ActionButton } from '../components/ActionButton';
+import { DataSourceSetupHint } from '../components/DataSourceSetupHint';
 import { InboxDetail } from '../components/InboxDetail';
 import { PageHeader } from '../components/PageHeader';
 import { SectionCard } from '../components/SectionCard';
@@ -1346,8 +1347,10 @@ export function InboxPage({
 
             <SectionCard title="待回复队列" description={`当前筛选下 ${filteredItems.length} 条 / 总计 ${displayItems.length} 条收件箱记录`}>
               <div style={{ display: 'grid', gap: '12px' }}>
-                {filteredItems.length === 0 ? (
-                  <p style={{ margin: 0, color: '#475569' }}>{displayItems.length === 0 ? '暂无命中内容' : '当前筛选下暂无命中内容'}</p>
+                {displayItems.length === 0 ? (
+                  <DataSourceSetupHint dataLabel="收件箱会话" />
+                ) : filteredItems.length === 0 ? (
+                  <p style={{ margin: 0, color: '#475569' }}>当前筛选下暂无命中内容</p>
                 ) : (
                   filteredItems.map((item) => (
                     (() => {

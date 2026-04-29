@@ -3,6 +3,7 @@ import { apiRequest } from '../lib/api';
 import type { AsyncState } from '../hooks/useAsyncRequest';
 import { useAsyncAction, useAsyncQuery } from '../hooks/useAsyncRequest';
 import { ActionButton } from '../components/ActionButton';
+import { DataSourceSetupHint } from '../components/DataSourceSetupHint';
 import { PageHeader } from '../components/PageHeader';
 import { SectionCard } from '../components/SectionCard';
 import { SentimentChart } from '../components/SentimentChart';
@@ -512,7 +513,9 @@ export function ReputationPage({
 
             <SectionCard title="重点负面提及" description="高风险条目需要优先回应，避免在多个渠道重复扩散。">
               <div style={{ display: 'grid', gap: '12px' }}>
-                {priorityItems.length === 0 ? (
+                {viewData.total === 0 ? (
+                  <DataSourceSetupHint dataLabel="口碑提及" />
+                ) : priorityItems.length === 0 ? (
                   <p style={{ margin: 0, color: '#475569' }}>暂无重点负面提及</p>
                 ) : (
                   priorityItems.map((item) => {

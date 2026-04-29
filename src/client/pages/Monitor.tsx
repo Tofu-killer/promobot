@@ -3,6 +3,7 @@ import { apiRequest } from '../lib/api';
 import type { AsyncState } from '../hooks/useAsyncRequest';
 import { useAsyncAction, useAsyncQuery } from '../hooks/useAsyncRequest';
 import { ActionButton } from '../components/ActionButton';
+import { DataSourceSetupHint } from '../components/DataSourceSetupHint';
 import { MonitorFeed } from '../components/MonitorFeed';
 import { PageHeader } from '../components/PageHeader';
 import { SectionCard } from '../components/SectionCard';
@@ -473,11 +474,15 @@ export function MonitorPage({
             </SectionCard>
 
             <SectionCard title="最新动态" description={`当前筛选下 ${filteredItems.length} 条 / 总计 ${viewData.total} 条监控动态`}>
-              <MonitorFeed
-                items={filteredItems}
-                selectedItemId={selectedItemId}
-                onSelectItem={handleSelectItem}
-              />
+              {viewData.total === 0 ? (
+                <DataSourceSetupHint dataLabel="监控动态" />
+              ) : (
+                <MonitorFeed
+                  items={filteredItems}
+                  selectedItemId={selectedItemId}
+                  onSelectItem={handleSelectItem}
+                />
+              )}
             </SectionCard>
           </div>
         </>

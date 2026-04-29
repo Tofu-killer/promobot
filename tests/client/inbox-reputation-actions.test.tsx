@@ -1070,6 +1070,11 @@ describe('Inbox action wiring', () => {
     expectDisabledButton(html, 'AI 生成回复');
     expect(html).toContain('暂无可生成回复的会话');
     expect(html).toContain('收件箱为空，暂无可生成回复的会话。');
+    expect(html).toContain('这里还没有真实收件箱会话');
+    expect(html).toContain('前往 Settings 配置监控源');
+    expect(html).toContain('href="/settings"');
+    expect(html).toContain('前往 Projects 配置 Source Config');
+    expect(html).toContain('href="/projects"');
   });
 
   it('renders a real original-post link when the inbox item excerpt already includes a source URL', async () => {
@@ -4065,6 +4070,74 @@ describe('Reputation action wiring', () => {
     expect(html).toContain('预览数据不可回写口碑状态或转入 Social Inbox。');
     expect(html).not.toContain('当前重点跟进项');
     expect(html).toContain('预览数据不可设为重点项');
+  });
+
+  it('renders setup guidance when the reputation workspace has no live mentions yet', async () => {
+    const { ReputationPage } = await import('../../src/client/pages/Reputation');
+
+    const html = renderPage(ReputationPage, {
+      stateOverride: {
+        status: 'success',
+        data: {
+          total: 0,
+          positive: 0,
+          neutral: 0,
+          negative: 0,
+          trend: [],
+          items: [],
+        },
+      } satisfies ApiState<unknown>,
+    });
+
+    expect(html).toContain('这里还没有真实口碑提及');
+    expect(html).toContain('前往 Settings 配置监控源');
+    expect(html).toContain('href="/settings"');
+    expect(html).toContain('前往 Projects 配置 Source Config');
+    expect(html).toContain('href="/projects"');
+  });
+
+  it('keeps the priority-empty reputation message when live mentions exist but none are negative', async () => {
+    const { ReputationPage } = await import('../../src/client/pages/Reputation');
+
+    const html = renderPage(ReputationPage, {
+      stateOverride: {
+        status: 'success',
+        data: {
+          total: 2,
+          positive: 1,
+          neutral: 1,
+          negative: 0,
+          trend: [
+            { label: '正向', value: 1 },
+            { label: '中性', value: 1 },
+            { label: '负向', value: 0 },
+          ],
+          items: [
+            {
+              id: 18,
+              source: 'reddit',
+              sentiment: 'positive',
+              status: 'handled',
+              title: 'Praise for onboarding',
+              detail: 'Users liked the new onboarding flow.',
+              createdAt: '2026-04-19T11:00:00.000Z',
+            },
+            {
+              id: 19,
+              source: 'x',
+              sentiment: 'neutral',
+              status: 'new',
+              title: 'Question about rollout timing',
+              detail: 'No clear sentiment, mostly asking for dates.',
+              createdAt: '2026-04-19T12:00:00.000Z',
+            },
+          ],
+        },
+      } satisfies ApiState<unknown>,
+    });
+
+    expect(html).toContain('暂无重点负面提及');
+    expect(html).not.toContain('这里还没有真实口碑提及');
   });
 
   it('normalizes reputation sentiment bars against total mentions before rendering percentages', async () => {
