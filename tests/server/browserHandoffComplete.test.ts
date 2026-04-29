@@ -161,7 +161,13 @@ function createAppFetch(app: ReturnType<typeof createApp>) {
   return { calls, fetchImpl };
 }
 
-function writePendingBrowserHandoffArtifact(rootDir: string) {
+function writePendingBrowserHandoffArtifact(
+  rootDir: string,
+  options: {
+    readiness?: 'ready' | 'blocked';
+    sessionAction?: 'request_session' | 'relogin' | null;
+  } = {},
+) {
   const artifactPath =
     'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-1.json';
   const absolutePath = path.join(rootDir, artifactPath);
@@ -178,6 +184,7 @@ function writePendingBrowserHandoffArtifact(rootDir: string) {
         content: 'Need manual browser handoff',
         target: 'group-123',
         accountKey: 'launch-campaign',
+        readiness: options.readiness ?? 'ready',
         session: {
           hasSession: true,
           id: 'facebookGroup:launch-campaign',
@@ -185,6 +192,7 @@ function writePendingBrowserHandoffArtifact(rootDir: string) {
           validatedAt: '2026-04-23T10:00:00.000Z',
           storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
         },
+        sessionAction: options.sessionAction ?? null,
         createdAt: '2026-04-23T10:05:00.000Z',
         updatedAt: '2026-04-23T10:05:00.000Z',
         resolvedAt: null,
@@ -387,6 +395,39 @@ describe('browser handoff completion submitter', () => {
     }
   });
 
+  it('fails when the handoff artifact is still waiting for session restoration', async () => {
+    const { rootDir } = createTestDatabasePath();
+
+    try {
+      const draftStore = createSQLiteDraftStore();
+      draftStore.create({
+        platform: 'facebook-group',
+        title: 'Community update',
+        content: 'Need manual browser handoff',
+        target: 'group-123',
+        metadata: {
+          accountKey: 'launch-campaign',
+        },
+      });
+      const artifactPath = writePendingBrowserHandoffArtifact(rootDir, {
+        readiness: 'blocked',
+        sessionAction: 'request_session',
+      });
+
+      await expect(
+        submitBrowserHandoffCompletion({
+          artifactPath,
+          publishStatus: 'published',
+        }),
+      ).rejects.toMatchObject<Partial<BrowserHandoffCompletionSubmitError>>({
+        message: 'browser handoff artifact is still waiting for session restoration',
+        statusCode: 409,
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('writes a browser handoff result artifact locally when queueResult is enabled', async () => {
     const { rootDir } = createTestDatabasePath();
 
@@ -451,6 +492,40 @@ describe('browser handoff completion submitter', () => {
           resolvedAt: null,
         }),
       );
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('does not queue a browser handoff result artifact while the handoff is still blocked', async () => {
+    const { rootDir } = createTestDatabasePath();
+
+    try {
+      const draftStore = createSQLiteDraftStore();
+      draftStore.create({
+        platform: 'facebook-group',
+        title: 'Community update',
+        content: 'Need manual browser handoff',
+        target: 'group-123',
+        metadata: {
+          accountKey: 'launch-campaign',
+        },
+      });
+      const artifactPath = writePendingBrowserHandoffArtifact(rootDir, {
+        readiness: 'blocked',
+        sessionAction: 'relogin',
+      });
+
+      await expect(
+        submitBrowserHandoffCompletion({
+          artifactPath,
+          publishStatus: 'published',
+          queueResult: true,
+        }),
+      ).rejects.toMatchObject<Partial<BrowserHandoffCompletionSubmitError>>({
+        message: 'browser handoff artifact is still waiting for session restoration',
+        statusCode: 409,
+      });
     } finally {
       cleanupTestDatabasePath(rootDir);
     }

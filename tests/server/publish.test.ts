@@ -1582,6 +1582,7 @@ describe('publish api', () => {
             storageStatePath: 'artifacts/browser-sessions/weibo.json',
           },
           sessionAction: 'relogin',
+          artifactPath: 'artifacts/browser-handoffs/weibo/launch-campaign/weibo-draft-1.json',
         },
       },
     });

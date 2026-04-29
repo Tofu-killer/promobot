@@ -2920,6 +2920,8 @@ describe('channel accounts api', () => {
               title: 'Stale handoff',
               accountKey: 'launch-campaign',
               status: 'obsolete',
+              readiness: 'ready',
+              sessionAction: null,
               artifactPath:
                 'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-22.json',
               createdAt: '2026-04-21T09:10:00.000Z',

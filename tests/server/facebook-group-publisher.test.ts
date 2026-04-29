@@ -47,6 +47,36 @@ describe('publishToFacebookGroup', () => {
 
     expect(sessionStore.createSessionStore).toHaveBeenCalledTimes(1);
     expect(sessionStore.getSession).toHaveBeenCalledWith('facebookGroup', 'launch-campaign');
+    const artifactPath = path.join(
+      outputDir,
+      'artifacts',
+      'browser-handoffs',
+      'facebookGroup',
+      'launch-campaign',
+      'facebookGroup-draft-12.json',
+    );
+    expect(JSON.parse(readFileSync(artifactPath, 'utf8'))).toEqual({
+      type: 'browser_manual_handoff',
+      status: 'pending',
+      platform: 'facebookGroup',
+      draftId: '12',
+      title: null,
+      content: 'Needs browser handoff',
+      target: 'group-123',
+      accountKey: 'launch-campaign',
+      readiness: 'blocked',
+      session: {
+        hasSession: false,
+        status: 'missing',
+        validatedAt: null,
+        storageStatePath: null,
+      },
+      sessionAction: 'request_session',
+      createdAt: '2026-04-21T12:00:00.000Z',
+      updatedAt: '2026-04-21T12:00:00.000Z',
+      resolvedAt: null,
+      resolution: null,
+    });
     expect(result).toEqual({
       platform: 'facebookGroup',
       mode: 'browser',
@@ -68,6 +98,8 @@ describe('publishToFacebookGroup', () => {
             storageStatePath: null,
           },
           sessionAction: 'request_session',
+          artifactPath:
+            'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-12.json',
         },
       },
     });
@@ -113,6 +145,7 @@ describe('publishToFacebookGroup', () => {
       content: 'Ready for browser handoff',
       target: 'group-123',
       accountKey: 'launch-campaign',
+      readiness: 'ready',
       session: {
         hasSession: true,
         id: 'facebookGroup:launch-campaign',
@@ -121,6 +154,7 @@ describe('publishToFacebookGroup', () => {
         storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
         notes: 'manual login completed',
       },
+      sessionAction: null,
       createdAt: '2026-04-21T12:00:00.000Z',
       updatedAt: '2026-04-21T12:00:00.000Z',
       resolvedAt: null,
@@ -208,12 +242,12 @@ describe('publishToFacebookGroup', () => {
     expect(JSON.parse(readFileSync(artifactPath, 'utf8'))).toEqual(
       expect.objectContaining({
         type: 'browser_manual_handoff',
-        status: 'obsolete',
-        resolvedAt: '2026-04-21T12:00:00.000Z',
-        resolution: {
-          status: 'obsolete',
-          reason: 'relogin',
-        },
+        status: 'pending',
+        readiness: 'blocked',
+        sessionAction: 'relogin',
+        content: 'Needs relogin now',
+        resolvedAt: null,
+        resolution: null,
       }),
     );
   });
@@ -295,11 +329,12 @@ describe('publishToFacebookGroup', () => {
     );
     expect(JSON.parse(readFileSync(artifact32Path, 'utf8'))).toEqual(
       expect.objectContaining({
-        status: 'obsolete',
-        resolution: {
-          status: 'obsolete',
-          reason: 'relogin',
-        },
+        status: 'pending',
+        readiness: 'blocked',
+        sessionAction: 'relogin',
+        content: 'Needs relogin now',
+        resolvedAt: null,
+        resolution: null,
       }),
     );
   });
@@ -326,6 +361,37 @@ describe('publishToFacebookGroup', () => {
     });
 
     expect(sessionStore.getSession).toHaveBeenCalledWith('facebookGroup', 'launch-campaign');
+    const artifactPath = path.join(
+      outputDir,
+      'artifacts',
+      'browser-handoffs',
+      'facebookGroup',
+      'launch-campaign',
+      'facebookGroup-draft-19.json',
+    );
+    expect(JSON.parse(readFileSync(artifactPath, 'utf8'))).toEqual({
+      type: 'browser_manual_handoff',
+      status: 'pending',
+      platform: 'facebookGroup',
+      draftId: '19',
+      title: null,
+      content: 'Needs relogin',
+      target: 'group-123',
+      accountKey: 'launch-campaign',
+      readiness: 'blocked',
+      session: {
+        hasSession: true,
+        id: 'facebookGroup:launch-campaign',
+        status: 'expired',
+        validatedAt: '2026-04-19T10:25:00.000Z',
+        storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
+      },
+      sessionAction: 'relogin',
+      createdAt: '2026-04-21T12:00:00.000Z',
+      updatedAt: '2026-04-21T12:00:00.000Z',
+      resolvedAt: null,
+      resolution: null,
+    });
     expect(result).toEqual({
       platform: 'facebookGroup',
       mode: 'browser',
@@ -348,6 +414,8 @@ describe('publishToFacebookGroup', () => {
             storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
           },
           sessionAction: 'relogin',
+          artifactPath:
+            'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-19.json',
         },
       },
     });

@@ -108,6 +108,8 @@ export interface BrowserHandoffRecord {
   title: string | null;
   accountKey: string;
   status: string;
+  readiness?: string;
+  sessionAction?: string | null;
   artifactPath: string;
   createdAt: string;
   updatedAt: string;
@@ -519,10 +521,20 @@ function isReadyInboxReplyHandoff(handoff: InboxReplyHandoffRecord) {
   return handoff.status === 'pending' && (handoff.readiness ?? 'ready') === 'ready';
 }
 
+function isReadyBrowserHandoff(handoff: BrowserHandoffRecord) {
+  return handoff.status === 'pending' && (handoff.readiness ?? 'ready') === 'ready';
+}
+
 function getInboxReplyHandoffBlockedMessage(handoff: InboxReplyHandoffRecord) {
   return handoff.sessionAction === 'relogin'
     ? '等待刷新 Session 后继续回复接管。'
     : '等待补充 Session 后继续回复接管。';
+}
+
+function getBrowserHandoffBlockedMessage(handoff: BrowserHandoffRecord) {
+  return handoff.sessionAction === 'relogin'
+    ? '等待刷新 Session 后继续发布接管。'
+    : '等待补充 Session 后继续发布接管。';
 }
 
 function readResolutionDetail(value: unknown) {
@@ -1999,9 +2011,14 @@ export function SettingsPage({
                     <div style={{ color: '#475569' }}>
                       publishedAt: {formatContractValue(readResolutionPublishedAt(handoff.resolution))}
                     </div>
+                    {handoff.status === 'pending' && !isReadyBrowserHandoff(handoff) ? (
+                      <div style={{ marginTop: '6px', color: '#92400e', fontWeight: 700 }}>
+                        {getBrowserHandoffBlockedMessage(handoff)}
+                      </div>
+                    ) : null}
                     {handoff.resolvedAt === null &&
                     readStatusValue(handoff.resolution) === null &&
-                    handoff.status === 'pending' ? (
+                    isReadyBrowserHandoff(handoff) ? (
                       <div style={{ display: 'grid', gap: '10px', marginTop: '6px' }}>
                         <label style={{ display: 'grid', gap: '6px' }}>
                           <span style={{ fontWeight: 700, color: '#334155' }}>publishUrl</span>

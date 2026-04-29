@@ -178,6 +178,9 @@ describe('publishers', () => {
   });
 
   it('requests a saved browser session before xiaohongshu manual handoff when no session exists', async () => {
+    const outputDir = mkdtempSync(path.join(tmpdir(), 'promobot-browser-handoff-'));
+    tempDirs.push(outputDir);
+    process.env.BROWSER_HANDOFF_OUTPUT_DIR = outputDir;
     const sessionStore = mockSession(null);
 
     const result = await publishToXiaohongshu({
@@ -191,6 +194,42 @@ describe('publishers', () => {
 
     expect(sessionStore.createSessionStore).toHaveBeenCalledTimes(1);
     expect(sessionStore.getSession).toHaveBeenCalledWith('xiaohongshu', 'launch-campaign');
+    expect(
+      JSON.parse(
+        readFileSync(
+          path.join(
+            outputDir,
+            'artifacts',
+            'browser-handoffs',
+            'xiaohongshu',
+            'launch-campaign',
+            'xiaohongshu-draft-12.json',
+          ),
+          'utf8',
+        ),
+      ),
+    ).toEqual({
+      type: 'browser_manual_handoff',
+      status: 'pending',
+      platform: 'xiaohongshu',
+      draftId: '12',
+      title: null,
+      content: 'Needs browser handoff',
+      target: 'brand-account',
+      accountKey: 'launch-campaign',
+      readiness: 'blocked',
+      session: {
+        hasSession: false,
+        status: 'missing',
+        validatedAt: null,
+        storageStatePath: null,
+      },
+      sessionAction: 'request_session',
+      createdAt: expect.any(String),
+      updatedAt: expect.any(String),
+      resolvedAt: null,
+      resolution: null,
+    });
     expect(result).toEqual({
       platform: 'xiaohongshu',
       mode: 'browser',
@@ -212,6 +251,8 @@ describe('publishers', () => {
             storageStatePath: null,
           },
           sessionAction: 'request_session',
+          artifactPath:
+            'artifacts/browser-handoffs/xiaohongshu/launch-campaign/xiaohongshu-draft-12.json',
         },
       },
     });
@@ -267,6 +308,7 @@ describe('publishers', () => {
       content: 'Ready for browser handoff',
       target: 'brand-account',
       accountKey: 'launch-campaign',
+      readiness: 'ready',
       session: {
         hasSession: true,
         id: 'xiaohongshu:launch-campaign',
@@ -275,6 +317,7 @@ describe('publishers', () => {
         storageStatePath: 'artifacts/browser-sessions/xiaohongshu.json',
         notes: 'manual login completed',
       },
+      sessionAction: null,
       createdAt: expect.any(String),
       updatedAt: expect.any(String),
       resolvedAt: null,
@@ -311,6 +354,9 @@ describe('publishers', () => {
   });
 
   it('requests xiaohongshu relogin when the saved session is expired', async () => {
+    const outputDir = mkdtempSync(path.join(tmpdir(), 'promobot-browser-handoff-'));
+    tempDirs.push(outputDir);
+    process.env.BROWSER_HANDOFF_OUTPUT_DIR = outputDir;
     const sessionStore = mockSession({
       id: 'xiaohongshu:launch-campaign',
       platform: 'xiaohongshu',
@@ -332,6 +378,43 @@ describe('publishers', () => {
     });
 
     expect(sessionStore.getSession).toHaveBeenCalledWith('xiaohongshu', 'launch-campaign');
+    expect(
+      JSON.parse(
+        readFileSync(
+          path.join(
+            outputDir,
+            'artifacts',
+            'browser-handoffs',
+            'xiaohongshu',
+            'launch-campaign',
+            'xiaohongshu-draft-19.json',
+          ),
+          'utf8',
+        ),
+      ),
+    ).toEqual({
+      type: 'browser_manual_handoff',
+      status: 'pending',
+      platform: 'xiaohongshu',
+      draftId: '19',
+      title: null,
+      content: 'Needs relogin',
+      target: 'brand-account',
+      accountKey: 'launch-campaign',
+      readiness: 'blocked',
+      session: {
+        hasSession: true,
+        id: 'xiaohongshu:launch-campaign',
+        status: 'expired',
+        validatedAt: '2026-04-19T10:25:00.000Z',
+        storageStatePath: 'artifacts/browser-sessions/xiaohongshu.json',
+      },
+      sessionAction: 'relogin',
+      createdAt: expect.any(String),
+      updatedAt: expect.any(String),
+      resolvedAt: null,
+      resolution: null,
+    });
     expect(result).toEqual({
       platform: 'xiaohongshu',
       mode: 'browser',
@@ -354,6 +437,8 @@ describe('publishers', () => {
             storageStatePath: 'artifacts/browser-sessions/xiaohongshu.json',
           },
           sessionAction: 'relogin',
+          artifactPath:
+            'artifacts/browser-handoffs/xiaohongshu/launch-campaign/xiaohongshu-draft-19.json',
         },
       },
     });
@@ -393,6 +478,7 @@ describe('publishers', () => {
             storageStatePath: null,
           },
           sessionAction: 'request_session',
+          artifactPath: 'artifacts/browser-handoffs/weibo/launch-campaign/weibo-draft-22.json',
         },
       },
     });
@@ -432,6 +518,7 @@ describe('publishers', () => {
             storageStatePath: null,
           },
           sessionAction: 'request_session',
+          artifactPath: 'artifacts/browser-handoffs/instagram/launch-campaign/instagram-draft-24.json',
         },
       },
     });
@@ -487,6 +574,7 @@ describe('publishers', () => {
       content: 'Ready for browser handoff',
       target: '@brand-account',
       accountKey: 'launch-campaign',
+      readiness: 'ready',
       session: {
         hasSession: true,
         id: 'instagram:launch-campaign',
@@ -495,6 +583,7 @@ describe('publishers', () => {
         storageStatePath: 'artifacts/browser-sessions/instagram.json',
         notes: 'manual login completed',
       },
+      sessionAction: null,
       createdAt: expect.any(String),
       updatedAt: expect.any(String),
       resolvedAt: null,
@@ -579,6 +668,7 @@ describe('publishers', () => {
       content: 'Ready for browser handoff',
       target: 'brand-account',
       accountKey: 'launch-campaign',
+      readiness: 'ready',
       session: {
         hasSession: true,
         id: 'weibo:launch-campaign',
@@ -587,6 +677,7 @@ describe('publishers', () => {
         storageStatePath: 'artifacts/browser-sessions/weibo.json',
         notes: 'manual login completed',
       },
+      sessionAction: null,
       createdAt: expect.any(String),
       updatedAt: expect.any(String),
       resolvedAt: null,
@@ -663,8 +754,10 @@ describe('publishers', () => {
             status: 'expired',
             validatedAt: '2026-04-19T10:25:00.000Z',
             storageStatePath: 'artifacts/browser-sessions/tiktok.json',
+            notes: undefined,
           },
           sessionAction: 'relogin',
+          artifactPath: 'artifacts/browser-handoffs/tiktok/launch-campaign/tiktok-draft-29.json',
         },
       },
     });

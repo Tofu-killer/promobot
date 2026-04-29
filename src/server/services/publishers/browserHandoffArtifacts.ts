@@ -4,13 +4,14 @@ import path from 'node:path';
 import { getDatabasePath } from '../../lib/persistence.js';
 import { createChannelAccountStore } from '../../store/channelAccounts.js';
 import { createSQLiteDraftStore } from '../../store/drafts.js';
-import type { SessionSummary } from '../browser/sessionStore.js';
+import type { BrowserSessionAction, SessionSummary } from '../browser/sessionStore.js';
 import type { PublishRequest, PublisherPlatform } from './types.js';
 
 const channelAccountStore = createChannelAccountStore();
 const draftStore = createSQLiteDraftStore();
 
 type BrowserHandoffArtifactStatus = 'pending' | 'resolved' | 'obsolete';
+export type BrowserHandoffArtifactReadiness = 'ready' | 'blocked';
 type BrowserHandoffOwnership = 'direct' | 'draft_project' | 'unmatched';
 type BrowserHandoffPlatform = Extract<
   PublisherPlatform,
@@ -21,6 +22,7 @@ interface BrowserHandoffArtifactRecord {
   type: 'browser_manual_handoff';
   channelAccountId?: number;
   status: BrowserHandoffArtifactStatus;
+  readiness: BrowserHandoffArtifactReadiness;
   platform: BrowserHandoffPlatform;
   draftId: string;
   title: string | null;
@@ -28,6 +30,7 @@ interface BrowserHandoffArtifactRecord {
   target: string | null;
   accountKey: string;
   session: SessionSummary;
+  sessionAction: BrowserSessionAction | null;
   createdAt: string;
   updatedAt: string;
   resolvedAt: string | null;
@@ -43,6 +46,8 @@ export interface BrowserHandoffArtifactSummary {
   title: string | null;
   accountKey: string;
   status: BrowserHandoffArtifactStatus;
+  readiness: BrowserHandoffArtifactReadiness;
+  sessionAction: BrowserSessionAction | null;
   artifactPath: string;
   createdAt: string;
   updatedAt: string;
@@ -56,6 +61,7 @@ export function writeBrowserHandoffArtifact(input: {
   accountKey: string;
   request: PublishRequest;
   session: SessionSummary;
+  sessionAction?: BrowserSessionAction | null;
 }) {
   const artifactPath = buildArtifactPath(input.platform, input.accountKey, String(input.request.draftId));
   const absolutePath = path.join(resolveArtifactRootDir(), artifactPath);
@@ -65,6 +71,7 @@ export function writeBrowserHandoffArtifact(input: {
     type: 'browser_manual_handoff',
     ...(typeof input.channelAccountId === 'number' ? { channelAccountId: input.channelAccountId } : {}),
     status: 'pending',
+    readiness: input.sessionAction ? 'blocked' : 'ready',
     platform: input.platform,
     draftId: String(input.request.draftId),
     title: input.request.title ?? null,
@@ -72,6 +79,7 @@ export function writeBrowserHandoffArtifact(input: {
     target: input.request.target ?? null,
     accountKey: input.accountKey,
     session: input.session,
+    sessionAction: input.sessionAction ?? null,
     createdAt: existingArtifact?.createdAt ?? now,
     updatedAt: now,
     resolvedAt: null,
@@ -225,6 +233,8 @@ export function listBrowserHandoffArtifacts(limit?: number): BrowserHandoffArtif
           title: artifact.title,
           accountKey: artifact.accountKey,
           status: artifact.status,
+          readiness: artifact.readiness,
+          sessionAction: artifact.sessionAction,
           artifactPath: path.relative(artifactRootDir, absolutePath).split(path.sep).join('/'),
           createdAt: artifact.createdAt,
           updatedAt: artifact.updatedAt,
@@ -311,6 +321,8 @@ export function getBrowserHandoffArtifactByPath(
     title: artifact.title,
     accountKey: artifact.accountKey,
     status: artifact.status,
+    readiness: artifact.readiness,
+    sessionAction: artifact.sessionAction,
     artifactPath: relativePath.split(path.sep).join('/'),
     createdAt: artifact.createdAt,
     updatedAt: artifact.updatedAt,
@@ -465,7 +477,16 @@ function readBrowserHandoffArtifact(absolutePath: string): BrowserHandoffArtifac
 
   try {
     const artifact = JSON.parse(fs.readFileSync(absolutePath, 'utf8')) as BrowserHandoffArtifactRecord;
-    return artifact.type === 'browser_manual_handoff' ? artifact : null;
+    return artifact.type === 'browser_manual_handoff'
+      ? {
+          ...artifact,
+          readiness: artifact.readiness === 'blocked' ? 'blocked' : 'ready',
+          sessionAction:
+            artifact.sessionAction === 'request_session' || artifact.sessionAction === 'relogin'
+              ? artifact.sessionAction
+              : null,
+        }
+      : null;
   } catch {
     return null;
   }

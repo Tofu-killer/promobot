@@ -45,7 +45,7 @@ export function createBrowserHandoffPollJobHandler(
       throw new Error(`browser handoff artifact not found for ${browserHandoffPollJobType} job ${job.id}`);
     }
 
-    if (handoffArtifact.status !== 'pending') {
+    if (handoffArtifact.status !== 'pending' || handoffArtifact.readiness === 'blocked') {
       return;
     }
 

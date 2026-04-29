@@ -3040,6 +3040,90 @@ describe('System Queue actions', () => {
     });
   });
 
+  it('keeps blocked browser handoffs visible but read-only and out of the prioritized ops queue', async () => {
+    const { container } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { SystemQueuePage } = await import('../../src/client/pages/SystemQueue');
+
+    const loadSystemQueueAction = vi.fn().mockResolvedValue({
+      jobs: [],
+      queue: {
+        pending: 0,
+        running: 0,
+        failed: 0,
+        duePending: 0,
+      },
+      recentJobs: [],
+    });
+    const loadBrowserLaneRequestsAction = vi.fn().mockResolvedValue({
+      requests: [],
+      total: 0,
+    });
+    const loadBrowserHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [
+        {
+          channelAccountId: 12,
+          platform: 'weibo',
+          draftId: '88',
+          title: 'Need lower latency in APAC',
+          accountKey: 'weibo-main',
+          status: 'pending',
+          readiness: 'blocked',
+          sessionAction: 'request_session',
+          artifactPath: 'artifacts/browser-handoffs/weibo/weibo-main/weibo-draft-88.json',
+          createdAt: '2026-04-28T09:10:00.000Z',
+          updatedAt: '2026-04-28T09:10:00.000Z',
+          resolvedAt: null,
+        },
+      ],
+      total: 1,
+    });
+    const loadInboxReplyHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(SystemQueuePage as never, {
+          loadSystemQueueAction,
+          loadBrowserLaneRequestsAction,
+          loadBrowserHandoffsAction,
+          loadInboxReplyHandoffsAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('等待补充 Session 后继续发布接管。');
+    expect(collectText(container)).not.toContain('发布接管 · weibo · draft #88');
+    expect(
+      findElement(
+        container,
+        (element) =>
+          element.tagName === 'BUTTON' &&
+          collectText(element).includes('标记已发布') &&
+          hasAncestorWithText(element, 'weibo · draft #88 · pending'),
+      ),
+    ).toBeNull();
+    expect(
+      findElement(
+        container,
+        (element) =>
+          element.tagName === 'BUTTON' &&
+          collectText(element).includes('标记失败') &&
+          hasAncestorWithText(element, 'weibo · draft #88 · pending'),
+      ),
+    ).toBeNull();
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('keeps a completed inbox reply handoff locally resolved until refresh catches up, then yields to server truth', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');

@@ -47,17 +47,15 @@ export function createBrowserHandoffPublisher(
         reason: resolution.sessionAction,
       });
     }
-    const readyArtifact =
-      resolution.sessionAction === null
-        ? writeBrowserHandoffArtifact({
-            channelAccountId,
-            platform,
-            accountKey,
-            request,
-            session: resolution.session,
-          })
-        : null;
-    if (readyArtifact) {
+    const artifact = writeBrowserHandoffArtifact({
+      channelAccountId,
+      platform,
+      accountKey,
+      request,
+      session: resolution.session,
+      sessionAction: resolution.sessionAction,
+    });
+    if (resolution.sessionAction === null) {
       clearBrowserHandoffResultArtifact({
         platform,
         accountKey,
@@ -82,7 +80,7 @@ export function createBrowserHandoffPublisher(
           readiness: resolution.sessionAction ? 'blocked' : 'ready',
           session: resolution.session,
           sessionAction: resolution.sessionAction,
-          ...(readyArtifact ? { artifactPath: readyArtifact.artifactPath } : {}),
+          artifactPath: artifact.artifactPath,
         },
       },
     };

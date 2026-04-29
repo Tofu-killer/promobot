@@ -76,6 +76,13 @@ export async function submitBrowserHandoffCompletion(
       );
     }
 
+    if (handoffArtifact.readiness === 'blocked') {
+      throw new BrowserHandoffCompletionSubmitError(
+        'browser handoff artifact is still waiting for session restoration',
+        409,
+      );
+    }
+
     const completedAt = (dependencies.now ?? (() => new Date()))().toISOString();
     const resultArtifactPath = createBrowserHandoffResultArtifact({
       handoffArtifactPath: artifactPath,

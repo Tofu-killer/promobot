@@ -35,6 +35,13 @@ export async function importBrowserHandoffResult(input: {
     throw new BrowserHandoffImportError('browser handoff artifact already resolved', 409);
   }
 
+  if (artifact.readiness === 'blocked') {
+    throw new BrowserHandoffImportError(
+      'browser handoff artifact is still waiting for session restoration',
+      409,
+    );
+  }
+
   const draftId = Number(artifact.draftId);
   if (!Number.isInteger(draftId) || draftId <= 0) {
     throw new BrowserHandoffImportError('browser handoff artifact has an invalid draft id', 409);
