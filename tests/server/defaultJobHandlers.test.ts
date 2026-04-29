@@ -13,6 +13,8 @@ import {
 } from '../../src/server/services/browser/sessionRequestArtifacts';
 import { createSessionStore } from '../../src/server/services/browser/sessionStore';
 import { createChannelAccountStore } from '../../src/server/store/channelAccounts';
+import { createSQLiteDraftStore } from '../../src/server/store/drafts';
+import { createSQLitePublishLogStore } from '../../src/server/store/publishLogs';
 import { createJobQueueStore } from '../../src/server/store/jobQueue';
 import { cleanupTestDatabasePath, createTestDatabasePath, isolateProcessCwd } from './testDb';
 
@@ -21,12 +23,83 @@ const defaultStorageState = {
   origins: [],
 };
 const channelAccountSessionRequestPollJobType = 'channel_account_session_request_poll';
+const browserHandoffPollJobType = 'browser_handoff_poll';
 let restoreCwd: (() => void) | null = null;
 
 function writeStorageStateFile(rootDir: string, storageStatePath: string) {
   const filePath = path.join(rootDir, storageStatePath);
   mkdirSync(path.dirname(filePath), { recursive: true });
   writeFileSync(filePath, JSON.stringify(defaultStorageState, null, 2));
+}
+
+function writePendingBrowserHandoffArtifact(rootDir: string) {
+  const artifactPath =
+    'artifacts/browser-handoffs/instagram/launch-campaign/instagram-draft-1.json';
+  const absolutePath = path.join(rootDir, artifactPath);
+  mkdirSync(path.dirname(absolutePath), { recursive: true });
+  writeFileSync(
+    absolutePath,
+    JSON.stringify(
+      {
+        type: 'browser_manual_handoff',
+        channelAccountId: 3,
+        status: 'pending',
+        platform: 'instagram',
+        draftId: '1',
+        title: 'Launch reel',
+        content: 'Needs browser lane publish',
+        target: 'campaign-1',
+        accountKey: 'launch-campaign',
+        session: {
+          hasSession: true,
+          id: 'instagram:launch-campaign',
+          status: 'active',
+          validatedAt: '2026-04-29T07:55:00.000Z',
+          storageStatePath: 'browser-sessions/managed/instagram/launch-campaign.json',
+        },
+        createdAt: '2026-04-29T07:56:00.000Z',
+        updatedAt: '2026-04-29T07:56:00.000Z',
+        resolvedAt: null,
+        resolution: null,
+      },
+      null,
+      2,
+    ),
+    'utf8',
+  );
+
+  return artifactPath;
+}
+
+function writeBrowserHandoffResultArtifact(rootDir: string, handoffArtifactPath: string) {
+  const artifactPath =
+    'artifacts/browser-handoff-results/instagram/launch-campaign/instagram-draft-1.json';
+  const absolutePath = path.join(rootDir, artifactPath);
+  mkdirSync(path.dirname(absolutePath), { recursive: true });
+  writeFileSync(
+    absolutePath,
+    JSON.stringify(
+      {
+        type: 'browser_manual_handoff_result',
+        handoffArtifactPath,
+        channelAccountId: 3,
+        platform: 'instagram',
+        accountKey: 'launch-campaign',
+        draftId: '1',
+        completedAt: '2026-04-29T08:02:00.000Z',
+        publishStatus: 'published',
+        message: 'browser lane published the reel',
+        publishUrl: 'https://instagram.com/p/launch-reel',
+        externalId: 'launch-reel',
+        publishedAt: '2026-04-29T08:01:00.000Z',
+      },
+      null,
+      2,
+    ),
+    'utf8',
+  );
+
+  return artifactPath;
 }
 
 describe('default job handlers', () => {
@@ -481,6 +554,138 @@ describe('default job handlers', () => {
         accountKey: channelAccount.accountKey,
         action: 'relogin',
         requestJobId: 41,
+        attempt: 1,
+        maxAttempts: 3,
+        pollDelayMs: 60_000,
+      });
+    } finally {
+      vi.useRealTimers();
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('imports matching browser handoff result artifacts when the poll handler runs', async () => {
+    const { rootDir } = createTestDatabasePath();
+
+    try {
+      const draftStore = createSQLiteDraftStore();
+      const publishLogStore = createSQLitePublishLogStore();
+      draftStore.create({
+        projectId: 55,
+        platform: 'instagram',
+        title: 'Launch reel',
+        content: 'Needs browser lane publish',
+        target: 'campaign-1',
+        status: 'review',
+      });
+      const handoffArtifactPath = writePendingBrowserHandoffArtifact(rootDir);
+      const resultArtifactPath = writeBrowserHandoffResultArtifact(rootDir, handoffArtifactPath);
+
+      const handlers = createDefaultJobHandlers();
+      await handlers[browserHandoffPollJobType](
+        {
+          artifactPath: handoffArtifactPath,
+          attempt: 0,
+          maxAttempts: 3,
+          pollDelayMs: 60_000,
+        },
+        createJobRecord({
+          id: 51,
+          type: browserHandoffPollJobType,
+          payload: {
+            artifactPath: handoffArtifactPath,
+            attempt: 0,
+            maxAttempts: 3,
+            pollDelayMs: 60_000,
+          },
+          runAt: '2026-04-29T08:02:00.000Z',
+        }),
+      );
+
+      expect(draftStore.getById(1)).toEqual(
+        expect.objectContaining({
+          status: 'published',
+          publishedAt: '2026-04-29T08:01:00.000Z',
+        }),
+      );
+      expect(publishLogStore.listByDraftId(1)).toEqual([
+        expect.objectContaining({
+          draftId: 1,
+          projectId: 55,
+          status: 'published',
+          publishUrl: 'https://instagram.com/p/launch-reel',
+          message: 'browser lane published the reel',
+        }),
+      ]);
+      expect(
+        JSON.parse(readFileSync(path.join(rootDir, handoffArtifactPath), 'utf8')),
+      ).toEqual(
+        expect.objectContaining({
+          status: 'resolved',
+          resolvedAt: expect.any(String),
+          resolution: expect.objectContaining({
+            publishStatus: 'published',
+            publishUrl: 'https://instagram.com/p/launch-reel',
+            message: 'browser lane published the reel',
+          }),
+        }),
+      );
+      expect(
+        JSON.parse(readFileSync(path.join(rootDir, resultArtifactPath), 'utf8')),
+      ).toEqual(
+        expect.objectContaining({
+          consumedAt: expect.any(String),
+          resolution: expect.objectContaining({
+            status: 'imported',
+            draftStatus: 'published',
+          }),
+        }),
+      );
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('requeues a follow-up poll job when the browser handoff result is still missing', async () => {
+    const { rootDir } = createTestDatabasePath();
+
+    try {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-04-29T08:00:00.000Z'));
+      const jobQueueStore = createJobQueueStore();
+      const handoffArtifactPath = writePendingBrowserHandoffArtifact(rootDir);
+
+      const handlers = createDefaultJobHandlers();
+      await handlers[browserHandoffPollJobType](
+        {
+          artifactPath: handoffArtifactPath,
+          attempt: 0,
+          maxAttempts: 3,
+          pollDelayMs: 60_000,
+        },
+        createJobRecord({
+          id: 61,
+          type: browserHandoffPollJobType,
+          payload: {
+            artifactPath: handoffArtifactPath,
+            attempt: 0,
+            maxAttempts: 3,
+            pollDelayMs: 60_000,
+          },
+          runAt: '2026-04-29T08:00:00.000Z',
+        }),
+      );
+
+      expect(jobQueueStore.list({ limit: 10 })).toEqual([
+        expect.objectContaining({
+          type: browserHandoffPollJobType,
+          status: 'pending',
+          attempts: 0,
+          runAt: '2026-04-29T08:01:00.000Z',
+        }),
+      ]);
+      expect(JSON.parse(jobQueueStore.list({ limit: 10 })[0]?.payload ?? '{}')).toEqual({
+        artifactPath: handoffArtifactPath,
         attempt: 1,
         maxAttempts: 3,
         pollDelayMs: 60_000,

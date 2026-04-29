@@ -5,6 +5,7 @@ import {
 import { createChannelAccountStore } from '../../store/channelAccounts.js';
 import { createStubPublisher } from './stub.js';
 import { markBrowserHandoffArtifactsObsoleteForAccount, writeBrowserHandoffArtifact } from './browserHandoffArtifacts.js';
+import { clearBrowserHandoffResultArtifact } from './browserHandoffResultArtifacts.js';
 import type { PublishRequest, PublishResult, Publisher, PublisherPlatform } from './types.js';
 
 type BrowserHandoffPlatform = Extract<
@@ -56,6 +57,13 @@ export function createBrowserHandoffPublisher(
             session: resolution.session,
           })
         : null;
+    if (readyArtifact) {
+      clearBrowserHandoffResultArtifact({
+        platform,
+        accountKey,
+        draftId,
+      });
+    }
 
     return {
       platform,

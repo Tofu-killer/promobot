@@ -387,6 +387,75 @@ describe('browser handoff completion submitter', () => {
     }
   });
 
+  it('writes a browser handoff result artifact locally when queueResult is enabled', async () => {
+    const { rootDir } = createTestDatabasePath();
+
+    try {
+      const draftStore = createSQLiteDraftStore();
+      draftStore.create({
+        platform: 'facebook-group',
+        title: 'Community update',
+        content: 'Need manual browser handoff',
+        target: 'group-123',
+        metadata: {
+          accountKey: 'launch-campaign',
+        },
+      });
+      const artifactPath = writePendingBrowserHandoffArtifact(rootDir);
+
+      const result = await submitBrowserHandoffCompletion({
+        artifactPath,
+        publishStatus: 'published',
+        publishUrl: 'https://facebook.com/groups/group-123/posts/42',
+        message: 'browser lane completed publish',
+        publishedAt: '2026-04-23T10:10:00.000Z',
+        queueResult: true,
+      });
+
+      expect(result).toEqual({
+        ok: true,
+        imported: false,
+        artifactPath,
+        resultArtifactPath:
+          'artifacts/browser-handoff-results/facebookGroup/launch-campaign/facebookGroup-draft-1.json',
+      });
+      expect(draftStore.getById(1)).toEqual(
+        expect.objectContaining({
+          status: 'draft',
+          publishedAt: undefined,
+        }),
+      );
+      expect(
+        JSON.parse(
+          fs.readFileSync(
+            path.join(
+              rootDir,
+              'artifacts/browser-handoff-results/facebookGroup/launch-campaign/facebookGroup-draft-1.json',
+            ),
+            'utf8',
+          ),
+        ),
+      ).toEqual(
+        expect.objectContaining({
+          type: 'browser_manual_handoff_result',
+          handoffArtifactPath: artifactPath,
+          publishStatus: 'published',
+          message: 'browser lane completed publish',
+          publishUrl: 'https://facebook.com/groups/group-123/posts/42',
+          publishedAt: '2026-04-23T10:10:00.000Z',
+        }),
+      );
+      expect(getBrowserHandoffArtifactByPath(artifactPath)).toEqual(
+        expect.objectContaining({
+          status: 'pending',
+          resolvedAt: null,
+        }),
+      );
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('parses browser handoff completion cli arguments', () => {
     expect(
       parseBrowserHandoffCompleteArgs([
@@ -402,6 +471,7 @@ describe('browser handoff completion submitter', () => {
         'fb-post-42',
         '--published-at',
         '2026-04-23T10:10:00.000Z',
+        '--queue-result',
         '--base-url',
         'http://127.0.0.1:3001',
         '--admin-password',
@@ -415,9 +485,11 @@ describe('browser handoff completion submitter', () => {
       publishUrl: 'https://facebook.com/groups/group-123/posts/42',
       externalId: 'fb-post-42',
       publishedAt: '2026-04-23T10:10:00.000Z',
+      queueResult: true,
       importBaseUrl: 'http://127.0.0.1:3001',
       adminPassword: 'secret',
     });
     expect(getBrowserHandoffCompleteHelpText()).toContain('--artifact-path <path>');
+    expect(getBrowserHandoffCompleteHelpText()).toContain('--queue-result');
   });
 });

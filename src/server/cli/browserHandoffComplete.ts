@@ -57,6 +57,11 @@ export function parseBrowserHandoffCompleteArgs(argv: string[]): SubmitBrowserHa
       continue;
     }
 
+    if (token === '--queue-result') {
+      parsed.queueResult = true;
+      continue;
+    }
+
     if (token === '--base-url') {
       parsed.importBaseUrl = nextValue ?? '';
       index += 1;
@@ -86,6 +91,7 @@ export function getBrowserHandoffCompleteHelpText() {
     '  --publish-url <url>',
     '  --external-id <id>',
     '  --published-at <iso8601>',
+    '  --queue-result               Write a local result artifact without importing it yet',
     '  --base-url <origin>          Import through /api/system/browser-handoffs/import',
     '  --admin-password <value>     Required when --base-url is provided',
     '  --help',

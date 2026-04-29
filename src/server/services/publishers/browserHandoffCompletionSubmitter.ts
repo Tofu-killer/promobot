@@ -2,6 +2,8 @@ import {
   BrowserHandoffImportError,
   importBrowserHandoffResult,
 } from './browserHandoffResultImporter.js';
+import { getBrowserHandoffArtifactByPath } from './browserHandoffArtifacts.js';
+import { createBrowserHandoffResultArtifact } from './browserHandoffResultArtifacts.js';
 
 export class BrowserHandoffCompletionSubmitError extends Error {
   constructor(
@@ -19,11 +21,13 @@ export interface SubmitBrowserHandoffCompletionInput {
   publishUrl?: string;
   externalId?: string;
   publishedAt?: string;
+  queueResult?: boolean;
   importBaseUrl?: string;
   adminPassword?: string;
 }
 
 export interface SubmitBrowserHandoffCompletionDependencies {
+  now?: () => Date;
   fetchImpl?: typeof fetch;
 }
 
@@ -52,6 +56,51 @@ export async function submitBrowserHandoffCompletion(
   } as const;
 
   const shouldImportRemotely = input.importBaseUrl !== undefined || input.adminPassword !== undefined;
+  if (input.queueResult) {
+    if (shouldImportRemotely) {
+      throw new BrowserHandoffCompletionSubmitError(
+        'queueResult cannot be combined with remote browser handoff import',
+        400,
+      );
+    }
+
+    const handoffArtifact = getBrowserHandoffArtifactByPath(artifactPath);
+    if (!handoffArtifact) {
+      throw new BrowserHandoffCompletionSubmitError('browser handoff artifact not found', 404);
+    }
+
+    if (handoffArtifact.status !== 'pending') {
+      throw new BrowserHandoffCompletionSubmitError(
+        'browser handoff artifact already resolved',
+        409,
+      );
+    }
+
+    const completedAt = (dependencies.now ?? (() => new Date()))().toISOString();
+    const resultArtifactPath = createBrowserHandoffResultArtifact({
+      handoffArtifactPath: artifactPath,
+      ...(typeof handoffArtifact.channelAccountId === 'number'
+        ? { channelAccountId: handoffArtifact.channelAccountId }
+        : {}),
+      platform: handoffArtifact.platform,
+      accountKey: handoffArtifact.accountKey,
+      draftId: handoffArtifact.draftId,
+      completedAt,
+      publishStatus: input.publishStatus,
+      message,
+      ...(input.publishUrl?.trim() ? { publishUrl: input.publishUrl.trim() } : {}),
+      ...(input.externalId?.trim() ? { externalId: input.externalId.trim() } : {}),
+      ...(input.publishedAt?.trim() ? { publishedAt: input.publishedAt.trim() } : {}),
+    });
+
+    return {
+      ok: true,
+      imported: false,
+      artifactPath,
+      resultArtifactPath,
+    };
+  }
+
   if (!shouldImportRemotely) {
     try {
       return await importBrowserHandoffResult(normalizedInput);

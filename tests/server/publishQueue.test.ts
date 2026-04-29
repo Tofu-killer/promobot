@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createPublishJobHandler } from '../../src/server/services/publishQueue';
 import * as publishRouteModule from '../../src/server/routes/publish';
 import { createSQLiteDraftStore } from '../../src/server/store/drafts';
+import { createJobQueueStore } from '../../src/server/store/jobQueue';
 import { createSQLitePublishLogStore } from '../../src/server/store/publishLogs';
 import * as publishLogStoreModule from '../../src/server/store/publishLogs';
 import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
@@ -147,6 +148,91 @@ describe('publish queue handler', () => {
       expect(createdLogs).toEqual([]);
       expect(persistedPublishLogStore.listByDraftId(draft.id)).toEqual([]);
     } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('queues a browser handoff poll job for ready manual browser publishes', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-04-29T08:00:00.000Z'));
+      const draftStore = createSQLiteDraftStore();
+      const publishLogStore = createSQLitePublishLogStore();
+      const jobQueueStore = createJobQueueStore();
+      const draft = draftStore.create({
+        projectId: 77,
+        platform: 'instagram',
+        title: 'Launch reel',
+        content: 'Queued for browser lane',
+        status: 'scheduled',
+      });
+
+      vi.spyOn(publishRouteModule, 'createDraftPublishAdapter').mockReturnValue(
+        vi.fn().mockResolvedValue({
+          platform: 'instagram',
+          mode: 'browser',
+          status: 'manual_required',
+          success: false,
+          publishUrl: null,
+          externalId: null,
+          message: 'browser handoff is ready',
+          publishedAt: null,
+          details: {
+            accountKey: 'launch-campaign',
+            browserHandoff: {
+              channelAccountId: 9,
+              readiness: 'ready',
+              session: {
+                hasSession: true,
+                id: 'instagram:launch-campaign',
+                status: 'active',
+                validatedAt: '2026-04-29T07:55:00.000Z',
+                storageStatePath: 'browser-sessions/managed/instagram/launch-campaign.json',
+              },
+              artifactPath:
+                'artifacts/browser-handoffs/instagram/launch-campaign/instagram-draft-1.json',
+            },
+          },
+        }),
+      );
+
+      await createPublishJobHandler()({ draftId: draft.id });
+
+      expect(draftStore.getById(draft.id)).toEqual(
+        expect.objectContaining({
+          id: draft.id,
+          status: 'review',
+          scheduledAt: undefined,
+          publishedAt: undefined,
+        }),
+      );
+      expect(publishLogStore.listByDraftId(draft.id)).toEqual([
+        expect.objectContaining({
+          draftId: draft.id,
+          projectId: 77,
+          status: 'manual_required',
+          publishUrl: undefined,
+          message: 'browser handoff is ready',
+        }),
+      ]);
+      expect(jobQueueStore.list({ limit: 10 })).toEqual([
+        expect.objectContaining({
+          type: 'browser_handoff_poll',
+          status: 'pending',
+          attempts: 0,
+          runAt: '2026-04-29T08:01:00.000Z',
+        }),
+      ]);
+      expect(JSON.parse(jobQueueStore.list({ limit: 10 })[0]?.payload ?? '{}')).toEqual({
+        artifactPath:
+          'artifacts/browser-handoffs/instagram/launch-campaign/instagram-draft-1.json',
+        attempt: 0,
+        maxAttempts: 60,
+        pollDelayMs: 60_000,
+      });
+    } finally {
+      vi.useRealTimers();
       cleanupTestDatabasePath(rootDir);
     }
   });

@@ -4,6 +4,10 @@ import {
   getBrowserHandoffArtifactByPath,
   resolveBrowserHandoffArtifact,
 } from './browserHandoffArtifacts.js';
+import {
+  getBrowserHandoffResultArtifactByPath,
+  markBrowserHandoffResultArtifactConsumed,
+} from './browserHandoffResultArtifacts.js';
 
 export class BrowserHandoffImportError extends Error {
   constructor(
@@ -100,4 +104,89 @@ export async function importBrowserHandoffResult(input: {
     message: input.message,
     publishedAt,
   };
+}
+
+export async function importBrowserHandoffResultArtifact(
+  artifactPath: string,
+  dependencies: {
+    now?: () => Date;
+  } = {},
+) {
+  const resultArtifact = getBrowserHandoffResultArtifactByPath(artifactPath);
+  if (!resultArtifact) {
+    throw new BrowserHandoffImportError('browser handoff result artifact not found', 404);
+  }
+
+  if (resultArtifact.consumedAt) {
+    return {
+      ok: true,
+      imported: false,
+      artifactPath: resultArtifact.artifactPath,
+      handoffArtifactPath: resultArtifact.handoffArtifactPath,
+    };
+  }
+
+  const consumedAt = (dependencies.now ?? (() => new Date()))().toISOString();
+
+  try {
+    const importResult = await importBrowserHandoffResult({
+      artifactPath: resultArtifact.handoffArtifactPath,
+      publishStatus: resultArtifact.publishStatus,
+      message: resultArtifact.message,
+      ...(resultArtifact.publishUrl !== undefined ? { publishUrl: resultArtifact.publishUrl } : {}),
+      ...(resultArtifact.externalId !== undefined ? { externalId: resultArtifact.externalId } : {}),
+      ...(resultArtifact.publishedAt !== undefined ? { publishedAt: resultArtifact.publishedAt } : {}),
+    });
+
+    markBrowserHandoffResultArtifactConsumed({
+      artifactPath: resultArtifact.artifactPath,
+      consumedAt,
+      resolution: {
+        status: 'imported',
+        handoffArtifactPath: resultArtifact.handoffArtifactPath,
+        completedAt: resultArtifact.completedAt,
+        draftId: importResult.draftId,
+        draftStatus: importResult.draftStatus,
+        publishStatus: importResult.status,
+        publishUrl: importResult.publishUrl,
+        externalId: importResult.externalId,
+        message: importResult.message,
+        publishedAt: importResult.publishedAt,
+      },
+    });
+
+    return {
+      ok: true,
+      imported: true,
+      artifactPath: resultArtifact.artifactPath,
+      handoffArtifactPath: resultArtifact.handoffArtifactPath,
+      importResult,
+    };
+  } catch (error) {
+    if (
+      error instanceof BrowserHandoffImportError &&
+      error.statusCode === 409 &&
+      error.message === 'browser handoff artifact already resolved'
+    ) {
+      markBrowserHandoffResultArtifactConsumed({
+        artifactPath: resultArtifact.artifactPath,
+        consumedAt,
+        resolution: {
+          status: 'ignored',
+          reason: 'browser_handoff_artifact_already_resolved',
+          handoffArtifactPath: resultArtifact.handoffArtifactPath,
+          completedAt: resultArtifact.completedAt,
+        },
+      });
+
+      return {
+        ok: true,
+        imported: false,
+        artifactPath: resultArtifact.artifactPath,
+        handoffArtifactPath: resultArtifact.handoffArtifactPath,
+      };
+    }
+
+    throw error;
+  }
 }
