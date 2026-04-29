@@ -112,6 +112,35 @@ export class SessionStore {
     return this.getSessionByStorageKey(platform, sanitizeAccountKey(accountKey));
   }
 
+  restoreManagedSession(
+    platform: BrowserSessionPlatform,
+    accountKey: string,
+  ): SessionMetadata | null {
+    const storageKey = sanitizeAccountKey(accountKey);
+    const managedPath = path.join(
+      this.options.rootDir,
+      'managed',
+      sanitizePlatformKey(platform),
+      `${storageKey}.json`,
+    );
+
+    if (!hasValidStorageStateFileContents(managedPath)) {
+      return null;
+    }
+
+    const validatedAt = fs.statSync(managedPath).mtime.toISOString();
+
+    return this.saveSession({
+      platform,
+      accountKey,
+      storageStatePath: toPortablePath(
+        path.relative(path.dirname(this.options.rootDir), managedPath),
+      ),
+      status: 'active',
+      lastValidatedAt: validatedAt,
+    });
+  }
+
   private getSessionByStorageKey(
     platform: BrowserSessionPlatform,
     storageKey: string,

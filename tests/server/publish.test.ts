@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import express from 'express';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -1684,6 +1684,211 @@ describe('publish api', () => {
         message: 'instagram draft 1 is ready for manual browser handoff with the saved session.',
       }),
     ]);
+  });
+
+  it('restores a managed instagram browser session when metadata has not been written yet', async () => {
+    const testDatabase = createTestDatabasePath();
+    activeTestDbRoot = testDatabase.rootDir;
+    activeTestDatabasePath = testDatabase.databasePath;
+
+    const validatedAt = '2026-04-21T09:17:15.000Z';
+    const managedStorageStatePath = path.join(
+      testDatabase.rootDir,
+      'browser-sessions',
+      'managed',
+      'instagram',
+      'launch-campaign.json',
+    );
+    mkdirSync(path.dirname(managedStorageStatePath), { recursive: true });
+    writeFileSync(
+      managedStorageStatePath,
+      JSON.stringify({
+        cookies: [],
+        origins: [],
+      }),
+    );
+    utimesSync(
+      managedStorageStatePath,
+      new Date(validatedAt),
+      new Date(validatedAt),
+    );
+
+    const draftStore = createSQLiteDraftStore();
+    const draft = draftStore.create({
+      platform: 'instagram',
+      title: 'Instagram launch reel',
+      content: 'Needs browser handoff',
+      target: '@brand-account',
+      metadata: {
+        accountKey: 'launch-campaign',
+      },
+    });
+    const app = createTestApp(
+      {
+        lookupDraft(id) {
+          const storedDraft = draftStore.getById(id);
+          if (!storedDraft) {
+            return undefined;
+          }
+
+          return {
+            id: storedDraft.id,
+            platform: storedDraft.platform,
+            title: storedDraft.title,
+            content: storedDraft.content,
+            target: storedDraft.target,
+            metadata: storedDraft.metadata,
+          };
+        },
+      },
+      { useDefaultPersistence: true },
+    );
+
+    const response = await requestApp(app, 'POST', `/api/drafts/${draft.id}/publish`);
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({
+      draftId: draft.id,
+      draftStatus: 'review',
+      platform: 'instagram',
+      mode: 'browser',
+      status: 'manual_required',
+      success: false,
+      publishUrl: null,
+      externalId: null,
+      message: 'instagram draft 1 is ready for manual browser handoff with the saved session.',
+      publishedAt: null,
+      details: {
+        target: '@brand-account',
+        accountKey: 'launch-campaign',
+        browserHandoff: {
+          readiness: 'ready',
+          session: {
+            hasSession: true,
+            id: 'instagram:launch-campaign',
+            status: 'active',
+            validatedAt,
+            storageStatePath: 'browser-sessions/managed/instagram/launch-campaign.json',
+          },
+          sessionAction: null,
+          artifactPath: 'artifacts/browser-handoffs/instagram/launch-campaign/instagram-draft-1.json',
+        },
+      },
+    });
+    expect(sessionStoreModule.createSessionStore().getSession('instagram', 'launch-campaign')).toMatchObject({
+      id: 'instagram:launch-campaign',
+      platform: 'instagram',
+      accountKey: 'launch-campaign',
+      storageStatePath: 'browser-sessions/managed/instagram/launch-campaign.json',
+      status: 'active',
+      lastValidatedAt: validatedAt,
+    });
+    expect(readPublishLogs()).toEqual([
+      expect.objectContaining({
+        draftId: draft.id,
+        status: 'manual_required',
+        publishUrl: null,
+        message: 'instagram draft 1 is ready for manual browser handoff with the saved session.',
+      }),
+    ]);
+  });
+
+  it('preserves relogin handoff contracts when an expired instagram session still has a managed storage file', async () => {
+    const testDatabase = createTestDatabasePath();
+    activeTestDbRoot = testDatabase.rootDir;
+    activeTestDatabasePath = testDatabase.databasePath;
+
+    const managedStorageStatePath = path.join(
+      testDatabase.rootDir,
+      'browser-sessions',
+      'managed',
+      'instagram',
+      'launch-campaign.json',
+    );
+    mkdirSync(path.dirname(managedStorageStatePath), { recursive: true });
+    writeFileSync(
+      managedStorageStatePath,
+      JSON.stringify({
+        cookies: [],
+        origins: [],
+      }),
+    );
+    utimesSync(
+      managedStorageStatePath,
+      new Date('2026-04-21T09:17:15.000Z'),
+      new Date('2026-04-21T09:17:15.000Z'),
+    );
+
+    sessionStoreModule.createSessionStore().saveSession({
+      platform: 'instagram',
+      accountKey: 'launch-campaign',
+      storageStatePath: 'browser-sessions/managed/instagram/launch-campaign.json',
+      status: 'expired',
+      lastValidatedAt: '2026-04-19T10:25:00.000Z',
+    });
+
+    const draftStore = createSQLiteDraftStore();
+    const draft = draftStore.create({
+      platform: 'instagram',
+      title: 'Instagram launch reel',
+      content: 'Needs relogin',
+      target: '@brand-account',
+      metadata: {
+        accountKey: 'launch-campaign',
+      },
+    });
+    const app = createTestApp(
+      {
+        lookupDraft(id) {
+          const storedDraft = draftStore.getById(id);
+          if (!storedDraft) {
+            return undefined;
+          }
+
+          return {
+            id: storedDraft.id,
+            platform: storedDraft.platform,
+            title: storedDraft.title,
+            content: storedDraft.content,
+            target: storedDraft.target,
+            metadata: storedDraft.metadata,
+          };
+        },
+      },
+      { useDefaultPersistence: true },
+    );
+
+    const response = await requestApp(app, 'POST', `/api/drafts/${draft.id}/publish`);
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({
+      draftId: draft.id,
+      draftStatus: 'review',
+      platform: 'instagram',
+      mode: 'browser',
+      status: 'manual_required',
+      success: false,
+      publishUrl: null,
+      externalId: null,
+      message: 'instagram draft 1 requires the browser session to be refreshed before manual handoff.',
+      publishedAt: null,
+      details: {
+        target: '@brand-account',
+        accountKey: 'launch-campaign',
+        browserHandoff: {
+          readiness: 'blocked',
+          session: {
+            hasSession: true,
+            id: 'instagram:launch-campaign',
+            status: 'expired',
+            validatedAt: '2026-04-19T10:25:00.000Z',
+            storageStatePath: 'browser-sessions/managed/instagram/launch-campaign.json',
+          },
+          sessionAction: 'relogin',
+          artifactPath: 'artifacts/browser-handoffs/instagram/launch-campaign/instagram-draft-1.json',
+        },
+      },
+    });
   });
 
   it('resolves a pending browser handoff artifact when a later browser publish succeeds', async () => {
