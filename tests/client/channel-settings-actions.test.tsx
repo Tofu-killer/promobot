@@ -2538,6 +2538,101 @@ describe('settings save validation and feedback', () => {
     });
   });
 
+  it('keeps blocked inbox reply handoffs visible but read-only in settings', async () => {
+    const { container } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { SettingsPage } = await import('../../src/client/pages/Settings');
+
+    const loadSettingsAction = vi.fn().mockResolvedValue({
+      settings: {
+        allowlist: ['10.0.0.1'],
+        schedulerIntervalMinutes: 45,
+        rssDefaults: ['OpenAI blog'],
+        monitorRssFeeds: ['https://openai.com/blog/rss.xml'],
+        monitorXQueries: ['openrouter failover'],
+        monitorRedditQueries: ['claude api latency'],
+        monitorV2exQueries: ['llm api'],
+      },
+    });
+    const loadSystemJobsAction = vi.fn().mockResolvedValue({
+      jobs: [],
+      queue: {
+        pending: 0,
+        failed: 0,
+      },
+      recentJobs: [],
+    });
+    const loadBrowserLaneRequestsAction = vi.fn().mockResolvedValue({
+      requests: [],
+      total: 0,
+    });
+    const loadBrowserHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+    const loadInboxReplyHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [
+        {
+          channelAccountId: 12,
+          platform: 'weibo',
+          itemId: '88',
+          source: 'weibo',
+          title: 'Need lower latency in APAC',
+          author: 'user123',
+          accountKey: 'weibo-main',
+          status: 'pending',
+          readiness: 'blocked',
+          sessionAction: 'request_session',
+          artifactPath: 'artifacts/inbox-reply-handoffs/weibo/weibo-main/weibo-item-88.json',
+          createdAt: '2026-04-28T09:10:00.000Z',
+          updatedAt: '2026-04-28T09:10:00.000Z',
+          resolvedAt: null,
+        },
+      ],
+      total: 1,
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(SettingsPage as never, {
+          loadSettingsAction,
+          loadSystemJobsAction,
+          loadBrowserLaneRequestsAction,
+          loadBrowserHandoffsAction,
+          loadInboxReplyHandoffsAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('等待补充 Session 后继续回复接管。');
+    expect(
+      findElement(
+        container,
+        (element) =>
+          element.tagName === 'BUTTON' &&
+          collectText(element).includes('标记已发送') &&
+          hasAncestorWithText(element, 'weibo · item #88 · pending'),
+      ),
+    ).toBeNull();
+    expect(
+      findElement(
+        container,
+        (element) =>
+          element.tagName === 'BUTTON' &&
+          collectText(element).includes('标记失败') &&
+          hasAncestorWithText(element, 'weibo · item #88 · pending'),
+      ),
+    ).toBeNull();
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('allows independent inbox reply handoff completions to proceed per artifact while another completion is still pending', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');

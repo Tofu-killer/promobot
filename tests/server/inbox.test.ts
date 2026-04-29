@@ -1575,9 +1575,13 @@ describe('inbox api', () => {
       const response = await requestApp('POST', '/api/inbox/1/send-reply', {
         reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
       });
+      const body = JSON.parse(response.body) as {
+        delivery: { details?: { browserReplyHandoff?: { artifactPath?: string } } };
+      };
+      const artifactPath = body.delivery.details?.browserReplyHandoff?.artifactPath;
 
       expect(response.status).toBe(200);
-      expect(JSON.parse(response.body)).toEqual({
+      expect(body).toEqual({
         item: expect.objectContaining({
           id: 1,
           status: 'needs_review',
@@ -1617,7 +1621,16 @@ describe('inbox api', () => {
       });
 
       expect(response.status).toBe(200);
-      expect(JSON.parse(response.body)).toEqual({
+      const responseBody = JSON.parse(response.body) as {
+        delivery: {
+          details?: {
+            browserReplyHandoff?: {
+              artifactPath?: string;
+            };
+          };
+        };
+      };
+      expect(responseBody).toEqual({
         item: expect.objectContaining({
           id: 1,
           status: 'needs_review',
@@ -1680,9 +1693,18 @@ describe('inbox api', () => {
       const response = await requestApp('POST', '/api/inbox/1/send-reply', {
         reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
       });
+      const responseBody = JSON.parse(response.body) as {
+        delivery: {
+          details?: {
+            browserReplyHandoff?: {
+              artifactPath?: string;
+            };
+          };
+        };
+      };
 
       expect(response.status).toBe(200);
-      expect(JSON.parse(response.body)).toEqual({
+      expect(responseBody).toEqual({
         item: expect.objectContaining({
           id: 1,
           status: 'needs_review',
@@ -1702,6 +1724,7 @@ describe('inbox api', () => {
               accountKey: 'x-browser-main',
               readiness: 'blocked',
               sessionAction: 'request_session',
+              artifactPath: 'artifacts/inbox-reply-handoffs/x/x-browser-main/x-inbox-item-1.json',
             }),
             context: {
               selection: 'channelAccountId',
@@ -1725,6 +1748,23 @@ describe('inbox api', () => {
           }),
         }),
       });
+      const artifactPath = responseBody.delivery.details?.browserReplyHandoff?.artifactPath;
+      expect(artifactPath).toBe('artifacts/inbox-reply-handoffs/x/x-browser-main/x-inbox-item-1.json');
+      expect(
+        JSON.parse(fs.readFileSync(path.join(rootDir, artifactPath as string), 'utf8')),
+      ).toEqual(
+        expect.objectContaining({
+          type: 'browser_inbox_reply_handoff',
+          channelAccountId: channelAccount.id,
+          projectId: 1,
+          status: 'pending',
+          readiness: 'blocked',
+          sessionAction: 'request_session',
+          platform: 'x',
+          itemId: '1',
+          accountKey: 'x-browser-main',
+        }),
+      );
     } finally {
       cleanupTestDatabasePath(rootDir);
     }
@@ -1837,6 +1877,8 @@ describe('inbox api', () => {
           channelAccountId: channelAccount.id,
           projectId: 1,
           status: 'pending',
+          readiness: 'ready',
+          sessionAction: null,
           platform: 'weibo',
           itemId: '1',
           accountKey: 'weibo-browser-main',
@@ -1955,6 +1997,8 @@ describe('inbox api', () => {
           ownership: 'direct',
           projectId: 1,
           status: 'pending',
+          readiness: 'ready',
+          sessionAction: null,
           platform: 'instagram',
           itemId: '1',
           source: 'instagram',
@@ -2601,7 +2645,7 @@ describe('inbox api', () => {
     }
   });
 
-  it('does not create a ready browser reply handoff artifact when the saved session requires relogin', async () => {
+  it('persists a blocked browser reply handoff artifact when the saved session requires relogin', async () => {
     const { rootDir } = createTestDatabasePath();
     process.env.BROWSER_HANDOFF_OUTPUT_DIR = rootDir;
 
@@ -2643,9 +2687,13 @@ describe('inbox api', () => {
       const response = await requestApp('POST', '/api/inbox/1/send-reply', {
         reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
       });
+      const body = JSON.parse(response.body) as {
+        delivery: { details?: { browserReplyHandoff?: { artifactPath?: string } } };
+      };
+      const artifactPath = body.delivery.details?.browserReplyHandoff?.artifactPath;
 
       expect(response.status).toBe(200);
-      expect(JSON.parse(response.body)).toEqual({
+      expect(body).toEqual({
         item: expect.objectContaining({
           id: 1,
           status: 'needs_review',
@@ -2665,28 +2713,40 @@ describe('inbox api', () => {
               accountKey: 'weibo-browser-main',
               readiness: 'blocked',
               sessionAction: 'relogin',
+              artifactPath:
+                'artifacts/inbox-reply-handoffs/weibo/weibo-browser-main/weibo-inbox-item-1.json',
             }),
           }),
         }),
       });
+      expect(artifactPath).toBe(
+        'artifacts/inbox-reply-handoffs/weibo/weibo-browser-main/weibo-inbox-item-1.json',
+      );
       expect(
-        fs.existsSync(
-          path.join(
-            rootDir,
-            'artifacts',
-            'inbox-reply-handoffs',
-            'weibo',
-            'weibo-browser-main',
-            'weibo-inbox-item-1.json',
-          ),
-        ),
-      ).toBe(false);
+        JSON.parse(fs.readFileSync(path.join(rootDir, artifactPath as string), 'utf8')),
+      ).toEqual(
+        expect.objectContaining({
+          type: 'browser_inbox_reply_handoff',
+          channelAccountId: channelAccount.id,
+          projectId: 1,
+          status: 'pending',
+          readiness: 'blocked',
+          sessionAction: 'relogin',
+          platform: 'weibo',
+          itemId: '1',
+          accountKey: 'weibo-browser-main',
+          session: expect.objectContaining({
+            hasSession: true,
+            status: 'expired',
+          }),
+        }),
+      );
     } finally {
       cleanupTestDatabasePath(rootDir);
     }
   });
 
-  it('does not create a ready browser reply handoff artifact for tiktok when the saved session requires relogin', async () => {
+  it('persists a blocked browser reply handoff artifact for tiktok when the saved session requires relogin', async () => {
     const { rootDir } = createTestDatabasePath();
     process.env.BROWSER_HANDOFF_OUTPUT_DIR = rootDir;
 
@@ -2728,9 +2788,13 @@ describe('inbox api', () => {
       const response = await requestApp('POST', '/api/inbox/1/send-reply', {
         reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
       });
+      const body = JSON.parse(response.body) as {
+        delivery: { details?: { browserReplyHandoff?: { artifactPath?: string } } };
+      };
+      const artifactPath = body.delivery.details?.browserReplyHandoff?.artifactPath;
 
       expect(response.status).toBe(200);
-      expect(JSON.parse(response.body)).toEqual({
+      expect(body).toEqual({
         item: expect.objectContaining({
           id: 1,
           status: 'needs_review',
@@ -2750,22 +2814,34 @@ describe('inbox api', () => {
               accountKey: 'tiktok-browser-main',
               readiness: 'blocked',
               sessionAction: 'relogin',
+              artifactPath:
+                'artifacts/inbox-reply-handoffs/tiktok/tiktok-browser-main/tiktok-inbox-item-1.json',
             }),
           }),
         }),
       });
+      expect(artifactPath).toBe(
+        'artifacts/inbox-reply-handoffs/tiktok/tiktok-browser-main/tiktok-inbox-item-1.json',
+      );
       expect(
-        fs.existsSync(
-          path.join(
-            rootDir,
-            'artifacts',
-            'inbox-reply-handoffs',
-            'tiktok',
-            'tiktok-browser-main',
-            'tiktok-inbox-item-1.json',
-          ),
-        ),
-      ).toBe(false);
+        JSON.parse(fs.readFileSync(path.join(rootDir, artifactPath as string), 'utf8')),
+      ).toEqual(
+        expect.objectContaining({
+          type: 'browser_inbox_reply_handoff',
+          channelAccountId: channelAccount.id,
+          projectId: 1,
+          status: 'pending',
+          readiness: 'blocked',
+          sessionAction: 'relogin',
+          platform: 'tiktok',
+          itemId: '1',
+          accountKey: 'tiktok-browser-main',
+          session: expect.objectContaining({
+            hasSession: true,
+            status: 'expired',
+          }),
+        }),
+      );
     } finally {
       cleanupTestDatabasePath(rootDir);
     }

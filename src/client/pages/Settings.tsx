@@ -129,6 +129,8 @@ export interface InboxReplyHandoffRecord {
   author: string | null;
   accountKey: string;
   status: string;
+  readiness?: string;
+  sessionAction?: string | null;
   artifactPath: string;
   createdAt: string;
   updatedAt: string;
@@ -511,6 +513,16 @@ function readStatusValue(value: unknown) {
   return typeof (value as { status?: unknown } | null)?.status === 'string'
     ? ((value as { status: string }).status)
     : null;
+}
+
+function isReadyInboxReplyHandoff(handoff: InboxReplyHandoffRecord) {
+  return handoff.status === 'pending' && (handoff.readiness ?? 'ready') === 'ready';
+}
+
+function getInboxReplyHandoffBlockedMessage(handoff: InboxReplyHandoffRecord) {
+  return handoff.sessionAction === 'relogin'
+    ? '等待刷新 Session 后继续回复接管。'
+    : '等待补充 Session 后继续回复接管。';
 }
 
 function readResolutionDetail(value: unknown) {
@@ -2140,7 +2152,15 @@ export function SettingsPage({
                     </div>
                     {handoff.resolvedAt === null &&
                     readStatusValue(handoff.resolution) === null &&
-                    handoff.status === 'pending' ? (
+                    handoff.status === 'pending' &&
+                    !isReadyInboxReplyHandoff(handoff) ? (
+                      <div style={{ color: '#475569', fontWeight: 600, marginTop: '6px' }}>
+                        {getInboxReplyHandoffBlockedMessage(handoff)}
+                      </div>
+                    ) : null}
+                    {handoff.resolvedAt === null &&
+                    readStatusValue(handoff.resolution) === null &&
+                    isReadyInboxReplyHandoff(handoff) ? (
                       <div style={{ display: 'grid', gap: '10px', marginTop: '6px' }}>
                         <label style={{ display: 'grid', gap: '6px' }}>
                           <span style={{ fontWeight: 700, color: '#334155' }}>deliveryUrl</span>

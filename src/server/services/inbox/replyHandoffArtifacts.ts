@@ -4,9 +4,10 @@ import path from 'node:path';
 import { getDatabasePath } from '../../lib/persistence.js';
 import { createChannelAccountStore } from '../../store/channelAccounts.js';
 import { createInboxStore, type InboxItemRecord } from '../../store/inbox.js';
-import type { SessionSummary } from '../browser/sessionStore.js';
+import type { BrowserSessionAction, SessionSummary } from '../browser/sessionStore.js';
 
 export type InboxReplyHandoffArtifactStatus = 'pending' | 'resolved' | 'obsolete';
+export type InboxReplyHandoffArtifactReadiness = 'ready' | 'blocked';
 export type InboxReplyHandoffPlatform =
   | 'x'
   | 'reddit'
@@ -26,6 +27,7 @@ interface InboxReplyHandoffArtifactRecord {
   ownership?: InboxReplyHandoffOwnership;
   projectId?: number;
   status: InboxReplyHandoffArtifactStatus;
+  readiness: InboxReplyHandoffArtifactReadiness;
   platform: InboxReplyHandoffPlatform;
   itemId: string;
   source: string;
@@ -36,6 +38,7 @@ interface InboxReplyHandoffArtifactRecord {
   sourceUrl: string | null;
   accountKey: string;
   session: SessionSummary;
+  sessionAction: BrowserSessionAction | null;
   createdAt: string;
   updatedAt: string;
   resolvedAt: string | null;
@@ -53,6 +56,8 @@ export interface InboxReplyHandoffArtifactSummary {
   author: string | null;
   accountKey: string;
   status: InboxReplyHandoffArtifactStatus;
+  readiness: InboxReplyHandoffArtifactReadiness;
+  sessionAction: BrowserSessionAction | null;
   artifactPath: string;
   createdAt: string;
   updatedAt: string;
@@ -68,6 +73,7 @@ export function writeInboxReplyHandoffArtifact(input: {
   reply: string;
   sourceUrl: string | null;
   session: SessionSummary;
+  sessionAction?: BrowserSessionAction | null;
 }) {
   const artifactPath = buildArtifactPath(input.platform, input.accountKey, String(input.item.id));
   const absolutePath = path.join(resolveArtifactRootDir(), artifactPath);
@@ -85,6 +91,7 @@ export function writeInboxReplyHandoffArtifact(input: {
     ownership,
     ...(typeof input.item.projectId === 'number' ? { projectId: input.item.projectId } : {}),
     status: 'pending',
+    readiness: input.sessionAction ? 'blocked' : 'ready',
     platform: input.platform,
     itemId: String(input.item.id),
     source: input.item.source,
@@ -95,6 +102,7 @@ export function writeInboxReplyHandoffArtifact(input: {
     sourceUrl: input.sourceUrl,
     accountKey: input.accountKey,
     session: input.session,
+    sessionAction: input.sessionAction ?? null,
     createdAt: existingArtifact?.createdAt ?? now,
     updatedAt: now,
     resolvedAt: null,
@@ -187,6 +195,45 @@ export function resolveInboxReplyHandoffArtifact(input: {
   });
 }
 
+export function promoteInboxReplyHandoffArtifactToReady(input: {
+  artifactPath: string;
+  session: SessionSummary;
+}) {
+  const normalizedPath = input.artifactPath.trim().replace(/\\/g, '/');
+  if (!normalizedPath) {
+    return null;
+  }
+
+  const artifactRootDir = resolveArtifactRootDir();
+  const absolutePath = path.resolve(artifactRootDir, normalizedPath);
+  const portablePath = path.relative(artifactRootDir, absolutePath).split(path.sep).join('/');
+  if (!portablePath.startsWith('artifacts/inbox-reply-handoffs/')) {
+    return null;
+  }
+
+  const artifact = readInboxReplyHandoffArtifact(absolutePath);
+  if (!artifact || artifact.status !== 'pending') {
+    return null;
+  }
+
+  const nextArtifact: InboxReplyHandoffArtifactRecord = {
+    ...artifact,
+    readiness: 'ready',
+    sessionAction: null,
+    session: input.session,
+    updatedAt: new Date().toISOString(),
+  };
+
+  fs.writeFileSync(absolutePath, JSON.stringify(nextArtifact, null, 2), 'utf8');
+
+  return {
+    artifactPath: portablePath,
+    updatedAt: nextArtifact.updatedAt,
+    readiness: nextArtifact.readiness,
+    sessionAction: nextArtifact.sessionAction,
+  };
+}
+
 export function listInboxReplyHandoffArtifacts(limit?: number): InboxReplyHandoffArtifactSummary[] {
   const artifactRootDir = resolveArtifactRootDir();
   const handoffDir = path.join(artifactRootDir, 'artifacts', 'inbox-reply-handoffs');
@@ -240,6 +287,8 @@ export function listInboxReplyHandoffArtifacts(limit?: number): InboxReplyHandof
           author: artifact.author,
           accountKey: artifact.accountKey,
           status: artifact.status,
+          readiness: artifact.readiness,
+          sessionAction: artifact.sessionAction,
           artifactPath: path.relative(artifactRootDir, absolutePath).split(path.sep).join('/'),
           createdAt: artifact.createdAt,
           updatedAt: artifact.updatedAt,
@@ -303,6 +352,8 @@ export function getInboxReplyHandoffArtifactByPath(artifactPath: string) {
     sourceUrl: artifact.sourceUrl,
     accountKey: artifact.accountKey,
     session: artifact.session,
+    sessionAction: artifact.sessionAction,
+    readiness: artifact.readiness,
     createdAt: artifact.createdAt,
     updatedAt: artifact.updatedAt,
     resolvedAt: artifact.resolvedAt,
@@ -499,7 +550,18 @@ function readInboxReplyHandoffArtifact(absolutePath: string): InboxReplyHandoffA
 
   try {
     const parsed = JSON.parse(fs.readFileSync(absolutePath, 'utf8')) as InboxReplyHandoffArtifactRecord;
-    return parsed.type === 'browser_inbox_reply_handoff' ? parsed : null;
+    if (parsed.type !== 'browser_inbox_reply_handoff') {
+      return null;
+    }
+
+    return {
+      ...parsed,
+      readiness: parsed.readiness === 'blocked' ? 'blocked' : 'ready',
+      sessionAction:
+        parsed.sessionAction === 'request_session' || parsed.sessionAction === 'relogin'
+          ? parsed.sessionAction
+          : null,
+    };
   } catch {
     return null;
   }

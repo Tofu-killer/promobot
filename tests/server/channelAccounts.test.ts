@@ -2597,6 +2597,92 @@ describe('channel accounts api', () => {
     }
   });
 
+  it('promotes blocked inbox reply handoffs after saving an active session', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const inboxStore = createInboxStore();
+      const jobQueueStore = createJobQueueStore();
+
+      await requestApp('POST', '/api/channel-accounts', {
+        projectId: 55,
+        platform: 'weibo',
+        accountKey: 'weibo-browser-main',
+        displayName: 'PromoBot Weibo',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      const item = inboxStore.create({
+        projectId: 55,
+        source: 'weibo',
+        status: 'needs_reply',
+        author: 'ops-user',
+        title: 'Community question',
+        excerpt: 'Can you share current response times?',
+        metadata: {
+          channelAccountId: 1,
+          accountKey: 'weibo-browser-main',
+        },
+      });
+      const artifactPath =
+        `artifacts/inbox-reply-handoffs/weibo/weibo-browser-main/weibo-inbox-item-${item.id}.json`;
+      writeInboxReplyHandoffArtifact(rootDir, artifactPath, {
+        channelAccountId: 1,
+        projectId: 55,
+        readiness: 'blocked',
+        sessionAction: 'relogin',
+        session: {
+          hasSession: true,
+          id: 'weibo:weibo-browser-main',
+          status: 'expired',
+          validatedAt: '2026-04-21T07:30:00.000Z',
+          storageStatePath: 'artifacts/browser-sessions/weibo-browser-main.json',
+        },
+      });
+
+      const storageStatePath = 'artifacts/browser-sessions/weibo-browser-main-fresh.json';
+      writeStorageStateFile(rootDir, storageStatePath);
+
+      const saveSessionResponse = await requestApp('POST', '/api/channel-accounts/1/session', {
+        storageStatePath,
+        status: 'active',
+        validatedAt: '2026-04-21T08:00:00.000Z',
+      });
+
+      expect(saveSessionResponse.status).toBe(200);
+      expect(
+        JSON.parse(readFileSync(path.join(rootDir, artifactPath), 'utf8')),
+      ).toEqual(
+        expect.objectContaining({
+          status: 'pending',
+          readiness: 'ready',
+          sessionAction: null,
+          session: expect.objectContaining({
+            hasSession: true,
+            status: 'active',
+            validatedAt: '2026-04-21T08:00:00.000Z',
+            storageStatePath,
+          }),
+        }),
+      );
+      expect(jobQueueStore.list({ limit: 10 })).toEqual([
+        expect.objectContaining({
+          type: 'inbox_reply_handoff_poll',
+          status: 'pending',
+          attempts: 0,
+        }),
+      ]);
+      expect(JSON.parse(jobQueueStore.list({ limit: 10 })[0]?.payload ?? '{}')).toEqual({
+        artifactPath,
+        attempt: 0,
+        maxAttempts: 60,
+        pollDelayMs: 60_000,
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('returns the latest browser-lane artifact summary in request, save, and list responses', async () => {
     const { rootDir } = createTestDatabasePath();
     try {

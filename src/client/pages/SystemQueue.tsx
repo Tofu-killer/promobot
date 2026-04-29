@@ -105,6 +105,8 @@ export interface InboxReplyHandoffRecord {
   author: string | null;
   accountKey: string;
   status: string;
+  readiness?: string;
+  sessionAction?: string | null;
   artifactPath: string;
   createdAt: string;
   updatedAt: string;
@@ -1640,7 +1642,12 @@ export function SystemQueuePage({
                           deliveredAt: {readResolutionDeliveredAt(handoff.resolution)}
                         </div>
                       ) : null}
-                      {handoff.status === 'pending' ? (
+                      {handoff.status === 'pending' && !isReadyInboxReplyHandoff(handoff) ? (
+                        <div style={{ color: '#475569', fontWeight: 600 }}>
+                          {getInboxReplyHandoffBlockedMessage(handoff)}
+                        </div>
+                      ) : null}
+                      {isReadyInboxReplyHandoff(handoff) ? (
                         <div style={{ display: 'grid', gap: '10px' }}>
                           <label style={{ display: 'grid', gap: '6px' }}>
                             <span style={{ fontWeight: 700, color: '#334155' }}>回复链接</span>
@@ -1930,7 +1937,7 @@ function buildPriorityActionRecords(input: {
       destinationLabel: '前往 Browser Lane 工单',
     }));
   const inboxReplyActions = input.inboxReplyHandoffs
-    .filter((handoff) => handoff.status === 'pending')
+    .filter(isReadyInboxReplyHandoff)
     .map((handoff) => ({
       kind: 'inbox_reply_handoff' as const,
       handoff,
@@ -1967,6 +1974,16 @@ function buildPriorityActionRecords(input: {
 
 function isPendingBrowserLaneRequest(request: BrowserLaneRequestRecord) {
   return request.resolvedAt === null && readResolutionStatus(request.resolution) === null && request.jobStatus !== 'resolved';
+}
+
+function isReadyInboxReplyHandoff(handoff: InboxReplyHandoffRecord) {
+  return handoff.status === 'pending' && (handoff.readiness ?? 'ready') === 'ready';
+}
+
+function getInboxReplyHandoffBlockedMessage(handoff: InboxReplyHandoffRecord) {
+  return handoff.sessionAction === 'relogin'
+    ? '等待刷新 Session 后继续回复接管。'
+    : '等待补充 Session 后继续回复接管。';
 }
 
 function readBrowserLanePriority(action: string) {

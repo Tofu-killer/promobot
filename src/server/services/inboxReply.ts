@@ -1036,27 +1036,23 @@ function buildBrowserReplyHandoff(input: {
     });
   }
 
-  const readyArtifact =
-    sessionResolution.sessionAction === null
-      ? writeInboxReplyHandoffArtifact({
-          ...(typeof input.context.channelAccount?.id === 'number'
-            ? { channelAccountId: input.context.channelAccount.id }
-            : {}),
-          platform: handoffPlatform,
-          accountKey,
-          item: input.item,
-          reply: input.reply,
-          sourceUrl: resolveSourceUrl(input.item),
-          session: sessionResolution.session,
-        })
-      : null;
-  if (readyArtifact) {
-    clearInboxReplyHandoffResultArtifact({
-      platform: handoffPlatform,
-      accountKey,
-      itemId: String(input.item.id),
-    });
-  }
+  const handoffArtifact = writeInboxReplyHandoffArtifact({
+    ...(typeof input.context.channelAccount?.id === 'number'
+      ? { channelAccountId: input.context.channelAccount.id }
+      : {}),
+    platform: handoffPlatform,
+    accountKey,
+    item: input.item,
+    reply: input.reply,
+    sourceUrl: resolveSourceUrl(input.item),
+    session: sessionResolution.session,
+    sessionAction: sessionResolution.sessionAction,
+  });
+  clearInboxReplyHandoffResultArtifact({
+    platform: handoffPlatform,
+    accountKey,
+    itemId: String(input.item.id),
+  });
 
   return {
     message: buildBrowserReplyHandoffMessage(input.platform, sessionResolution.sessionAction),
@@ -1069,7 +1065,7 @@ function buildBrowserReplyHandoff(input: {
       readiness: sessionResolution.sessionAction ? 'blocked' : 'ready',
       session: sessionResolution.session,
       sessionAction: sessionResolution.sessionAction,
-      ...(readyArtifact ? { artifactPath: readyArtifact.artifactPath } : {}),
+      artifactPath: handoffArtifact.artifactPath,
     },
   };
 }

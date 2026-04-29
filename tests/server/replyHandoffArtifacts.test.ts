@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   getInboxReplyHandoffArtifactByPath,
   listInboxReplyHandoffArtifacts,
+  promoteInboxReplyHandoffArtifactToReady,
   writeInboxReplyHandoffArtifact,
 } from '../../src/server/services/inbox/replyHandoffArtifacts';
 import { createChannelAccountStore } from '../../src/server/store/channelAccounts';
@@ -21,6 +22,107 @@ describe('inbox reply handoff artifacts', () => {
   afterEach(() => {
     restoreCwd?.();
     restoreCwd = null;
+  });
+
+  it('persists blocked readiness metadata and can promote the handoff back to ready', () => {
+    const { rootDir } = createTestDatabasePath();
+
+    try {
+      const channelAccountStore = createChannelAccountStore();
+      const inboxStore = createInboxStore();
+      const account = channelAccountStore.create({
+        projectId: 22,
+        platform: 'weibo',
+        accountKey: 'weibo-browser-main',
+        displayName: 'PromoBot Weibo',
+        authType: 'browser',
+        status: 'healthy',
+      });
+      const item = inboxStore.create({
+        projectId: 22,
+        source: 'weibo',
+        status: 'needs_reply',
+        author: 'ops-user',
+        title: 'Community question',
+        excerpt: 'Can you share current response times?',
+        metadata: {
+          accountKey: 'weibo-browser-main',
+        },
+      });
+
+      const { artifactPath } = writeInboxReplyHandoffArtifact({
+        channelAccountId: account.id,
+        platform: 'weibo',
+        accountKey: 'weibo-browser-main',
+        item,
+        reply: 'Thanks for reaching out.',
+        sourceUrl: 'https://weibo.test/post/12',
+        session: {
+          hasSession: false,
+          id: 'weibo:weibo-browser-main',
+          status: 'missing',
+          validatedAt: null,
+          storageStatePath: null,
+        },
+        sessionAction: 'request_session',
+      });
+
+      expect(
+        JSON.parse(fs.readFileSync(path.join(rootDir, artifactPath), 'utf8')),
+      ).toEqual(
+        expect.objectContaining({
+          readiness: 'blocked',
+          sessionAction: 'request_session',
+        }),
+      );
+      expect(listInboxReplyHandoffArtifacts()).toEqual([
+        expect.objectContaining({
+          artifactPath,
+          readiness: 'blocked',
+          sessionAction: 'request_session',
+        }),
+      ]);
+      expect(getInboxReplyHandoffArtifactByPath(artifactPath)).toEqual(
+        expect.objectContaining({
+          artifactPath,
+          readiness: 'blocked',
+          sessionAction: 'request_session',
+        }),
+      );
+
+      const promotedArtifact = promoteInboxReplyHandoffArtifactToReady({
+        artifactPath,
+        session: {
+          hasSession: true,
+          id: 'weibo:weibo-browser-main',
+          status: 'active',
+          validatedAt: '2026-04-26T10:00:00.000Z',
+          storageStatePath: 'browser-sessions/managed/weibo/weibo-browser-main.json',
+        },
+      });
+
+      expect(promotedArtifact).toEqual(
+        expect.objectContaining({
+          artifactPath,
+          readiness: 'ready',
+          sessionAction: null,
+        }),
+      );
+      expect(getInboxReplyHandoffArtifactByPath(artifactPath)).toEqual(
+        expect.objectContaining({
+          artifactPath,
+          readiness: 'ready',
+          sessionAction: null,
+          session: expect.objectContaining({
+            hasSession: true,
+            status: 'active',
+            validatedAt: '2026-04-26T10:00:00.000Z',
+          }),
+        }),
+      );
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
   });
 
   it('preserves persisted item_project ownership when current account scope changes', () => {

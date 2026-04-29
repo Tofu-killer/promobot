@@ -6,6 +6,7 @@ import {
   markSessionRequestResultArtifactConsumed,
   resolveSessionRequestArtifacts,
 } from './sessionRequestArtifacts.js';
+import { resumeBlockedInboxReplyHandoffsForChannelAccount } from './resumeBlockedInboxReplyHandoffs.js';
 import { resumeBlockedBrowserPublishesForChannelAccount } from './resumeBlockedBrowserPublishes.js';
 import { buildSessionSummary, createSessionStore } from './sessionStore.js';
 
@@ -115,6 +116,7 @@ export async function importSessionRequestResultArtifact(
     resolution,
   });
   resumeBlockedBrowserPublishesForChannelAccount(updatedChannelAccount, session);
+  resumeBlockedInboxReplyHandoffsForChannelAccount(updatedChannelAccount, session);
 
   return {
     ok: true,

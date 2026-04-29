@@ -466,6 +466,50 @@ describe('inbox reply handoff completion submitter', () => {
     }
   });
 
+  it('fails when the inbox reply handoff artifact is still blocked on session restoration', async () => {
+    const { rootDir } = createTestDatabasePath();
+
+    try {
+      const inboxStore = createInboxStore();
+      const item = inboxStore.create({
+        projectId: 1,
+        source: 'weibo',
+        status: 'needs_reply',
+        author: 'ops-user',
+        title: 'Community question',
+        excerpt: 'Can you share current response times?',
+        metadata: {
+          accountKey: 'weibo-browser-main',
+        },
+      });
+      const artifactPath = writePendingInboxReplyHandoffArtifact(rootDir, item.id, {
+        readiness: 'blocked',
+        sessionAction: 'request_session',
+        session: {
+          hasSession: false,
+          id: 'weibo:weibo-browser-main',
+          status: 'missing',
+          validatedAt: null,
+          storageStatePath: null,
+        },
+      });
+
+      await expect(
+        submitInboxReplyHandoffCompletion({
+          artifactPath,
+          replyStatus: 'sent',
+          message: 'browser lane completed reply',
+          queueResult: true,
+        }),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        message: 'inbox reply handoff artifact is still waiting for session restoration',
+      } satisfies Partial<InboxReplyHandoffCompletionSubmitError>);
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('writes an inbox reply handoff result artifact locally when queueResult is enabled', async () => {
     const { rootDir } = createTestDatabasePath();
 

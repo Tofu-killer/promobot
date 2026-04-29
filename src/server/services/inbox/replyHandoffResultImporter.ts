@@ -34,6 +34,13 @@ export async function importInboxReplyHandoffResult(input: {
     throw new InboxReplyHandoffImportError('inbox reply handoff artifact already resolved', 409);
   }
 
+  if (artifact.readiness === 'blocked') {
+    throw new InboxReplyHandoffImportError(
+      'inbox reply handoff artifact is still waiting for session restoration',
+      409,
+    );
+  }
+
   const itemId = Number(artifact.itemId);
   if (!Number.isInteger(itemId) || itemId <= 0) {
     throw new InboxReplyHandoffImportError('inbox reply handoff artifact has an invalid item id', 409);

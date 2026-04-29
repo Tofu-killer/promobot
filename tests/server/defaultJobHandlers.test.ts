@@ -104,7 +104,11 @@ function writeBrowserHandoffResultArtifact(rootDir: string, handoffArtifactPath:
   return artifactPath;
 }
 
-function writePendingInboxReplyHandoffArtifact(rootDir: string, itemId: number) {
+function writePendingInboxReplyHandoffArtifact(
+  rootDir: string,
+  itemId: number,
+  overrides: Record<string, unknown> = {},
+) {
   const artifactPath =
     `artifacts/inbox-reply-handoffs/weibo/weibo-browser-main/weibo-inbox-item-${itemId}.json`;
   const absolutePath = path.join(rootDir, artifactPath);
@@ -118,6 +122,8 @@ function writePendingInboxReplyHandoffArtifact(rootDir: string, itemId: number) 
         ownership: 'direct',
         projectId: 1,
         status: 'pending',
+        readiness: 'ready',
+        sessionAction: null,
         platform: 'weibo',
         itemId: String(itemId),
         source: 'weibo',
@@ -138,6 +144,7 @@ function writePendingInboxReplyHandoffArtifact(rootDir: string, itemId: number) 
         updatedAt: '2026-04-29T07:56:00.000Z',
         resolvedAt: null,
         resolution: null,
+        ...overrides,
       },
       null,
       2,
@@ -822,6 +829,129 @@ describe('default job handlers', () => {
       });
     } finally {
       vi.useRealTimers();
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('promotes blocked inbox reply handoffs to ready and queues a follow-up poll job after session import', async () => {
+    const { rootDir } = createTestDatabasePath();
+
+    try {
+      const channelAccountStore = createChannelAccountStore();
+      const inboxStore = createInboxStore();
+      const jobQueueStore = createJobQueueStore();
+      const channelAccount = channelAccountStore.create({
+        projectId: 1,
+        platform: 'weibo',
+        accountKey: 'weibo-browser-main',
+        displayName: 'PromoBot Weibo',
+        authType: 'browser',
+        status: 'healthy',
+      });
+      const item = inboxStore.create({
+        projectId: 1,
+        source: 'weibo',
+        status: 'needs_reply',
+        author: 'ops-user',
+        title: 'Community question',
+        excerpt: 'Can you share current response times?',
+        metadata: {
+          channelAccountId: channelAccount.id,
+          accountKey: 'weibo-browser-main',
+        },
+      });
+      const handoffArtifactPath = writePendingInboxReplyHandoffArtifact(rootDir, item.id, {
+        channelAccountId: channelAccount.id,
+        readiness: 'blocked',
+        sessionAction: 'request_session',
+        session: {
+          hasSession: false,
+          id: 'weibo:weibo-browser-main',
+          status: 'missing',
+          validatedAt: null,
+          storageStatePath: null,
+        },
+      });
+      createSessionRequestArtifact({
+        channelAccountId: channelAccount.id,
+        platform: channelAccount.platform,
+        accountKey: channelAccount.accountKey,
+        action: 'request_session',
+        requestedAt: '2026-04-21T09:15:00.000Z',
+        jobId: 41,
+        jobStatus: 'pending',
+        nextStep: `/api/channel-accounts/${channelAccount.id}/session`,
+      });
+      createSessionRequestResultArtifact({
+        channelAccountId: channelAccount.id,
+        platform: channelAccount.platform,
+        accountKey: channelAccount.accountKey,
+        action: 'request_session',
+        requestJobId: 41,
+        completedAt: '2026-04-21T09:17:00.000Z',
+        storageState: defaultStorageState,
+        sessionStatus: 'active',
+        validatedAt: '2026-04-21T09:18:00.000Z',
+        notes: 'imported by poll handler',
+      });
+
+      const handlers = createDefaultJobHandlers();
+      await handlers[channelAccountSessionRequestPollJobType](
+        {
+          accountId: channelAccount.id,
+          platform: channelAccount.platform,
+          accountKey: channelAccount.accountKey,
+          action: 'request_session',
+          requestJobId: 41,
+          attempt: 0,
+          maxAttempts: 3,
+          pollDelayMs: 60_000,
+        },
+        createJobRecord({
+          id: 42,
+          type: channelAccountSessionRequestPollJobType,
+          payload: {
+            accountId: channelAccount.id,
+            platform: channelAccount.platform,
+            accountKey: channelAccount.accountKey,
+            action: 'request_session',
+            requestJobId: 41,
+            attempt: 0,
+            maxAttempts: 3,
+            pollDelayMs: 60_000,
+          },
+          runAt: '2026-04-21T09:17:00.000Z',
+        }),
+      );
+
+      expect(
+        JSON.parse(readFileSync(path.join(rootDir, handoffArtifactPath), 'utf8')),
+      ).toEqual(
+        expect.objectContaining({
+          status: 'pending',
+          readiness: 'ready',
+          sessionAction: null,
+          session: expect.objectContaining({
+            hasSession: true,
+            status: 'active',
+            validatedAt: '2026-04-21T09:18:00.000Z',
+          }),
+        }),
+      );
+      expect(jobQueueStore.list({ limit: 10 })).toEqual([
+        expect.objectContaining({
+          type: inboxReplyHandoffPollJobType,
+          status: 'pending',
+          attempts: 0,
+        }),
+      ]);
+      expect(JSON.parse(jobQueueStore.list({ limit: 10 })[0]?.payload ?? '{}')).toEqual({
+        artifactPath: handoffArtifactPath,
+        attempt: 0,
+        maxAttempts: 60,
+        pollDelayMs: 60_000,
+      });
+    } finally {
       cleanupTestDatabasePath(rootDir);
     }
   });

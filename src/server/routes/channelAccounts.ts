@@ -18,6 +18,7 @@ import {
   getLatestSessionRequestArtifact,
   resolveSessionRequestArtifacts,
 } from '../services/browser/sessionRequestArtifacts.js';
+import { resumeBlockedInboxReplyHandoffsForChannelAccount } from '../services/browser/resumeBlockedInboxReplyHandoffs.js';
 import { resumeBlockedBrowserPublishesForChannelAccount } from '../services/browser/resumeBlockedBrowserPublishes.js';
 import { getLatestBrowserHandoffArtifact } from '../services/publishers/browserHandoffArtifacts.js';
 import { getLatestInboxReplyHandoffArtifact } from '../services/inbox/replyHandoffArtifacts.js';
@@ -296,6 +297,7 @@ channelAccountsRouter.post('/:id/session', (request, response) => {
   });
   if (updatedChannelAccount) {
     resumeBlockedBrowserPublishesForChannelAccount(updatedChannelAccount, session);
+    resumeBlockedInboxReplyHandoffsForChannelAccount(updatedChannelAccount, session);
   }
 
   response.json({

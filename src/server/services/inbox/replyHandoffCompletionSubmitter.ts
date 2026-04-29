@@ -76,6 +76,13 @@ export async function submitInboxReplyHandoffCompletion(
       );
     }
 
+    if (handoffArtifact.readiness === 'blocked') {
+      throw new InboxReplyHandoffCompletionSubmitError(
+        'inbox reply handoff artifact is still waiting for session restoration',
+        409,
+      );
+    }
+
     const completedAt = (dependencies.now ?? (() => new Date()))().toISOString();
     const resultArtifactPath = createInboxReplyHandoffResultArtifact({
       handoffArtifactPath: artifactPath,
