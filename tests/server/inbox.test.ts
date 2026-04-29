@@ -6,6 +6,7 @@ import { createSessionStore } from '../../src/server/services/browser/sessionSto
 import { createChannelAccountStore } from '../../src/server/store/channelAccounts';
 import * as inboxStoreModule from '../../src/server/store/inbox';
 import { createInboxStore } from '../../src/server/store/inbox';
+import { createJobQueueStore } from '../../src/server/store/jobQueue';
 import { createMonitorStore } from '../../src/server/store/monitor';
 import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
 
@@ -24,6 +25,7 @@ const originalEnv = {
   X_ACCESS_TOKEN: process.env.X_ACCESS_TOKEN,
   X_BEARER_TOKEN: process.env.X_BEARER_TOKEN,
 };
+const inboxReplyHandoffPollJobType = 'inbox_reply_handoff_poll';
 
 async function requestApp(method: string, url: string, body?: unknown) {
   const app = createApp({
@@ -1972,6 +1974,77 @@ describe('inbox api', () => {
         }),
       );
     } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('queues a single follow-up inbox reply handoff poll job when a ready browser reply handoff artifact is created', async () => {
+    const { rootDir } = createTestDatabasePath();
+    process.env.BROWSER_HANDOFF_OUTPUT_DIR = rootDir;
+
+    try {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-04-29T08:00:00.000Z'));
+      const channelAccountStore = createChannelAccountStore();
+      const channelAccount = channelAccountStore.create({
+        projectId: 1,
+        platform: 'weibo',
+        accountKey: 'weibo-browser-main',
+        displayName: 'Weibo Browser Main',
+        authType: 'browser',
+        status: 'healthy',
+      });
+      createSessionStore().saveSession({
+        platform: 'weibo',
+        accountKey: 'weibo-browser-main',
+        storageState: {
+          cookies: [],
+          origins: [],
+        },
+        status: 'active',
+        lastValidatedAt: '2026-04-25T10:00:00.000Z',
+      });
+
+      const inboxStore = createInboxStore();
+      inboxStore.create({
+        projectId: 1,
+        source: 'weibo',
+        status: 'needs_review',
+        author: 'ops-user',
+        title: 'Need lower latency in APAC',
+        excerpt: 'Can you share current response times?',
+        metadata: {
+          channelAccountId: channelAccount.id,
+          accountKey: 'weibo-browser-main',
+          sourceUrl: 'https://weibo.test/post/1',
+        },
+      });
+
+      await requestApp('POST', '/api/inbox/1/send-reply', {
+        reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+      });
+      await requestApp('POST', '/api/inbox/1/send-reply', {
+        reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+      });
+
+      const jobQueueStore = createJobQueueStore();
+      expect(jobQueueStore.list({ limit: 10 })).toEqual([
+        expect.objectContaining({
+          type: inboxReplyHandoffPollJobType,
+          status: 'pending',
+          attempts: 0,
+          runAt: '2026-04-29T08:01:00.000Z',
+        }),
+      ]);
+      expect(JSON.parse(jobQueueStore.list({ limit: 10 })[0]?.payload ?? '{}')).toEqual({
+        artifactPath:
+          'artifacts/inbox-reply-handoffs/weibo/weibo-browser-main/weibo-inbox-item-1.json',
+        attempt: 0,
+        maxAttempts: 60,
+        pollDelayMs: 60_000,
+      });
+    } finally {
+      vi.useRealTimers();
       cleanupTestDatabasePath(rootDir);
     }
   });

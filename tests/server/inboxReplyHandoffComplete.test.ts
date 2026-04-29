@@ -7,6 +7,9 @@ import {
   getInboxReplyHandoffArtifactByPath,
 } from '../../src/server/services/inbox/replyHandoffArtifacts';
 import {
+  getInboxReplyHandoffResultArtifactByPath,
+} from '../../src/server/services/inbox/replyHandoffResultArtifacts';
+import {
   getInboxReplyHandoffCompleteHelpText,
   parseInboxReplyHandoffCompleteArgs,
 } from '../../src/server/cli/inboxReplyHandoffComplete';
@@ -463,6 +466,78 @@ describe('inbox reply handoff completion submitter', () => {
     }
   });
 
+  it('writes an inbox reply handoff result artifact locally when queueResult is enabled', async () => {
+    const { rootDir } = createTestDatabasePath();
+
+    try {
+      const inboxStore = createInboxStore();
+      const item = inboxStore.create({
+        projectId: 1,
+        source: 'weibo',
+        status: 'needs_reply',
+        author: 'ops-user',
+        title: 'Community question',
+        excerpt: 'Can you share current response times?',
+        metadata: {
+          accountKey: 'weibo-browser-main',
+        },
+      });
+      const artifactPath = writePendingInboxReplyHandoffArtifact(rootDir, item.id);
+
+      const result = await submitInboxReplyHandoffCompletion(
+        {
+          artifactPath,
+          replyStatus: 'sent',
+          deliveryUrl: 'https://weibo.test/post/12#reply-42',
+          message: 'browser lane completed reply',
+          deliveredAt: '2026-04-25T10:10:00.000Z',
+          queueResult: true,
+        },
+        {
+          now: () => new Date('2026-04-25T10:11:00.000Z'),
+        },
+      );
+
+      expect(result).toEqual({
+        ok: true,
+        imported: false,
+        artifactPath,
+        resultArtifactPath:
+          'artifacts/inbox-reply-handoff-results/weibo/weibo-browser-main/weibo-inbox-item-1.json',
+      });
+      expect(inboxStore.list()).toEqual([
+        expect.objectContaining({
+          id: item.id,
+          status: 'needs_reply',
+        }),
+      ]);
+      expect(getInboxReplyHandoffArtifactByPath(artifactPath)).toEqual(
+        expect.objectContaining({
+          status: 'pending',
+          resolvedAt: null,
+        }),
+      );
+      expect(
+        getInboxReplyHandoffResultArtifactByPath(
+          'artifacts/inbox-reply-handoff-results/weibo/weibo-browser-main/weibo-inbox-item-1.json',
+        ),
+      ).toEqual(
+        expect.objectContaining({
+          type: 'browser_inbox_reply_handoff_result',
+          handoffArtifactPath: artifactPath,
+          itemId: '1',
+          replyStatus: 'sent',
+          message: 'browser lane completed reply',
+          deliveryUrl: 'https://weibo.test/post/12#reply-42',
+          deliveredAt: '2026-04-25T10:10:00.000Z',
+          consumedAt: null,
+        }),
+      );
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('parses inbox reply handoff completion cli arguments', () => {
     expect(
       parseInboxReplyHandoffCompleteArgs([
@@ -478,6 +553,7 @@ describe('inbox reply handoff completion submitter', () => {
         'wb-reply-42',
         '--delivered-at',
         '2026-04-25T10:10:00.000Z',
+        '--queue-result',
         '--base-url',
         'http://127.0.0.1:3001',
         '--admin-password',
@@ -491,10 +567,12 @@ describe('inbox reply handoff completion submitter', () => {
       deliveryUrl: 'https://weibo.test/post/12#reply-42',
       externalId: 'wb-reply-42',
       deliveredAt: '2026-04-25T10:10:00.000Z',
+      queueResult: true,
       importBaseUrl: 'http://127.0.0.1:3001',
       adminPassword: 'secret',
     });
     expect(getInboxReplyHandoffCompleteHelpText()).toContain('--artifact-path <path>');
+    expect(getInboxReplyHandoffCompleteHelpText()).toContain('--queue-result');
     expect(getInboxReplyHandoffCompleteHelpText()).toContain(
       'pnpm inbox:reply:handoff:complete -- --artifact-path <path> [options]',
     );

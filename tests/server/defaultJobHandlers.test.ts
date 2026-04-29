@@ -13,6 +13,7 @@ import {
 } from '../../src/server/services/browser/sessionRequestArtifacts';
 import { createSessionStore } from '../../src/server/services/browser/sessionStore';
 import { createChannelAccountStore } from '../../src/server/store/channelAccounts';
+import { createInboxStore } from '../../src/server/store/inbox';
 import { createSQLiteDraftStore } from '../../src/server/store/drafts';
 import { createSQLitePublishLogStore } from '../../src/server/store/publishLogs';
 import { createJobQueueStore } from '../../src/server/store/jobQueue';
@@ -24,6 +25,7 @@ const defaultStorageState = {
 };
 const channelAccountSessionRequestPollJobType = 'channel_account_session_request_poll';
 const browserHandoffPollJobType = 'browser_handoff_poll';
+const inboxReplyHandoffPollJobType = 'inbox_reply_handoff_poll';
 let restoreCwd: (() => void) | null = null;
 
 function writeStorageStateFile(rootDir: string, storageStatePath: string) {
@@ -92,6 +94,85 @@ function writeBrowserHandoffResultArtifact(rootDir: string, handoffArtifactPath:
         publishUrl: 'https://instagram.com/p/launch-reel',
         externalId: 'launch-reel',
         publishedAt: '2026-04-29T08:01:00.000Z',
+      },
+      null,
+      2,
+    ),
+    'utf8',
+  );
+
+  return artifactPath;
+}
+
+function writePendingInboxReplyHandoffArtifact(rootDir: string, itemId: number) {
+  const artifactPath =
+    `artifacts/inbox-reply-handoffs/weibo/weibo-browser-main/weibo-inbox-item-${itemId}.json`;
+  const absolutePath = path.join(rootDir, artifactPath);
+  mkdirSync(path.dirname(absolutePath), { recursive: true });
+  writeFileSync(
+    absolutePath,
+    JSON.stringify(
+      {
+        type: 'browser_inbox_reply_handoff',
+        channelAccountId: 9,
+        ownership: 'direct',
+        projectId: 1,
+        status: 'pending',
+        platform: 'weibo',
+        itemId: String(itemId),
+        source: 'weibo',
+        title: 'Community question',
+        excerpt: 'Can you share current response times?',
+        reply: 'Thanks for reaching out.',
+        author: 'ops-user',
+        sourceUrl: 'https://weibo.test/post/12',
+        accountKey: 'weibo-browser-main',
+        session: {
+          hasSession: true,
+          id: 'weibo:weibo-browser-main',
+          status: 'active',
+          validatedAt: '2026-04-29T07:55:00.000Z',
+          storageStatePath: 'browser-sessions/managed/weibo/weibo-browser-main.json',
+        },
+        createdAt: '2026-04-29T07:56:00.000Z',
+        updatedAt: '2026-04-29T07:56:00.000Z',
+        resolvedAt: null,
+        resolution: null,
+      },
+      null,
+      2,
+    ),
+    'utf8',
+  );
+
+  return artifactPath;
+}
+
+function writeInboxReplyHandoffResultArtifact(
+  rootDir: string,
+  handoffArtifactPath: string,
+  itemId: number,
+) {
+  const artifactPath =
+    `artifacts/inbox-reply-handoff-results/weibo/weibo-browser-main/weibo-inbox-item-${itemId}.json`;
+  const absolutePath = path.join(rootDir, artifactPath);
+  mkdirSync(path.dirname(absolutePath), { recursive: true });
+  writeFileSync(
+    absolutePath,
+    JSON.stringify(
+      {
+        type: 'browser_inbox_reply_handoff_result',
+        handoffArtifactPath,
+        channelAccountId: 9,
+        platform: 'weibo',
+        accountKey: 'weibo-browser-main',
+        itemId: String(itemId),
+        completedAt: '2026-04-29T08:02:00.000Z',
+        replyStatus: 'sent',
+        message: 'browser lane replied from weibo',
+        deliveryUrl: 'https://weibo.test/post/12#reply-42',
+        externalId: 'wb-reply-42',
+        deliveredAt: '2026-04-29T08:01:00.000Z',
       },
       null,
       2,
@@ -554,6 +635,156 @@ describe('default job handlers', () => {
         accountKey: channelAccount.accountKey,
         action: 'relogin',
         requestJobId: 41,
+        attempt: 1,
+        maxAttempts: 3,
+        pollDelayMs: 60_000,
+      });
+    } finally {
+      vi.useRealTimers();
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('imports matching inbox reply handoff result artifacts when the poll handler runs', async () => {
+    const { rootDir } = createTestDatabasePath();
+
+    try {
+      const inboxStore = createInboxStore();
+      const item = inboxStore.create({
+        projectId: 1,
+        source: 'weibo',
+        status: 'needs_reply',
+        author: 'ops-user',
+        title: 'Community question',
+        excerpt: 'Can you share current response times?',
+        metadata: {
+          accountKey: 'weibo-browser-main',
+        },
+      });
+      const handoffArtifactPath = writePendingInboxReplyHandoffArtifact(rootDir, item.id);
+      const resultArtifactPath = writeInboxReplyHandoffResultArtifact(
+        rootDir,
+        handoffArtifactPath,
+        item.id,
+      );
+
+      const handlers = createDefaultJobHandlers();
+      await handlers[inboxReplyHandoffPollJobType](
+        {
+          artifactPath: handoffArtifactPath,
+          attempt: 0,
+          maxAttempts: 3,
+          pollDelayMs: 60_000,
+        },
+        createJobRecord({
+          id: 61,
+          type: inboxReplyHandoffPollJobType,
+          payload: {
+            artifactPath: handoffArtifactPath,
+            attempt: 0,
+            maxAttempts: 3,
+            pollDelayMs: 60_000,
+          },
+          runAt: '2026-04-29T08:02:00.000Z',
+        }),
+      );
+
+      expect(inboxStore.list()).toEqual([
+        expect.objectContaining({
+          id: item.id,
+          status: 'handled',
+        }),
+      ]);
+      expect(
+        JSON.parse(readFileSync(path.join(rootDir, handoffArtifactPath), 'utf8')),
+      ).toEqual(
+        expect.objectContaining({
+          status: 'resolved',
+          resolvedAt: expect.any(String),
+          resolution: expect.objectContaining({
+            replyStatus: 'sent',
+            itemStatus: 'handled',
+            deliveryUrl: 'https://weibo.test/post/12#reply-42',
+            externalId: 'wb-reply-42',
+            message: 'browser lane replied from weibo',
+          }),
+        }),
+      );
+      expect(
+        JSON.parse(readFileSync(path.join(rootDir, resultArtifactPath), 'utf8')),
+      ).toEqual(
+        expect.objectContaining({
+          consumedAt: expect.any(String),
+          resolution: expect.objectContaining({
+            status: 'imported',
+            handoffArtifactPath,
+            itemId: item.id,
+            itemStatus: 'handled',
+            replyStatus: 'sent',
+            deliveryUrl: 'https://weibo.test/post/12#reply-42',
+            externalId: 'wb-reply-42',
+            message: 'browser lane replied from weibo',
+            deliveredAt: '2026-04-29T08:01:00.000Z',
+          }),
+        }),
+      );
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('requeues a follow-up poll job when the inbox reply handoff result is still missing', async () => {
+    const { rootDir } = createTestDatabasePath();
+
+    try {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-04-29T08:16:00.000Z'));
+      const inboxStore = createInboxStore();
+      const jobQueueStore = createJobQueueStore();
+      const item = inboxStore.create({
+        projectId: 1,
+        source: 'weibo',
+        status: 'needs_reply',
+        author: 'ops-user',
+        title: 'Community question',
+        excerpt: 'Can you share current response times?',
+        metadata: {
+          accountKey: 'weibo-browser-main',
+        },
+      });
+      const handoffArtifactPath = writePendingInboxReplyHandoffArtifact(rootDir, item.id);
+
+      const handlers = createDefaultJobHandlers();
+      await handlers[inboxReplyHandoffPollJobType](
+        {
+          artifactPath: handoffArtifactPath,
+          attempt: 0,
+          maxAttempts: 3,
+          pollDelayMs: 60_000,
+        },
+        createJobRecord({
+          id: 62,
+          type: inboxReplyHandoffPollJobType,
+          payload: {
+            artifactPath: handoffArtifactPath,
+            attempt: 0,
+            maxAttempts: 3,
+            pollDelayMs: 60_000,
+          },
+          runAt: '2026-04-29T08:16:00.000Z',
+        }),
+      );
+
+      expect(jobQueueStore.list({ limit: 10 })).toEqual([
+        expect.objectContaining({
+          type: inboxReplyHandoffPollJobType,
+          status: 'pending',
+          attempts: 0,
+          runAt: '2026-04-29T08:17:00.000Z',
+        }),
+      ]);
+      expect(JSON.parse(jobQueueStore.list({ limit: 10 })[0]?.payload ?? '{}')).toEqual({
+        artifactPath: handoffArtifactPath,
         attempt: 1,
         maxAttempts: 3,
         pollDelayMs: 60_000,

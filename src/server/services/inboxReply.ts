@@ -22,7 +22,15 @@ import {
   writeInboxReplyHandoffArtifact,
   type InboxReplyHandoffPlatform,
 } from './inbox/replyHandoffArtifacts.js';
+import { clearInboxReplyHandoffResultArtifact } from './inbox/replyHandoffResultArtifacts.js';
+import {
+  defaultInboxReplyHandoffPollDelayMs,
+  defaultInboxReplyHandoffPollMaxAttempts,
+  hasOutstandingInboxReplyHandoffPollJob,
+  inboxReplyHandoffPollJobType,
+} from './inbox/replyHandoffPollHandler.js';
 import { getChannelAccountPublishReadiness, type PlatformReadiness } from './platformReadiness.js';
+import { createJobQueueStore, type JobQueueStore } from '../store/jobQueue.js';
 
 const X_REPLY_ENDPOINT = 'https://api.twitter.com/2/tweets';
 const REDDIT_TOKEN_ENDPOINT = 'https://www.reddit.com/api/v1/access_token';
@@ -146,6 +154,7 @@ type RedditAccessTokenResult =
 
 export function createInboxReplyService(): InboxReplyService {
   const channelAccountStore = createChannelAccountStore();
+  const jobQueueStore = createJobQueueStore();
 
   return {
     async deliver({ item, reply }) {
@@ -176,6 +185,7 @@ export function createInboxReplyService(): InboxReplyService {
           platform,
           context,
         });
+        maybeEnqueueInboxReplyHandoffPollJob(browserReplyHandoff?.details, jobQueueStore);
 
         return createManualRequiredDelivery({
           reply,
@@ -1040,6 +1050,13 @@ function buildBrowserReplyHandoff(input: {
           session: sessionResolution.session,
         })
       : null;
+  if (readyArtifact) {
+    clearInboxReplyHandoffResultArtifact({
+      platform: handoffPlatform,
+      accountKey,
+      itemId: String(input.item.id),
+    });
+  }
 
   return {
     message: buildBrowserReplyHandoffMessage(input.platform, sessionResolution.sessionAction),
@@ -1072,6 +1089,35 @@ function buildBrowserReplyHandoffMessage(
   }
 
   return `${label} reply is ready for manual browser handoff with the saved session.`;
+}
+
+function maybeEnqueueInboxReplyHandoffPollJob(
+  details: BrowserReplyHandoffDetails | undefined,
+  jobQueueStore: Pick<JobQueueStore, 'enqueue' | 'list'>,
+) {
+  if (!details || details.readiness !== 'ready' || !details.artifactPath) {
+    return;
+  }
+
+  if (
+    hasOutstandingInboxReplyHandoffPollJob(jobQueueStore, {
+      artifactPath: details.artifactPath,
+      currentJobId: undefined,
+    })
+  ) {
+    return;
+  }
+
+  jobQueueStore.enqueue({
+    type: inboxReplyHandoffPollJobType,
+    payload: {
+      artifactPath: details.artifactPath,
+      attempt: 0,
+      maxAttempts: defaultInboxReplyHandoffPollMaxAttempts,
+      pollDelayMs: defaultInboxReplyHandoffPollDelayMs,
+    },
+    runAt: new Date(Date.now() + defaultInboxReplyHandoffPollDelayMs).toISOString(),
+  });
 }
 
 function resolveXReplyTargetId(item: InboxItemRecord) {

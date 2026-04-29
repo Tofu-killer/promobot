@@ -59,6 +59,11 @@ export function parseInboxReplyHandoffCompleteArgs(
       continue;
     }
 
+    if (token === '--queue-result') {
+      parsed.queueResult = true;
+      continue;
+    }
+
     if (token === '--base-url') {
       parsed.importBaseUrl = nextValue ?? '';
       index += 1;
@@ -90,6 +95,7 @@ export function getInboxReplyHandoffCompleteHelpText() {
     '  --delivery-url <url>',
     '  --external-id <id>',
     '  --delivered-at <iso8601>',
+    '  --queue-result              Write a local result artifact for poll-based import',
     '  --base-url <origin>          Import through /api/system/inbox-reply-handoffs/import',
     '  --admin-password <value>     Required when --base-url is provided',
     '  --help',

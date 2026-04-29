@@ -2,6 +2,8 @@ import {
   InboxReplyHandoffImportError,
   importInboxReplyHandoffResult,
 } from './replyHandoffResultImporter.js';
+import { getInboxReplyHandoffArtifactByPath } from './replyHandoffArtifacts.js';
+import { createInboxReplyHandoffResultArtifact } from './replyHandoffResultArtifacts.js';
 
 export class InboxReplyHandoffCompletionSubmitError extends Error {
   constructor(
@@ -19,11 +21,13 @@ export interface SubmitInboxReplyHandoffCompletionInput {
   deliveryUrl?: string;
   externalId?: string;
   deliveredAt?: string;
+  queueResult?: boolean;
   importBaseUrl?: string;
   adminPassword?: string;
 }
 
 export interface SubmitInboxReplyHandoffCompletionDependencies {
+  now?: () => Date;
   fetchImpl?: typeof fetch;
 }
 
@@ -52,6 +56,51 @@ export async function submitInboxReplyHandoffCompletion(
   } as const;
 
   const shouldImportRemotely = input.importBaseUrl !== undefined || input.adminPassword !== undefined;
+  if (input.queueResult) {
+    if (shouldImportRemotely) {
+      throw new InboxReplyHandoffCompletionSubmitError(
+        'queueResult cannot be combined with remote inbox reply handoff import',
+        400,
+      );
+    }
+
+    const handoffArtifact = getInboxReplyHandoffArtifactByPath(artifactPath);
+    if (!handoffArtifact) {
+      throw new InboxReplyHandoffCompletionSubmitError('inbox reply handoff artifact not found', 404);
+    }
+
+    if (handoffArtifact.status !== 'pending') {
+      throw new InboxReplyHandoffCompletionSubmitError(
+        'inbox reply handoff artifact already resolved',
+        409,
+      );
+    }
+
+    const completedAt = (dependencies.now ?? (() => new Date()))().toISOString();
+    const resultArtifactPath = createInboxReplyHandoffResultArtifact({
+      handoffArtifactPath: artifactPath,
+      ...(typeof handoffArtifact.channelAccountId === 'number'
+        ? { channelAccountId: handoffArtifact.channelAccountId }
+        : {}),
+      platform: handoffArtifact.platform,
+      accountKey: handoffArtifact.accountKey,
+      itemId: handoffArtifact.itemId,
+      completedAt,
+      replyStatus: input.replyStatus,
+      message,
+      ...(input.deliveryUrl?.trim() ? { deliveryUrl: input.deliveryUrl.trim() } : {}),
+      ...(input.externalId?.trim() ? { externalId: input.externalId.trim() } : {}),
+      ...(input.deliveredAt?.trim() ? { deliveredAt: input.deliveredAt.trim() } : {}),
+    });
+
+    return {
+      ok: true,
+      imported: false,
+      artifactPath,
+      resultArtifactPath,
+    };
+  }
+
   if (!shouldImportRemotely) {
     try {
       return await importInboxReplyHandoffResult(normalizedInput);

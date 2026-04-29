@@ -3,6 +3,10 @@ import {
   getInboxReplyHandoffArtifactByPath,
   resolveInboxReplyHandoffArtifact,
 } from './replyHandoffArtifacts.js';
+import {
+  getInboxReplyHandoffResultArtifactByPath,
+  markInboxReplyHandoffResultArtifactConsumed,
+} from './replyHandoffResultArtifacts.js';
 
 export class InboxReplyHandoffImportError extends Error {
   constructor(
@@ -92,4 +96,89 @@ export async function importInboxReplyHandoffResult(input: {
     message: input.message,
     deliveredAt,
   };
+}
+
+export async function importInboxReplyHandoffResultArtifact(
+  artifactPath: string,
+  dependencies: {
+    now?: () => Date;
+  } = {},
+) {
+  const resultArtifact = getInboxReplyHandoffResultArtifactByPath(artifactPath);
+  if (!resultArtifact) {
+    throw new InboxReplyHandoffImportError('inbox reply handoff result artifact not found', 404);
+  }
+
+  if (resultArtifact.consumedAt) {
+    return {
+      ok: true,
+      imported: false,
+      artifactPath: resultArtifact.artifactPath,
+      handoffArtifactPath: resultArtifact.handoffArtifactPath,
+    };
+  }
+
+  const consumedAt = (dependencies.now ?? (() => new Date()))().toISOString();
+
+  try {
+    const importResult = await importInboxReplyHandoffResult({
+      artifactPath: resultArtifact.handoffArtifactPath,
+      replyStatus: resultArtifact.replyStatus,
+      message: resultArtifact.message,
+      ...(resultArtifact.deliveryUrl !== undefined ? { deliveryUrl: resultArtifact.deliveryUrl } : {}),
+      ...(resultArtifact.externalId !== undefined ? { externalId: resultArtifact.externalId } : {}),
+      ...(resultArtifact.deliveredAt !== undefined ? { deliveredAt: resultArtifact.deliveredAt } : {}),
+    });
+
+    markInboxReplyHandoffResultArtifactConsumed({
+      artifactPath: resultArtifact.artifactPath,
+      consumedAt,
+      resolution: {
+        status: 'imported',
+        handoffArtifactPath: resultArtifact.handoffArtifactPath,
+        completedAt: resultArtifact.completedAt,
+        itemId: importResult.itemId,
+        itemStatus: importResult.itemStatus,
+        replyStatus: importResult.status,
+        deliveryUrl: importResult.deliveryUrl,
+        externalId: importResult.externalId,
+        message: importResult.message,
+        deliveredAt: importResult.deliveredAt,
+      },
+    });
+
+    return {
+      ok: true,
+      imported: true,
+      artifactPath: resultArtifact.artifactPath,
+      handoffArtifactPath: resultArtifact.handoffArtifactPath,
+      importResult,
+    };
+  } catch (error) {
+    if (
+      error instanceof InboxReplyHandoffImportError &&
+      error.statusCode === 409 &&
+      error.message === 'inbox reply handoff artifact already resolved'
+    ) {
+      markInboxReplyHandoffResultArtifactConsumed({
+        artifactPath: resultArtifact.artifactPath,
+        consumedAt,
+        resolution: {
+          status: 'ignored',
+          reason: 'inbox_reply_handoff_artifact_already_resolved',
+          handoffArtifactPath: resultArtifact.handoffArtifactPath,
+          completedAt: resultArtifact.completedAt,
+        },
+      });
+
+      return {
+        ok: true,
+        imported: false,
+        artifactPath: resultArtifact.artifactPath,
+        handoffArtifactPath: resultArtifact.handoffArtifactPath,
+      };
+    }
+
+    throw error;
+  }
 }
