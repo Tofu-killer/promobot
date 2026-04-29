@@ -335,6 +335,20 @@ describe('dashboard metrics api', () => {
         accountKey: 'page-1',
         displayName: 'PromoBot FB',
         authType: 'cookie',
+        status: 'needs_session',
+      });
+      channelAccountStore.create({
+        platform: 'instagram',
+        accountKey: '@promobot-ig',
+        displayName: 'PromoBot IG',
+        authType: 'browser',
+        status: 'needs_relogin',
+      });
+      channelAccountStore.create({
+        platform: 'reddit',
+        accountKey: 'u/promobot',
+        displayName: 'PromoBot Reddit',
+        authType: 'api',
         status: 'failed',
       });
 
@@ -394,8 +408,12 @@ describe('dashboard metrics api', () => {
           totalInputs: 5,
         },
         channelAccounts: {
-          total: 2,
+          total: 4,
           connected: 1,
+          healthy: 1,
+          needsSession: 1,
+          needsRelogin: 1,
+          otherUnhealthy: 1,
         },
         jobQueue: {
           pending: 1,
@@ -525,6 +543,10 @@ describe('dashboard metrics api', () => {
         channelAccounts: {
           total: 1,
           connected: 1,
+          healthy: 1,
+          needsSession: 0,
+          needsRelogin: 0,
+          otherUnhealthy: 0,
         },
         jobQueue: {
           pending: 0,
@@ -585,6 +607,10 @@ describe('dashboard metrics api', () => {
         channelAccounts: {
           total: 1,
           connected: 1,
+          healthy: 1,
+          needsSession: 0,
+          needsRelogin: 0,
+          otherUnhealthy: 0,
         },
       });
     } finally {

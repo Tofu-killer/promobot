@@ -37,6 +37,10 @@ export interface DashboardResponse {
   channelAccounts?: {
     total: number;
     connected: number;
+    healthy?: number;
+    needsSession?: number;
+    needsRelogin?: number;
+    otherUnhealthy?: number;
   };
   browserLaneRequests?: {
     total: number;
@@ -358,8 +362,23 @@ export function DashboardPage({
             />
             <StatCard
               label="status=healthy 账号"
-              value={formatOptionalMetricValue(channelAccountMetrics?.connected)}
-              detail="仅统计账号状态为 healthy 的数量，不等于发布就绪"
+              value={formatOptionalMetricValue(getHealthyChannelAccountCount(channelAccountMetrics))}
+              detail="当前账号状态已经回到 healthy 的数量，仍建议结合平台 readiness 继续确认"
+            />
+            <StatCard
+              label="待补 session 账号"
+              value={formatOptionalMetricValue(channelAccountMetrics?.needsSession)}
+              detail="status=needs_session 的账号数量，通常还没有可用浏览器会话"
+            />
+            <StatCard
+              label="待重新登录账号"
+              value={formatOptionalMetricValue(channelAccountMetrics?.needsRelogin)}
+              detail="status=needs_relogin 的账号数量，现有浏览器会话已失效或过期"
+            />
+            <StatCard
+              label="其他异常账号"
+              value={formatOptionalMetricValue(channelAccountMetrics?.otherUnhealthy)}
+              detail="除 healthy / needs_session / needs_relogin 外的异常账号数量"
             />
             <StatCard
               label="Browser Lane 总工单"
@@ -579,7 +598,7 @@ function buildPriorityItems(data: DashboardResponse) {
     {
       key: 'channel-accounts-unhealthy',
       title: '账号登录态待补齐',
-      detail: '部分 channel accounts 还不在 healthy 状态，后续发布和回复会受阻。',
+      detail: buildChannelAccountPriorityDetail(data.channelAccounts),
       priority: 8,
       route: 'channels',
       actionLabel: '前往 Channel Accounts',
@@ -624,15 +643,64 @@ function pushPriorityItem(
 }
 
 function countUnhealthyChannelAccounts(metrics: DashboardResponse['channelAccounts']) {
-  if (
-    !metrics ||
-    typeof metrics.total !== 'number' ||
-    typeof metrics.connected !== 'number'
-  ) {
+  if (!metrics || typeof metrics.total !== 'number') {
     return undefined;
   }
 
-  return Math.max(metrics.total - metrics.connected, 0);
+  if (
+    typeof metrics.needsSession === 'number' &&
+    typeof metrics.needsRelogin === 'number' &&
+    typeof metrics.otherUnhealthy === 'number'
+  ) {
+    return Math.max(metrics.needsSession + metrics.needsRelogin + metrics.otherUnhealthy, 0);
+  }
+
+  const healthyCount = getHealthyChannelAccountCount(metrics);
+  if (typeof healthyCount !== 'number') {
+    return undefined;
+  }
+
+  return Math.max(metrics.total - healthyCount, 0);
+}
+
+function getHealthyChannelAccountCount(metrics: DashboardResponse['channelAccounts']) {
+  if (!metrics) {
+    return undefined;
+  }
+
+  if (typeof metrics.healthy === 'number') {
+    return metrics.healthy;
+  }
+
+  return typeof metrics.connected === 'number' ? metrics.connected : undefined;
+}
+
+function buildChannelAccountPriorityDetail(metrics: DashboardResponse['channelAccounts']) {
+  const defaultDetail = '部分 channel accounts 还不在 healthy 状态，后续发布和回复会受阻。';
+
+  if (!metrics) {
+    return defaultDetail;
+  }
+
+  const detailParts: string[] = [];
+
+  if (isPositiveMetric(metrics.needsRelogin)) {
+    detailParts.push(`${metrics.needsRelogin} 个需要重新登录`);
+  }
+
+  if (isPositiveMetric(metrics.needsSession)) {
+    detailParts.push(`${metrics.needsSession} 个需要补导 session`);
+  }
+
+  if (isPositiveMetric(metrics.otherUnhealthy)) {
+    detailParts.push(`${metrics.otherUnhealthy} 个处于其他异常状态`);
+  }
+
+  if (detailParts.length === 0) {
+    return defaultDetail;
+  }
+
+  return `部分 channel accounts 还不在 healthy 状态，其中 ${detailParts.join('，')}，后续发布和回复会受阻。`;
 }
 
 function isPositiveMetric(value: number | undefined): value is number {

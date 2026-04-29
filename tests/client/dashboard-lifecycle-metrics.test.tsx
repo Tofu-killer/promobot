@@ -411,6 +411,10 @@ describe('dashboard lifecycle metrics', () => {
               channelAccounts: {
                 total: 3,
                 connected: 1,
+                healthy: 1,
+                needsSession: 1,
+                needsRelogin: 1,
+                otherUnhealthy: 0,
               },
               browserLaneRequests: {
                 total: 2,

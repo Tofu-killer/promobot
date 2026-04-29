@@ -37,7 +37,29 @@ systemDashboardRouter.get('/dashboard', (request, response) => {
   const channelAccounts = filterProjectAwareRecords(allChannelAccounts, projectId);
   const followUpDrafts = drafts.filter((draft) => draft.title?.toLowerCase().includes('follow-up'));
   const unreadInboxItems = inboxItems.filter((item) => item.status !== 'handled');
-  const connectedChannelAccounts = channelAccounts.filter((account) => account.status === 'healthy');
+  let healthyChannelAccountCount = 0;
+  let needsSessionChannelAccountCount = 0;
+  let needsReloginChannelAccountCount = 0;
+  let otherUnhealthyChannelAccountCount = 0;
+
+  for (const channelAccount of channelAccounts) {
+    if (channelAccount.status === 'healthy') {
+      healthyChannelAccountCount += 1;
+      continue;
+    }
+
+    if (channelAccount.status === 'needs_session') {
+      needsSessionChannelAccountCount += 1;
+      continue;
+    }
+
+    if (channelAccount.status === 'needs_relogin') {
+      needsReloginChannelAccountCount += 1;
+      continue;
+    }
+
+    otherUnhealthyChannelAccountCount += 1;
+  }
   const jobQueueStats = jobQueueStore.getStats(new Date().toISOString(), projectId);
   const scheduledDraftCount = drafts.filter((draft) => draft.status === 'scheduled').length;
   const publishedDraftCount = drafts.filter((draft) => draft.status === 'published').length;
@@ -141,7 +163,11 @@ systemDashboardRouter.get('/dashboard', (request, response) => {
       ? {
           channelAccounts: {
             total: channelAccounts.length,
-            connected: connectedChannelAccounts.length,
+            connected: healthyChannelAccountCount,
+            healthy: healthyChannelAccountCount,
+            needsSession: needsSessionChannelAccountCount,
+            needsRelogin: needsReloginChannelAccountCount,
+            otherUnhealthy: otherUnhealthyChannelAccountCount,
           },
         }
       : {}),

@@ -66,6 +66,10 @@ describe('dashboard enhanced metrics page', () => {
           channelAccounts: {
             total: 2,
             connected: 1,
+            healthy: 1,
+            needsSession: 1,
+            needsRelogin: 0,
+            otherUnhealthy: 0,
           },
           browserLaneRequests: {
             total: 2,
@@ -115,6 +119,9 @@ describe('dashboard enhanced metrics page', () => {
     expect(html).toContain('收件箱总会话');
     expect(html).toContain('账号总数');
     expect(html).toContain('status=healthy 账号');
+    expect(html).toContain('待补 session 账号');
+    expect(html).toContain('待重新登录账号');
+    expect(html).toContain('其他异常账号');
     expect(html).toContain('Browser Lane 总工单');
     expect(html).toContain('Browser Lane 待处理');
     expect(html).toContain('Browser Lane 已结单');
@@ -175,6 +182,10 @@ describe('dashboard enhanced metrics page', () => {
           channelAccounts: {
             total: 2,
             connected: 2,
+            healthy: 2,
+            needsSession: 0,
+            needsRelogin: 0,
+            otherUnhealthy: 0,
           },
           browserLaneRequests: {
             total: 0,
