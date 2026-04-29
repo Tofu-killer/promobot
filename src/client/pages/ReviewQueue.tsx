@@ -46,8 +46,30 @@ interface BrowserHandoffCompletionResponse {
   publishedAt: string | null;
 }
 
+interface BrowserHandoffRecord {
+  channelAccountId?: number;
+  platform: string;
+  draftId: string | number;
+  title: string | null;
+  accountKey: string;
+  status: string;
+  readiness?: string;
+  sessionAction?: string | null;
+  artifactPath: string;
+  createdAt: string;
+  updatedAt: string;
+  resolvedAt: string | null;
+  resolution?: unknown;
+}
+
+interface BrowserHandoffsResponse {
+  handoffs: BrowserHandoffRecord[];
+  total: number;
+}
+
 interface ReviewQueuePageProps {
   loadReviewQueueAction?: (projectId?: number) => Promise<DraftsResponse>;
+  loadBrowserHandoffsAction?: () => Promise<BrowserHandoffsResponse>;
   updateReviewDraftAction?: (id: number, input: { status: 'approved' | 'draft' | 'failed' }) => Promise<UpdateDraftResponse>;
   publishReviewDraftAction?: (id: number) => Promise<PublishDraftResponse>;
   scheduleReviewDraftAction?: (
@@ -60,6 +82,7 @@ interface ReviewQueuePageProps {
   ) => Promise<RequestChannelAccountSessionActionResponse>;
   completeBrowserHandoffAction?: (input: CompleteBrowserHandoffInput) => Promise<BrowserHandoffCompletionResponse>;
   stateOverride?: AsyncState<DraftsResponse>;
+  browserHandoffsStateOverride?: AsyncState<BrowserHandoffsResponse>;
 }
 
 interface ReviewActionState {
@@ -99,6 +122,14 @@ const projectInputStyle = {
 
 export async function loadReviewQueueRequest(projectId?: number): Promise<DraftsResponse> {
   return apiRequest<DraftsResponse>(buildReviewQueuePath(projectId));
+}
+
+export async function loadReviewQueueBrowserHandoffsRequest(limit = 100): Promise<BrowserHandoffsResponse> {
+  return apiRequest<BrowserHandoffsResponse>(`/api/system/browser-handoffs?limit=${limit}`);
+}
+
+function defaultLoadReviewQueueBrowserHandoffsAction() {
+  return loadReviewQueueBrowserHandoffsRequest(100);
 }
 
 export async function updateReviewDraftRequest(
@@ -269,6 +300,11 @@ function readPositiveInteger(value: unknown) {
   return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined;
 }
 
+function readBrowserSessionAction(value: unknown): BrowserSessionAction | null {
+  const normalizedValue = readString(value);
+  return normalizedValue === 'request_session' || normalizedValue === 'relogin' ? normalizedValue : null;
+}
+
 function formatReviewDraftBadgeLabel(status: DraftRecord['status']) {
   switch (status) {
     case 'scheduled':
@@ -368,6 +404,10 @@ function formatPublishContractStatus(draft: DraftRecord, actionState: ReviewActi
     return '已发布';
   }
 
+  if (actionState.status !== 'success' && actionState.action !== 'publish') {
+    return '待触发';
+  }
+
   return '待触发';
 }
 
@@ -383,9 +423,20 @@ function formatPublishActionSummaryStatus(actionState: ReviewActionState) {
   return '已确认';
 }
 
-function getReviewDraftPublishContract(draft: DraftRecord, actionState: ReviewActionState) {
+function getReviewDraftPublishContract(
+  draft: DraftRecord,
+  actionState: ReviewActionState,
+  persistedBrowserHandoff: BrowserHandoffContract | null,
+) {
   const draftRecord = asRecord(draft);
-  const browserHandoff = readBrowserHandoffContract(actionState.contractDetails);
+  const browserHandoff = readBrowserHandoffContract(actionState.contractDetails) ?? persistedBrowserHandoff;
+  const persistedBrowserHandoffMessage = browserHandoff
+    ? browserHandoff.readiness === 'blocked'
+      ? browserHandoff.sessionAction === 'relogin'
+        ? '等待刷新 Session 后继续发布接管。'
+        : '等待补充 Session 后继续发布接管。'
+      : '发现待处理的 browser handoff，可以直接结单。'
+    : null;
 
   return {
     publishUrl:
@@ -398,7 +449,8 @@ function getReviewDraftPublishContract(draft: DraftRecord, actionState: ReviewAc
           readString(draftRecord?.publishMessage) ??
           readString(draftRecord?.lastPublishMessage) ??
           readString(draftRecord?.message)
-        : readString(draftRecord?.publishMessage) ??
+        : persistedBrowserHandoffMessage ??
+          readString(draftRecord?.publishMessage) ??
           readString(draftRecord?.lastPublishMessage) ??
           readString(draftRecord?.message),
     publishError:
@@ -418,14 +470,10 @@ function readBrowserHandoffContract(details: Record<string, unknown> | null) {
   const artifact = browserHandoff.artifact;
   const artifactRecord = asRecord(artifact);
   const sessionActionRecord = asRecord(browserHandoff.sessionAction);
-  const sessionActionValue =
-    readString(browserHandoff.sessionAction) ??
-    readString(sessionActionRecord?.action) ??
-    readString(sessionActionRecord?.type);
   const sessionAction =
-    sessionActionValue === 'request_session' || sessionActionValue === 'relogin'
-      ? sessionActionValue
-      : null;
+    readBrowserSessionAction(browserHandoff.sessionAction) ??
+    readBrowserSessionAction(sessionActionRecord?.action) ??
+    readBrowserSessionAction(sessionActionRecord?.type);
   const artifactPath =
     readString(browserHandoff.artifactPath) ??
     readString(artifact) ??
@@ -467,20 +515,64 @@ function formatSessionActionPendingLabel(action: BrowserSessionAction) {
   return action === 'relogin' ? '正在提交重新登录...' : '正在提交登录请求...';
 }
 
+function readBrowserHandoffDraftId(handoff: BrowserHandoffRecord) {
+  return typeof handoff.draftId === 'number'
+    ? readPositiveInteger(handoff.draftId)
+    : readPositiveInteger(Number(handoff.draftId));
+}
+
+function findPendingBrowserHandoff(handoffs: BrowserHandoffRecord[], draftId: number) {
+  return handoffs.find((handoff) => handoff.status === 'pending' && readBrowserHandoffDraftId(handoff) === draftId) ?? null;
+}
+
+function isReadyBrowserHandoff(handoff: BrowserHandoffRecord) {
+  return handoff.status === 'pending' && (handoff.readiness ?? 'ready') === 'ready';
+}
+
+function getBrowserHandoffBlockedMessage(handoff: BrowserHandoffRecord) {
+  return handoff.sessionAction === 'relogin'
+    ? '等待刷新 Session 后继续发布接管。'
+    : '等待补充 Session 后继续发布接管。';
+}
+
+function toBrowserHandoffContract(handoff: BrowserHandoffRecord): BrowserHandoffContract {
+  return {
+    platform: handoff.platform,
+    accountKey: handoff.accountKey,
+    channelAccountId: handoff.channelAccountId,
+    readiness: handoff.readiness ?? 'ready',
+    sessionAction: readBrowserSessionAction(handoff.sessionAction),
+    artifactPath: handoff.artifactPath,
+  };
+}
+
 export function ReviewQueuePage({
   loadReviewQueueAction = loadReviewQueueRequest,
+  loadBrowserHandoffsAction = defaultLoadReviewQueueBrowserHandoffsAction,
   updateReviewDraftAction = updateReviewDraftRequest,
   publishReviewDraftAction = publishReviewDraftRequest,
   scheduleReviewDraftAction = scheduleReviewDraftRequest,
   requestChannelAccountSessionActionAction = requestReviewQueueSessionActionRequest,
   completeBrowserHandoffAction = completeReviewQueueBrowserHandoffRequest,
   stateOverride,
+  browserHandoffsStateOverride,
 }: ReviewQueuePageProps) {
   const [projectIdDraft, setProjectIdDraft] = useState('');
   const projectId = parseProjectId(projectIdDraft);
+  const shouldLoadBrowserHandoffsLive = browserHandoffsStateOverride === undefined;
   const { state, reload } = useAsyncQuery(
     () => (projectId === undefined ? loadReviewQueueAction() : loadReviewQueueAction(projectId)),
     [loadReviewQueueAction, projectId],
+  );
+  const { state: browserHandoffsState, reload: reloadBrowserHandoffs } = useAsyncQuery(
+    () =>
+      shouldLoadBrowserHandoffsLive
+        ? loadBrowserHandoffsAction()
+        : Promise.resolve({
+            handoffs: [],
+            total: 0,
+          } satisfies BrowserHandoffsResponse),
+    [loadBrowserHandoffsAction, shouldLoadBrowserHandoffsLive],
   );
   const [localDrafts, setLocalDrafts] = useState<DraftRecord[] | null>(null);
   const [scheduledAtById, setScheduledAtById] = useState<Record<number, string>>({});
@@ -496,6 +588,7 @@ export function ReviewQueuePage({
   const followUpScopeVersionRef = useRef(0);
   const publishFollowUpAttemptByIdRef = useRef<Record<number, number>>({});
   const displayState = stateOverride ?? state;
+  const displayBrowserHandoffsState = browserHandoffsStateOverride ?? browserHandoffsState;
   const hasLiveReviewDrafts =
     typeof displayState.data === 'object' &&
     displayState.data !== null &&
@@ -503,6 +596,10 @@ export function ReviewQueuePage({
   const loadedReviewDrafts = hasLiveReviewDrafts
     ? filterReviewQueueDrafts((displayState.data as DraftsResponse).drafts)
     : [];
+  const browserHandoffs =
+    displayBrowserHandoffsState.status === 'success' && displayBrowserHandoffsState.data
+      ? displayBrowserHandoffsState.data.handoffs
+      : [];
 
   const visibleDrafts = hasLiveReviewDrafts ? (localDrafts ?? loadedReviewDrafts) : [];
 
@@ -603,6 +700,11 @@ export function ReviewQueuePage({
 
       return currentDrafts ?? visibleDrafts;
     });
+  }
+
+  function reloadReviewQueueSurface() {
+    void reload();
+    void reloadBrowserHandoffs();
   }
 
   function handleRequestSessionAction(draftId: number, browserHandoff: BrowserHandoffContract) {
@@ -706,7 +808,7 @@ export function ReviewQueuePage({
             result,
           },
         }));
-        reload();
+        reloadReviewQueueSurface();
       })
       .catch((error) => {
         if (scopeVersionAtStart !== followUpScopeVersionRef.current) {
@@ -924,19 +1026,29 @@ export function ReviewQueuePage({
     setSessionActionStateById({});
     setBrowserHandoffDraftByArtifactPath({});
     setBrowserHandoffCompletionStateById({});
-    reload();
+    reloadReviewQueueSurface();
   }
 
-  function renderReviewDraftPublishFollowUp(draftId: number, actionState: ReviewActionState) {
-    if (actionState.status !== 'success' || actionState.contractStatus !== 'manual_required') {
-      return null;
-    }
+  function renderReviewDraftPublishFollowUp(
+    draftId: number,
+    actionState: ReviewActionState,
+    persistedBrowserHandoffRecord: BrowserHandoffRecord | null,
+  ) {
+    const immediateBrowserHandoff =
+      actionState.status === 'success' && actionState.contractStatus === 'manual_required'
+        ? readBrowserHandoffContract(actionState.contractDetails)
+        : null;
+    const browserHandoff = immediateBrowserHandoff ?? (persistedBrowserHandoffRecord ? toBrowserHandoffContract(persistedBrowserHandoffRecord) : null);
 
-    const browserHandoff = readBrowserHandoffContract(actionState.contractDetails);
     if (!browserHandoff) {
       return null;
     }
-
+    const persistedBrowserHandoffFeedback =
+      immediateBrowserHandoff === null && persistedBrowserHandoffRecord
+        ? isReadyBrowserHandoff(persistedBrowserHandoffRecord)
+          ? '发现待处理的 browser handoff，可以直接结单。'
+          : getBrowserHandoffBlockedMessage(persistedBrowserHandoffRecord)
+        : null;
     const sessionActionState = sessionActionStateById[draftId] ?? createIdleSessionActionState();
     const browserHandoffCompletionState =
       browserHandoffCompletionStateById[draftId] ?? createIdleBrowserHandoffCompletionState();
@@ -948,10 +1060,16 @@ export function ReviewQueuePage({
       (browserHandoff.sessionAction === 'request_session' || browserHandoff.sessionAction === 'relogin');
     const shouldShowBrowserHandoffCompletionActions =
       !!browserHandoff.artifactPath &&
+      (browserHandoff.readiness ?? 'ready') === 'ready' &&
       (!browserHandoffCompletionState.result || browserHandoffCompletionState.result.draftId !== draftId);
 
     return (
       <div style={{ display: 'grid', gap: '10px' }}>
+        {persistedBrowserHandoffFeedback ? (
+          <p style={{ margin: 0, color: '#92400e', background: '#fffbeb', borderRadius: '12px', padding: '10px 12px' }}>
+            {persistedBrowserHandoffFeedback}
+          </p>
+        ) : null}
         {shouldShowSessionActionButton ? (
           <div style={{ display: 'grid', gap: '8px' }}>
             <span style={{ fontWeight: 700, color: '#334155' }}>Browser Session 动作</span>
@@ -1078,8 +1196,12 @@ export function ReviewQueuePage({
               <div style={{ display: 'grid', gap: '12px' }}>
                 {visibleDrafts.map((draft) => {
                   const actionState = getReviewActionState(actionStateById, draft.id);
+                  const persistedBrowserHandoffRecord = findPendingBrowserHandoff(browserHandoffs, draft.id);
+                  const persistedBrowserHandoff = persistedBrowserHandoffRecord
+                    ? toBrowserHandoffContract(persistedBrowserHandoffRecord)
+                    : null;
                   const isDraftActionPending = actionState.status === 'loading';
-                  const publishContract = getReviewDraftPublishContract(draft, actionState);
+                  const publishContract = getReviewDraftPublishContract(draft, actionState, persistedBrowserHandoff);
                   const scheduledAtValue = scheduledAtById[draft.id] ?? draft.scheduledAt ?? '';
                   const badgeStyle = getReviewDraftBadgeStyle(draft.status);
 
@@ -1260,7 +1382,10 @@ export function ReviewQueuePage({
                         }}
                       >
                         <div style={{ fontWeight: 700 }}>Publish contract</div>
-                        <div>回执状态：{formatPublishContractStatus(draft, actionState)}</div>
+                        <div>
+                          回执状态：
+                          {publishContract.browserHandoff ? '人工接管' : formatPublishContractStatus(draft, actionState)}
+                        </div>
                         <div>发布链接：{publishContract.publishUrl ?? '未返回'}</div>
                         <div>回执消息：{publishContract.contractMessage ?? '待触发发布'}</div>
                         {publishContract.browserHandoff?.readiness ? (
@@ -1275,7 +1400,7 @@ export function ReviewQueuePage({
                         {publishContract.publishError ? <div>最近错误：{publishContract.publishError}</div> : null}
                       </div>
 
-                      {renderReviewDraftPublishFollowUp(draft.id, actionState)}
+                      {renderReviewDraftPublishFollowUp(draft.id, actionState, persistedBrowserHandoffRecord)}
 
                       {actionState.status === 'loading' ? (
                         <p style={{ margin: 0, color: '#334155' }}>

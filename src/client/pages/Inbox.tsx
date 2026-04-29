@@ -593,7 +593,7 @@ export function InboxPage({
 }: InboxPageProps) {
   const [projectIdDraft, setProjectIdDraft] = useState('');
   const projectId = parseProjectId(projectIdDraft);
-  const shouldLoadReplyHandoffsLive = stateOverride === undefined && replyHandoffsStateOverride === undefined;
+  const shouldLoadReplyHandoffsLive = replyHandoffsStateOverride === undefined;
   const { state, reload } = useAsyncQuery(
     () => (projectId === undefined ? loadInboxAction() : loadInboxAction(projectId)),
     [loadInboxAction, projectId],

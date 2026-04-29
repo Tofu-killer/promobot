@@ -2268,6 +2268,171 @@ describe('Inbox action wiring', () => {
     });
   });
 
+  it('loads persisted inbox reply handoffs live when only inbox items use a state override and clears them after reload', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    const inboxItem = {
+      id: 8,
+      source: 'reddit',
+      status: 'needs_reply',
+      author: 'user456',
+      title: 'Need publish ETA',
+      excerpt: 'Can you share the publish ETA?',
+      createdAt: '2026-04-19T10:00:00.000Z',
+    } as const;
+    const loadInboxAction = vi.fn().mockResolvedValue({
+      items: [inboxItem],
+      total: 1,
+      unread: 1,
+    });
+    const loadInboxReplyHandoffsAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        handoffs: [
+          {
+            platform: 'reddit',
+            itemId: 8,
+            source: 'reddit',
+            title: 'Need publish ETA',
+            author: 'user456',
+            accountKey: 'reddit-main',
+            channelAccountId: 9,
+            status: 'pending',
+            readiness: 'ready',
+            sessionAction: null,
+            artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-8.json',
+            createdAt: '2026-04-24T10:00:00.000Z',
+            updatedAt: '2026-04-24T10:00:00.000Z',
+            resolvedAt: null,
+          },
+        ],
+        total: 1,
+      })
+      .mockResolvedValue({
+        handoffs: [],
+        total: 0,
+      });
+    const completeInboxReplyHandoffAction = vi.fn().mockResolvedValue({
+      ok: true,
+      imported: true,
+      artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-8.json',
+      itemId: 8,
+      itemStatus: 'handled',
+      platform: 'reddit',
+      mode: 'browser',
+      status: 'sent',
+      success: true,
+      deliveryUrl: 'https://reddit.com/message/messages/eta-8',
+      externalId: null,
+      message: 'reply sent from the live reload path',
+      deliveredAt: '2026-04-23T11:15:00.000Z',
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(InboxPage as never, {
+          loadInboxAction,
+          loadInboxReplyHandoffsAction,
+          completeInboxReplyHandoffAction,
+          stateOverride: {
+            status: 'success',
+            data: {
+              items: [inboxItem],
+              total: 1,
+              unread: 1,
+            },
+          } satisfies ApiState<unknown>,
+        }),
+      );
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    expect(loadInboxReplyHandoffsAction).toHaveBeenCalledTimes(1);
+    expect(collectText(container)).toContain('发现待处理的 Inbox reply handoff，可以直接结单。');
+    expect(collectText(container)).toContain(
+      'Handoff 路径：artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-8.json',
+    );
+
+    const deliveryUrlInput = findElement(
+      container,
+      (element) => element.getAttribute('data-inbox-reply-handoff-field') === 'deliveryUrl',
+    );
+    const messageInput = findElement(
+      container,
+      (element) => element.getAttribute('data-inbox-reply-handoff-field') === 'message',
+    );
+    const markSentButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('标记已发送'),
+    );
+
+    expect(deliveryUrlInput).not.toBeNull();
+    expect(messageInput).not.toBeNull();
+    expect(markSentButton).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(
+        deliveryUrlInput as never,
+        'https://reddit.com/message/messages/eta-8',
+        window as never,
+      );
+      updateFieldValue(messageInput as never, 'reply sent from the live reload path', window as never);
+      await flush();
+    });
+
+    await act(async () => {
+      markSentButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    expect(completeInboxReplyHandoffAction).toHaveBeenCalledWith({
+      artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-8.json',
+      replyStatus: 'sent',
+      deliveryUrl: 'https://reddit.com/message/messages/eta-8',
+      message: 'reply sent from the live reload path',
+    });
+    expect(loadInboxReplyHandoffsAction).toHaveBeenCalledTimes(2);
+    expect(collectText(container)).not.toContain('发现待处理的 Inbox reply handoff，可以直接结单。');
+    expect(collectText(container)).not.toContain(
+      'Handoff 路径：artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-8.json',
+    );
+    expect(collectText(container)).not.toContain('已结单 inbox reply item #8 (handled)');
+
+    const reloadButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('刷新收件箱'),
+    );
+    expect(reloadButton).not.toBeNull();
+
+    await act(async () => {
+      reloadButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    expect(loadInboxReplyHandoffsAction).toHaveBeenCalledTimes(3);
+    expect(collectText(container)).not.toContain('发现待处理的 Inbox reply handoff，可以直接结单。');
+    expect(collectText(container)).not.toContain(
+      'Handoff 路径：artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-8.json',
+    );
+    expect(collectText(container)).not.toContain('已结单 inbox reply item #8 (handled)');
+    expect(findElement(container, (element) => element.tagName === 'BUTTON' && collectText(element).includes('标记已发送'))).toBeNull();
+    expect(collectText(container)).toContain('needs_reply');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('clears stale inbox reply handoff completion feedback when a new manual-required result arrives for the same item', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
