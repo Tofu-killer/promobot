@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createJobRecord } from '../../src/server/lib/jobs';
 import { createDefaultJobHandlers } from '../../src/server/runtime/defaultJobHandlers';
+import { channelAccountSessionRequestJobType } from '../../src/server/services/browser/sessionRequestHandler';
 import {
   createSessionRequestArtifact,
   createSessionRequestResultArtifact,
@@ -12,6 +13,7 @@ import {
 } from '../../src/server/services/browser/sessionRequestArtifacts';
 import { createSessionStore } from '../../src/server/services/browser/sessionStore';
 import { createChannelAccountStore } from '../../src/server/store/channelAccounts';
+import { createJobQueueStore } from '../../src/server/store/jobQueue';
 import { cleanupTestDatabasePath, createTestDatabasePath, isolateProcessCwd } from './testDb';
 
 const defaultStorageState = {
@@ -204,6 +206,287 @@ describe('default job handlers', () => {
         expectedArtifact,
       );
     } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('queues a single follow-up poll job for unresolved browser-lane requests', async () => {
+    const { rootDir } = createTestDatabasePath();
+
+    try {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-04-21T09:16:00.000Z'));
+      const channelAccountStore = createChannelAccountStore();
+      const jobQueueStore = createJobQueueStore();
+      const channelAccount = channelAccountStore.create({
+        platform: 'x',
+        accountKey: '@promobot',
+        displayName: 'PromoBot X',
+        authType: 'browser',
+        status: 'healthy',
+      });
+      createSessionRequestArtifact({
+        channelAccountId: channelAccount.id,
+        platform: channelAccount.platform,
+        accountKey: channelAccount.accountKey,
+        action: 'request_session',
+        requestedAt: '2026-04-21T09:15:00.000Z',
+        jobId: 41,
+        jobStatus: 'pending',
+        nextStep: `/api/channel-accounts/${channelAccount.id}/session`,
+      });
+
+      const handlers = createDefaultJobHandlers();
+      const job = createJobRecord({
+        id: 41,
+        type: channelAccountSessionRequestJobType,
+        payload: {
+          accountId: channelAccount.id,
+          platform: channelAccount.platform,
+          accountKey: channelAccount.accountKey,
+          action: 'request_session',
+        },
+        runAt: '2026-04-21T09:15:00.000Z',
+      });
+
+      await handlers[channelAccountSessionRequestJobType](
+        {
+          accountId: channelAccount.id,
+          platform: channelAccount.platform,
+          accountKey: channelAccount.accountKey,
+          action: 'request_session',
+        },
+        job,
+      );
+      await handlers[channelAccountSessionRequestJobType](
+        {
+          accountId: channelAccount.id,
+          platform: channelAccount.platform,
+          accountKey: channelAccount.accountKey,
+          action: 'request_session',
+        },
+        job,
+      );
+
+      expect(jobQueueStore.list({ limit: 10 })).toEqual([
+        expect.objectContaining({
+          type: channelAccountSessionRequestPollJobType,
+          status: 'pending',
+          attempts: 0,
+          runAt: '2026-04-21T09:17:00.000Z',
+        }),
+      ]);
+      expect(JSON.parse(jobQueueStore.list({ limit: 10 })[0]?.payload ?? '{}')).toEqual({
+        accountId: channelAccount.id,
+        platform: channelAccount.platform,
+        accountKey: channelAccount.accountKey,
+        action: 'request_session',
+        requestJobId: 41,
+        attempt: 0,
+        maxAttempts: 60,
+        pollDelayMs: 60_000,
+      });
+    } finally {
+      vi.useRealTimers();
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('imports matching browser-lane result artifacts when the poll handler runs', async () => {
+    const { rootDir } = createTestDatabasePath();
+
+    try {
+      const channelAccountStore = createChannelAccountStore();
+      const channelAccount = channelAccountStore.create({
+        platform: 'x',
+        accountKey: '@promobot',
+        displayName: 'PromoBot X',
+        authType: 'browser',
+        status: 'healthy',
+      });
+      const requestedAt = '2026-04-21T09:15:00.000Z';
+      const completedAt = '2026-04-21T09:17:00.000Z';
+      const requestArtifactPath = createSessionRequestArtifact({
+        channelAccountId: channelAccount.id,
+        platform: channelAccount.platform,
+        accountKey: channelAccount.accountKey,
+        action: 'request_session',
+        requestedAt,
+        jobId: 41,
+        jobStatus: 'pending',
+        nextStep: `/api/channel-accounts/${channelAccount.id}/session`,
+      });
+      const resultArtifactPath = createSessionRequestResultArtifact({
+        channelAccountId: channelAccount.id,
+        platform: channelAccount.platform,
+        accountKey: channelAccount.accountKey,
+        action: 'request_session',
+        requestJobId: 41,
+        completedAt,
+        storageState: defaultStorageState,
+        sessionStatus: 'active',
+        validatedAt: '2026-04-21T09:18:00.000Z',
+        notes: 'imported by poll handler',
+      });
+
+      const handlers = createDefaultJobHandlers();
+      await handlers[channelAccountSessionRequestPollJobType](
+        {
+          accountId: channelAccount.id,
+          platform: channelAccount.platform,
+          accountKey: channelAccount.accountKey,
+          action: 'request_session',
+          requestJobId: 41,
+          attempt: 0,
+          maxAttempts: 3,
+          pollDelayMs: 60_000,
+        },
+        createJobRecord({
+          id: 42,
+          type: channelAccountSessionRequestPollJobType,
+          payload: {
+            accountId: channelAccount.id,
+            platform: channelAccount.platform,
+            accountKey: channelAccount.accountKey,
+            action: 'request_session',
+            requestJobId: 41,
+            attempt: 0,
+            maxAttempts: 3,
+            pollDelayMs: 60_000,
+          },
+          runAt: completedAt,
+        }),
+      );
+
+      expect(channelAccountStore.getById(channelAccount.id)?.metadata.session).toEqual({
+        hasSession: true,
+        id: 'x:-promobot',
+        status: 'active',
+        validatedAt: '2026-04-21T09:18:00.000Z',
+        storageStatePath: 'browser-sessions/managed/x/-promobot.json',
+        notes: 'imported by poll handler',
+      });
+      expect(
+        JSON.parse(readFileSync(path.join(rootDir, requestArtifactPath), 'utf8')),
+      ).toEqual(
+        expect.objectContaining({
+          jobStatus: 'resolved',
+          resolvedAt: expect.any(String),
+          resolution: expect.objectContaining({
+            status: 'resolved',
+            source: 'browser_lane_result',
+            completedAt,
+            session: expect.objectContaining({
+              hasSession: true,
+              status: 'active',
+              validatedAt: '2026-04-21T09:18:00.000Z',
+              storageStatePath: 'browser-sessions/managed/x/-promobot.json',
+              notes: 'imported by poll handler',
+            }),
+          }),
+          savedStorageStatePath: 'browser-sessions/managed/x/-promobot.json',
+        }),
+      );
+      expect(
+        getSessionRequestResultArtifact({
+          platform: channelAccount.platform,
+          accountKey: channelAccount.accountKey,
+          action: 'request_session',
+          requestJobId: 41,
+        }),
+      ).toEqual(
+        expect.objectContaining({
+          artifactPath: resultArtifactPath,
+          consumedAt: expect.any(String),
+          savedStorageStatePath: 'browser-sessions/managed/x/-promobot.json',
+          resolution: expect.objectContaining({
+            status: 'resolved',
+            source: 'browser_lane_result',
+            completedAt,
+          }),
+        }),
+      );
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('requeues a follow-up poll job when the browser-lane result is still missing', async () => {
+    const { rootDir } = createTestDatabasePath();
+
+    try {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-04-21T09:16:00.000Z'));
+      const channelAccountStore = createChannelAccountStore();
+      const jobQueueStore = createJobQueueStore();
+      const channelAccount = channelAccountStore.create({
+        platform: 'instagram',
+        accountKey: '@promobot.official',
+        displayName: 'PromoBot Instagram',
+        authType: 'browser',
+        status: 'healthy',
+      });
+      const requestedAt = '2026-04-21T09:15:00.000Z';
+      createSessionRequestArtifact({
+        channelAccountId: channelAccount.id,
+        platform: channelAccount.platform,
+        accountKey: channelAccount.accountKey,
+        action: 'relogin',
+        requestedAt,
+        jobId: 41,
+        jobStatus: 'pending',
+        nextStep: `/api/channel-accounts/${channelAccount.id}/session`,
+      });
+
+      const handlers = createDefaultJobHandlers();
+      await handlers[channelAccountSessionRequestPollJobType](
+        {
+          accountId: channelAccount.id,
+          platform: channelAccount.platform,
+          accountKey: channelAccount.accountKey,
+          action: 'relogin',
+          requestJobId: 41,
+          attempt: 0,
+          maxAttempts: 3,
+          pollDelayMs: 60_000,
+        },
+        createJobRecord({
+          id: 42,
+          type: channelAccountSessionRequestPollJobType,
+          payload: {
+            accountId: channelAccount.id,
+            platform: channelAccount.platform,
+            accountKey: channelAccount.accountKey,
+            action: 'relogin',
+            requestJobId: 41,
+            attempt: 0,
+            maxAttempts: 3,
+            pollDelayMs: 60_000,
+          },
+          runAt: '2026-04-21T09:16:00.000Z',
+        }),
+      );
+
+      expect(jobQueueStore.list({ limit: 10 })).toEqual([
+        expect.objectContaining({
+          type: channelAccountSessionRequestPollJobType,
+          status: 'pending',
+          attempts: 0,
+          runAt: '2026-04-21T09:17:00.000Z',
+        }),
+      ]);
+      expect(JSON.parse(jobQueueStore.list({ limit: 10 })[0]?.payload ?? '{}')).toEqual({
+        accountId: channelAccount.id,
+        platform: channelAccount.platform,
+        accountKey: channelAccount.accountKey,
+        action: 'relogin',
+        requestJobId: 41,
+        attempt: 1,
+        maxAttempts: 3,
+        pollDelayMs: 60_000,
+      });
+    } finally {
+      vi.useRealTimers();
       cleanupTestDatabasePath(rootDir);
     }
   });

@@ -1,7 +1,9 @@
 import type { JobHandler } from '../lib/jobs.js';
 import {
   channelAccountSessionRequestJobType,
+  channelAccountSessionRequestPollJobType,
   createChannelAccountSessionRequestJobHandler,
+  createChannelAccountSessionRequestPollJobHandler,
 } from '../services/browser/sessionRequestHandler.js';
 import { createInboxFetchService } from '../services/inboxFetch.js';
 import { createMonitorFetchService } from '../services/monitorFetch.js';
@@ -17,6 +19,7 @@ export interface DefaultJobHandlersDependencies {
   inboxFetchService?: Pick<ReturnType<typeof createInboxFetchService>, 'fetchNow'>;
   reputationFetchService?: Pick<ReturnType<typeof createReputationFetchService>, 'fetchNow'>;
   channelAccountSessionRequestHandler?: JobHandler;
+  channelAccountSessionRequestPollHandler?: JobHandler;
   publishJobHandler?: JobHandler;
 }
 
@@ -30,6 +33,9 @@ export function createDefaultJobHandlers(
   const channelAccountSessionRequestHandler =
     dependencies.channelAccountSessionRequestHandler ??
     createChannelAccountSessionRequestJobHandler();
+  const channelAccountSessionRequestPollHandler =
+    dependencies.channelAccountSessionRequestPollHandler ??
+    createChannelAccountSessionRequestPollJobHandler();
   const publishJobHandler = dependencies.publishJobHandler ?? createPublishJobHandler();
 
   return {
@@ -40,6 +46,7 @@ export function createDefaultJobHandlers(
       await monitorFetchService.fetchNow(readProjectId(payload));
     },
     [channelAccountSessionRequestJobType]: channelAccountSessionRequestHandler,
+    [channelAccountSessionRequestPollJobType]: channelAccountSessionRequestPollHandler,
     publish: publishJobHandler,
     reputation_fetch: async (payload) => {
       await reputationFetchService.fetchNow(readProjectId(payload));
