@@ -1419,6 +1419,7 @@ describe('Inbox action wiring', () => {
     expect(collectText(container)).toContain('Handoff 状态：blocked');
     expect(collectText(container)).toContain('Handoff 动作：relogin');
     expect(collectText(container)).toContain('Handoff 路径：artifacts/browser-handoffs/weibo/acct-ops/inbox-reply-7.json');
+    expect(findElement(container, (element) => element.tagName === 'BUTTON' && collectText(element).includes('标记已发送'))).toBeNull();
     expect(collectText(container)).toContain('needs_reply');
     expect(collectText(container)).not.toContain('已将“Need lower latency in APAC”回写为 handled');
     const manualRequiredFeedback = findElement(
@@ -1429,6 +1430,100 @@ describe('Inbox action wiring', () => {
     );
     expect(manualRequiredFeedback?.style.background).toBe('#fffbeb');
     expect(manualRequiredFeedback?.style.color).toBe('#92400e');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('restores a blocked persisted inbox reply handoff after reload and only allows queuing the required session action', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    const requestChannelAccountSessionAction = vi.fn().mockResolvedValue({
+      sessionAction: {
+        action: 'relogin',
+        message: 'Browser relogin request queued for the restored inbox reply handoff.',
+        artifactPath: 'artifacts/browser-lane-requests/weibo/acct-ops/relogin-job-17.json',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(InboxPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              items: [
+                {
+                  id: 7,
+                  source: 'weibo',
+                  status: 'needs_reply',
+                  author: 'ops-user',
+                  title: 'Need lower latency in APAC',
+                  excerpt: 'Can you share current response times?',
+                  createdAt: '2026-04-19T10:00:00.000Z',
+                },
+              ],
+              total: 1,
+              unread: 1,
+            },
+          } satisfies ApiState<unknown>,
+          replyHandoffsStateOverride: {
+            status: 'success',
+            data: {
+              handoffs: [
+                {
+                  platform: 'weibo',
+                  itemId: 7,
+                  source: 'weibo',
+                  title: 'Need lower latency in APAC',
+                  author: 'ops-user',
+                  accountKey: 'acct-ops',
+                  channelAccountId: 12,
+                  status: 'pending',
+                  readiness: 'blocked',
+                  sessionAction: 'relogin',
+                  artifactPath: 'artifacts/inbox-reply-handoffs/weibo/acct-ops/weibo-item-7.json',
+                  createdAt: '2026-04-24T10:00:00.000Z',
+                  updatedAt: '2026-04-24T10:00:00.000Z',
+                  resolvedAt: null,
+                },
+              ],
+              total: 1,
+            },
+          } satisfies ApiState<unknown>,
+          requestChannelAccountSessionAction,
+        }),
+      );
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('等待刷新 Session 后继续回复接管。');
+    expect(collectText(container)).toContain('Handoff 状态：blocked');
+    expect(collectText(container)).toContain('Handoff 动作：relogin');
+    expect(collectText(container)).toContain('Handoff 路径：artifacts/inbox-reply-handoffs/weibo/acct-ops/weibo-item-7.json');
+    expect(findElement(container, (element) => element.tagName === 'BUTTON' && collectText(element).includes('标记已发送'))).toBeNull();
+
+    const reloginButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('重新登录'),
+    );
+    expect(reloginButton).not.toBeNull();
+
+    await act(async () => {
+      reloginButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(requestChannelAccountSessionAction).toHaveBeenCalledWith(12, {
+      action: 'relogin',
+    });
+    expect(collectText(container)).toContain('Browser relogin request queued for the restored inbox reply handoff.');
+    expect(collectText(container)).toContain('artifacts/browser-lane-requests/weibo/acct-ops/relogin-job-17.json');
 
     await act(async () => {
       root.unmount();
@@ -2039,6 +2134,133 @@ describe('Inbox action wiring', () => {
     expect(collectText(container)).toContain('reply sent manually');
     expect(collectText(container)).toContain('handled');
     expect(collectText(container)).not.toContain('needs_reply');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('restores a ready persisted inbox reply handoff after reload and allows completing it inline', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    const completeInboxReplyHandoffAction = vi.fn().mockResolvedValue({
+      ok: true,
+      imported: true,
+      artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-7.json',
+      itemId: 7,
+      itemStatus: 'handled',
+      platform: 'reddit',
+      mode: 'browser',
+      status: 'sent',
+      success: true,
+      deliveryUrl: 'https://reddit.com/message/messages/abc123',
+      externalId: null,
+      message: 'reply sent manually after reload',
+      deliveredAt: '2026-04-23T11:15:00.000Z',
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(InboxPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              items: [
+                {
+                  id: 7,
+                  source: 'reddit',
+                  status: 'needs_reply',
+                  author: 'user123',
+                  title: 'Need lower latency in APAC',
+                  excerpt: 'Can you share current response times?',
+                  createdAt: '2026-04-19T10:00:00.000Z',
+                },
+              ],
+              total: 1,
+              unread: 1,
+            },
+          } satisfies ApiState<unknown>,
+          replyHandoffsStateOverride: {
+            status: 'success',
+            data: {
+              handoffs: [
+                {
+                  platform: 'reddit',
+                  itemId: 7,
+                  source: 'reddit',
+                  title: 'Need lower latency in APAC',
+                  author: 'user123',
+                  accountKey: 'reddit-main',
+                  channelAccountId: 9,
+                  status: 'pending',
+                  readiness: 'ready',
+                  sessionAction: null,
+                  artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-7.json',
+                  createdAt: '2026-04-24T10:00:00.000Z',
+                  updatedAt: '2026-04-24T10:00:00.000Z',
+                  resolvedAt: null,
+                },
+              ],
+              total: 1,
+            },
+          } satisfies ApiState<unknown>,
+          completeInboxReplyHandoffAction,
+        }),
+      );
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('发现待处理的 Inbox reply handoff，可以直接结单。');
+    expect(collectText(container)).toContain('Handoff 状态：ready');
+    expect(collectText(container)).toContain(
+      'Handoff 路径：artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-7.json',
+    );
+
+    const deliveryUrlInput = findElement(
+      container,
+      (element) => element.getAttribute('data-inbox-reply-handoff-field') === 'deliveryUrl',
+    );
+    const messageInput = findElement(
+      container,
+      (element) => element.getAttribute('data-inbox-reply-handoff-field') === 'message',
+    );
+    const markSentButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('标记已发送'),
+    );
+
+    expect(deliveryUrlInput).not.toBeNull();
+    expect(messageInput).not.toBeNull();
+    expect(markSentButton).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(
+        deliveryUrlInput as never,
+        'https://reddit.com/message/messages/abc123',
+        window as never,
+      );
+      updateFieldValue(messageInput as never, 'reply sent manually after reload', window as never);
+      await flush();
+    });
+
+    await act(async () => {
+      markSentButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(completeInboxReplyHandoffAction).toHaveBeenCalledWith({
+      artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-7.json',
+      replyStatus: 'sent',
+      deliveryUrl: 'https://reddit.com/message/messages/abc123',
+      message: 'reply sent manually after reload',
+    });
+    expect(collectText(container)).toContain('已结单 inbox reply item #7 (handled)');
+    expect(collectText(container)).toContain('reply sent manually after reload');
+    expect(collectText(container)).toContain('handled');
 
     await act(async () => {
       root.unmount();

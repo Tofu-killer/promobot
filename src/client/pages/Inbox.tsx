@@ -41,6 +41,29 @@ export interface EnqueueInboxFetchJobResponse {
   runtime: Record<string, unknown>;
 }
 
+export interface InboxReplyHandoffRecord {
+  channelAccountId?: number;
+  platform: string;
+  itemId: string | number;
+  source: string;
+  title: string | null;
+  author: string | null;
+  accountKey: string;
+  status: string;
+  readiness?: string;
+  sessionAction?: string | null;
+  artifactPath: string;
+  createdAt: string;
+  updatedAt: string;
+  resolvedAt: string | null;
+  resolution?: unknown;
+}
+
+export interface InboxReplyHandoffsResponse {
+  handoffs: InboxReplyHandoffRecord[];
+  total: number;
+}
+
 function parseProjectId(value: string) {
   const normalizedValue = value.trim();
 
@@ -97,6 +120,10 @@ export async function enqueueInboxFetchJobRequest(
       ...(runAt ? { runAt } : {}),
     }),
   });
+}
+
+export async function loadInboxReplyHandoffsRequest(limit = 100): Promise<InboxReplyHandoffsResponse> {
+  return apiRequest<InboxReplyHandoffsResponse>(`/api/system/inbox-reply-handoffs?limit=${limit}`);
 }
 
 export interface UpdateInboxItemResponse {
@@ -262,6 +289,7 @@ export async function completeInboxReplyHandoffRequest(
 
 interface InboxPageProps {
   loadInboxAction?: (projectId?: number) => Promise<InboxResponse>;
+  loadInboxReplyHandoffsAction?: (limit?: number) => Promise<InboxReplyHandoffsResponse>;
   fetchInboxAction?: (projectId?: number) => Promise<FetchInboxResponse>;
   enqueueFetchJobAction?: (runAt?: string, projectId?: number) => Promise<EnqueueInboxFetchJobResponse>;
   updateInboxAction?: (id: number, status: string) => Promise<UpdateInboxItemResponse>;
@@ -275,6 +303,7 @@ interface InboxPageProps {
     input: CompleteInboxReplyHandoffInput,
   ) => Promise<InboxReplyHandoffCompletionResponse>;
   stateOverride?: AsyncState<InboxResponse>;
+  replyHandoffsStateOverride?: AsyncState<InboxReplyHandoffsResponse>;
   fetchStateOverride?: AsyncState<FetchInboxResponse>;
   enqueueStateOverride?: AsyncState<EnqueueInboxFetchJobResponse>;
   inboxUpdateStateOverride?: AsyncState<UpdateInboxItemResponse>;
@@ -522,8 +551,29 @@ function readSessionActionArtifactPath(result: RequestChannelAccountSessionActio
   return readString(sessionAction?.artifactPath) ?? readString(sessionAction?.path);
 }
 
+function readInboxReplyHandoffItemId(handoff: InboxReplyHandoffRecord) {
+  return typeof handoff.itemId === 'number'
+    ? readPositiveInteger(handoff.itemId)
+    : readPositiveInteger(Number(handoff.itemId));
+}
+
+function findPendingInboxReplyHandoff(handoffs: InboxReplyHandoffRecord[], itemId: number) {
+  return handoffs.find((handoff) => handoff.status === 'pending' && readInboxReplyHandoffItemId(handoff) === itemId) ?? null;
+}
+
+function isReadyInboxReplyHandoff(handoff: InboxReplyHandoffRecord) {
+  return handoff.status === 'pending' && (handoff.readiness ?? 'ready') === 'ready';
+}
+
+function getInboxReplyHandoffBlockedMessage(handoff: InboxReplyHandoffRecord) {
+  return handoff.sessionAction === 'relogin'
+    ? '等待刷新 Session 后继续回复接管。'
+    : '等待补充 Session 后继续回复接管。';
+}
+
 export function InboxPage({
   loadInboxAction = loadInboxRequest,
+  loadInboxReplyHandoffsAction = loadInboxReplyHandoffsRequest,
   fetchInboxAction = fetchInboxRequest,
   enqueueFetchJobAction = enqueueInboxFetchJobRequest,
   updateInboxAction = updateInboxItemRequest,
@@ -532,6 +582,7 @@ export function InboxPage({
   requestChannelAccountSessionAction = requestInboxReplySessionActionRequest,
   completeInboxReplyHandoffAction = completeInboxReplyHandoffRequest,
   stateOverride,
+  replyHandoffsStateOverride,
   fetchStateOverride,
   enqueueStateOverride,
   inboxUpdateStateOverride,
@@ -542,9 +593,20 @@ export function InboxPage({
 }: InboxPageProps) {
   const [projectIdDraft, setProjectIdDraft] = useState('');
   const projectId = parseProjectId(projectIdDraft);
+  const shouldLoadReplyHandoffsLive = stateOverride === undefined && replyHandoffsStateOverride === undefined;
   const { state, reload } = useAsyncQuery(
     () => (projectId === undefined ? loadInboxAction() : loadInboxAction(projectId)),
     [loadInboxAction, projectId],
+  );
+  const { state: replyHandoffsState, reload: reloadReplyHandoffs } = useAsyncQuery(
+    () =>
+      shouldLoadReplyHandoffsLive
+        ? loadInboxReplyHandoffsAction()
+        : Promise.resolve({
+            handoffs: [],
+            total: 0,
+          } satisfies InboxReplyHandoffsResponse),
+    [loadInboxReplyHandoffsAction, shouldLoadReplyHandoffsLive],
   );
   const { state: fetchState, run: runFetchInbox } = useAsyncAction((nextProjectId?: number) =>
     nextProjectId === undefined ? fetchInboxAction() : fetchInboxAction(nextProjectId),
@@ -588,6 +650,7 @@ export function InboxPage({
   const [allowReplySuggestionFallback, setAllowReplySuggestionFallback] = useState(true);
   const [enqueueRunAtDraft, setEnqueueRunAtDraft] = useState('');
   const displayState = stateOverride ?? state;
+  const displayReplyHandoffsState = replyHandoffsStateOverride ?? replyHandoffsState;
   const displayFetchState = fetchStateOverride ?? fetchState;
   const displayEnqueueState = enqueueStateOverride ?? enqueueState;
   const displayInboxUpdateState = inboxUpdateStateOverride ?? inboxUpdateState;
@@ -616,6 +679,10 @@ export function InboxPage({
     Array.isArray((displayState.data as InboxResponse).items);
   const isPreview = !hasLiveData;
   const viewData = hasLiveData ? (displayState.data as InboxResponse) : fallbackData;
+  const replyHandoffs =
+    displayReplyHandoffsState.status === 'success' && displayReplyHandoffsState.data
+      ? displayReplyHandoffsState.data.handoffs
+      : [];
   const updatedInboxItem =
     displayInboxUpdateState.status === 'success' && displayInboxUpdateState.data ? displayInboxUpdateState.data.item : null;
   const deliveredReplyItem =
@@ -713,21 +780,42 @@ export function InboxPage({
     deliveredReplyFeedbackItemId === replyDeliveryItemId
       ? displaySendReplyState.data.delivery
       : null;
-  const showReplyDeliveryFollowUp =
-    replyDeliveryItemId !== null && (selectedItem === null || selectedItem.id === replyDeliveryItemId);
   const manualReplyAssistantCompletionItemId = manualReplyAssistantCompletionResult?.id ?? null;
+  const hasCurrentReplyDeliveryFollowUp =
+    replyDeliveryItemId !== null && (selectedItem === null || selectedItem.id === replyDeliveryItemId);
+  const activeReplyDeliveryItemId = hasCurrentReplyDeliveryFollowUp ? replyDeliveryItemId : selectedItem?.id ?? null;
   const replyDeliveryClosedLocally =
-    manualReplyAssistantCompletionItemId !== null && manualReplyAssistantCompletionItemId === replyDeliveryItemId;
-  const shouldShowReplyDeliveryActions = showReplyDeliveryFollowUp && !replyDeliveryClosedLocally;
+    manualReplyAssistantCompletionItemId !== null && manualReplyAssistantCompletionItemId === activeReplyDeliveryItemId;
+  const persistedReplyHandoff =
+    activeReplyDeliveryItemId !== null ? findPendingInboxReplyHandoff(replyHandoffs, activeReplyDeliveryItemId) : null;
+  const persistedReplyHandoffFeedback = persistedReplyHandoff
+    ? isReadyInboxReplyHandoff(persistedReplyHandoff)
+      ? '发现待处理的 Inbox reply handoff，可以直接结单。'
+      : getInboxReplyHandoffBlockedMessage(persistedReplyHandoff)
+    : null;
+  const immediateReplyBrowserHandoff =
+    hasCurrentReplyDeliveryFollowUp && deliveredReplyFeedback ? readBrowserReplyHandoff(deliveredReplyFeedback.details) : null;
+  const activeReplyBrowserHandoff = persistedReplyHandoff
+    ? {
+        platform: persistedReplyHandoff.platform,
+        accountKey: persistedReplyHandoff.accountKey,
+        channelAccountId: persistedReplyHandoff.channelAccountId,
+        readiness: persistedReplyHandoff.readiness ?? 'ready',
+        sessionAction: persistedReplyHandoff.sessionAction ?? null,
+        artifactPath: persistedReplyHandoff.artifactPath,
+      }
+    : immediateReplyBrowserHandoff;
+  const showReplyDeliveryFollowUp = (hasCurrentReplyDeliveryFollowUp || persistedReplyHandoff !== null) && !replyDeliveryClosedLocally;
+  const shouldShowReplyDeliveryActions = showReplyDeliveryFollowUp;
   const sendReplyFeedback =
     deliveredReplyFeedback && !replyDeliveryClosedLocally
       ? deliveredReplyFeedback.message
+      : persistedReplyHandoff && !replyDeliveryClosedLocally
+        ? persistedReplyHandoffFeedback
       : displaySendReplyState.status === 'error' && replyDeliveryItemId !== null
         ? `发送回复失败：${displaySendReplyState.error}`
         : null;
-  const sendReplyBrowserHandoff =
-    shouldShowReplyDeliveryActions && deliveredReplyFeedback ? readBrowserReplyHandoff(deliveredReplyFeedback.details) : null;
-  const sendReplyManualReplyAssistant = shouldShowReplyDeliveryActions && deliveredReplyFeedback
+  const sendReplyManualReplyAssistant = hasCurrentReplyDeliveryFollowUp && deliveredReplyFeedback
     ? readManualReplyAssistant(deliveredReplyFeedback.details)
     : null;
   const sendReplyFeedbackTone =
@@ -737,12 +825,16 @@ export function InboxPage({
         : deliveredReplyFeedback.status === 'manual_required'
           ? 'warning'
           : 'error'
+      : persistedReplyHandoff
+        ? 'warning'
       : displaySendReplyState.status === 'error'
         ? 'error'
         : null;
   const replyDeliveryFeedbackResetKey =
     deliveredReplyFeedback && replyDeliveryItemId !== null
       ? `${replyDeliveryItemId}:${deliveredReplyFeedback.status}:${deliveredReplyFeedback.message}`
+      : persistedReplyHandoff && activeReplyDeliveryItemId !== null
+        ? `persisted:${activeReplyDeliveryItemId}:${persistedReplyHandoff.artifactPath}:${persistedReplyHandoff.readiness ?? 'ready'}`
       : displaySendReplyState.status === 'error' && replyDeliveryItemId !== null
         ? `error:${replyDeliveryItemId}:${displaySendReplyState.error}`
         : null;
@@ -774,7 +866,7 @@ export function InboxPage({
     displaySessionActionState.status === 'success' &&
     displaySessionActionState.data &&
     sessionActionItemId !== null &&
-    sessionActionItemId === replyDeliveryItemId
+    sessionActionItemId === activeReplyDeliveryItemId
       ? readSessionActionArtifactPath(displaySessionActionState.data)
       : null;
   const replyHandoffCompletionFeedback =
@@ -792,13 +884,18 @@ export function InboxPage({
         ? 'error'
         : null;
 
+  function reloadInboxSurface() {
+    void reload();
+    void reloadReplyHandoffs();
+  }
+
   async function handleInboxStatus(item: InboxItem, status: 'handled' | 'snoozed') {
     setSelectedItemId(item.id);
     setInboxMutationItemId(item.id);
 
     try {
       await runInboxUpdate({ id: item.id, status });
-      reload();
+      reloadInboxSurface();
     } catch {}
   }
 
@@ -819,7 +916,7 @@ export function InboxPage({
   function handleFetchInbox() {
     void runFetchInbox(projectId)
       .then(() => {
-        reload();
+        reloadInboxSurface();
       })
       .catch(() => undefined);
   }
@@ -830,7 +927,7 @@ export function InboxPage({
     void runEnqueueFetchJob({ runAt, projectId })
       .then(() => {
         setEnqueueRunAtDraft('');
-        reload();
+        reloadInboxSurface();
       })
       .catch(() => undefined);
   }
@@ -871,7 +968,11 @@ export function InboxPage({
     void runSendReply({
       id: selectedItem.id,
       reply: nextReply,
-    }).catch(() => undefined);
+    })
+      .then(() => {
+        void reloadReplyHandoffs();
+      })
+      .catch(() => undefined);
   }
 
   function handleOpenManualReplyAssistant(url: string) {
@@ -916,7 +1017,7 @@ export function InboxPage({
 
         setManualReplyAssistantFeedback(null);
         setManualReplyAssistantCompletionResult(result.item);
-        reload();
+        reloadInboxSurface();
       })
       .catch(() => undefined);
   }
@@ -934,40 +1035,40 @@ export function InboxPage({
 
   function handleRequestSessionAction() {
     if (
-      !sendReplyBrowserHandoff?.sessionAction ||
-      !sendReplyBrowserHandoff.channelAccountId ||
-      replyDeliveryItemId === null
+      !activeReplyBrowserHandoff?.sessionAction ||
+      !activeReplyBrowserHandoff.channelAccountId ||
+      activeReplyDeliveryItemId === null
     ) {
       return;
     }
 
-    const action = sendReplyBrowserHandoff.sessionAction;
+    const action = activeReplyBrowserHandoff.sessionAction;
     if (action !== 'request_session' && action !== 'relogin') {
       return;
     }
 
-    setSessionActionItemId(replyDeliveryItemId);
+    setSessionActionItemId(activeReplyDeliveryItemId);
     void runSessionAction({
-      accountId: sendReplyBrowserHandoff.channelAccountId,
+      accountId: activeReplyBrowserHandoff.channelAccountId,
       action,
     }).catch(() => undefined);
   }
 
   function handleCompleteReplyHandoff(replyStatus: 'sent' | 'failed') {
-    if (!sendReplyBrowserHandoff?.artifactPath || replyDeliveryItemId === null) {
+    if (!activeReplyBrowserHandoff?.artifactPath || activeReplyDeliveryItemId === null) {
       return;
     }
 
-    const draft = replyHandoffDraftByArtifactPath[sendReplyBrowserHandoff.artifactPath];
+    const draft = replyHandoffDraftByArtifactPath[activeReplyBrowserHandoff.artifactPath];
     const message = draft?.message.trim();
     const deliveryUrl = draft?.deliveryUrl.trim();
     const completionAttemptId = replyHandoffCompletionAttemptRef.current + 1;
 
     replyHandoffCompletionAttemptRef.current = completionAttemptId;
-    setReplyHandoffCompletionItemId(replyDeliveryItemId);
+    setReplyHandoffCompletionItemId(activeReplyDeliveryItemId);
     setReplyHandoffCompletionResult(null);
     void runReplyHandoffCompletion({
-      artifactPath: sendReplyBrowserHandoff.artifactPath,
+      artifactPath: activeReplyBrowserHandoff.artifactPath,
       replyStatus,
       ...(message ? { message } : {}),
       ...(deliveryUrl ? { deliveryUrl } : {}),
@@ -978,7 +1079,7 @@ export function InboxPage({
         }
 
         setReplyHandoffCompletionResult(result);
-        reload();
+        reloadInboxSurface();
       })
       .catch(() => undefined);
   }
@@ -1003,15 +1104,18 @@ export function InboxPage({
     );
   }
 
-  const activeReplyHandoffDraft = sendReplyBrowserHandoff?.artifactPath
-    ? replyHandoffDraftByArtifactPath[sendReplyBrowserHandoff.artifactPath]
+  const activeReplyHandoffDraft = activeReplyBrowserHandoff?.artifactPath
+    ? replyHandoffDraftByArtifactPath[activeReplyBrowserHandoff.artifactPath]
     : undefined;
   const shouldShowReplyHandoffCompletionActions =
-    !!sendReplyBrowserHandoff?.artifactPath &&
-    (!completedReplyHandoff || completedReplyHandoff.itemId !== replyDeliveryItemId);
+    !!activeReplyBrowserHandoff?.artifactPath &&
+    (activeReplyBrowserHandoff.readiness ?? 'ready') === 'ready' &&
+    (!completedReplyHandoff || completedReplyHandoff.itemId !== activeReplyDeliveryItemId) &&
+    (!persistedReplyHandoff || isReadyInboxReplyHandoff(persistedReplyHandoff));
   const shouldShowSessionActionButton =
-    !!sendReplyBrowserHandoff?.channelAccountId &&
-    (sendReplyBrowserHandoff.sessionAction === 'request_session' || sendReplyBrowserHandoff.sessionAction === 'relogin');
+    !!activeReplyBrowserHandoff?.channelAccountId &&
+    (activeReplyBrowserHandoff.sessionAction === 'request_session' ||
+      activeReplyBrowserHandoff.sessionAction === 'relogin');
 
   return (
     <section>
@@ -1021,7 +1125,7 @@ export function InboxPage({
         description="统一查看命中关键词的帖子、AI 回复建议和人工接管入口，优先处理高价值会话。"
         actions={
           <>
-            <ActionButton label="刷新收件箱" onClick={reload} />
+            <ActionButton label="刷新收件箱" onClick={reloadInboxSurface} />
             <ActionButton
               label={displayFetchState.status === 'loading' ? '正在抓取收件箱...' : '抓取新命中'}
               onClick={handleFetchInbox}
@@ -1101,27 +1205,29 @@ export function InboxPage({
           }}
         >
           <span>{sendReplyFeedback}</span>
-          {sendReplyBrowserHandoff?.readiness ? (
-            <span style={{ display: 'block', marginTop: '6px' }}>Handoff 状态：{sendReplyBrowserHandoff.readiness}</span>
+          {activeReplyBrowserHandoff?.readiness ? (
+            <span style={{ display: 'block', marginTop: '6px' }}>Handoff 状态：{activeReplyBrowserHandoff.readiness}</span>
           ) : null}
-          {sendReplyBrowserHandoff?.sessionAction ? (
-            <span style={{ display: 'block', marginTop: '6px' }}>Handoff 动作：{sendReplyBrowserHandoff.sessionAction}</span>
+          {activeReplyBrowserHandoff?.sessionAction ? (
+            <span style={{ display: 'block', marginTop: '6px' }}>Handoff 动作：{activeReplyBrowserHandoff.sessionAction}</span>
           ) : null}
-          {sendReplyBrowserHandoff?.artifactPath ? (
-            <span style={{ display: 'block', marginTop: '6px' }}>Handoff 路径：{sendReplyBrowserHandoff.artifactPath}</span>
+          {activeReplyBrowserHandoff?.artifactPath ? (
+            <span style={{ display: 'block', marginTop: '6px' }}>Handoff 路径：{activeReplyBrowserHandoff.artifactPath}</span>
           ) : null}
           {shouldShowSessionActionButton ? (
             <span style={{ display: 'block', marginTop: '10px' }}>
               <span style={{ display: 'inline-flex', gap: '8px', flexWrap: 'wrap' }}>
                 <ActionButton
                   label={
-                    displaySessionActionState.status === 'loading' && sessionActionItemId === replyDeliveryItemId
-                      ? formatSessionActionPendingLabel(sendReplyBrowserHandoff.sessionAction as BrowserSessionAction)
-                      : formatSessionActionLabel(sendReplyBrowserHandoff.sessionAction as BrowserSessionAction)
+                    displaySessionActionState.status === 'loading' && sessionActionItemId === activeReplyDeliveryItemId
+                      ? formatSessionActionPendingLabel(activeReplyBrowserHandoff!.sessionAction as BrowserSessionAction)
+                      : formatSessionActionLabel(activeReplyBrowserHandoff!.sessionAction as BrowserSessionAction)
                   }
                   tone="primary"
                   onClick={handleRequestSessionAction}
-                  disabled={displaySessionActionState.status === 'loading' && sessionActionItemId === replyDeliveryItemId}
+                  disabled={
+                    displaySessionActionState.status === 'loading' && sessionActionItemId === activeReplyDeliveryItemId
+                  }
                 />
               </span>
               {sessionActionFeedback ? (
@@ -1140,7 +1246,7 @@ export function InboxPage({
                   data-inbox-reply-handoff-field="deliveryUrl"
                   value={activeReplyHandoffDraft?.deliveryUrl ?? ''}
                   onChange={(event) => {
-                    handleReplyHandoffDraftChange(sendReplyBrowserHandoff.artifactPath!, 'deliveryUrl', event.target.value);
+                    handleReplyHandoffDraftChange(activeReplyBrowserHandoff!.artifactPath!, 'deliveryUrl', event.target.value);
                   }}
                   placeholder="delivery URL（可选）"
                   style={queueInputStyle}
@@ -1149,7 +1255,7 @@ export function InboxPage({
                   data-inbox-reply-handoff-field="message"
                   value={activeReplyHandoffDraft?.message ?? ''}
                   onChange={(event) => {
-                    handleReplyHandoffDraftChange(sendReplyBrowserHandoff.artifactPath!, 'message', event.target.value);
+                    handleReplyHandoffDraftChange(activeReplyBrowserHandoff!.artifactPath!, 'message', event.target.value);
                   }}
                   placeholder="结单备注（可选）"
                   style={queueInputStyle}
@@ -1158,7 +1264,7 @@ export function InboxPage({
                   <ActionButton
                     label={
                       displayReplyHandoffCompletionState.status === 'loading' &&
-                      replyHandoffCompletionItemId === replyDeliveryItemId
+                      replyHandoffCompletionItemId === activeReplyDeliveryItemId
                         ? '正在结单...'
                         : '标记已发送'
                     }
@@ -1168,13 +1274,13 @@ export function InboxPage({
                     }}
                     disabled={
                       displayReplyHandoffCompletionState.status === 'loading' &&
-                      replyHandoffCompletionItemId === replyDeliveryItemId
+                      replyHandoffCompletionItemId === activeReplyDeliveryItemId
                     }
                   />
                   <ActionButton
                     label={
                       displayReplyHandoffCompletionState.status === 'loading' &&
-                      replyHandoffCompletionItemId === replyDeliveryItemId
+                      replyHandoffCompletionItemId === activeReplyDeliveryItemId
                         ? '正在结单...'
                         : '标记失败'
                     }
@@ -1183,7 +1289,7 @@ export function InboxPage({
                     }}
                     disabled={
                       displayReplyHandoffCompletionState.status === 'loading' &&
-                      replyHandoffCompletionItemId === replyDeliveryItemId
+                      replyHandoffCompletionItemId === activeReplyDeliveryItemId
                     }
                   />
                 </span>
@@ -1224,13 +1330,15 @@ export function InboxPage({
                   ) : null}
                   <ActionButton
                     label={
-                      displayInboxUpdateState.status === 'loading' && activeInboxMutationItemId === replyDeliveryItemId
+                      displayInboxUpdateState.status === 'loading' && activeInboxMutationItemId === activeReplyDeliveryItemId
                         ? '正在结单...'
                         : '标记已处理'
                     }
                     tone="primary"
                     onClick={handleResolveManualReplyAssistant}
-                    disabled={displayInboxUpdateState.status === 'loading' && activeInboxMutationItemId === replyDeliveryItemId}
+                    disabled={
+                      displayInboxUpdateState.status === 'loading' && activeInboxMutationItemId === activeReplyDeliveryItemId
+                    }
                   />
                   {sendReplyManualReplyAssistant.copyText ? (
                     <ActionButton
