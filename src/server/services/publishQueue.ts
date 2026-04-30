@@ -6,14 +6,9 @@ import {
 } from '../routes/publish.js';
 import type { PublishStatus } from './publishers/types.js';
 import { createSQLiteDraftStore } from '../store/drafts.js';
-import { createJobQueueStore, type JobQueueStore } from '../store/jobQueue.js';
+import { createJobQueueStore } from '../store/jobQueue.js';
 import { createSQLitePublishLogStore } from '../store/publishLogs.js';
-import {
-  browserHandoffPollJobType,
-  defaultBrowserHandoffPollDelayMs,
-  defaultBrowserHandoffPollMaxAttempts,
-  hasOutstandingBrowserHandoffPollJob,
-} from './publishers/browserHandoffPollHandler.js';
+import { maybeEnqueueBrowserHandoffPollJob } from './publishers/browserHandoffQueue.js';
 
 export interface PublishJobPayload {
   draftId?: unknown;
@@ -128,62 +123,4 @@ function getDraftStatusForPublishStatus(status: PublishStatus): DraftStatus {
     case 'failed':
       return 'failed';
   }
-}
-
-function maybeEnqueueBrowserHandoffPollJob(
-  result: {
-    status: PublishStatus;
-    details?: Record<string, unknown>;
-  },
-  jobQueueStore: Pick<JobQueueStore, 'enqueue' | 'list'>,
-) {
-  if (result.status !== 'manual_required') {
-    return;
-  }
-
-  const browserHandoff = readReadyBrowserHandoffDetails(result.details);
-  if (!browserHandoff) {
-    return;
-  }
-
-  if (
-    hasOutstandingBrowserHandoffPollJob(jobQueueStore, {
-      artifactPath: browserHandoff.artifactPath,
-      currentJobId: undefined,
-    })
-  ) {
-    return;
-  }
-
-  jobQueueStore.enqueue({
-    type: browserHandoffPollJobType,
-    payload: {
-      artifactPath: browserHandoff.artifactPath,
-      attempt: 0,
-      maxAttempts: defaultBrowserHandoffPollMaxAttempts,
-      pollDelayMs: defaultBrowserHandoffPollDelayMs,
-    },
-    runAt: new Date(Date.now() + defaultBrowserHandoffPollDelayMs).toISOString(),
-  });
-}
-
-function readReadyBrowserHandoffDetails(details: Record<string, unknown> | undefined) {
-  if (!isPlainObject(details) || !isPlainObject(details.browserHandoff)) {
-    return null;
-  }
-
-  const artifactPath =
-    typeof details.browserHandoff.artifactPath === 'string'
-      ? details.browserHandoff.artifactPath.trim()
-      : '';
-
-  return details.browserHandoff.readiness === 'ready' && artifactPath
-    ? {
-        artifactPath,
-      }
-    : null;
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

@@ -8,6 +8,7 @@ import {
   type SessionMetadata,
 } from '../../src/server/services/browser/sessionStore';
 import * as sessionStoreModule from '../../src/server/services/browser/sessionStore';
+import { createBrowserHandoffPublisher } from '../../src/server/services/publishers/browserHandoff';
 import { publishToWeibo } from '../../src/server/services/publishers/weibo';
 import { publishToInstagram } from '../../src/server/services/publishers/instagram';
 import { publishToTiktok } from '../../src/server/services/publishers/tiktok';
@@ -616,6 +617,63 @@ describe('publishers', () => {
         },
       },
     });
+  });
+
+  it('dispatches ready instagram browser handoffs when an active session exists', async () => {
+    const outputDir = mkdtempSync(path.join(tmpdir(), 'promobot-browser-handoff-'));
+    tempDirs.push(outputDir);
+    process.env.BROWSER_HANDOFF_OUTPUT_DIR = outputDir;
+    mockSession({
+      id: 'instagram:launch-campaign',
+      platform: 'instagram',
+      accountKey: 'launch-campaign',
+      storageStatePath: 'artifacts/browser-sessions/instagram.json',
+      status: 'active',
+      createdAt: '2026-04-19T10:00:00.000Z',
+      updatedAt: '2026-04-19T10:30:00.000Z',
+      lastValidatedAt: '2026-04-19T10:25:00.000Z',
+    });
+    const browserLaneDispatch = vi.fn();
+    const publishToBrowserHandoff = createBrowserHandoffPublisher('instagram', {
+      browserLaneDispatch,
+    });
+
+    await publishToBrowserHandoff({
+      draftId: 27,
+      content: 'Ready for browser dispatch',
+      target: '@brand-account',
+      metadata: {
+        accountKey: 'launch-campaign',
+      },
+    });
+
+    expect(browserLaneDispatch).toHaveBeenCalledTimes(1);
+    expect(browserLaneDispatch).toHaveBeenCalledWith({
+      kind: 'publish_handoff',
+      artifactPath: 'artifacts/browser-handoffs/instagram/launch-campaign/instagram-draft-27.json',
+      platform: 'instagram',
+      accountKey: 'launch-campaign',
+      draftId: '27',
+    });
+  });
+
+  it('does not dispatch blocked instagram browser handoffs before a session exists', async () => {
+    mockSession(null);
+    const browserLaneDispatch = vi.fn();
+    const publishToBrowserHandoff = createBrowserHandoffPublisher('instagram', {
+      browserLaneDispatch,
+    });
+
+    await publishToBrowserHandoff({
+      draftId: 25,
+      content: 'Blocked browser handoff',
+      target: '@brand-account',
+      metadata: {
+        accountKey: 'launch-campaign',
+      },
+    });
+
+    expect(browserLaneDispatch).not.toHaveBeenCalled();
   });
 
   it('returns a ready browser handoff for weibo when an active session exists', async () => {

@@ -1703,6 +1703,18 @@ describe('publish api', () => {
         message: 'instagram draft 1 is ready for manual browser handoff with the saved session.',
       }),
     ]);
+    expect(readJobQueue()).toEqual([
+      expect.objectContaining({
+        type: 'browser_handoff_poll',
+        status: 'pending',
+      }),
+    ]);
+    expect(JSON.parse(readJobQueue()[0]?.payload ?? '{}')).toEqual({
+      artifactPath: 'artifacts/browser-handoffs/instagram/launch-campaign/instagram-draft-1.json',
+      attempt: 0,
+      maxAttempts: 60,
+      pollDelayMs: 60_000,
+    });
   });
 
   it('restores a managed instagram browser session when metadata has not been written yet', async () => {

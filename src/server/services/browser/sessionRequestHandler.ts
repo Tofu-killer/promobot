@@ -13,6 +13,10 @@ import {
   importInlineSessionRequestResult,
   importSessionRequestResultArtifact,
 } from './sessionResultImporter.js';
+import {
+  createBrowserLaneDispatch,
+  type BrowserLaneDispatch,
+} from './browserLaneDispatch.js';
 import { createSessionStore } from './sessionStore.js';
 import type { BrowserSessionAction } from './sessionStore.js';
 
@@ -60,6 +64,7 @@ export interface ChannelAccountSessionRequestJobHandlerDependencies {
   importSessionRequestResultArtifact?: typeof importSessionRequestResultArtifact;
   importInlineSessionRequestResult?: typeof importInlineSessionRequestResult;
   sessionStore?: Pick<ReturnType<typeof createSessionStore>, 'getSession'>;
+  browserLaneDispatch?: BrowserLaneDispatch;
 }
 
 export function createChannelAccountSessionRequestJobHandler(
@@ -73,6 +78,7 @@ export function createChannelAccountSessionRequestJobHandler(
   const importInlineSessionResult =
     dependencies.importInlineSessionRequestResult ?? importInlineSessionRequestResult;
   const sessionStore = dependencies.sessionStore ?? createSessionStore();
+  const browserLaneDispatch = dependencies.browserLaneDispatch ?? createBrowserLaneDispatch();
 
   return async (payload, job) => {
     const normalizedPayload = normalizeSessionRequestPayload(payload);
@@ -139,6 +145,15 @@ export function createChannelAccountSessionRequestJobHandler(
         pollDelayMs,
       },
       runAt: new Date(now().getTime() + pollDelayMs).toISOString(),
+    });
+    browserLaneDispatch({
+      kind: 'session_request',
+      artifactPath: requestArtifact.artifactPath,
+      platform: normalizedPayload.platform,
+      accountKey: normalizedPayload.accountKey,
+      sessionAction: normalizedPayload.action,
+      channelAccountId: channelAccount.id,
+      requestJobId: job.id,
     });
   };
 }

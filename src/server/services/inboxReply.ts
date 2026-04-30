@@ -18,6 +18,10 @@ import {
   type SessionSummary,
 } from './browser/sessionStore.js';
 import {
+  createBrowserLaneDispatch,
+  type BrowserLaneDispatch,
+} from './browser/browserLaneDispatch.js';
+import {
   markInboxReplyHandoffArtifactsObsoleteForAccount,
   writeInboxReplyHandoffArtifact,
   type InboxReplyHandoffPlatform,
@@ -63,6 +67,12 @@ export interface InboxReplyDelivery {
 
 export interface InboxReplyService {
   deliver(input: { item: InboxItemRecord; reply: string }): Promise<InboxReplyDelivery>;
+}
+
+export interface CreateInboxReplyServiceDependencies {
+  channelAccountStore?: Pick<ReturnType<typeof createChannelAccountStore>, 'list'>;
+  jobQueueStore?: Pick<JobQueueStore, 'enqueue' | 'list'>;
+  browserLaneDispatch?: BrowserLaneDispatch;
 }
 
 interface ReplyExecutionContext {
@@ -152,9 +162,13 @@ type RedditAccessTokenResult =
       };
     };
 
-export function createInboxReplyService(): InboxReplyService {
-  const channelAccountStore = createChannelAccountStore();
-  const jobQueueStore = createJobQueueStore();
+export function createInboxReplyService(
+  dependencies: CreateInboxReplyServiceDependencies = {},
+): InboxReplyService {
+  const channelAccountStore = dependencies.channelAccountStore ?? createChannelAccountStore();
+  const jobQueueStore = dependencies.jobQueueStore ?? createJobQueueStore();
+  const browserLaneDispatch =
+    dependencies.browserLaneDispatch ?? createBrowserLaneDispatch();
 
   return {
     async deliver({ item, reply }) {
@@ -185,7 +199,22 @@ export function createInboxReplyService(): InboxReplyService {
           platform,
           context,
         });
-        maybeEnqueueInboxReplyHandoffPollJob(browserReplyHandoff?.details, jobQueueStore);
+        const pollQueued = maybeEnqueueInboxReplyHandoffPollJob(
+          browserReplyHandoff?.details,
+          jobQueueStore,
+        );
+        if (pollQueued && browserReplyHandoff?.details?.artifactPath) {
+          browserLaneDispatch({
+            kind: 'inbox_reply_handoff',
+            artifactPath: browserReplyHandoff.details.artifactPath,
+            platform: browserReplyHandoff.details.platform,
+            accountKey: browserReplyHandoff.details.accountKey,
+            ...(typeof browserReplyHandoff.details.channelAccountId === 'number'
+              ? { channelAccountId: browserReplyHandoff.details.channelAccountId }
+              : {}),
+            itemId: String(item.id),
+          });
+        }
 
         return createManualRequiredDelivery({
           reply,
@@ -1102,7 +1131,7 @@ function maybeEnqueueInboxReplyHandoffPollJob(
   jobQueueStore: Pick<JobQueueStore, 'enqueue' | 'list'>,
 ) {
   if (!details || details.readiness !== 'ready' || !details.artifactPath) {
-    return;
+    return false;
   }
 
   if (
@@ -1111,7 +1140,7 @@ function maybeEnqueueInboxReplyHandoffPollJob(
       currentJobId: undefined,
     })
   ) {
-    return;
+    return false;
   }
 
   jobQueueStore.enqueue({
@@ -1124,6 +1153,8 @@ function maybeEnqueueInboxReplyHandoffPollJob(
     },
     runAt: new Date(Date.now() + defaultInboxReplyHandoffPollDelayMs).toISOString(),
   });
+
+  return true;
 }
 
 function resolveXReplyTargetId(item: InboxItemRecord) {

@@ -9,6 +9,7 @@ import { publishToWeibo } from '../services/publishers/weibo.js';
 import { publishToX } from '../services/publishers/x.js';
 import { publishToXiaohongshu } from '../services/publishers/xiaohongshu.js';
 import { resolveBrowserHandoffArtifact } from '../services/publishers/browserHandoffArtifacts.js';
+import { maybeEnqueueBrowserHandoffPollJob } from '../services/publishers/browserHandoffQueue.js';
 import type { DraftStatus } from './drafts.js';
 import { createSQLiteDraftStore } from '../store/drafts.js';
 import { createJobQueueStore } from '../store/jobQueue.js';
@@ -143,6 +144,7 @@ function createPublishResultPersister() {
     });
 
     jobQueueStore.deletePendingPublishJobs(draftId);
+    maybeEnqueueBrowserHandoffPollJob(result, jobQueueStore);
     maybeResolveBrowserHandoffArtifact(draftId, result, draft);
   };
 }

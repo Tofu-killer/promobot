@@ -1,6 +1,10 @@
 import type { ChannelAccountRecord } from '../../store/channelAccounts.js';
 import type { JobQueueEntry, JobQueueStore } from '../../store/jobQueue.js';
 import { createJobQueueStore } from '../../store/jobQueue.js';
+import {
+  createBrowserLaneDispatch,
+  type BrowserLaneDispatch,
+} from './browserLaneDispatch.js';
 import type { SessionSummary } from './sessionStore.js';
 import {
   listInboxReplyHandoffArtifacts,
@@ -16,6 +20,7 @@ import {
 export interface ResumeBlockedInboxReplyHandoffsDependencies {
   jobQueueStore?: Pick<JobQueueStore, 'enqueue' | 'list'>;
   now?: () => Date;
+  browserLaneDispatch?: BrowserLaneDispatch;
 }
 
 export function resumeBlockedInboxReplyHandoffsForChannelAccount(
@@ -29,6 +34,7 @@ export function resumeBlockedInboxReplyHandoffsForChannelAccount(
 
   const jobQueueStore = dependencies.jobQueueStore ?? createJobQueueStore();
   const now = dependencies.now ?? (() => new Date());
+  const browserLaneDispatch = dependencies.browserLaneDispatch ?? createBrowserLaneDispatch();
   const resumedJobs: JobQueueEntry[] = [];
   const matchingArtifacts = listInboxReplyHandoffArtifacts().filter((artifact) =>
     matchesBlockedHandoffArtifact(channelAccount, artifact),
@@ -64,6 +70,14 @@ export function resumeBlockedInboxReplyHandoffsForChannelAccount(
         runAt: new Date(now().getTime() + defaultInboxReplyHandoffPollDelayMs).toISOString(),
       }),
     );
+    browserLaneDispatch({
+      kind: 'inbox_reply_handoff',
+      artifactPath: artifact.artifactPath,
+      platform: artifact.platform,
+      accountKey: artifact.accountKey,
+      channelAccountId: channelAccount.id,
+      itemId: artifact.itemId,
+    });
   }
 
   return resumedJobs;

@@ -2,6 +2,10 @@ import {
   createSessionStore,
   resolveManagedBrowserSession,
 } from '../browser/sessionStore.js';
+import {
+  createBrowserLaneDispatch,
+  type BrowserLaneDispatch,
+} from '../browser/browserLaneDispatch.js';
 import { createChannelAccountStore } from '../../store/channelAccounts.js';
 import { createStubPublisher } from './stub.js';
 import { markBrowserHandoffArtifactsObsoleteForAccount, writeBrowserHandoffArtifact } from './browserHandoffArtifacts.js';
@@ -13,8 +17,13 @@ type BrowserHandoffPlatform = Extract<
   'facebookGroup' | 'instagram' | 'tiktok' | 'xiaohongshu' | 'weibo'
 >;
 
+export interface BrowserHandoffPublisherDependencies {
+  browserLaneDispatch?: BrowserLaneDispatch;
+}
+
 export function createBrowserHandoffPublisher(
   platform: BrowserHandoffPlatform,
+  dependencies: BrowserHandoffPublisherDependencies = {},
 ): Publisher {
   const channelAccountStore = createChannelAccountStore();
   const fallbackPublisher = createStubPublisher({
@@ -22,6 +31,7 @@ export function createBrowserHandoffPublisher(
     mode: 'browser',
     status: 'manual_required',
   });
+  const browserLaneDispatch = dependencies.browserLaneDispatch ?? createBrowserLaneDispatch();
 
   return async (request: PublishRequest): Promise<PublishResult> => {
     const accountKey = resolveAccountKey(request.metadata);
@@ -58,6 +68,14 @@ export function createBrowserHandoffPublisher(
       clearBrowserHandoffResultArtifact({
         platform,
         accountKey,
+        draftId,
+      });
+      browserLaneDispatch({
+        kind: 'publish_handoff',
+        artifactPath: artifact.artifactPath,
+        platform,
+        accountKey,
+        ...(typeof channelAccountId === 'number' ? { channelAccountId } : {}),
         draftId,
       });
     }

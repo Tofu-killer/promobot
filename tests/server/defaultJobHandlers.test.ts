@@ -4,7 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createJobRecord } from '../../src/server/lib/jobs';
 import { createDefaultJobHandlers } from '../../src/server/runtime/defaultJobHandlers';
-import { channelAccountSessionRequestJobType } from '../../src/server/services/browser/sessionRequestHandler';
+import {
+  channelAccountSessionRequestJobType,
+  createChannelAccountSessionRequestJobHandler,
+} from '../../src/server/services/browser/sessionRequestHandler';
 import {
   createSessionRequestArtifact,
   createSessionRequestResultArtifact,
@@ -505,7 +508,12 @@ describe('default job handlers', () => {
         nextStep: `/api/channel-accounts/${channelAccount.id}/session`,
       });
 
-      const handlers = createDefaultJobHandlers();
+      const dispatchSpy = vi.fn();
+      const handlers = createDefaultJobHandlers({
+        channelAccountSessionRequestHandler: createChannelAccountSessionRequestJobHandler({
+          browserLaneDispatch: dispatchSpy,
+        }),
+      });
       const job = createJobRecord({
         id: 41,
         type: channelAccountSessionRequestJobType,
@@ -554,6 +562,16 @@ describe('default job handlers', () => {
         attempt: 0,
         maxAttempts: 60,
         pollDelayMs: 60_000,
+      });
+      expect(dispatchSpy).toHaveBeenCalledTimes(1);
+      expect(dispatchSpy).toHaveBeenCalledWith({
+        kind: 'session_request',
+        artifactPath: 'artifacts/browser-lane-requests/x/-promobot/request-session-job-41.json',
+        platform: channelAccount.platform,
+        accountKey: channelAccount.accountKey,
+        sessionAction: 'request_session',
+        channelAccountId: channelAccount.id,
+        requestJobId: 41,
       });
     } finally {
       vi.useRealTimers();

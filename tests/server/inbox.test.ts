@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../../src/server/app';
+import { createInboxReplyService } from '../../src/server/services/inboxReply';
 import { createSessionStore } from '../../src/server/services/browser/sessionStore';
 import { createChannelAccountStore } from '../../src/server/store/channelAccounts';
 import * as inboxStoreModule from '../../src/server/store/inbox';
@@ -2156,6 +2157,163 @@ describe('inbox api', () => {
           }),
         }),
       );
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('dispatches ready browser reply handoffs through the shared inbox service path', async () => {
+    const { rootDir } = createTestDatabasePath();
+    process.env.BROWSER_HANDOFF_OUTPUT_DIR = rootDir;
+
+    try {
+      const channelAccountStore = createChannelAccountStore();
+      const jobQueueStore = createJobQueueStore();
+      const channelAccount = channelAccountStore.create({
+        projectId: 1,
+        platform: 'weibo',
+        accountKey: 'weibo-browser-main',
+        displayName: 'Weibo Browser Main',
+        authType: 'browser',
+        status: 'healthy',
+      });
+      createSessionStore().saveSession({
+        platform: 'weibo',
+        accountKey: 'weibo-browser-main',
+        storageState: {
+          cookies: [],
+          origins: [],
+        },
+        status: 'active',
+        lastValidatedAt: '2026-04-25T10:00:00.000Z',
+      });
+
+      const inboxStore = createInboxStore();
+      const item = inboxStore.create({
+        projectId: 1,
+        source: 'weibo',
+        status: 'needs_review',
+        author: 'ops-user',
+        title: 'Need lower latency in APAC',
+        excerpt: 'Can you share current response times?',
+        metadata: {
+          channelAccountId: channelAccount.id,
+          accountKey: 'weibo-browser-main',
+          sourceUrl: 'https://weibo.test/post/1',
+        },
+      });
+      const browserLaneDispatch = vi.fn();
+      const inboxReplyService = createInboxReplyService({
+        channelAccountStore,
+        jobQueueStore,
+        browserLaneDispatch,
+      });
+
+      const delivery = await inboxReplyService.deliver({
+        item,
+        reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+      });
+
+      expect(delivery).toEqual(
+        expect.objectContaining({
+          status: 'manual_required',
+          mode: 'browser',
+          details: expect.objectContaining({
+            browserReplyHandoff: expect.objectContaining({
+              readiness: 'ready',
+              artifactPath:
+                'artifacts/inbox-reply-handoffs/weibo/weibo-browser-main/weibo-inbox-item-1.json',
+            }),
+          }),
+        }),
+      );
+      expect(browserLaneDispatch).toHaveBeenCalledTimes(1);
+      expect(browserLaneDispatch).toHaveBeenCalledWith({
+        kind: 'inbox_reply_handoff',
+        artifactPath:
+          'artifacts/inbox-reply-handoffs/weibo/weibo-browser-main/weibo-inbox-item-1.json',
+        platform: 'weibo',
+        accountKey: 'weibo-browser-main',
+        channelAccountId: channelAccount.id,
+        itemId: String(item.id),
+      });
+      expect(jobQueueStore.list({ limit: 10 })).toEqual([
+        expect.objectContaining({
+          type: inboxReplyHandoffPollJobType,
+          status: 'pending',
+        }),
+      ]);
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('does not dispatch blocked browser reply handoffs through the shared inbox service path', async () => {
+    const { rootDir } = createTestDatabasePath();
+    process.env.BROWSER_HANDOFF_OUTPUT_DIR = rootDir;
+
+    try {
+      const channelAccountStore = createChannelAccountStore();
+      const jobQueueStore = createJobQueueStore();
+      const channelAccount = channelAccountStore.create({
+        projectId: 1,
+        platform: 'weibo',
+        accountKey: 'weibo-browser-main',
+        displayName: 'Weibo Browser Main',
+        authType: 'browser',
+        status: 'healthy',
+      });
+      createSessionStore().saveSession({
+        platform: 'weibo',
+        accountKey: 'weibo-browser-main',
+        storageState: {
+          cookies: [],
+          origins: [],
+        },
+        status: 'expired',
+        lastValidatedAt: '2026-04-25T10:00:00.000Z',
+      });
+
+      const inboxStore = createInboxStore();
+      const item = inboxStore.create({
+        projectId: 1,
+        source: 'weibo',
+        status: 'needs_review',
+        author: 'ops-user',
+        title: 'Need lower latency in APAC',
+        excerpt: 'Can you share current response times?',
+        metadata: {
+          channelAccountId: channelAccount.id,
+          accountKey: 'weibo-browser-main',
+          sourceUrl: 'https://weibo.test/post/1',
+        },
+      });
+      const browserLaneDispatch = vi.fn();
+      const inboxReplyService = createInboxReplyService({
+        channelAccountStore,
+        jobQueueStore,
+        browserLaneDispatch,
+      });
+
+      const delivery = await inboxReplyService.deliver({
+        item,
+        reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+      });
+
+      expect(delivery).toEqual(
+        expect.objectContaining({
+          status: 'manual_required',
+          mode: 'browser',
+          details: expect.objectContaining({
+            browserReplyHandoff: expect.objectContaining({
+              readiness: 'blocked',
+              sessionAction: 'relogin',
+            }),
+          }),
+        }),
+      );
+      expect(browserLaneDispatch).not.toHaveBeenCalled();
+      expect(jobQueueStore.list({ limit: 10 })).toEqual([]);
     } finally {
       cleanupTestDatabasePath(rootDir);
     }
