@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "browser:lane:bridge": "tsx src/server/cli/browserLaneBridge.ts",
     "browser:lane:submit": "tsx src/server/cli/browserLaneSubmit.ts",
     "browser:handoff:complete": "tsx src/server/cli/browserHandoffComplete.ts",
     "inbox:reply:handoff:complete": "tsx src/server/cli/inboxReplyHandoffComplete.ts",
