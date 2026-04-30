@@ -19,13 +19,13 @@ PromoBot 现在不是“只有 spec 的空仓库”了。
 - `reddit`：配置完整 OAuth 环境变量时会调用 Reddit API；未配置时也会返回明确失败，不会再伪造 `published` 结果。
 - `facebook-group`：不会自动发帖，只会根据已保存的 session 元数据返回 manual handoff / manual review 合同。
 - `instagram`、`tiktok`、`weibo`、`xiaohongshu`：现在会像 `facebook-group` 一样基于浏览器 session 返回有状态的 manual handoff 合同；缺 session 时会明确提示 `request_session`，过期时会提示 `relogin`。
-- `blog`：现在会把发布内容写入本地 Markdown 文件；默认输出到 `data/blog-posts/`，也可用 `BLOG_PUBLISH_OUTPUT_DIR` 覆盖。
+- `blog`：现在支持 `BLOG_PUBLISH_DRIVER=file|wordpress|ghost`。默认 `file` 会把发布内容写入本地 Markdown 文件，默认输出到 `data/blog-posts/`，也可用 `BLOG_PUBLISH_OUTPUT_DIR` 覆盖；切到 `wordpress` 时会调用站点 `/wp-json/wp/v2/posts`，需要同时配置 `BLOG_WORDPRESS_SITE_URL`、`BLOG_WORDPRESS_USERNAME`、`BLOG_WORDPRESS_APP_PASSWORD`；切到 `ghost` 时会调用 Ghost Admin API，需要配置 `BLOG_GHOST_ADMIN_URL`、`BLOG_GHOST_ADMIN_API_KEY`，其中 Admin URL 会自动规范到 `/ghost`。
 
 对于 `facebook-group / instagram / tiktok / 小红书 / 微博`，当 session 已就绪时，发布请求现在会额外生成本地 handoff artifact 文件，包含草稿内容、目标、accountKey 和 session 摘要，便于人工接管或外部 browser lane 消费。artifact 会显式维护 `pending / resolved / obsolete` 状态：后续 publish 成功会结单成 `resolved`，session 缺失或过期则会把旧 handoff 标成 `obsolete`。
 
 `Social Inbox` 的 reply handoff 也沿用同一套 browser/manual 合同：`POST /api/inbox/:id/send-reply` 现在会明确区分 `sent / manual_required / failed`。其中 `manual_required` 不会把会话误记为 `handled`；如果后端返回 `details.browserReplyHandoff`，前端会直接展示 `readiness`、`sessionAction` 和 handoff artifact 路径，便于人工接管或外部 browser lane 继续消费。缺 session 时会看到 `request_session`，session 过期时会看到 `relogin`，而且只有真正 `sent` 的 reply 才会回写 `handled`。
 
-这意味着当前“成功发布”语义已经比之前更可靠：未配凭证的 `x` / `reddit` 会直接失败；`blog` 会真正落地成可交付的本地文件；`facebook-group`、`instagram`、`tiktok`、`weibo`、`xiaohongshu` 也不再是无状态 stub，而是带 session 诊断的 browser handoff 路径。当前可落地发布范围应理解为：`X + Reddit + Blog（本地文件） + Facebook Group / Instagram / TikTok / 小红书 / 微博（人工接管）`。
+这意味着当前“成功发布”语义已经比之前更可靠：未配凭证的 `x` / `reddit` 会直接失败；`blog` 现在会按 `file / wordpress / ghost` 三种 driver 真正落地到本地文件或 CMS，driver 不受支持、或 WordPress / Ghost 凭证不完整时也会直接失败，不再伪造成功；`facebook-group`、`instagram`、`tiktok`、`weibo`、`xiaohongshu` 也不再是无状态 stub，而是带 session 诊断的 browser handoff 路径。当前可落地发布范围应理解为：`X + Reddit + Blog（本地文件 / WordPress / Ghost） + Facebook Group / Instagram / TikTok / 小红书 / 微博（人工接管）`。
 
 ## 数据与运行时
 
@@ -44,6 +44,7 @@ PromoBot 现在不是“只有 spec 的空仓库”了。
 - `monitor/fetch` 已支持 RSS、V2EX、Reddit search，以及 Instagram / TikTok profile source configs；这两类 `profile+instagram` / `profile+tiktok` source config 的 `configJson` 现在也支持附带 `channelAccountId` / `accountKey`（兼容 `channelAccountKey`），抓到的 monitor item 会把这些 routing metadata 连同 `sourceUrl` / `profileUrl` / `profileHandle` 一起持久化，并在后续 `inbox/fetch -> send-reply` 链路里继续使用；`inbox/fetch` 与 `reputation/fetch` 现在也会直接基于 settings/source configs 调用 X、Reddit、V2EX 搜索，不再主要依赖 monitor 落库或骨架项。
 - `Competitor Monitor` 的来源筛选现在也覆盖 `instagram`、`tiktok`、`xiaohongshu`、`weibo`、`v2ex`；`generate-follow-up` 除了 `x` / `reddit` 外，也支持 `instagram`、`tiktok`、`xiaohongshu`、`weibo` 这些已接入发布链路的社媒来源直接落草稿，`v2ex` 仍只作为监控来源筛选。
 - `monitor / inbox / reputation` 在生产环境下已禁用 demo / seed 数据回退；没有真实配置或真实信号时会返回空态。
+- `blog` 发布驱动不是自动探测的：未显式配置 `BLOG_PUBLISH_DRIVER` 时默认仍走 `file`；如果切到 `wordpress` 或 `ghost`，需要随部署一起补齐对应 CMS 凭证，否则 Settings / Channel Accounts 会把 `blog` readiness 标成 `needs_config`，实际发布也会直接失败。
 - 浏览器 session 的采集 / relogin 还没接自动化；但 Session 元数据现在既支持继续填写现有 `storageStatePath`，也支持直接导入 storage state JSON 到受管 `browser-sessions/managed/` 目录。
 - 手填 `storageStatePath` 时，路径现在必须落在允许的 session 根目录内，并且指向真实存在、结构合法的 Playwright storage state 文件；否则保存会直接失败，不再先写 metadata 再在读取阶段降级。
 - 直接导入 `storageState` JSON 时，顶层至少要包含合法的 `cookies` / `origins` 数组；同时传 `storageStatePath` 和 `storageState` 会被拒绝。

@@ -701,9 +701,12 @@ function formatPlatformStatus(value: unknown) {
 function formatPlatformName(value: unknown) {
   if (value === 'x') return 'X';
   if (value === 'reddit') return 'Reddit';
+  if (value === 'blog') return 'Blog';
   if (value === 'facebookGroup' || value === 'facebook-group') return 'Facebook Group';
   if (value === 'instagram') return 'Instagram';
   if (value === 'tiktok') return 'TikTok';
+  if (value === 'xiaohongshu') return '小红书';
+  if (value === 'weibo') return '微博';
   return formatContractValue(value);
 }
 

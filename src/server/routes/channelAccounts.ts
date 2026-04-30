@@ -119,6 +119,12 @@ channelAccountsRouter.post('/:id/session/request', (request, response) => {
     return;
   }
 
+  const readiness = getChannelAccountPublishReadiness(channelAccount);
+  if (readiness.mode !== 'browser') {
+    response.status(400).json({ error: 'channel account does not support browser session requests' });
+    return;
+  }
+
   const action = (input.action as BrowserSessionAction | undefined) ?? 'request_session';
   const payload = {
     accountId: channelAccount.id,
@@ -228,6 +234,12 @@ channelAccountsRouter.post('/:id/session', (request, response) => {
   const channelAccount = channelAccountStore.getById(id);
   if (!channelAccount) {
     response.status(404).json({ error: 'channel account not found' });
+    return;
+  }
+
+  const readiness = getChannelAccountPublishReadiness(channelAccount);
+  if (readiness.mode !== 'browser') {
+    response.status(400).json({ error: 'channel account does not support browser session metadata' });
     return;
   }
 

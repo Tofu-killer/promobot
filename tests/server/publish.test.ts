@@ -19,7 +19,13 @@ let activeTestDbRoot: string | undefined;
 let activeTestDatabasePath: string | undefined;
 let restoreCwd: (() => void) | null = null;
 const originalEnv = {
+  BLOG_PUBLISH_DRIVER: process.env.BLOG_PUBLISH_DRIVER,
   BLOG_PUBLISH_OUTPUT_DIR: process.env.BLOG_PUBLISH_OUTPUT_DIR,
+  BLOG_WORDPRESS_SITE_URL: process.env.BLOG_WORDPRESS_SITE_URL,
+  BLOG_WORDPRESS_USERNAME: process.env.BLOG_WORDPRESS_USERNAME,
+  BLOG_WORDPRESS_APP_PASSWORD: process.env.BLOG_WORDPRESS_APP_PASSWORD,
+  BLOG_GHOST_ADMIN_URL: process.env.BLOG_GHOST_ADMIN_URL,
+  BLOG_GHOST_ADMIN_API_KEY: process.env.BLOG_GHOST_ADMIN_API_KEY,
   X_ACCESS_TOKEN: process.env.X_ACCESS_TOKEN,
   X_BEARER_TOKEN: process.env.X_BEARER_TOKEN,
   REDDIT_CLIENT_ID: process.env.REDDIT_CLIENT_ID,
@@ -143,6 +149,13 @@ beforeEach(() => {
   restoreCwd = isolateProcessCwd();
   activeTestDbRoot = undefined;
   activeTestDatabasePath = undefined;
+  process.env.BLOG_PUBLISH_DRIVER = 'file';
+  delete process.env.BLOG_PUBLISH_OUTPUT_DIR;
+  delete process.env.BLOG_WORDPRESS_SITE_URL;
+  delete process.env.BLOG_WORDPRESS_USERNAME;
+  delete process.env.BLOG_WORDPRESS_APP_PASSWORD;
+  delete process.env.BLOG_GHOST_ADMIN_URL;
+  delete process.env.BLOG_GHOST_ADMIN_API_KEY;
   delete process.env.X_ACCESS_TOKEN;
   delete process.env.X_BEARER_TOKEN;
   delete process.env.REDDIT_CLIENT_ID;
@@ -158,7 +171,13 @@ afterEach(() => {
   vi.clearAllMocks();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  process.env.BLOG_PUBLISH_DRIVER = originalEnv.BLOG_PUBLISH_DRIVER;
   process.env.BLOG_PUBLISH_OUTPUT_DIR = originalEnv.BLOG_PUBLISH_OUTPUT_DIR;
+  process.env.BLOG_WORDPRESS_SITE_URL = originalEnv.BLOG_WORDPRESS_SITE_URL;
+  process.env.BLOG_WORDPRESS_USERNAME = originalEnv.BLOG_WORDPRESS_USERNAME;
+  process.env.BLOG_WORDPRESS_APP_PASSWORD = originalEnv.BLOG_WORDPRESS_APP_PASSWORD;
+  process.env.BLOG_GHOST_ADMIN_URL = originalEnv.BLOG_GHOST_ADMIN_URL;
+  process.env.BLOG_GHOST_ADMIN_API_KEY = originalEnv.BLOG_GHOST_ADMIN_API_KEY;
   process.env.X_ACCESS_TOKEN = originalEnv.X_ACCESS_TOKEN;
   process.env.X_BEARER_TOKEN = originalEnv.X_BEARER_TOKEN;
   process.env.REDDIT_CLIENT_ID = originalEnv.REDDIT_CLIENT_ID;
@@ -2075,6 +2094,7 @@ describe('publish api', () => {
       message: `blog publisher wrote draft 1 to ${outputPath}`,
       publishedAt: expect.any(String),
       details: {
+        provider: 'file',
         target: 'blog-main',
         outputPath,
       },
@@ -2090,6 +2110,381 @@ describe('publish api', () => {
         status: 'published',
         publishUrl: `file://${outputPath}`,
         message: `blog publisher wrote draft 1 to ${outputPath}`,
+      }),
+    ]);
+    expect(draftStore.getById(draft.id)).toEqual(
+      expect.objectContaining({
+        id: draft.id,
+        status: 'published',
+        publishedAt: expect.any(String),
+      }),
+    );
+    expect(readJobQueue()).toEqual([]);
+  });
+
+  it('returns a failed contract for blog drafts when wordpress cms credentials are missing', async () => {
+    const testDatabase = createTestDatabasePath();
+    activeTestDbRoot = testDatabase.rootDir;
+    activeTestDatabasePath = testDatabase.databasePath;
+    process.env.BLOG_PUBLISH_DRIVER = 'wordpress';
+    process.env.BLOG_WORDPRESS_SITE_URL = 'https://cms.example.com';
+
+    const draftStore = createSQLiteDraftStore();
+    const draft = draftStore.create({
+      platform: 'blog',
+      title: 'Launch post',
+      content: 'Blog draft body',
+      target: 'blog-main',
+    });
+
+    const app = createTestApp(
+      {
+        lookupDraft(id) {
+          const storedDraft = draftStore.getById(id);
+          if (!storedDraft) {
+            return undefined;
+          }
+
+          return {
+            id: storedDraft.id,
+            platform: storedDraft.platform,
+            title: storedDraft.title,
+            content: storedDraft.content,
+            target: storedDraft.target,
+            metadata: storedDraft.metadata,
+          };
+        },
+      },
+      { useDefaultPersistence: true },
+    );
+
+    const response = await requestApp(app, 'POST', `/api/drafts/${draft.id}/publish`);
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({
+      draftId: draft.id,
+      draftStatus: 'failed',
+      platform: 'blog',
+      mode: 'api',
+      status: 'failed',
+      success: false,
+      publishUrl: null,
+      externalId: null,
+      message:
+        'missing wordpress blog credentials: configure BLOG_WORDPRESS_SITE_URL, BLOG_WORDPRESS_USERNAME, and BLOG_WORDPRESS_APP_PASSWORD',
+      publishedAt: null,
+      details: {
+        provider: 'wordpress',
+        target: 'blog-main',
+        retry: {
+          publish: {
+            attempts: 0,
+            maxAttempts: 0,
+            stage: 'publish',
+          },
+        },
+        error: {
+          category: 'auth',
+          retriable: false,
+          stage: 'publish',
+        },
+      },
+    });
+    expect(readPublishLogs()).toEqual([
+      expect.objectContaining({
+        draftId: draft.id,
+        status: 'failed',
+        publishUrl: null,
+        message:
+          'missing wordpress blog credentials: configure BLOG_WORDPRESS_SITE_URL, BLOG_WORDPRESS_USERNAME, and BLOG_WORDPRESS_APP_PASSWORD',
+      }),
+    ]);
+  });
+
+  it('publishes blog drafts to wordpress and persists the returned cms contract', async () => {
+    const testDatabase = createTestDatabasePath();
+    activeTestDbRoot = testDatabase.rootDir;
+    activeTestDatabasePath = testDatabase.databasePath;
+    process.env.BLOG_PUBLISH_DRIVER = 'wordpress';
+    process.env.BLOG_WORDPRESS_SITE_URL = 'https://cms.example.com/';
+    process.env.BLOG_WORDPRESS_USERNAME = 'editor';
+    process.env.BLOG_WORDPRESS_APP_PASSWORD = 'app-password';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            id: 81,
+            link: 'https://cms.example.com/launch-post/',
+            status: 'publish',
+            slug: 'launch-post',
+          }),
+          {
+            status: 201,
+            headers: {
+              'content-type': 'application/json',
+            },
+          },
+        ),
+      ),
+    );
+
+    const draftStore = createSQLiteDraftStore();
+    const draft = draftStore.create({
+      platform: 'blog',
+      title: 'Launch post',
+      content: '<p>Blog draft body</p>',
+      target: 'blog-main',
+    });
+    insertPendingPublishJob(draft.id, '2026-04-21T10:11:12.000Z');
+
+    const app = createTestApp(
+      {
+        lookupDraft(id) {
+          const storedDraft = draftStore.getById(id);
+          if (!storedDraft) {
+            return undefined;
+          }
+
+          return {
+            id: storedDraft.id,
+            platform: storedDraft.platform,
+            title: storedDraft.title,
+            content: storedDraft.content,
+            target: storedDraft.target,
+            metadata: storedDraft.metadata,
+          };
+        },
+      },
+      { useDefaultPersistence: true },
+    );
+
+    const response = await requestApp(app, 'POST', `/api/drafts/${draft.id}/publish`);
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({
+      draftId: draft.id,
+      draftStatus: 'published',
+      platform: 'blog',
+      mode: 'api',
+      status: 'published',
+      success: true,
+      publishUrl: 'https://cms.example.com/launch-post/',
+      externalId: '81',
+      message: `blog wordpress published draft ${draft.id}`,
+      publishedAt: expect.any(String),
+      details: {
+        provider: 'wordpress',
+        target: 'blog-main',
+        siteUrl: 'https://cms.example.com',
+        remoteStatus: 'publish',
+        slug: 'launch-post',
+        retry: {
+          publish: {
+            attempts: 1,
+            maxAttempts: 3,
+            stage: 'publish',
+            lastHttpStatus: 201,
+          },
+        },
+      },
+    });
+    expect(readPublishLogs()).toEqual([
+      expect.objectContaining({
+        draftId: draft.id,
+        status: 'published',
+        publishUrl: 'https://cms.example.com/launch-post/',
+        message: `blog wordpress published draft ${draft.id}`,
+      }),
+    ]);
+    expect(draftStore.getById(draft.id)).toEqual(
+      expect.objectContaining({
+        id: draft.id,
+        status: 'published',
+        publishedAt: expect.any(String),
+      }),
+    );
+    expect(readJobQueue()).toEqual([]);
+  });
+
+  it('returns a failed contract for blog drafts when ghost admin api key is invalid', async () => {
+    const testDatabase = createTestDatabasePath();
+    activeTestDbRoot = testDatabase.rootDir;
+    activeTestDatabasePath = testDatabase.databasePath;
+    process.env.BLOG_PUBLISH_DRIVER = 'ghost';
+    process.env.BLOG_GHOST_ADMIN_URL = 'https://ghost.example.com';
+    process.env.BLOG_GHOST_ADMIN_API_KEY = 'invalid-key';
+
+    const draftStore = createSQLiteDraftStore();
+    const draft = draftStore.create({
+      platform: 'blog',
+      title: 'Ghost launch post',
+      content: '<p>Ghost body</p>',
+      target: 'ghost-main',
+    });
+
+    const app = createTestApp(
+      {
+        lookupDraft(id) {
+          const storedDraft = draftStore.getById(id);
+          if (!storedDraft) {
+            return undefined;
+          }
+
+          return {
+            id: storedDraft.id,
+            platform: storedDraft.platform,
+            title: storedDraft.title,
+            content: storedDraft.content,
+            target: storedDraft.target,
+            metadata: storedDraft.metadata,
+          };
+        },
+      },
+      { useDefaultPersistence: true },
+    );
+
+    const response = await requestApp(app, 'POST', `/api/drafts/${draft.id}/publish`);
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({
+      draftId: draft.id,
+      draftStatus: 'failed',
+      platform: 'blog',
+      mode: 'api',
+      status: 'failed',
+      success: false,
+      publishUrl: null,
+      externalId: null,
+      message: 'ghost admin api key is invalid',
+      publishedAt: null,
+      details: {
+        provider: 'ghost',
+        target: 'ghost-main',
+        adminUrl: 'https://ghost.example.com/ghost',
+        retry: {
+          publish: {
+            attempts: 0,
+            maxAttempts: 0,
+            stage: 'publish',
+          },
+        },
+        error: {
+          category: 'auth',
+          retriable: false,
+          stage: 'publish',
+          bodySnippet: 'ghost admin api key must be formatted as <id>:<secret>',
+        },
+      },
+    });
+    expect(readPublishLogs()).toEqual([
+      expect.objectContaining({
+        draftId: draft.id,
+        status: 'failed',
+        publishUrl: null,
+        message: 'ghost admin api key is invalid',
+      }),
+    ]);
+  });
+
+  it('publishes blog drafts to ghost and persists the returned cms contract', async () => {
+    const testDatabase = createTestDatabasePath();
+    activeTestDbRoot = testDatabase.rootDir;
+    activeTestDatabasePath = testDatabase.databasePath;
+    process.env.BLOG_PUBLISH_DRIVER = 'ghost';
+    process.env.BLOG_GHOST_ADMIN_URL = 'https://ghost.example.com/';
+    process.env.BLOG_GHOST_ADMIN_API_KEY =
+      '1234567890abcdef:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            posts: [
+              {
+                id: 'post-42',
+                url: 'https://ghost.example.com/launch-post/',
+                status: 'published',
+                slug: 'launch-post',
+              },
+            ],
+          }),
+          {
+            status: 201,
+            headers: {
+              'content-type': 'application/json',
+            },
+          },
+        ),
+      ),
+    );
+
+    const draftStore = createSQLiteDraftStore();
+    const draft = draftStore.create({
+      platform: 'blog',
+      title: 'Ghost launch post',
+      content: '<p>Ghost body</p>',
+      target: 'ghost-main',
+    });
+    insertPendingPublishJob(draft.id, '2026-04-21T10:11:12.000Z');
+
+    const app = createTestApp(
+      {
+        lookupDraft(id) {
+          const storedDraft = draftStore.getById(id);
+          if (!storedDraft) {
+            return undefined;
+          }
+
+          return {
+            id: storedDraft.id,
+            platform: storedDraft.platform,
+            title: storedDraft.title,
+            content: storedDraft.content,
+            target: storedDraft.target,
+            metadata: storedDraft.metadata,
+          };
+        },
+      },
+      { useDefaultPersistence: true },
+    );
+
+    const response = await requestApp(app, 'POST', `/api/drafts/${draft.id}/publish`);
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({
+      draftId: draft.id,
+      draftStatus: 'published',
+      platform: 'blog',
+      mode: 'api',
+      status: 'published',
+      success: true,
+      publishUrl: 'https://ghost.example.com/launch-post/',
+      externalId: 'post-42',
+      message: `blog ghost published draft ${draft.id}`,
+      publishedAt: expect.any(String),
+      details: {
+        provider: 'ghost',
+        target: 'ghost-main',
+        adminUrl: 'https://ghost.example.com/ghost',
+        remoteStatus: 'published',
+        slug: 'launch-post',
+        retry: {
+          publish: {
+            attempts: 1,
+            maxAttempts: 3,
+            stage: 'publish',
+            lastHttpStatus: 201,
+          },
+        },
+      },
+    });
+    expect(readPublishLogs()).toEqual([
+      expect.objectContaining({
+        draftId: draft.id,
+        status: 'published',
+        publishUrl: 'https://ghost.example.com/launch-post/',
+        message: `blog ghost published draft ${draft.id}`,
       }),
     ]);
     expect(draftStore.getById(draft.id)).toEqual(

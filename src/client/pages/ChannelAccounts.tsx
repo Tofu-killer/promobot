@@ -346,7 +346,7 @@ const createPlatformOptions = [
   { value: 'tiktok', label: 'TikTok（人工接管）' },
   { value: 'xiaohongshu', label: '小红书（人工接管）' },
   { value: 'weibo', label: '微博（人工接管）' },
-  { value: 'blog', label: 'Blog（本地文件发布）' },
+  { value: 'blog', label: 'Blog（文件 / CMS）' },
 ] as const;
 
 const createPlatformDefaults: Record<
@@ -404,8 +404,8 @@ const createPlatformDefaults: Record<
   },
   blog: {
     accountKey: 'blog-main',
-    displayName: 'Blog Manual',
-    authType: 'manual',
+    displayName: 'Blog Publisher',
+    authType: 'api',
     status: 'unknown',
     metadata: '',
   },
@@ -641,7 +641,7 @@ export function ChannelAccountsPage({
     : sessionActionStateOverride?.status === 'error' && sessionActionOverrideAccount
       ? {
           tone: 'error' as const,
-          action: getDefaultSessionAction(sessionActionOverrideAccount),
+          action: getSupportedSessionAction(sessionActionOverrideAccount) ?? 'request_session',
           message: sessionActionStateOverride.error ?? '登录动作失败',
         }
       : null;
@@ -722,13 +722,17 @@ export function ChannelAccountsPage({
     actionTargetAccountId,
     latestCreatedAccount,
   );
+  const headerSessionAction = actionTargetAccount ? getSupportedSessionAction(actionTargetAccount) : null;
   const headerSessionActionPending = actionTargetAccount ? sessionActionPendingById[actionTargetAccount.id] ?? null : null;
-  const headerSessionActionDisabled = !actionTargetAccount || headerSessionActionPending !== null;
+  const headerSessionActionDisabled =
+    !actionTargetAccount || !headerSessionAction || headerSessionActionPending !== null;
   const headerSessionActionLabel = !actionTargetAccount
     ? '暂无登录目标'
+    : !headerSessionAction
+      ? '当前平台无需登录会话'
     : headerSessionActionPending
       ? getPendingSessionActionLabel(headerSessionActionPending)
-      : getSessionActionLabel(actionTargetAccount);
+      : getSessionActionLabel(headerSessionAction);
   const showStandaloneSessionActionFeedback =
     sessionActionOverrideAccount !== null &&
     sessionActionOverrideFeedback !== null &&
@@ -1109,7 +1113,11 @@ export function ChannelAccountsPage({
   }
 
   function handleRequestSessionAction(account: ChannelAccountRecord, forcedAction?: 'request_session' | 'relogin') {
-    const action = forcedAction ?? getDefaultSessionAction(account);
+    const action = forcedAction ?? getSupportedSessionAction(account);
+    if (!action) {
+      return;
+    }
+
     const requestToken = createSessionActionRequestToken(account.id);
     setLatestSessionMutation({
       kind: 'session_action',
@@ -1205,7 +1213,7 @@ export function ChannelAccountsPage({
         <SectionCard title="创建账号" description="填写最小必需信息后提交到 `/api/channel-accounts`。默认值按首发路径保守预置，创建后再测试连接。">
           <div style={{ display: 'grid', gap: '12px' }}>
             <p style={{ margin: 0, color: '#475569', lineHeight: 1.6 }}>
-              首发可用：X、Reddit、Blog（本地文件）。人工接管：Facebook Group、Instagram、TikTok、小红书、微博。
+              首发可用：X、Reddit、Blog（文件 / CMS）。人工接管：Facebook Group、Instagram、TikTok、小红书、微博。
             </p>
 
             <label style={{ display: 'grid', gap: '8px' }}>
@@ -1419,7 +1427,9 @@ export function ChannelAccountsPage({
                   {visibleAccounts.map((account) => {
                     const editForm = getEditFormValue(account);
                     const session = getSessionSummary(account);
-                    const sessionActionLabel = getSessionActionLabel(account);
+                    const supportsSessionMetadata = supportsBrowserSessionMetadata(account);
+                    const sessionAction = getSupportedSessionAction(account);
+                    const sessionActionLabel = sessionAction ? getSessionActionLabel(sessionAction) : null;
                     const sessionActionPending = sessionActionPendingById[account.id] ?? null;
                     const sessionActionButtonLabel = sessionActionPending
                       ? getPendingSessionActionLabel(sessionActionPending)
@@ -1583,37 +1593,41 @@ export function ChannelAccountsPage({
                             onClick={() => handleStartEditing(account.id)}
                             buttonAttributes={{ 'data-edit-account-id': String(account.id) }}
                           />
-                          <button
-                            type="button"
-                            onClick={() => handleStartEditing(account.id)}
-                            style={{
-                              borderRadius: '12px',
-                              border: '1px solid #cbd5e1',
-                              background: '#ffffff',
-                              color: '#122033',
-                              padding: '12px 16px',
-                              fontWeight: 700,
-                            }}
-                          >
-                            编辑 Session 元数据
-                          </button>
-                          <button
-                            type="button"
-                            data-session-action-id={String(account.id)}
-                            disabled={sessionActionPending !== null}
-                            onClick={() => handleRequestSessionAction(account)}
-                            style={{
-                              borderRadius: '12px',
-                              border: '1px solid #cbd5e1',
-                              background: sessionActionPending ? '#f8fafc' : '#ffffff',
-                              color: sessionActionPending ? '#94a3b8' : '#122033',
-                              padding: '12px 16px',
-                              fontWeight: 700,
-                              cursor: sessionActionPending ? 'not-allowed' : 'pointer',
-                            }}
-                          >
-                            {sessionActionButtonLabel}
-                          </button>
+                          {supportsSessionMetadata ? (
+                            <button
+                              type="button"
+                              onClick={() => handleStartEditing(account.id)}
+                              style={{
+                                borderRadius: '12px',
+                                border: '1px solid #cbd5e1',
+                                background: '#ffffff',
+                                color: '#122033',
+                                padding: '12px 16px',
+                                fontWeight: 700,
+                              }}
+                            >
+                              编辑 Session 元数据
+                            </button>
+                          ) : null}
+                          {sessionActionButtonLabel ? (
+                            <button
+                              type="button"
+                              data-session-action-id={String(account.id)}
+                              disabled={sessionActionPending !== null}
+                              onClick={() => handleRequestSessionAction(account)}
+                              style={{
+                                borderRadius: '12px',
+                                border: '1px solid #cbd5e1',
+                                background: sessionActionPending ? '#f8fafc' : '#ffffff',
+                                color: sessionActionPending ? '#94a3b8' : '#122033',
+                                padding: '12px 16px',
+                                fontWeight: 700,
+                                cursor: sessionActionPending ? 'not-allowed' : 'pointer',
+                              }}
+                            >
+                              {sessionActionButtonLabel}
+                            </button>
+                          ) : null}
                         </div>
                         {showCardSessionActionFeedback && sessionActionFeedback?.tone === 'success' ? (
                           <div style={{ marginTop: '12px', display: 'grid', gap: '6px', color: '#334155' }}>
@@ -1673,55 +1687,59 @@ export function ChannelAccountsPage({
                               }
                               style={fieldStyle}
                             />
-                            <input
-                              data-edit-session-storage-path-id={String(account.id)}
-                              value={editForm.sessionStorageStatePath ?? ''}
-                              onChange={(event) =>
-                                updateEditFormValue(account.id, {
-                                  sessionStorageStatePath: event.target.value,
-                                })
-                              }
-                              style={fieldStyle}
-                            />
-                            <textarea
-                              data-edit-session-storage-state-json-id={String(account.id)}
-                              value={editForm.sessionStorageStateJson ?? ''}
-                              onChange={(event) =>
-                                updateEditFormValue(account.id, {
-                                  sessionStorageStateJson: event.target.value,
-                                })
-                              }
-                              placeholder="直接粘贴 Playwright storageState JSON；旧的 Storage Path 字段仍可继续手填。"
-                              style={{
-                                ...fieldStyle,
-                                minHeight: '140px',
-                                resize: 'vertical',
-                              }}
-                            />
-                            <input
-                              data-edit-session-status-id={String(account.id)}
-                              value={editForm.sessionStatus ?? ''}
-                              onChange={(event) =>
-                                updateEditFormValue(account.id, { sessionStatus: event.target.value })
-                              }
-                              style={fieldStyle}
-                            />
-                            <input
-                              data-edit-session-validated-at-id={String(account.id)}
-                              value={editForm.sessionValidatedAt ?? ''}
-                              onChange={(event) =>
-                                updateEditFormValue(account.id, { sessionValidatedAt: event.target.value })
-                              }
-                              style={fieldStyle}
-                            />
-                            <input
-                              data-edit-session-notes-id={String(account.id)}
-                              value={editForm.sessionNotes ?? ''}
-                              onChange={(event) =>
-                                updateEditFormValue(account.id, { sessionNotes: event.target.value })
-                              }
-                              style={fieldStyle}
-                            />
+                            {supportsSessionMetadata ? (
+                              <>
+                                <input
+                                  data-edit-session-storage-path-id={String(account.id)}
+                                  value={editForm.sessionStorageStatePath ?? ''}
+                                  onChange={(event) =>
+                                    updateEditFormValue(account.id, {
+                                      sessionStorageStatePath: event.target.value,
+                                    })
+                                  }
+                                  style={fieldStyle}
+                                />
+                                <textarea
+                                  data-edit-session-storage-state-json-id={String(account.id)}
+                                  value={editForm.sessionStorageStateJson ?? ''}
+                                  onChange={(event) =>
+                                    updateEditFormValue(account.id, {
+                                      sessionStorageStateJson: event.target.value,
+                                    })
+                                  }
+                                  placeholder="直接粘贴 Playwright storageState JSON；旧的 Storage Path 字段仍可继续手填。"
+                                  style={{
+                                    ...fieldStyle,
+                                    minHeight: '140px',
+                                    resize: 'vertical',
+                                  }}
+                                />
+                                <input
+                                  data-edit-session-status-id={String(account.id)}
+                                  value={editForm.sessionStatus ?? ''}
+                                  onChange={(event) =>
+                                    updateEditFormValue(account.id, { sessionStatus: event.target.value })
+                                  }
+                                  style={fieldStyle}
+                                />
+                                <input
+                                  data-edit-session-validated-at-id={String(account.id)}
+                                  value={editForm.sessionValidatedAt ?? ''}
+                                  onChange={(event) =>
+                                    updateEditFormValue(account.id, { sessionValidatedAt: event.target.value })
+                                  }
+                                  style={fieldStyle}
+                                />
+                                <input
+                                  data-edit-session-notes-id={String(account.id)}
+                                  value={editForm.sessionNotes ?? ''}
+                                  onChange={(event) =>
+                                    updateEditFormValue(account.id, { sessionNotes: event.target.value })
+                                  }
+                                  style={fieldStyle}
+                                />
+                              </>
+                            ) : null}
                             <button
                               type="button"
                               data-save-account-id={String(account.id)}
@@ -1740,24 +1758,26 @@ export function ChannelAccountsPage({
                                 ? '正在保存账号...'
                                 : '保存账号'}
                             </button>
-                            <button
-                              type="button"
-                              data-save-session-id={String(account.id)}
-                              onClick={() => handleSaveSession(account.id)}
-                              style={{
-                                border: '1px solid #cbd5e1',
-                                borderRadius: '12px',
-                                background: '#ffffff',
-                                color: '#122033',
-                                padding: '10px 14px',
-                                fontWeight: 700,
-                                justifySelf: 'flex-start',
-                              }}
-                            >
-                              {sessionSavePendingById[account.id]
-                                ? '正在保存 Session...'
-                                : '保存 Session 元数据'}
-                            </button>
+                            {supportsSessionMetadata ? (
+                              <button
+                                type="button"
+                                data-save-session-id={String(account.id)}
+                                onClick={() => handleSaveSession(account.id)}
+                                style={{
+                                  border: '1px solid #cbd5e1',
+                                  borderRadius: '12px',
+                                  background: '#ffffff',
+                                  color: '#122033',
+                                  padding: '10px 14px',
+                                  fontWeight: 700,
+                                  justifySelf: 'flex-start',
+                                }}
+                              >
+                                {sessionSavePendingById[account.id]
+                                  ? '正在保存 Session...'
+                                  : '保存 Session 元数据'}
+                              </button>
+                            ) : null}
                           </div>
                         ) : null}
                       </article>
@@ -1875,8 +1895,8 @@ export function ChannelAccountsPage({
             <div>每个账号卡片都会显式显示 Session 是否存在、当前状态、最近验证时间和 Storage Path。</div>
             <div>
               “请求登录 / 重新登录”会创建 browser lane 工单；同账号同动作存在未结单工单时，页面会直接复用现有工单，不会重复排队。
-              “编辑 Session 元数据”用于展开表单，“保存 Session 元数据”才会真正提交 storage path 或 storage
-              state JSON、状态、验证时间和备注，并把对应工单结单。
+              只有 browser 平台会显示 “编辑 Session 元数据” 和 “保存 Session 元数据”；保存时才会真正提交
+              storage path 或 storage state JSON、状态、验证时间和备注，并把对应工单结单。
             </div>
             <div>如果服务端返回 404 或 500，这里不会吞掉错误，而是直接在页面中显示。</div>
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
@@ -1963,12 +1983,27 @@ function resolveActionTargetAccount(
   );
 }
 
-function getDefaultSessionAction(account: ChannelAccountRecord): 'request_session' | 'relogin' {
+function getSupportedSessionAction(account: ChannelAccountRecord): 'request_session' | 'relogin' | null {
+  if (!supportsBrowserSessionMetadata(account)) {
+    return null;
+  }
+
   return getSessionSummary(account).hasSession ? 'relogin' : 'request_session';
 }
 
-function getSessionActionLabel(account: ChannelAccountRecord): '请求登录' | '重新登录' {
-  return getDefaultSessionAction(account) === 'relogin' ? '重新登录' : '请求登录';
+function supportsBrowserSessionMetadata(account: ChannelAccountRecord) {
+  const readinessMode = normalizeReadinessRecord(resolvePublishReadiness(account))?.mode;
+  if (readinessMode === 'browser') {
+    return true;
+  }
+  if (readinessMode === 'api' || readinessMode === 'oauth') {
+    return false;
+  }
+  return account.authType === 'browser';
+}
+
+function getSessionActionLabel(action: 'request_session' | 'relogin'): '请求登录' | '重新登录' {
+  return action === 'relogin' ? '重新登录' : '请求登录';
 }
 
 function getPendingSessionActionLabel(action: 'request_session' | 'relogin') {

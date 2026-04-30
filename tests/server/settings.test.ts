@@ -4,6 +4,16 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/server/app';
 import { cleanupTestDatabasePath, createTestDatabasePath, isolateProcessCwd } from './testDb';
 
+const originalBlogEnv = {
+  BLOG_PUBLISH_DRIVER: process.env.BLOG_PUBLISH_DRIVER,
+  BLOG_PUBLISH_OUTPUT_DIR: process.env.BLOG_PUBLISH_OUTPUT_DIR,
+  BLOG_WORDPRESS_SITE_URL: process.env.BLOG_WORDPRESS_SITE_URL,
+  BLOG_WORDPRESS_USERNAME: process.env.BLOG_WORDPRESS_USERNAME,
+  BLOG_WORDPRESS_APP_PASSWORD: process.env.BLOG_WORDPRESS_APP_PASSWORD,
+  BLOG_GHOST_ADMIN_URL: process.env.BLOG_GHOST_ADMIN_URL,
+  BLOG_GHOST_ADMIN_API_KEY: process.env.BLOG_GHOST_ADMIN_API_KEY,
+};
+
 async function requestApp(
   method: string,
   url: string,
@@ -103,11 +113,25 @@ describe('settings api', () => {
 
   beforeEach(() => {
     restoreCwd = isolateProcessCwd();
+    process.env.BLOG_PUBLISH_DRIVER = 'file';
+    delete process.env.BLOG_PUBLISH_OUTPUT_DIR;
+    delete process.env.BLOG_WORDPRESS_SITE_URL;
+    delete process.env.BLOG_WORDPRESS_USERNAME;
+    delete process.env.BLOG_WORDPRESS_APP_PASSWORD;
+    delete process.env.BLOG_GHOST_ADMIN_URL;
+    delete process.env.BLOG_GHOST_ADMIN_API_KEY;
   });
 
   afterEach(() => {
     restoreCwd?.();
     restoreCwd = null;
+    process.env.BLOG_PUBLISH_DRIVER = originalBlogEnv.BLOG_PUBLISH_DRIVER;
+    process.env.BLOG_PUBLISH_OUTPUT_DIR = originalBlogEnv.BLOG_PUBLISH_OUTPUT_DIR;
+    process.env.BLOG_WORDPRESS_SITE_URL = originalBlogEnv.BLOG_WORDPRESS_SITE_URL;
+    process.env.BLOG_WORDPRESS_USERNAME = originalBlogEnv.BLOG_WORDPRESS_USERNAME;
+    process.env.BLOG_WORDPRESS_APP_PASSWORD = originalBlogEnv.BLOG_WORDPRESS_APP_PASSWORD;
+    process.env.BLOG_GHOST_ADMIN_URL = originalBlogEnv.BLOG_GHOST_ADMIN_URL;
+    process.env.BLOG_GHOST_ADMIN_API_KEY = originalBlogEnv.BLOG_GHOST_ADMIN_API_KEY;
   });
 
   it('persists allowlist and scheduler settings in SQLite', async () => {
@@ -156,6 +180,11 @@ describe('settings api', () => {
             status: 'ready',
           }),
           expect.objectContaining({
+            platform: 'blog',
+            ready: true,
+            status: 'ready',
+          }),
+          expect.objectContaining({
             platform: 'facebookGroup',
             ready: false,
             status: 'needs_session',
@@ -188,6 +217,132 @@ describe('settings api', () => {
       delete process.env.REDDIT_CLIENT_SECRET;
       delete process.env.REDDIT_USERNAME;
       delete process.env.REDDIT_PASSWORD;
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('surfaces wordpress blog readiness as needs_config when cms credentials are incomplete', async () => {
+    const { rootDir } = createTestDatabasePath();
+    const originalDriver = process.env.BLOG_PUBLISH_DRIVER;
+    const originalSiteUrl = process.env.BLOG_WORDPRESS_SITE_URL;
+    const originalUsername = process.env.BLOG_WORDPRESS_USERNAME;
+    const originalAppPassword = process.env.BLOG_WORDPRESS_APP_PASSWORD;
+
+    try {
+      process.env.BLOG_PUBLISH_DRIVER = 'wordpress';
+      process.env.BLOG_WORDPRESS_SITE_URL = 'https://cms.example.com';
+      delete process.env.BLOG_WORDPRESS_USERNAME;
+      delete process.env.BLOG_WORDPRESS_APP_PASSWORD;
+
+      const loaded = await requestApp('GET', '/api/settings');
+
+      expect(loaded.status).toBe(200);
+      expect(JSON.parse(loaded.body)).toEqual({
+        settings: expect.any(Object),
+        platforms: expect.arrayContaining([
+          expect.objectContaining({
+            platform: 'blog',
+            ready: false,
+            mode: 'api',
+            status: 'needs_config',
+            action: 'configure_credentials',
+            details: expect.objectContaining({
+              driver: 'wordpress',
+              credentials: {
+                hasSiteUrl: true,
+                hasUsername: false,
+                hasAppPassword: false,
+              },
+            }),
+          }),
+        ]),
+      });
+    } finally {
+      process.env.BLOG_PUBLISH_DRIVER = originalDriver;
+      process.env.BLOG_WORDPRESS_SITE_URL = originalSiteUrl;
+      process.env.BLOG_WORDPRESS_USERNAME = originalUsername;
+      process.env.BLOG_WORDPRESS_APP_PASSWORD = originalAppPassword;
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('surfaces ghost blog readiness as ready when admin api credentials are configured', async () => {
+    const { rootDir } = createTestDatabasePath();
+    const originalDriver = process.env.BLOG_PUBLISH_DRIVER;
+    const originalAdminUrl = process.env.BLOG_GHOST_ADMIN_URL;
+    const originalApiKey = process.env.BLOG_GHOST_ADMIN_API_KEY;
+
+    try {
+      process.env.BLOG_PUBLISH_DRIVER = 'ghost';
+      process.env.BLOG_GHOST_ADMIN_URL = 'https://ghost.example.com';
+      process.env.BLOG_GHOST_ADMIN_API_KEY =
+        '1234567890abcdef:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+
+      const loaded = await requestApp('GET', '/api/settings');
+
+      expect(loaded.status).toBe(200);
+      expect(JSON.parse(loaded.body)).toEqual({
+        settings: expect.any(Object),
+        platforms: expect.arrayContaining([
+          expect.objectContaining({
+            platform: 'blog',
+            ready: true,
+            mode: 'api',
+            status: 'ready',
+            details: expect.objectContaining({
+              driver: 'ghost',
+              adminUrl: 'https://ghost.example.com/ghost',
+            }),
+          }),
+        ]),
+      });
+    } finally {
+      process.env.BLOG_PUBLISH_DRIVER = originalDriver;
+      process.env.BLOG_GHOST_ADMIN_URL = originalAdminUrl;
+      process.env.BLOG_GHOST_ADMIN_API_KEY = originalApiKey;
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('surfaces ghost blog readiness as needs_config when admin api key format is invalid', async () => {
+    const { rootDir } = createTestDatabasePath();
+    const originalDriver = process.env.BLOG_PUBLISH_DRIVER;
+    const originalAdminUrl = process.env.BLOG_GHOST_ADMIN_URL;
+    const originalApiKey = process.env.BLOG_GHOST_ADMIN_API_KEY;
+
+    try {
+      process.env.BLOG_PUBLISH_DRIVER = 'ghost';
+      process.env.BLOG_GHOST_ADMIN_URL = 'https://ghost.example.com/';
+      process.env.BLOG_GHOST_ADMIN_API_KEY = 'invalid-key';
+
+      const loaded = await requestApp('GET', '/api/settings');
+
+      expect(loaded.status).toBe(200);
+      expect(JSON.parse(loaded.body)).toEqual({
+        settings: expect.any(Object),
+        platforms: expect.arrayContaining([
+          expect.objectContaining({
+            platform: 'blog',
+            ready: false,
+            mode: 'api',
+            status: 'needs_config',
+            action: 'configure_credentials',
+            details: expect.objectContaining({
+              driver: 'ghost',
+              adminUrl: 'https://ghost.example.com/ghost',
+              credentials: {
+                hasAdminUrl: true,
+                hasAdminApiKey: true,
+                ghostAdminApiKeyValid: false,
+              },
+            }),
+          }),
+        ]),
+      });
+    } finally {
+      process.env.BLOG_PUBLISH_DRIVER = originalDriver;
+      process.env.BLOG_GHOST_ADMIN_URL = originalAdminUrl;
+      process.env.BLOG_GHOST_ADMIN_API_KEY = originalApiKey;
       cleanupTestDatabasePath(rootDir);
     }
   });

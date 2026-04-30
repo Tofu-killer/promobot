@@ -38,6 +38,16 @@ function renderApiPage(Component: unknown, stateOverride: ApiState) {
   );
 }
 
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function extractArticleContainingText(html: string, text: string) {
+  const match = html.match(new RegExp(`<article[\\s\\S]*?${escapeRegExp(text)}[\\s\\S]*?<\\/article>`));
+  expect(match).not.toBeNull();
+  return match?.[0] ?? '';
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -1835,13 +1845,42 @@ describe('client API page wiring', () => {
                 },
               },
             },
+            {
+              id: 3,
+              platform: 'blog',
+              accountKey: 'blog-main',
+              displayName: 'Blog Publisher',
+              authType: 'api',
+              status: 'healthy',
+              metadata: {},
+              session: {
+                hasSession: false,
+                status: 'missing',
+                validatedAt: null,
+                storageStatePath: null,
+              },
+              publishReadiness: {
+                platform: 'blog',
+                ready: true,
+                mode: 'api',
+                status: 'ready',
+                message: 'Blog 已配置 WordPress 发布凭证，可直接发布到 CMS。',
+              },
+              createdAt: '2026-04-19T00:00:00.000Z',
+              updatedAt: '2026-04-19T00:00:00.000Z',
+            },
           ],
         },
       },
     });
 
-    expect(html).toContain('接口返回 2 个账号');
+    const xCard = extractArticleContainingText(html, 'X / Twitter');
+    const redditCard = extractArticleContainingText(html, 'Reddit');
+    const blogCard = extractArticleContainingText(html, 'Blog Publisher');
+
+    expect(html).toContain('接口返回 3 个账号');
     expect(html).toContain('X / Twitter');
+    expect(html).toContain('Blog Publisher');
     expect(html).toContain('healthy');
     expect(html).toContain('Session 已关联');
     expect(html).toContain('Session 状态：active');
@@ -1851,7 +1890,13 @@ describe('client API page wiring', () => {
     expect(html).toContain('发布就绪：已就绪');
     expect(html).toContain('发布方式：API');
     expect(html).toContain('建议动作：配置凭证');
-    expect(html).toContain('编辑 Session 元数据');
+    expect(html).toContain('Blog 已配置 WordPress 发布凭证，可直接发布到 CMS。');
+    expect(html).not.toContain('data-session-action-id="1"');
+    expect(html).not.toContain('data-session-action-id="2"');
+    expect(html).not.toContain('data-session-action-id="3"');
+    expect(xCard).not.toContain('编辑 Session 元数据');
+    expect(redditCard).not.toContain('编辑 Session 元数据');
+    expect(blogCard).not.toContain('编辑 Session 元数据');
     expect(html).toContain('最近 Handoff：draft #31 · obsolete');
     expect(html).toContain('Handoff 归属：未归属');
     expect(html).toContain('Handoff 账号：Reddit Ops');
@@ -2262,7 +2307,7 @@ describe('client API page wiring', () => {
     expect(html).toContain('小红书（人工接管）');
     expect(html).toContain('首发可用');
     expect(html).toContain('人工接管');
-    expect(html).toContain('Blog（本地文件发布）');
+    expect(html).toContain('Blog（文件 / CMS）');
     expect(html).toContain('value="x-main"');
     expect(html).toContain('value="X Primary"');
     expect(html).toContain('value="api"');

@@ -81,10 +81,27 @@ cp .env.example .env
 - `AI_MODEL`
   - 可选
   - 未配置时默认 `gpt-4o-mini`
+- `BLOG_PUBLISH_DRIVER`
+  - 可选
+  - 支持 `file`、`wordpress`、`ghost`
+  - 未配置时默认 `file`
+  - `file` 会把 blog 内容写到本地 Markdown；`wordpress` 和 `ghost` 会直接调用对应 CMS API
 - `BLOG_PUBLISH_OUTPUT_DIR`
   - 可选
+  - 只在 `BLOG_PUBLISH_DRIVER=file` 时生效
   - 控制 blog 发布时 Markdown 文件的输出目录
   - 未配置时默认 `<cwd>/data/blog-posts`
+- `BLOG_WORDPRESS_SITE_URL` / `BLOG_WORDPRESS_USERNAME` / `BLOG_WORDPRESS_APP_PASSWORD`
+  - 仅在 `BLOG_PUBLISH_DRIVER=wordpress` 时需要
+  - 3 项需要一起配置；缺任意一项时，blog readiness 会显示 `needs_config`，实际发布也会直接失败
+  - 发布时会调用 `<site-url>/wp-json/wp/v2/posts`
+  - `BLOG_WORDPRESS_SITE_URL` 末尾如果带 `/` 会在运行时自动去掉
+- `BLOG_GHOST_ADMIN_URL` / `BLOG_GHOST_ADMIN_API_KEY`
+  - 仅在 `BLOG_PUBLISH_DRIVER=ghost` 时需要
+  - 2 项需要一起配置；缺项或 API key 格式非法时，blog readiness 会显示 `needs_config`，实际发布也会直接失败
+  - 发布时会调用 `<admin-url>/api/admin/posts/?source=html`
+  - `BLOG_GHOST_ADMIN_URL` 可以写站点根地址，也可以直接写 `/ghost`；运行时会自动规范成以 `/ghost` 结尾的 Admin URL
+  - `BLOG_GHOST_ADMIN_API_KEY` 需要使用 Ghost Admin API key 的 `<id>:<secret hex>` 格式
 - `BROWSER_HANDOFF_OUTPUT_DIR`
   - 可选
   - 控制 browser manual handoff 与 inbox reply handoff artifact 的输出目录
@@ -591,9 +608,12 @@ pnpm runtime:restore -- --input-dir /tmp/promobot-backup-manual --skip-env
   - 当 session 已就绪时，发布请求还会生成本地 handoff artifact 文件，便于人工接管或外部 browser lane 消费
   - 后续 publish 成功会把 handoff artifact 结单成 `resolved`；session 失效则会把旧 handoff 标成 `obsolete`
 - `blog`
-  - 当前会把发布内容写入本地 Markdown 文件
-  - 默认输出到 `data/blog-posts/`；可用 `BLOG_PUBLISH_OUTPUT_DIR` 覆盖
-- 当前可落地发布范围建议收敛为：`X`、`Reddit`、`Blog（本地文件）`、`Facebook Group / Instagram / TikTok / 小红书 / 微博（人工接管）`
+  - 当前支持 `file`、`wordpress`、`ghost` 三种发布 driver；默认是 `file`
+  - `file` 会把发布内容写入本地 Markdown 文件；默认输出到 `data/blog-posts/`，可用 `BLOG_PUBLISH_OUTPUT_DIR` 覆盖
+  - `wordpress` 需要完整配置 `BLOG_WORDPRESS_SITE_URL`、`BLOG_WORDPRESS_USERNAME`、`BLOG_WORDPRESS_APP_PASSWORD`，发布时会直接调用 WordPress Posts API
+  - `ghost` 需要完整配置 `BLOG_GHOST_ADMIN_URL`、`BLOG_GHOST_ADMIN_API_KEY`，发布时会直接调用 Ghost Admin API
+  - driver 不受支持、或 WordPress / Ghost 凭证不完整时，会明确返回失败，不会伪造成功发布
+- 当前可落地发布范围建议收敛为：`X`、`Reddit`、`Blog（本地文件 / WordPress / Ghost）`、`Facebook Group / Instagram / TikTok / 小红书 / 微博（人工接管）`
 - `monitor`、`inbox`、`reputation`
   - `monitor/fetch` 已支持 RSS、V2EX、Reddit search，以及 Instagram / TikTok profile source configs
   - `inbox/fetch` 与 `reputation/fetch` 现在会直接基于 settings/source configs 调用 X、Reddit、V2EX 搜索

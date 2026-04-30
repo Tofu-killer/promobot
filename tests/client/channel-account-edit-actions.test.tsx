@@ -1304,10 +1304,10 @@ describe('channel account edit actions', () => {
       },
       channelAccount: {
         id: 7,
-        platform: 'reddit',
-        accountKey: 'acct-reddit',
-        displayName: 'Reddit Ops',
-        authType: 'oauth',
+        platform: 'instagram',
+        accountKey: 'acct-instagram',
+        displayName: 'Instagram Ops',
+        authType: 'browser',
         status: 'healthy',
         metadata: {},
         session: {
@@ -1348,10 +1348,10 @@ describe('channel account edit actions', () => {
                 },
                 {
                   id: 7,
-                  platform: 'reddit',
-                  accountKey: 'acct-reddit',
-                  displayName: 'Reddit Ops',
-                  authType: 'oauth',
+                  platform: 'instagram',
+                  accountKey: 'acct-instagram',
+                  displayName: 'Instagram Ops',
+                  authType: 'browser',
                   status: 'healthy',
                   metadata: {},
                   session: {
@@ -1384,7 +1384,7 @@ describe('channel account edit actions', () => {
       await flush();
     });
 
-    expect(collectText(container)).toContain('当前目标账号：Reddit Ops');
+    expect(collectText(container)).toContain('当前目标账号：Instagram Ops');
 
     const headerSessionButton = findElement(
       container,
@@ -3558,10 +3558,10 @@ describe('channel account edit actions', () => {
       },
       channelAccount: {
         id: 7,
-        platform: 'reddit',
-        accountKey: 'acct-reddit',
-        displayName: 'Reddit Ops',
-        authType: 'oauth',
+        platform: 'instagram',
+        accountKey: 'acct-instagram',
+        displayName: 'Instagram Ops',
+        authType: 'browser',
         status: 'healthy',
         metadata: {},
         session: {
@@ -3574,15 +3574,15 @@ describe('channel account edit actions', () => {
           action: 'request_session',
           jobStatus: 'pending',
           requestedAt: '2026-04-19T03:10:00.000Z',
-          artifactPath: 'artifacts/browser-lane-requests/reddit/acct-reddit/request-session-job-19.json',
+          artifactPath: 'artifacts/browser-lane-requests/instagram/acct-instagram/request-session-job-19.json',
           resolvedAt: null,
         },
         publishReadiness: {
-          platform: 'reddit',
+          platform: 'instagram',
           ready: false,
-          mode: 'oauth',
+          mode: 'browser',
           status: 'needs_session',
-          message: 'Reddit OAuth 账号尚未保存登录态，请先登录。',
+          message: 'Instagram 浏览器登录态缺失，请先完成登录。',
           action: 'request_session',
         },
         createdAt: '2026-04-19T00:00:00.000Z',
@@ -3600,10 +3600,10 @@ describe('channel account edit actions', () => {
               channelAccounts: [
                 {
                   id: 7,
-                  platform: 'reddit',
-                  accountKey: 'acct-reddit',
-                  displayName: 'Reddit Ops',
-                  authType: 'oauth',
+                  platform: 'instagram',
+                  accountKey: 'acct-instagram',
+                  displayName: 'Instagram Ops',
+                  authType: 'browser',
                   status: 'healthy',
                   metadata: {},
                   session: {
@@ -3613,11 +3613,11 @@ describe('channel account edit actions', () => {
                     storageStatePath: null,
                   },
                   publishReadiness: {
-                    platform: 'reddit',
+                    platform: 'instagram',
                     ready: false,
-                    mode: 'oauth',
+                    mode: 'browser',
                     status: 'needs_session',
-                    message: 'Reddit OAuth 账号尚未保存登录态，请先登录。',
+                    message: 'Instagram 浏览器登录态缺失，请先完成登录。',
                     action: 'request_session',
                   },
                   createdAt: '2026-04-19T00:00:00.000Z',
@@ -3670,7 +3670,7 @@ describe('channel account edit actions', () => {
           container,
           (element) => element.tagName === 'INPUT' && element.getAttribute('data-edit-session-storage-path-id') === '7',
         ),
-        'artifacts/browser-sessions/reddit-oauth-fresh.json',
+        'artifacts/browser-sessions/instagram-fresh.json',
         window,
       );
       updateFieldValue(
@@ -3694,7 +3694,7 @@ describe('channel account edit actions', () => {
           container,
           (element) => element.tagName === 'INPUT' && element.getAttribute('data-edit-session-notes-id') === '7',
         ),
-        'oauth refreshed after browser login',
+        'instagram session refreshed after browser login',
         window,
       );
       await flush();
@@ -3711,10 +3711,10 @@ describe('channel account edit actions', () => {
     });
 
     expect(saveChannelAccountSessionAction).toHaveBeenCalledWith(7, {
-      storageStatePath: 'artifacts/browser-sessions/reddit-oauth-fresh.json',
+      storageStatePath: 'artifacts/browser-sessions/instagram-fresh.json',
       status: 'active',
       validatedAt: '2026-04-19T03:20:00.000Z',
-      notes: 'oauth refreshed after browser login',
+      notes: 'instagram session refreshed after browser login',
     });
 
     await act(async () => {
@@ -3722,34 +3722,34 @@ describe('channel account edit actions', () => {
         ok: true,
         session: {
           hasSession: true,
-          id: 'reddit:acct-reddit',
+          id: 'instagram:acct-instagram',
           status: 'active',
           validatedAt: '2026-04-19T03:20:00.000Z',
-          storageStatePath: 'artifacts/browser-sessions/reddit-oauth-fresh.json',
-          notes: 'oauth refreshed after browser login',
+          storageStatePath: 'artifacts/browser-sessions/instagram-fresh.json',
+          notes: 'instagram session refreshed after browser login',
         },
         channelAccount: {
           id: 7,
-          platform: 'reddit',
-          accountKey: 'acct-reddit',
-          displayName: 'Reddit Ops',
-          authType: 'oauth',
+          platform: 'instagram',
+          accountKey: 'acct-instagram',
+          displayName: 'Instagram Ops',
+          authType: 'browser',
           status: 'healthy',
           metadata: {},
           session: {
             hasSession: true,
-            id: 'reddit:acct-reddit',
+            id: 'instagram:acct-instagram',
             status: 'active',
             validatedAt: '2026-04-19T03:20:00.000Z',
-            storageStatePath: 'artifacts/browser-sessions/reddit-oauth-fresh.json',
-            notes: 'oauth refreshed after browser login',
+            storageStatePath: 'artifacts/browser-sessions/instagram-fresh.json',
+            notes: 'instagram session refreshed after browser login',
           },
           publishReadiness: {
-            platform: 'reddit',
+            platform: 'instagram',
             ready: true,
-            mode: 'oauth',
+            mode: 'browser',
             status: 'ready',
-            message: 'Reddit OAuth 登录态已可用。',
+            message: 'Instagram 浏览器发布链路已具备可用 session。',
           },
           createdAt: '2026-04-19T00:00:00.000Z',
           updatedAt: '2026-04-19T03:20:00.000Z',
@@ -3761,8 +3761,8 @@ describe('channel account edit actions', () => {
     expect(collectText(container)).toContain('Session 元数据已保存');
     expect(collectText(container)).toContain('Session 状态：active');
     expect(collectText(container)).toContain('最近验证：2026-04-19T03:20:00.000Z');
-    expect(collectText(container)).toContain('Storage Path：artifacts/browser-sessions/reddit-oauth-fresh.json');
-    expect(collectText(container)).toContain('Session 备注：oauth refreshed after browser login');
+    expect(collectText(container)).toContain('Storage Path：artifacts/browser-sessions/instagram-fresh.json');
+    expect(collectText(container)).toContain('Session 备注：instagram session refreshed after browser login');
     expect(collectText(container)).toContain('发布就绪：已就绪');
     expect(collectText(container)).not.toContain('请求登录工单已记录');
     expect(collectText(container)).not.toContain('Browser login requested.');
@@ -3828,10 +3828,10 @@ describe('channel account edit actions', () => {
       },
       channelAccount: {
         id: 8,
-        platform: 'reddit',
-        accountKey: 'acct-reddit',
-        displayName: 'Reddit Ops',
-        authType: 'oauth',
+        platform: 'instagram',
+        accountKey: 'acct-instagram',
+        displayName: 'Instagram Ops',
+        authType: 'browser',
         status: 'healthy',
         metadata: {},
         session: {
@@ -3844,15 +3844,15 @@ describe('channel account edit actions', () => {
           action: 'request_session',
           jobStatus: 'pending',
           requestedAt: '2026-04-19T03:30:00.000Z',
-          artifactPath: 'artifacts/browser-lane-requests/reddit/acct-reddit/request-session-job-22.json',
+          artifactPath: 'artifacts/browser-lane-requests/instagram/acct-instagram/request-session-job-22.json',
           resolvedAt: null,
         },
         publishReadiness: {
-          platform: 'reddit',
+          platform: 'instagram',
           ready: false,
-          mode: 'oauth',
+          mode: 'browser',
           status: 'needs_session',
-          message: 'Reddit OAuth 账号尚未保存登录态，请先登录。',
+          message: 'Instagram 浏览器登录态缺失，请先完成登录。',
           action: 'request_session',
         },
         createdAt: '2026-04-19T00:00:00.000Z',
@@ -3896,10 +3896,10 @@ describe('channel account edit actions', () => {
                 },
                 {
                   id: 8,
-                  platform: 'reddit',
-                  accountKey: 'acct-reddit',
-                  displayName: 'Reddit Ops',
-                  authType: 'oauth',
+                  platform: 'instagram',
+                  accountKey: 'acct-instagram',
+                  displayName: 'Instagram Ops',
+                  authType: 'browser',
                   status: 'healthy',
                   metadata: {},
                   session: {
@@ -3909,11 +3909,11 @@ describe('channel account edit actions', () => {
                     storageStatePath: null,
                   },
                   publishReadiness: {
-                    platform: 'reddit',
+                    platform: 'instagram',
                     ready: false,
-                    mode: 'oauth',
+                    mode: 'browser',
                     status: 'needs_session',
-                    message: 'Reddit OAuth 账号尚未保存登录态，请先登录。',
+                    message: 'Instagram 浏览器登录态缺失，请先完成登录。',
                     action: 'request_session',
                   },
                   createdAt: '2026-04-19T00:00:00.000Z',
@@ -4118,10 +4118,10 @@ describe('channel account edit actions', () => {
                 },
                 {
                   id: 8,
-                  platform: 'reddit',
-                  accountKey: 'acct-reddit',
-                  displayName: 'Reddit Ops',
-                  authType: 'oauth',
+                  platform: 'instagram',
+                  accountKey: 'acct-instagram',
+                  displayName: 'Instagram Ops',
+                  authType: 'browser',
                   status: 'healthy',
                   metadata: {},
                   session: {
@@ -4129,7 +4129,7 @@ describe('channel account edit actions', () => {
                     status: 'missing',
                     validatedAt: null,
                     storageStatePath: null,
-                    id: 'reddit:acct-reddit',
+                    id: 'instagram:acct-instagram',
                   },
                   createdAt: '2026-04-19T00:00:00.000Z',
                   updatedAt: '2026-04-19T00:00:00.000Z',
@@ -4291,10 +4291,10 @@ describe('channel account edit actions', () => {
       },
       channelAccount: {
         id: 8,
-        platform: 'reddit',
-        accountKey: 'acct-reddit',
-        displayName: 'Reddit Ops',
-        authType: 'oauth',
+        platform: 'instagram',
+        accountKey: 'acct-instagram',
+        displayName: 'Instagram Ops',
+        authType: 'browser',
         status: 'healthy',
         metadata: {},
         session: {
@@ -4307,7 +4307,7 @@ describe('channel account edit actions', () => {
           action: 'request_session',
           jobStatus: 'pending',
           requestedAt: '2026-04-19T06:30:00.000Z',
-          artifactPath: 'artifacts/browser-lane-requests/reddit/acct-reddit/request-session-job-22.json',
+          artifactPath: 'artifacts/browser-lane-requests/instagram/acct-instagram/request-session-job-22.json',
           resolvedAt: null,
         },
         createdAt: '2026-04-19T00:00:00.000Z',
@@ -4343,10 +4343,10 @@ describe('channel account edit actions', () => {
                 },
                 {
                   id: 8,
-                  platform: 'reddit',
-                  accountKey: 'acct-reddit',
-                  displayName: 'Reddit Ops',
-                  authType: 'oauth',
+                  platform: 'instagram',
+                  accountKey: 'acct-instagram',
+                  displayName: 'Instagram Ops',
+                  authType: 'browser',
                   status: 'healthy',
                   metadata: {},
                   session: {
@@ -4354,7 +4354,7 @@ describe('channel account edit actions', () => {
                     status: 'missing',
                     validatedAt: null,
                     storageStatePath: null,
-                    id: 'reddit:acct-reddit',
+                    id: 'instagram:acct-instagram',
                   },
                   createdAt: '2026-04-19T00:00:00.000Z',
                   updatedAt: '2026-04-19T00:00:00.000Z',
@@ -4614,10 +4614,10 @@ describe('channel account edit actions', () => {
                 },
                 {
                   id: 8,
-                  platform: 'reddit',
-                  accountKey: 'acct-reddit',
-                  displayName: 'Reddit Ops',
-                  authType: 'oauth',
+                  platform: 'instagram',
+                  accountKey: 'acct-instagram',
+                  displayName: 'Instagram Ops',
+                  authType: 'browser',
                   status: 'healthy',
                   metadata: {},
                   session: {
@@ -4625,14 +4625,14 @@ describe('channel account edit actions', () => {
                     status: 'missing',
                     validatedAt: null,
                     storageStatePath: null,
-                    id: 'reddit:acct-reddit',
+                    id: 'instagram:acct-instagram',
                   },
                   publishReadiness: {
-                    platform: 'reddit',
+                    platform: 'instagram',
                     ready: false,
-                    mode: 'oauth',
+                    mode: 'browser',
                     status: 'needs_session',
-                    message: 'Reddit OAuth 账号尚未保存登录态，请先登录。',
+                    message: 'Instagram 浏览器登录态缺失，请先完成登录。',
                     action: 'request_session',
                   },
                   createdAt: '2026-04-19T00:00:00.000Z',
@@ -4770,10 +4770,10 @@ describe('channel account edit actions', () => {
         },
         channelAccount: {
           id: 8,
-          platform: 'reddit',
-          accountKey: 'acct-reddit',
-          displayName: 'Reddit Ops',
-          authType: 'oauth',
+          platform: 'instagram',
+          accountKey: 'acct-instagram',
+          displayName: 'Instagram Ops',
+          authType: 'browser',
           status: 'healthy',
           metadata: {},
           session: {
@@ -4781,21 +4781,21 @@ describe('channel account edit actions', () => {
             status: 'missing',
             validatedAt: null,
             storageStatePath: null,
-            id: 'reddit:acct-reddit',
+            id: 'instagram:acct-instagram',
           },
           latestBrowserLaneArtifact: {
             action: 'request_session',
             jobStatus: 'pending',
             requestedAt: '2026-04-19T06:51:00.000Z',
-            artifactPath: 'artifacts/browser-lane-requests/reddit/acct-reddit/request-session-job-32.json',
+            artifactPath: 'artifacts/browser-lane-requests/instagram/acct-instagram/request-session-job-32.json',
             resolvedAt: null,
           },
           publishReadiness: {
-            platform: 'reddit',
+            platform: 'instagram',
             ready: false,
-            mode: 'oauth',
+            mode: 'browser',
             status: 'needs_session',
-            message: 'Reddit OAuth 账号尚未保存登录态，请先登录。',
+            message: 'Instagram 浏览器登录态缺失，请先完成登录。',
             action: 'request_session',
           },
           createdAt: '2026-04-19T00:00:00.000Z',
@@ -4807,7 +4807,7 @@ describe('channel account edit actions', () => {
 
     expect(collectText(container)).toContain('artifacts/browser-lane-requests/x/acct-browser/relogin-job-31.json');
     expect(collectText(container)).toContain(
-      'artifacts/browser-lane-requests/reddit/acct-reddit/request-session-job-32.json',
+      'artifacts/browser-lane-requests/instagram/acct-instagram/request-session-job-32.json',
     );
     expect(collectText(container)).toContain('Browser login requested.');
     expect(collectText(container)).toContain('最近工单：重新登录');
@@ -4916,10 +4916,10 @@ describe('channel account edit actions', () => {
                 },
                 {
                   id: 8,
-                  platform: 'reddit',
-                  accountKey: 'acct-reddit',
-                  displayName: 'Reddit Ops',
-                  authType: 'oauth',
+                  platform: 'instagram',
+                  accountKey: 'acct-instagram',
+                  displayName: 'Instagram Ops',
+                  authType: 'browser',
                   status: 'healthy',
                   metadata: {},
                   session: {
@@ -4927,7 +4927,7 @@ describe('channel account edit actions', () => {
                     status: 'missing',
                     validatedAt: null,
                     storageStatePath: null,
-                    id: 'reddit:acct-reddit',
+                    id: 'instagram:acct-instagram',
                   },
                   createdAt: '2026-04-19T00:00:00.000Z',
                   updatedAt: '2026-04-19T00:00:00.000Z',
@@ -4989,7 +4989,7 @@ describe('channel account edit actions', () => {
           container,
           (element) => element.tagName === 'INPUT' && element.getAttribute('data-edit-session-storage-path-id') === '8',
         ),
-        'artifacts/browser-sessions/reddit-session.json',
+        'artifacts/browser-sessions/instagram-session.json',
         window,
       );
       await flush();
@@ -5070,27 +5070,27 @@ describe('channel account edit actions', () => {
         ok: true,
         session: {
           hasSession: true,
-          id: 'reddit:acct-reddit',
+          id: 'instagram:acct-instagram',
           status: 'active',
           validatedAt: '2026-04-19T06:50:00.000Z',
-          storageStatePath: 'artifacts/browser-sessions/reddit-session.json',
-          notes: 'oauth session refreshed',
+          storageStatePath: 'artifacts/browser-sessions/instagram-session.json',
+          notes: 'browser session refreshed',
         },
         channelAccount: {
           id: 8,
-          platform: 'reddit',
-          accountKey: 'acct-reddit',
-          displayName: 'Reddit Ops',
-          authType: 'oauth',
+          platform: 'instagram',
+          accountKey: 'acct-instagram',
+          displayName: 'Instagram Ops',
+          authType: 'browser',
           status: 'healthy',
           metadata: {},
           session: {
             hasSession: true,
-            id: 'reddit:acct-reddit',
+            id: 'instagram:acct-instagram',
             status: 'active',
             validatedAt: '2026-04-19T06:50:00.000Z',
-            storageStatePath: 'artifacts/browser-sessions/reddit-session.json',
-            notes: 'oauth session refreshed',
+            storageStatePath: 'artifacts/browser-sessions/instagram-session.json',
+            notes: 'browser session refreshed',
           },
           createdAt: '2026-04-19T00:00:00.000Z',
           updatedAt: '2026-04-19T06:50:00.000Z',
@@ -5100,7 +5100,7 @@ describe('channel account edit actions', () => {
     });
 
     expect(collectText(container)).toContain('Session 元数据已保存');
-    expect(collectText(container)).toContain('Storage Path：artifacts/browser-sessions/reddit-session.json');
+    expect(collectText(container)).toContain('Storage Path：artifacts/browser-sessions/instagram-session.json');
 
     await act(async () => {
       root.unmount();

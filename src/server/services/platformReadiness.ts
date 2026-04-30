@@ -4,6 +4,7 @@ import {
   type BrowserSessionAction,
   type SessionMetadata,
 } from './browser/sessionStore.js';
+import { isValidGhostAdminApiKey } from './publishers/blog.js';
 
 export interface PlatformReadiness {
   platform: string;
@@ -45,6 +46,7 @@ export function listPlatformReadiness(): PlatformReadiness[] {
   return [
     getXReadiness(),
     getRedditReadiness(),
+    getBlogReadiness(),
     getAggregatedBrowserPlatformReadiness('facebookGroup', 'Facebook Group', facebookSessions),
     getAggregatedBrowserPlatformReadiness('instagram', 'Instagram', instagramSessions),
     getAggregatedBrowserPlatformReadiness('tiktok', 'TikTok', tiktokSessions),
@@ -75,6 +77,10 @@ export function getChannelAccountPublishReadiness(account: {
 
   if (platform === 'facebookGroup') {
     return getBrowserSessionReadiness('facebookGroup', 'Facebook Group', account.accountKey);
+  }
+
+  if (platform === 'blog') {
+    return getBlogReadiness();
   }
 
   if (platform === 'instagram') {
@@ -169,6 +175,35 @@ export function evaluateChannelAccountConnection(account: {
           hasUsername,
           hasPassword,
         },
+      },
+    };
+  }
+
+  if (platform === 'blog') {
+    const readiness = getBlogReadiness();
+
+    return {
+      status: readiness.status,
+      summary:
+        readiness.status === 'ready'
+          ? '可用'
+          : readiness.status === 'needs_config'
+            ? '缺少配置'
+            : readiness.status === 'needs_relogin'
+              ? '需要重新登录'
+              : '需要登录会话',
+      message: readiness.message,
+      ...(readiness.action
+        ? {
+            action: readiness.action,
+            nextStep: `/api/channel-accounts/${account.id}`,
+          }
+        : {}),
+      details: {
+        ready: readiness.ready,
+        mode: readiness.mode,
+        authType: account.authType,
+        ...(readiness.details ?? {}),
       },
     };
   }
@@ -272,6 +307,91 @@ function getRedditReadiness(): PlatformReadiness {
   };
 }
 
+function getBlogReadiness(): PlatformReadiness {
+  const driver = resolveBlogPublishDriver();
+
+  if (driver === 'file') {
+    return {
+      platform: 'blog',
+      ready: true,
+      mode: 'api',
+      status: 'ready',
+      message: 'Blog 已配置为本地文件发布，可直接写入 Markdown 输出目录。',
+      details: {
+        driver: 'file',
+        outputDir: resolveBlogOutputDir(),
+      },
+    };
+  }
+
+  if (driver === 'wordpress') {
+    const siteUrl = resolveWordPressSiteUrl();
+    const credentials = {
+      hasSiteUrl: Boolean(siteUrl),
+      hasUsername: Boolean(process.env.BLOG_WORDPRESS_USERNAME?.trim()),
+      hasAppPassword: Boolean(process.env.BLOG_WORDPRESS_APP_PASSWORD?.trim()),
+    };
+    const ready = credentials.hasSiteUrl && credentials.hasUsername && credentials.hasAppPassword;
+
+    return {
+      platform: 'blog',
+      ready,
+      mode: 'api',
+      status: ready ? 'ready' : 'needs_config',
+      message: ready
+        ? 'Blog 已配置 WordPress 发布凭证，可直接发布到 CMS。'
+        : 'Blog WordPress 发布缺少凭证，请配置站点地址、用户名和应用密码。',
+      ...(ready ? {} : { action: 'configure_credentials' as const }),
+      details: {
+        driver: 'wordpress',
+        ...(siteUrl ? { siteUrl } : {}),
+        credentials,
+      },
+    };
+  }
+
+  if (driver === 'ghost') {
+    const adminUrl = resolveGhostAdminUrl();
+    const apiKey = process.env.BLOG_GHOST_ADMIN_API_KEY?.trim();
+    const credentials = {
+      hasAdminUrl: Boolean(adminUrl),
+      hasAdminApiKey: Boolean(apiKey),
+      ghostAdminApiKeyValid: isValidGhostAdminApiKey(apiKey),
+    };
+    const ready =
+      credentials.hasAdminUrl && credentials.hasAdminApiKey && credentials.ghostAdminApiKeyValid;
+
+    return {
+      platform: 'blog',
+      ready,
+      mode: 'api',
+      status: ready ? 'ready' : 'needs_config',
+      message: ready
+        ? 'Blog 已配置 Ghost Admin API 凭证，可直接发布到 CMS。'
+        : 'Blog Ghost 发布缺少凭证，请配置 Admin URL 和 Admin API Key。',
+      ...(ready ? {} : { action: 'configure_credentials' as const }),
+      details: {
+        driver: 'ghost',
+        ...(adminUrl ? { adminUrl } : {}),
+        credentials,
+      },
+    };
+  }
+
+  return {
+    platform: 'blog',
+    ready: false,
+    mode: 'api',
+    status: 'needs_config',
+    message: `Blog 发布驱动 ${driver} 不受支持，请改用 file、wordpress 或 ghost。`,
+    action: 'configure_credentials',
+    details: {
+      driver,
+      supportedDrivers: ['file', 'wordpress', 'ghost'],
+    },
+  };
+}
+
 function getBrowserSessionReadiness(
   platform: 'x' | 'reddit' | 'facebookGroup' | 'instagram' | 'tiktok' | 'xiaohongshu' | 'weibo',
   label: string,
@@ -324,6 +444,34 @@ function normalizePlatform(platform: string): string {
   return platform === 'facebook-group' ? 'facebookGroup' : platform;
 }
 
+function resolveBlogPublishDriver(): string {
+  return process.env.BLOG_PUBLISH_DRIVER?.trim().toLowerCase() || 'file';
+}
+
+function resolveBlogOutputDir(): string {
+  const configured = process.env.BLOG_PUBLISH_OUTPUT_DIR?.trim();
+  return configured ? configured : 'data/blog-posts';
+}
+
+function resolveWordPressSiteUrl(): string | null {
+  const configured = process.env.BLOG_WORDPRESS_SITE_URL?.trim();
+  if (!configured) {
+    return null;
+  }
+
+  return configured.replace(/\/+$/u, '');
+}
+
+function resolveGhostAdminUrl(): string | null {
+  const configured = process.env.BLOG_GHOST_ADMIN_URL?.trim();
+  if (!configured) {
+    return null;
+  }
+
+  const trimmed = configured.replace(/\/+$/u, '');
+  return trimmed.endsWith('/ghost') ? trimmed : `${trimmed}/ghost`;
+}
+
 function isBrowserSessionAuth(authType?: string): boolean {
   return authType === 'browser';
 }
@@ -336,6 +484,7 @@ function formatPlatformLabel(platform: string) {
   if (platform === 'tiktok') return 'TikTok';
   if (platform === 'xiaohongshu') return '小红书';
   if (platform === 'weibo') return '微博';
+  if (platform === 'blog') return 'Blog';
   return platform;
 }
 

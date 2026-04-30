@@ -676,6 +676,93 @@ describe('channel accounts api', () => {
     }
   });
 
+  it('lists blog file channel accounts with ready api publish readiness', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'blog',
+        accountKey: 'blog-main',
+        displayName: 'Blog Publisher',
+        authType: 'api',
+        status: 'healthy',
+      });
+
+      const listed = await requestApp('GET', '/api/channel-accounts');
+
+      expect(listed.status).toBe(200);
+      expect(JSON.parse(listed.body)).toEqual({
+        channelAccounts: [
+          expect.objectContaining({
+            id: 1,
+            platform: 'blog',
+            accountKey: 'blog-main',
+            displayName: 'Blog Publisher',
+            authType: 'api',
+            status: 'healthy',
+            session: {
+              hasSession: false,
+              status: 'missing',
+              validatedAt: null,
+              storageStatePath: null,
+            },
+            publishReadiness: expect.objectContaining({
+              platform: 'blog',
+              ready: true,
+              mode: 'api',
+              status: 'ready',
+              message: 'Blog 已配置为本地文件发布，可直接写入 Markdown 输出目录。',
+              details: expect.objectContaining({
+                driver: 'file',
+                outputDir: expect.any(String),
+              }),
+            }),
+          }),
+        ],
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('tests a blog file channel account without requiring browser session state', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'blog',
+        accountKey: 'blog-main',
+        displayName: 'Blog Publisher',
+        authType: 'api',
+        status: 'unknown',
+      });
+
+      const response = await requestApp('POST', '/api/channel-accounts/1/test');
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        ok: true,
+        test: {
+          checkedAt: expect.any(String),
+          status: 'ready',
+          summary: '可用',
+          message: 'Blog 已配置为本地文件发布，可直接写入 Markdown 输出目录。',
+          details: {
+            ready: true,
+            mode: 'api',
+            authType: 'api',
+            driver: 'file',
+            outputDir: expect.any(String),
+          },
+        },
+        channelAccount: expect.objectContaining({
+          id: 1,
+          status: 'unknown',
+        }),
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('tests a reddit browser account using saved session state', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
@@ -977,6 +1064,52 @@ describe('channel accounts api', () => {
           }),
         ],
       });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('rejects session metadata saves for channel accounts that do not support browser session metadata', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'blog',
+        accountKey: 'blog-main',
+        displayName: 'Blog Publisher',
+        authType: 'api',
+        status: 'healthy',
+      });
+
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'x',
+        accountKey: '@promobot-api',
+        displayName: 'PromoBot X API',
+        authType: 'api',
+        status: 'healthy',
+      });
+
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'reddit',
+        accountKey: 'promobot-reddit-api',
+        displayName: 'PromoBot Reddit API',
+        authType: 'oauth',
+        status: 'healthy',
+      });
+
+      for (const accountId of [1, 2, 3]) {
+        const response = await requestApp('POST', `/api/channel-accounts/${accountId}/session`, {
+          storageState: {
+            cookies: [],
+            origins: [],
+          },
+          status: 'active',
+        });
+
+        expect(response.status).toBe(400);
+        expect(JSON.parse(response.body)).toEqual({
+          error: 'channel account does not support browser session metadata',
+        });
+      }
     } finally {
       cleanupTestDatabasePath(rootDir);
     }
@@ -1889,6 +2022,49 @@ describe('channel accounts api', () => {
           id: 1,
         }),
       );
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('rejects session-request jobs for channel accounts that do not support browser session requests', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'blog',
+        accountKey: 'blog-main',
+        displayName: 'Blog Publisher',
+        authType: 'api',
+        status: 'healthy',
+      });
+
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'x',
+        accountKey: '@promobot-api',
+        displayName: 'PromoBot X API',
+        authType: 'api',
+        status: 'healthy',
+      });
+
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'reddit',
+        accountKey: 'promobot-reddit-api',
+        displayName: 'PromoBot Reddit API',
+        authType: 'oauth',
+        status: 'healthy',
+      });
+
+      for (const accountId of [1, 2, 3]) {
+        const response = await requestApp(
+          'POST',
+          `/api/channel-accounts/${accountId}/session/request`,
+        );
+
+        expect(response.status).toBe(400);
+        expect(JSON.parse(response.body)).toEqual({
+          error: 'channel account does not support browser session requests',
+        });
+      }
     } finally {
       cleanupTestDatabasePath(rootDir);
     }

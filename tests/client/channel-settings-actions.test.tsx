@@ -345,6 +345,132 @@ describe('channel account follow-up actions', () => {
     expect(html).toContain('下一步：</strong>/api/channel-accounts/3/session');
   });
 
+  it('only shows session metadata editing controls for browser channel accounts', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ChannelAccountsPage } = await import('../../src/client/pages/ChannelAccounts');
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ChannelAccountsPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              channelAccounts: [
+                {
+                  id: 1,
+                  platform: 'blog',
+                  accountKey: 'blog-main',
+                  displayName: 'Blog Publisher',
+                  authType: 'api',
+                  status: 'healthy',
+                  metadata: {},
+                  session: {
+                    hasSession: false,
+                    status: 'missing',
+                    validatedAt: null,
+                    storageStatePath: null,
+                  },
+                  publishReadiness: {
+                    platform: 'blog',
+                    ready: true,
+                    mode: 'api',
+                    status: 'ready',
+                    message: 'Blog 已配置 WordPress 发布凭证，可直接发布到 CMS。',
+                  },
+                  createdAt: '2026-04-19T00:00:00.000Z',
+                  updatedAt: '2026-04-19T00:00:00.000Z',
+                },
+                {
+                  id: 2,
+                  platform: 'instagram',
+                  accountKey: 'insta-browser',
+                  displayName: 'Instagram Browser',
+                  authType: 'browser',
+                  status: 'healthy',
+                  metadata: {},
+                  session: {
+                    hasSession: true,
+                    status: 'active',
+                    validatedAt: '2026-04-19T03:00:00.000Z',
+                    storageStatePath: 'artifacts/browser-sessions/instagram-browser.json',
+                  },
+                  publishReadiness: {
+                    platform: 'instagram',
+                    ready: true,
+                    mode: 'browser',
+                    status: 'ready',
+                    message: 'Instagram 浏览器 session 可用，可以继续发布流程。',
+                  },
+                  createdAt: '2026-04-19T00:00:00.000Z',
+                  updatedAt: '2026-04-19T00:00:00.000Z',
+                },
+              ],
+            },
+          } satisfies ApiState,
+        }),
+      );
+      await flush();
+    });
+
+    const blogEditButton = findElement(
+      container,
+      (element) => element.getAttribute('data-edit-account-id') === '1',
+    );
+
+    expect(blogEditButton).not.toBeNull();
+
+    await act(async () => {
+      blogEditButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(
+      findElement(
+        container,
+        (element) => element.getAttribute('data-edit-session-storage-path-id') === '1',
+      ),
+    ).toBeNull();
+    expect(
+      findElement(
+        container,
+        (element) => element.getAttribute('data-save-session-id') === '1',
+      ),
+    ).toBeNull();
+
+    const browserEditButtons = findElements(
+      container,
+      (element) => element.getAttribute('data-edit-account-id') === '2',
+    );
+    const browserEditButton = browserEditButtons.at(-1) ?? null;
+
+    expect(browserEditButton).not.toBeNull();
+
+    await act(async () => {
+      browserEditButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(
+      findElement(
+        container,
+        (element) => element.getAttribute('data-edit-session-storage-path-id') === '2',
+      ),
+    ).not.toBeNull();
+    expect(
+      findElement(
+        container,
+        (element) => element.getAttribute('data-save-session-id') === '2',
+      ),
+    ).not.toBeNull();
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('renders channel account create errors visibly', async () => {
     const { ChannelAccountsPage } = await import('../../src/client/pages/ChannelAccounts');
 
@@ -533,6 +659,21 @@ describe('settings save validation and feedback', () => {
               mode: 'browser',
               message: 'Facebook Group 需要先保存浏览器 session，发布时再手动接管。',
               action: 'request_session',
+            },
+            {
+              platform: 'blog',
+              ready: true,
+              status: 'ready',
+              mode: 'api',
+              message: 'Blog 已配置为本地文件发布，可直接写入 Markdown 输出目录。',
+            },
+            {
+              platform: 'blog',
+              ready: false,
+              status: 'needs_config',
+              mode: 'api',
+              message: 'Blog Ghost 发布缺少凭证，请配置 Admin URL 和 Admin API Key。',
+              action: 'configure_credentials',
             },
           ],
         },
@@ -742,9 +883,14 @@ describe('settings save validation and feedback', () => {
     expect(successHtml).toContain('排程 Monitor Fetch');
     expect(successHtml).toContain('平台就绪度');
     expect(successHtml).toContain('发布就绪：已就绪');
+    expect(successHtml).toContain('发布方式：API');
     expect(successHtml).toContain('发布就绪：人工接管待准备');
+    expect(successHtml).toContain('发布就绪：待配置');
     expect(successHtml).toContain('建议动作：准备人工接管');
+    expect(successHtml).toContain('建议动作：配置凭证');
     expect(successHtml).toContain('X API token 已配置，可直接尝试发布。');
+    expect(successHtml).toContain('Blog 已配置为本地文件发布，可直接写入 Markdown 输出目录。');
+    expect(successHtml).toContain('Blog Ghost 发布缺少凭证，请配置 Admin URL 和 Admin API Key。');
     expect(successHtml).toContain('监控来源配置');
     expect(successHtml).toContain('https://openai.com/blog/rss.xml');
     expect(successHtml).toContain('llm api');
@@ -835,6 +981,13 @@ describe('settings save validation and feedback', () => {
           message: 'Facebook Group 需要先保存浏览器 session，发布时再手动接管。',
           action: 'request_session',
         },
+        {
+          platform: 'blog',
+          ready: true,
+          mode: 'api',
+          status: 'ready',
+          message: 'Blog 已配置 WordPress 发布凭证，可直接发布到 CMS。',
+        },
       ],
     });
     const loadSystemJobsAction = vi.fn().mockResolvedValue({
@@ -918,6 +1071,8 @@ describe('settings save validation and feedback', () => {
     expect(collectText(container)).toContain('staging');
     expect(collectText(container)).toContain('平台就绪度');
     expect(collectText(container)).toContain('Facebook Group');
+    expect(collectText(container)).toContain('Blog');
+    expect(collectText(container)).toContain('Blog 已配置 WordPress 发布凭证，可直接发布到 CMS。');
     expect(collectText(container)).toContain('准备人工接管');
 
     await act(async () => {
