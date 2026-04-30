@@ -1421,4 +1421,339 @@ describe('Publish Calendar lifecycle', () => {
       await flush();
     });
   });
+
+  it('restores blocked persisted calendar browser handoffs after reload', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { PublishCalendarPage } = await import('../../src/client/pages/PublishCalendar');
+
+    const requestChannelAccountSessionActionAction = vi.fn().mockResolvedValue({
+      sessionAction: {
+        action: 'request_session',
+        message: 'Instagram session request queued for operator pickup.',
+        artifactPath: 'artifacts/browser-lane-requests/instagram/relaunch/session-request-141.json',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(PublishCalendarPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              drafts: [
+                {
+                  id: 141,
+                  platform: 'instagram',
+                  title: 'Instagram relaunch reel',
+                  content: 'Draft body',
+                  hashtags: ['#launch'],
+                  status: 'failed',
+                  lastPublishError: 'missing browser session',
+                  createdAt: '2026-04-29T00:00:00.000Z',
+                  updatedAt: '2026-04-29T00:00:00.000Z',
+                },
+              ],
+            },
+          },
+          browserHandoffsStateOverride: {
+            status: 'success',
+            data: {
+              handoffs: [
+                {
+                  platform: 'instagram',
+                  channelAccountId: 88,
+                  draftId: 141,
+                  title: 'Instagram relaunch reel',
+                  accountKey: 'instagram:relaunch',
+                  status: 'pending',
+                  readiness: 'blocked',
+                  sessionAction: 'request_session',
+                  artifactPath: 'artifacts/browser-handoffs/instagram/relaunch/instagram-draft-141.json',
+                  createdAt: '2026-04-29T00:00:00.000Z',
+                  updatedAt: '2026-04-29T00:05:00.000Z',
+                  resolvedAt: null,
+                },
+              ],
+              total: 1,
+            },
+          },
+          requestChannelAccountSessionActionAction,
+        }),
+      );
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('已恢复人工接管：Instagram relaunch reel');
+    expect(collectText(container)).toContain('等待补充 Session 后继续发布接管。');
+    expect(collectText(container)).toContain('Handoff 状态：blocked');
+    expect(collectText(container)).toContain('Handoff 动作：request_session');
+    expect(collectText(container)).toContain(
+      'Handoff 路径：artifacts/browser-handoffs/instagram/relaunch/instagram-draft-141.json',
+    );
+    expect(collectText(container)).not.toContain('Publish browser handoff 结单');
+
+    const sessionActionButton = findElement(
+      container,
+      (element) => element.getAttribute('data-calendar-session-action') === 'request_session',
+    );
+
+    expect(sessionActionButton).not.toBeNull();
+
+    await act(async () => {
+      sessionActionButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(requestChannelAccountSessionActionAction).toHaveBeenCalledWith(88, {
+      action: 'request_session',
+    });
+    expect(collectText(container)).toContain('Instagram session request queued for operator pickup.');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('restores ready persisted calendar browser handoffs after reload and completes them inline', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { PublishCalendarPage } = await import('../../src/client/pages/PublishCalendar');
+
+    const completeBrowserHandoffAction = vi.fn().mockResolvedValue({
+      ok: true,
+      imported: true,
+      artifactPath: 'artifacts/browser-handoffs/tiktok/relaunch/tiktok-draft-142.json',
+      draftId: 142,
+      draftStatus: 'published',
+      platform: 'tiktok',
+      mode: 'browser_handoff',
+      status: 'published',
+      success: true,
+      publishUrl: 'https://www.tiktok.com/@promobot/video/142',
+      externalId: null,
+      message: 'TikTok browser handoff completed.',
+      publishedAt: '2026-04-29T01:00:00.000Z',
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(PublishCalendarPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              drafts: [
+                {
+                  id: 142,
+                  platform: 'tiktok',
+                  title: 'TikTok relaunch clip',
+                  content: 'Draft body',
+                  hashtags: ['#launch'],
+                  status: 'failed',
+                  lastPublishError: 'waiting for browser lane',
+                  createdAt: '2026-04-29T00:00:00.000Z',
+                  updatedAt: '2026-04-29T00:00:00.000Z',
+                },
+              ],
+            },
+          },
+          browserHandoffsStateOverride: {
+            status: 'success',
+            data: {
+              handoffs: [
+                {
+                  platform: 'tiktok',
+                  draftId: 142,
+                  title: 'TikTok relaunch clip',
+                  accountKey: 'tiktok:relaunch',
+                  status: 'pending',
+                  readiness: 'ready',
+                  sessionAction: null,
+                  artifactPath: 'artifacts/browser-handoffs/tiktok/relaunch/tiktok-draft-142.json',
+                  createdAt: '2026-04-29T00:00:00.000Z',
+                  updatedAt: '2026-04-29T00:05:00.000Z',
+                  resolvedAt: null,
+                },
+              ],
+              total: 1,
+            },
+          },
+          completeBrowserHandoffAction,
+        }),
+      );
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('发现待处理的 browser handoff，可以直接结单。');
+
+    const publishUrlInput = findElement(
+      container,
+      (element) => element.getAttribute('data-calendar-browser-handoff-field') === 'publishUrl',
+    );
+    const messageInput = findElement(
+      container,
+      (element) => element.getAttribute('data-calendar-browser-handoff-field') === 'message',
+    );
+    const completeButton = findElement(
+      container,
+      (element) => element.getAttribute('data-calendar-browser-handoff-complete') === 'published',
+    );
+
+    expect(publishUrlInput).not.toBeNull();
+    expect(messageInput).not.toBeNull();
+    expect(completeButton).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(
+        publishUrlInput as never,
+        'https://www.tiktok.com/@promobot/video/142',
+        window as never,
+      );
+      updateFieldValue(messageInput as never, 'Recovered after reload.', window as never);
+      await flush();
+    });
+
+    await act(async () => {
+      completeButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(completeBrowserHandoffAction).toHaveBeenCalledWith({
+      artifactPath: 'artifacts/browser-handoffs/tiktok/relaunch/tiktok-draft-142.json',
+      publishStatus: 'published',
+      publishUrl: 'https://www.tiktok.com/@promobot/video/142',
+      message: 'Recovered after reload.',
+    });
+    expect(collectText(container)).toContain('TikTok browser handoff completed.');
+    expect(collectText(container)).toContain('发布时间：2026-04-29T01:00:00.000Z');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('loads persisted calendar browser handoffs live when only drafts use state overrides and clears them after reload', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { PublishCalendarPage } = await import('../../src/client/pages/PublishCalendar');
+
+    const loadBrowserHandoffsAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        handoffs: [
+          {
+            platform: 'tiktok',
+            draftId: 143,
+            title: 'TikTok relaunch clip',
+            accountKey: 'tiktok:relaunch',
+            status: 'pending',
+            readiness: 'ready',
+            sessionAction: null,
+            artifactPath: 'artifacts/browser-handoffs/tiktok/relaunch/tiktok-draft-143.json',
+            createdAt: '2026-04-29T00:00:00.000Z',
+            updatedAt: '2026-04-29T00:05:00.000Z',
+            resolvedAt: null,
+          },
+        ],
+        total: 1,
+      })
+      .mockResolvedValue({
+        handoffs: [],
+        total: 0,
+      });
+    const completeBrowserHandoffAction = vi.fn().mockResolvedValue({
+      ok: true,
+      imported: true,
+      artifactPath: 'artifacts/browser-handoffs/tiktok/relaunch/tiktok-draft-143.json',
+      draftId: 143,
+      draftStatus: 'published',
+      platform: 'tiktok',
+      mode: 'browser_handoff',
+      status: 'published',
+      success: true,
+      publishUrl: 'https://www.tiktok.com/@promobot/video/143',
+      externalId: null,
+      message: 'TikTok browser handoff completed.',
+      publishedAt: '2026-04-29T01:30:00.000Z',
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(PublishCalendarPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              drafts: [
+                {
+                  id: 143,
+                  platform: 'tiktok',
+                  title: 'TikTok relaunch clip',
+                  content: 'Draft body',
+                  hashtags: ['#launch'],
+                  status: 'failed',
+                  lastPublishError: 'waiting for browser lane',
+                  createdAt: '2026-04-29T00:00:00.000Z',
+                  updatedAt: '2026-04-29T00:00:00.000Z',
+                },
+              ],
+            },
+          },
+          loadBrowserHandoffsAction,
+          completeBrowserHandoffAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    expect(loadBrowserHandoffsAction).toHaveBeenCalledTimes(1);
+    expect(collectText(container)).toContain('发现待处理的 browser handoff，可以直接结单。');
+
+    const completeButton = findElement(
+      container,
+      (element) => element.getAttribute('data-calendar-browser-handoff-complete') === 'published',
+    );
+
+    expect(completeButton).not.toBeNull();
+
+    await act(async () => {
+      completeButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    expect(loadBrowserHandoffsAction).toHaveBeenCalledTimes(2);
+    expect(collectText(container)).not.toContain('Publish browser handoff 结单');
+
+    const reloadButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('重新加载 Calendar'),
+    );
+
+    expect(reloadButton).not.toBeNull();
+
+    await act(async () => {
+      reloadButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(loadBrowserHandoffsAction).toHaveBeenCalledTimes(3);
+    expect(collectText(container)).not.toContain(
+      'Handoff 路径：artifacts/browser-handoffs/tiktok/relaunch/tiktok-draft-143.json',
+    );
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
 });

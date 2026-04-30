@@ -1891,4 +1891,359 @@ describe('Generate review actions', () => {
       await flush();
     });
   });
+
+  it('restores blocked persisted generate browser handoffs after reload', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { GeneratePage } = await import('../../src/client/pages/Generate');
+
+    const requestChannelAccountSessionActionAction = vi.fn().mockResolvedValue({
+      sessionAction: {
+        action: 'request_session',
+        message: 'Instagram session request queued for operator pickup.',
+        artifactPath: 'artifacts/browser-lane-requests/instagram/relaunch/session-request-161.json',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(GeneratePage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              results: [
+                {
+                  platform: 'instagram',
+                  title: 'Instagram relaunch reel',
+                  content: 'Draft body',
+                  hashtags: ['#launch'],
+                  draftId: 161,
+                },
+              ],
+            },
+          },
+          browserHandoffsStateOverride: {
+            status: 'success',
+            data: {
+              handoffs: [
+                {
+                  platform: 'instagram',
+                  channelAccountId: 88,
+                  draftId: 161,
+                  title: 'Instagram relaunch reel',
+                  accountKey: 'instagram:relaunch',
+                  status: 'pending',
+                  readiness: 'blocked',
+                  sessionAction: 'request_session',
+                  artifactPath: 'artifacts/browser-handoffs/instagram/relaunch/instagram-draft-161.json',
+                  createdAt: '2026-04-29T00:00:00.000Z',
+                  updatedAt: '2026-04-29T00:05:00.000Z',
+                  resolvedAt: null,
+                },
+              ],
+              total: 1,
+            },
+          },
+          requestChannelAccountSessionActionAction,
+        }),
+      );
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('已恢复人工接管：Instagram relaunch reel');
+    expect(collectText(container)).toContain('等待补充 Session 后继续发布接管。');
+    expect(collectText(container)).toContain('Handoff 状态：blocked');
+    expect(collectText(container)).toContain('Handoff 动作：request_session');
+    expect(collectText(container)).toContain(
+      'Handoff 路径：artifacts/browser-handoffs/instagram/relaunch/instagram-draft-161.json',
+    );
+    expect(collectText(container)).not.toContain('Generate browser handoff 结单');
+
+    const sessionActionButton = findElement(
+      container,
+      (element) => element.getAttribute('data-generate-session-action') === 'request_session',
+    );
+
+    expect(sessionActionButton).not.toBeNull();
+
+    await act(async () => {
+      sessionActionButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(requestChannelAccountSessionActionAction).toHaveBeenCalledWith(88, {
+      action: 'request_session',
+    });
+    expect(collectText(container)).toContain('Instagram session request queued for operator pickup.');
+
+    await act(async () => {
+      root.render(
+        createElement(GeneratePage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              results: [
+                {
+                  platform: 'instagram',
+                  title: 'Instagram relaunch reel',
+                  content: 'Draft body',
+                  hashtags: ['#launch'],
+                  draftId: 161,
+                },
+              ],
+            },
+          },
+          browserHandoffsStateOverride: {
+            status: 'success',
+            data: {
+              handoffs: [
+                {
+                  platform: 'instagram',
+                  channelAccountId: 88,
+                  draftId: 161,
+                  title: 'Instagram relaunch reel',
+                  accountKey: 'instagram:relaunch',
+                  status: 'pending',
+                  readiness: 'blocked',
+                  sessionAction: 'request_session',
+                  artifactPath: 'artifacts/browser-handoffs/instagram/relaunch/instagram-draft-161.json',
+                  createdAt: '2026-04-29T00:00:00.000Z',
+                  updatedAt: '2026-04-29T00:05:00.000Z',
+                  resolvedAt: null,
+                },
+              ],
+              total: 1,
+            },
+          },
+          requestChannelAccountSessionActionAction,
+        }),
+      );
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('已恢复人工接管：Instagram relaunch reel');
+    expect(collectText(container)).not.toContain('Generate browser handoff 结单');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('restores ready persisted generate browser handoffs after reload and completes them inline', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { GeneratePage } = await import('../../src/client/pages/Generate');
+
+    const completeBrowserHandoffAction = vi.fn().mockResolvedValue({
+      ok: true,
+      imported: true,
+      artifactPath: 'artifacts/browser-handoffs/tiktok/relaunch/tiktok-draft-162.json',
+      draftId: 162,
+      draftStatus: 'published',
+      platform: 'tiktok',
+      mode: 'browser_handoff',
+      status: 'published',
+      success: true,
+      publishUrl: 'https://www.tiktok.com/@promobot/video/162',
+      externalId: null,
+      message: 'TikTok browser handoff completed.',
+      publishedAt: '2026-04-29T01:00:00.000Z',
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(GeneratePage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              results: [
+                {
+                  platform: 'tiktok',
+                  title: 'TikTok relaunch clip',
+                  content: 'Draft body',
+                  hashtags: ['#launch'],
+                  draftId: 162,
+                },
+              ],
+            },
+          },
+          browserHandoffsStateOverride: {
+            status: 'success',
+            data: {
+              handoffs: [
+                {
+                  platform: 'tiktok',
+                  draftId: 162,
+                  title: 'TikTok relaunch clip',
+                  accountKey: 'tiktok:relaunch',
+                  status: 'pending',
+                  readiness: 'ready',
+                  sessionAction: null,
+                  artifactPath: 'artifacts/browser-handoffs/tiktok/relaunch/tiktok-draft-162.json',
+                  createdAt: '2026-04-29T00:00:00.000Z',
+                  updatedAt: '2026-04-29T00:05:00.000Z',
+                  resolvedAt: null,
+                },
+              ],
+              total: 1,
+            },
+          },
+          completeBrowserHandoffAction,
+        }),
+      );
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('发现待处理的 browser handoff，可以直接结单。');
+
+    const publishUrlInput = findElement(
+      container,
+      (element) => element.getAttribute('data-generate-browser-handoff-field') === 'publishUrl',
+    );
+    const messageInput = findElement(
+      container,
+      (element) => element.getAttribute('data-generate-browser-handoff-field') === 'message',
+    );
+    const completeButton = findElement(
+      container,
+      (element) => element.getAttribute('data-generate-browser-handoff-complete') === 'published',
+    );
+
+    expect(publishUrlInput).not.toBeNull();
+    expect(messageInput).not.toBeNull();
+    expect(completeButton).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(
+        publishUrlInput as never,
+        'https://www.tiktok.com/@promobot/video/162',
+        window as never,
+      );
+      updateFieldValue(messageInput as never, 'Recovered after reload.', window as never);
+      await flush();
+    });
+
+    await act(async () => {
+      completeButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(completeBrowserHandoffAction).toHaveBeenCalledWith({
+      artifactPath: 'artifacts/browser-handoffs/tiktok/relaunch/tiktok-draft-162.json',
+      publishStatus: 'published',
+      publishUrl: 'https://www.tiktok.com/@promobot/video/162',
+      message: 'Recovered after reload.',
+    });
+    expect(collectText(container)).toContain('TikTok browser handoff completed.');
+    expect(collectText(container)).toContain('status: published');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('loads persisted generate browser handoffs live when only results use state overrides and clears them after completion', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { GeneratePage } = await import('../../src/client/pages/Generate');
+
+    const loadBrowserHandoffsAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        handoffs: [
+          {
+            platform: 'tiktok',
+            draftId: 163,
+            title: 'TikTok relaunch clip',
+            accountKey: 'tiktok:relaunch',
+            status: 'pending',
+            readiness: 'ready',
+            sessionAction: null,
+            artifactPath: 'artifacts/browser-handoffs/tiktok/relaunch/tiktok-draft-163.json',
+            createdAt: '2026-04-29T00:00:00.000Z',
+            updatedAt: '2026-04-29T00:05:00.000Z',
+            resolvedAt: null,
+          },
+        ],
+        total: 1,
+      })
+      .mockResolvedValue({
+        handoffs: [],
+        total: 0,
+      });
+    const completeBrowserHandoffAction = vi.fn().mockResolvedValue({
+      ok: true,
+      imported: true,
+      artifactPath: 'artifacts/browser-handoffs/tiktok/relaunch/tiktok-draft-163.json',
+      draftId: 163,
+      draftStatus: 'published',
+      platform: 'tiktok',
+      mode: 'browser_handoff',
+      status: 'published',
+      success: true,
+      publishUrl: 'https://www.tiktok.com/@promobot/video/163',
+      externalId: null,
+      message: 'TikTok browser handoff completed.',
+      publishedAt: '2026-04-29T01:30:00.000Z',
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(GeneratePage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              results: [
+                {
+                  platform: 'tiktok',
+                  title: 'TikTok relaunch clip',
+                  content: 'Draft body',
+                  hashtags: ['#launch'],
+                  draftId: 163,
+                },
+              ],
+            },
+          },
+          loadBrowserHandoffsAction,
+          completeBrowserHandoffAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    expect(loadBrowserHandoffsAction).toHaveBeenCalledTimes(1);
+    expect(collectText(container)).toContain('发现待处理的 browser handoff，可以直接结单。');
+
+    const completeButton = findElement(
+      container,
+      (element) => element.getAttribute('data-generate-browser-handoff-complete') === 'published',
+    );
+
+    expect(completeButton).not.toBeNull();
+
+    await act(async () => {
+      completeButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(loadBrowserHandoffsAction).toHaveBeenCalledTimes(2);
+    expect(collectText(container)).not.toContain('Generate browser handoff 结单');
+    expect(collectText(container)).not.toContain(
+      'Handoff 路径：artifacts/browser-handoffs/tiktok/relaunch/tiktok-draft-163.json',
+    );
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
 });

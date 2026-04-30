@@ -60,6 +60,27 @@ interface BrowserHandoffCompletionResponse {
   publishedAt: string | null;
 }
 
+interface BrowserHandoffRecord {
+  platform: string;
+  channelAccountId?: number;
+  draftId: number | string;
+  title: string | null;
+  accountKey: string;
+  status: string;
+  readiness?: string;
+  sessionAction?: string | null;
+  artifactPath: string;
+  createdAt: string;
+  updatedAt: string;
+  resolvedAt: string | null;
+  resolution?: unknown;
+}
+
+interface BrowserHandoffsResponse {
+  handoffs: BrowserHandoffRecord[];
+  total: number;
+}
+
 interface BrowserHandoffContract {
   platform: string | null;
   accountKey: string | null;
@@ -71,6 +92,7 @@ interface BrowserHandoffContract {
 
 interface PublishCalendarPageProps {
   loadDraftsAction?: (projectId?: number) => Promise<DraftsResponse>;
+  loadBrowserHandoffsAction?: () => Promise<BrowserHandoffsResponse>;
   updateDraftScheduleAction?: (
     id: number,
     input: { scheduledAt: string | null },
@@ -82,6 +104,7 @@ interface PublishCalendarPageProps {
   ) => Promise<RequestChannelAccountSessionActionResponse>;
   completeBrowserHandoffAction?: (input: CompleteBrowserHandoffInput) => Promise<BrowserHandoffCompletionResponse>;
   stateOverride?: AsyncState<DraftsResponse>;
+  browserHandoffsStateOverride?: AsyncState<BrowserHandoffsResponse>;
 }
 
 interface ScheduleMutationState {
@@ -135,6 +158,14 @@ const projectInputStyle = {
 
 export async function loadPublishCalendarRequest(projectId?: number): Promise<DraftsResponse> {
   return apiRequest<DraftsResponse>(buildPublishCalendarPath(projectId));
+}
+
+export async function loadPublishCalendarBrowserHandoffsRequest(limit = 100): Promise<BrowserHandoffsResponse> {
+  return apiRequest<BrowserHandoffsResponse>(`/api/system/browser-handoffs?limit=${limit}`);
+}
+
+function defaultLoadPublishCalendarBrowserHandoffsAction() {
+  return loadPublishCalendarBrowserHandoffsRequest(100);
 }
 
 export async function updatePublishCalendarDraftScheduleRequest(
@@ -222,6 +253,11 @@ function readPositiveInteger(value: unknown) {
   return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined;
 }
 
+function readBrowserSessionAction(value: unknown): BrowserSessionAction | null {
+  const normalizedValue = readString(value);
+  return normalizedValue === 'request_session' || normalizedValue === 'relogin' ? normalizedValue : null;
+}
+
 function readBrowserHandoffContract(details: Record<string, unknown> | null): BrowserHandoffContract | null {
   const browserHandoff = asRecord(details?.browserHandoff);
   if (!browserHandoff) {
@@ -231,14 +267,10 @@ function readBrowserHandoffContract(details: Record<string, unknown> | null): Br
   const artifact = browserHandoff.artifact;
   const artifactRecord = asRecord(artifact);
   const sessionActionRecord = asRecord(browserHandoff.sessionAction);
-  const sessionActionValue =
-    readString(browserHandoff.sessionAction) ??
-    readString(sessionActionRecord?.action) ??
-    readString(sessionActionRecord?.type);
   const sessionAction =
-    sessionActionValue === 'request_session' || sessionActionValue === 'relogin'
-      ? sessionActionValue
-      : null;
+    readBrowserSessionAction(browserHandoff.sessionAction) ??
+    readBrowserSessionAction(sessionActionRecord?.action) ??
+    readBrowserSessionAction(sessionActionRecord?.type);
   const artifactPath =
     readString(browserHandoff.artifactPath) ??
     readString(artifact) ??
@@ -263,6 +295,37 @@ function readBrowserHandoffContract(details: Record<string, unknown> | null): Br
     readiness,
     sessionAction,
     artifactPath,
+  };
+}
+
+function readBrowserHandoffDraftId(handoff: BrowserHandoffRecord) {
+  return typeof handoff.draftId === 'number'
+    ? readPositiveInteger(handoff.draftId)
+    : readPositiveInteger(Number(handoff.draftId));
+}
+
+function findPendingBrowserHandoff(handoffs: BrowserHandoffRecord[], draftId: number) {
+  return handoffs.find((handoff) => handoff.status === 'pending' && readBrowserHandoffDraftId(handoff) === draftId) ?? null;
+}
+
+function isReadyBrowserHandoff(handoff: BrowserHandoffRecord) {
+  return handoff.status === 'pending' && (handoff.readiness ?? 'ready') === 'ready';
+}
+
+function getBrowserHandoffBlockedMessage(handoff: BrowserHandoffRecord) {
+  return handoff.sessionAction === 'relogin'
+    ? '等待刷新 Session 后继续发布接管。'
+    : '等待补充 Session 后继续发布接管。';
+}
+
+function toBrowserHandoffContract(handoff: BrowserHandoffRecord): BrowserHandoffContract {
+  return {
+    platform: handoff.platform,
+    accountKey: handoff.accountKey,
+    channelAccountId: handoff.channelAccountId,
+    readiness: handoff.readiness ?? 'ready',
+    sessionAction: readBrowserSessionAction(handoff.sessionAction),
+    artifactPath: handoff.artifactPath,
   };
 }
 
@@ -378,22 +441,25 @@ function formatPublishContractStatus(draft: DraftRecord, mutationState: Schedule
       return '处理中';
     }
 
-    if (mutationState.status === 'success') {
-      if (mutationState.contractStatus === 'queued') {
-        return '已入队';
-      }
-      if (mutationState.contractStatus === 'manual_required') {
-        return '人工接管';
-      }
-      if (mutationState.contractStatus === 'published' || draft.status === 'published') {
-        return '已发布';
-      }
-      return '已确认';
-    }
-
     if (mutationState.status === 'error') {
       return '失败';
     }
+  }
+
+  if (mutationState.contractStatus === 'queued') {
+    return '已入队';
+  }
+
+  if (mutationState.contractStatus === 'manual_required') {
+    return '人工接管';
+  }
+
+  if (mutationState.contractStatus === 'published' || draft.status === 'published') {
+    return '已发布';
+  }
+
+  if (mutationState.action === 'retry' && mutationState.status === 'success') {
+    return '已确认';
   }
 
   if (draft.status === 'published') {
@@ -440,17 +506,30 @@ function getDraftPublishContract(draft: DraftRecord, mutationState: ScheduleMuta
 
 export function PublishCalendarPage({
   loadDraftsAction = loadPublishCalendarRequest,
+  loadBrowserHandoffsAction = defaultLoadPublishCalendarBrowserHandoffsAction,
   updateDraftScheduleAction = updatePublishCalendarDraftScheduleRequest,
   retryPublishDraftAction = retryPublishCalendarDraftRequest,
   requestChannelAccountSessionActionAction = requestPublishCalendarSessionActionRequest,
   completeBrowserHandoffAction = completePublishCalendarBrowserHandoffRequest,
   stateOverride,
+  browserHandoffsStateOverride,
 }: PublishCalendarPageProps) {
   const [projectIdDraft, setProjectIdDraft] = useState('');
   const projectId = parseProjectId(projectIdDraft);
+  const shouldLoadBrowserHandoffsLive = browserHandoffsStateOverride === undefined;
   const { state, reload } = useAsyncQuery(
     () => (projectId === undefined ? loadDraftsAction() : loadDraftsAction(projectId)),
     [loadDraftsAction, projectId],
+  );
+  const { state: browserHandoffsState, reload: reloadBrowserHandoffs } = useAsyncQuery(
+    () =>
+      shouldLoadBrowserHandoffsLive
+        ? loadBrowserHandoffsAction()
+        : Promise.resolve({
+            handoffs: [],
+            total: 0,
+          } satisfies BrowserHandoffsResponse),
+    [loadBrowserHandoffsAction, shouldLoadBrowserHandoffsLive],
   );
   const { run: updateSchedule } = useAsyncAction(
     ({ id, scheduledAt }: { id: number; scheduledAt: string | null }) =>
@@ -471,10 +550,15 @@ export function PublishCalendarPage({
   const followUpScopeVersionRef = useRef(0);
   const retryFollowUpAttemptByIdRef = useRef<Record<number, number>>({});
   const displayState = stateOverride ?? state;
+  const displayBrowserHandoffsState = browserHandoffsStateOverride ?? browserHandoffsState;
   const hasLiveDrafts =
     typeof displayState.data === 'object' &&
     displayState.data !== null &&
     Array.isArray((displayState.data as DraftsResponse).drafts);
+  const browserHandoffs =
+    displayBrowserHandoffsState.status === 'success' && displayBrowserHandoffsState.data
+      ? displayBrowserHandoffsState.data.handoffs
+      : [];
   const visibleDrafts = hasLiveDrafts
     ? (displayState.data as DraftsResponse).drafts.map((draft) => draftsById[draft.id] ?? draft)
     : [];
@@ -523,6 +607,33 @@ export function PublishCalendarPage({
     return mutationStateById[draftId] ?? createIdleMutationState();
   }
 
+  function getDisplayMutationState(draft: DraftRecord) {
+    const currentMutationState = getMutationState(draft.id);
+    if (currentMutationState.status !== 'idle') {
+      return currentMutationState;
+    }
+
+    const persistedBrowserHandoff = findPendingBrowserHandoff(browserHandoffs, draft.id);
+    if (!persistedBrowserHandoff || draft.status === 'published' || draft.status === 'scheduled') {
+      return currentMutationState;
+    }
+
+    return {
+      status: 'success',
+      message: `已恢复人工接管：${draft.title ?? `${draft.platform} draft #${draft.id}`}`,
+      error: null,
+      action: 'retry',
+      publishUrl: null,
+      contractMessage: isReadyBrowserHandoff(persistedBrowserHandoff)
+        ? '发现待处理的 browser handoff，可以直接结单。'
+        : getBrowserHandoffBlockedMessage(persistedBrowserHandoff),
+      contractStatus: 'manual_required',
+      contractDetails: {
+        browserHandoff: toBrowserHandoffContract(persistedBrowserHandoff),
+      },
+    } satisfies ScheduleMutationState;
+  }
+
   function nextRetryFollowUpAttempt(draftId: number) {
     const nextAttempt = (retryFollowUpAttemptByIdRef.current[draftId] ?? 0) + 1;
     retryFollowUpAttemptByIdRef.current[draftId] = nextAttempt;
@@ -557,6 +668,11 @@ export function PublishCalendarPage({
         [field]: value,
       },
     }));
+  }
+
+  function reloadCalendarSurface() {
+    void reload();
+    void reloadBrowserHandoffs();
   }
 
   function applyCompletedBrowserHandoff(result: BrowserHandoffCompletionResponse) {
@@ -846,7 +962,7 @@ export function PublishCalendarPage({
             result,
           },
         }));
-        reload();
+        reloadCalendarSurface();
       })
       .catch((error) => {
         if (scopeVersionAtStart !== followUpScopeVersionRef.current) {
@@ -874,7 +990,7 @@ export function PublishCalendarPage({
     setSessionActionStateById({});
     setBrowserHandoffDraftByArtifactPath({});
     setBrowserHandoffCompletionStateById({});
-    reload();
+    reloadCalendarSurface();
   }
 
   function renderRetryPublishFollowUp(draftId: number, mutationState: ScheduleMutationState) {
@@ -896,12 +1012,15 @@ export function PublishCalendarPage({
     const shouldShowSessionActionButton =
       !!browserHandoff.channelAccountId &&
       (browserHandoff.sessionAction === 'request_session' || browserHandoff.sessionAction === 'relogin');
+    const browserHandoffIsReady = (browserHandoff.readiness ?? 'ready') === 'ready';
     const shouldShowBrowserHandoffCompletionActions =
       !!browserHandoff.artifactPath &&
+      browserHandoffIsReady &&
       (!browserHandoffCompletionState.result || browserHandoffCompletionState.result.draftId !== draftId);
 
     return (
       <div style={{ display: 'grid', gap: '10px' }}>
+        {mutationState.message ? <div>{mutationState.message}</div> : null}
         {shouldShowSessionActionButton ? (
           <div style={{ display: 'grid', gap: '8px' }}>
             <span style={{ fontWeight: 700, color: '#334155' }}>Browser Session 动作</span>
@@ -994,7 +1113,7 @@ export function PublishCalendarPage({
         eyebrow="Publish Queue"
         title="Publish Calendar"
         description="当前页是草稿状态视图，不等同于真实 job_queue 或发布执行结果。"
-        actions={<ActionButton label="重新加载" onClick={handleReloadCalendar} />}
+        actions={<ActionButton label="重新加载 Calendar" onClick={handleReloadCalendar} />}
       />
 
       <label style={{ display: 'grid', gap: '8px', marginBottom: '20px' }}>
@@ -1082,7 +1201,7 @@ export function PublishCalendarPage({
             ) : (
               <div style={{ display: 'grid', gap: '12px' }}>
                 {[...calendarDrafts, ...failedDrafts].map((draft) => {
-                  const mutationState = getMutationState(draft.id);
+                  const mutationState = getDisplayMutationState(draft);
                   const scheduledAt = getScheduledAtValue(draft);
                   const publishContract = getDraftPublishContract(draft, mutationState);
                   const shouldShowPublishContract =

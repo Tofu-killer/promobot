@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ActionButton } from '../components/ActionButton';
 import { apiRequest, getErrorMessage } from '../lib/api';
 import type { AsyncState } from '../hooks/useAsyncRequest';
-import { useAsyncAction } from '../hooks/useAsyncRequest';
+import { useAsyncAction, useAsyncQuery } from '../hooks/useAsyncRequest';
 import { SectionCard } from '../components/SectionCard';
 
 interface PlatformOption {
@@ -162,6 +162,27 @@ interface BrowserHandoffCompletionResponse {
   publishedAt: string | null;
 }
 
+interface BrowserHandoffRecord {
+  platform: string;
+  channelAccountId?: number;
+  draftId: number | string;
+  title: string | null;
+  accountKey: string;
+  status: string;
+  readiness?: string;
+  sessionAction?: string | null;
+  artifactPath: string;
+  createdAt: string;
+  updatedAt: string;
+  resolvedAt: string | null;
+  resolution?: unknown;
+}
+
+interface BrowserHandoffsResponse {
+  handoffs: BrowserHandoffRecord[];
+  total: number;
+}
+
 interface BrowserHandoffContract {
   platform: string | null;
   accountKey: string | null;
@@ -197,6 +218,14 @@ export async function publishGeneratedDraftRequest(id: number): Promise<PublishG
   return apiRequest<PublishGeneratedDraftResponse>(`/api/drafts/${id}/publish`, {
     method: 'POST',
   });
+}
+
+export async function loadGeneratedDraftBrowserHandoffsRequest(limit = 100): Promise<BrowserHandoffsResponse> {
+  return apiRequest<BrowserHandoffsResponse>(`/api/system/browser-handoffs?limit=${limit}`);
+}
+
+function defaultLoadGeneratedDraftBrowserHandoffsAction() {
+  return loadGeneratedDraftBrowserHandoffsRequest(100);
 }
 
 export async function requestGeneratedDraftSessionActionRequest(
@@ -285,6 +314,7 @@ interface GeneratePageProps {
   generateAction?: (input: GenerateDraftsPayload) => Promise<GenerateDraftsResponse>;
   sendDraftToReviewAction?: (id: number) => Promise<SendDraftToReviewResponse>;
   publishGeneratedDraftAction?: (id: number) => Promise<PublishGeneratedDraftResponse>;
+  loadBrowserHandoffsAction?: () => Promise<BrowserHandoffsResponse>;
   requestChannelAccountSessionActionAction?: (
     accountId: number,
     input?: RequestChannelAccountSessionActionPayload,
@@ -295,6 +325,7 @@ interface GeneratePageProps {
     input: { scheduledAt: string | null },
   ) => Promise<ScheduleGeneratedDraftResponse>;
   stateOverride?: AsyncState<GenerateDraftsResponse>;
+  browserHandoffsStateOverride?: AsyncState<BrowserHandoffsResponse>;
   projectIdDraft?: string;
   onProjectIdDraftChange?: (value: string) => void;
 }
@@ -370,6 +401,11 @@ function readPositiveInteger(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined;
 }
 
+function readBrowserSessionAction(value: unknown): BrowserSessionAction | null {
+  const normalizedValue = readString(value);
+  return normalizedValue === 'request_session' || normalizedValue === 'relogin' ? normalizedValue : null;
+}
+
 function readBrowserHandoffContract(details: Record<string, unknown> | null): BrowserHandoffContract | null {
   const browserHandoff = asRecord(details?.browserHandoff);
   if (!browserHandoff) {
@@ -379,14 +415,10 @@ function readBrowserHandoffContract(details: Record<string, unknown> | null): Br
   const artifact = browserHandoff.artifact;
   const artifactRecord = asRecord(artifact);
   const sessionActionRecord = asRecord(browserHandoff.sessionAction);
-  const sessionActionValue =
-    readString(browserHandoff.sessionAction) ??
-    readString(sessionActionRecord?.action) ??
-    readString(sessionActionRecord?.type);
   const sessionAction =
-    sessionActionValue === 'request_session' || sessionActionValue === 'relogin'
-      ? sessionActionValue
-      : null;
+    readBrowserSessionAction(browserHandoff.sessionAction) ??
+    readBrowserSessionAction(sessionActionRecord?.action) ??
+    readBrowserSessionAction(sessionActionRecord?.type);
   const artifactPath =
     readString(browserHandoff.artifactPath) ??
     readString(artifact) ??
@@ -414,6 +446,37 @@ function readBrowserHandoffContract(details: Record<string, unknown> | null): Br
   };
 }
 
+function readBrowserHandoffDraftId(handoff: BrowserHandoffRecord) {
+  return typeof handoff.draftId === 'number'
+    ? readPositiveInteger(handoff.draftId)
+    : readPositiveInteger(Number(handoff.draftId));
+}
+
+function findPendingBrowserHandoff(handoffs: BrowserHandoffRecord[], draftId: number) {
+  return handoffs.find((handoff) => handoff.status === 'pending' && readBrowserHandoffDraftId(handoff) === draftId) ?? null;
+}
+
+function isReadyBrowserHandoff(handoff: BrowserHandoffRecord) {
+  return handoff.status === 'pending' && (handoff.readiness ?? 'ready') === 'ready';
+}
+
+function getBrowserHandoffBlockedMessage(handoff: BrowserHandoffRecord) {
+  return handoff.sessionAction === 'relogin'
+    ? '等待刷新 Session 后继续发布接管。'
+    : '等待补充 Session 后继续发布接管。';
+}
+
+function toBrowserHandoffContract(handoff: BrowserHandoffRecord): BrowserHandoffContract {
+  return {
+    platform: handoff.platform,
+    accountKey: handoff.accountKey,
+    channelAccountId: handoff.channelAccountId,
+    readiness: handoff.readiness ?? 'ready',
+    sessionAction: readBrowserSessionAction(handoff.sessionAction),
+    artifactPath: handoff.artifactPath,
+  };
+}
+
 function readSessionActionArtifactPath(result: RequestChannelAccountSessionActionResponse | undefined) {
   const sessionAction = asRecord(result?.sessionAction);
 
@@ -432,10 +495,12 @@ export function GeneratePage({
   generateAction = generateDraftsRequest,
   sendDraftToReviewAction = sendDraftToReviewRequest,
   publishGeneratedDraftAction = publishGeneratedDraftRequest,
+  loadBrowserHandoffsAction = defaultLoadGeneratedDraftBrowserHandoffsAction,
   requestChannelAccountSessionActionAction = requestGeneratedDraftSessionActionRequest,
   completeBrowserHandoffAction = completeGeneratedDraftBrowserHandoffRequest,
   scheduleGeneratedDraftAction = scheduleGeneratedDraftRequest,
   stateOverride,
+  browserHandoffsStateOverride,
   projectIdDraft,
   onProjectIdDraftChange,
 }: GeneratePageProps) {
@@ -463,14 +528,30 @@ export function GeneratePage({
   const [generationProgressStep, setGenerationProgressStep] = useState(0);
   const followUpScopeVersionRef = useRef(0);
   const publishFollowUpAttemptByIdRef = useRef<Record<number, number>>({});
+  const shouldLoadBrowserHandoffsLive = browserHandoffsStateOverride === undefined;
   const { state, run } = useAsyncAction(generateAction);
+  const { state: browserHandoffsState, reload: reloadBrowserHandoffs } = useAsyncQuery(
+    () =>
+      shouldLoadBrowserHandoffsLive
+        ? loadBrowserHandoffsAction()
+        : Promise.resolve({
+            handoffs: [],
+            total: 0,
+          } satisfies BrowserHandoffsResponse),
+    [loadBrowserHandoffsAction, shouldLoadBrowserHandoffsLive],
+  );
 
   const displayState = stateOverride ?? state;
+  const displayBrowserHandoffsState = browserHandoffsStateOverride ?? browserHandoffsState;
   const generateControlsDisabled = displayState.status === 'loading' || projectIdValidationError !== null;
   const hasGeneratedResults =
     typeof displayState.data === 'object' &&
     displayState.data !== null &&
     Array.isArray((displayState.data as GenerateDraftsResponse).results);
+  const browserHandoffs =
+    displayBrowserHandoffsState.status === 'success' && displayBrowserHandoffsState.data
+      ? displayBrowserHandoffsState.data.handoffs
+      : [];
   const activeGenerationProgressStage = generationProgressStages[generationProgressStep] ?? generationProgressStages[0];
 
   useEffect(() => {
@@ -538,6 +619,39 @@ export function GeneratePage({
     return publishStateByDraftId[draftId] ?? createIdlePublishMutationState();
   }
 
+  function getDisplayPublishState(draftId: number, draftTitle: string): PublishMutationState {
+    const currentPublishState = getPublishState(draftId);
+    if (currentPublishState.status !== 'idle') {
+      return currentPublishState;
+    }
+
+    const persistedBrowserHandoff = findPendingBrowserHandoff(browserHandoffs, draftId);
+    const currentDraftStatus = draftStatusById[draftId];
+    if (
+      !persistedBrowserHandoff ||
+      currentDraftStatus === 'published' ||
+      currentDraftStatus === 'scheduled' ||
+      currentDraftStatus === 'queued' ||
+      currentDraftStatus === 'failed'
+    ) {
+      return currentPublishState;
+    }
+
+    return {
+      status: 'success',
+      message: `已恢复人工接管：${draftTitle}`,
+      error: null,
+      publishUrl: null,
+      contractMessage: isReadyBrowserHandoff(persistedBrowserHandoff)
+        ? '发现待处理的 browser handoff，可以直接结单。'
+        : getBrowserHandoffBlockedMessage(persistedBrowserHandoff),
+      contractStatus: 'manual_required',
+      contractDetails: {
+        browserHandoff: toBrowserHandoffContract(persistedBrowserHandoff),
+      },
+    } satisfies PublishMutationState;
+  }
+
   function getScheduleState(draftId: number): ScheduleMutationState {
     return scheduleStateByDraftId[draftId] ?? createIdleScheduleMutationState();
   }
@@ -555,7 +669,11 @@ export function GeneratePage({
   }
 
   function getDisplayedDraftStatus(draftId: number) {
-    return draftStatusById[draftId] ?? getReviewState(draftId).reviewStatus ?? 'draft';
+    return (
+      draftStatusById[draftId] ??
+      getReviewState(draftId).reviewStatus ??
+      (findPendingBrowserHandoff(browserHandoffs, draftId) ? 'manual_required' : 'draft')
+    );
   }
 
   function nextPublishFollowUpAttempt(draftId: number) {
@@ -853,6 +971,7 @@ export function GeneratePage({
             result,
           },
         }));
+        void reloadBrowserHandoffs();
       })
       .catch((error) => {
         if (scopeVersionAtStart !== followUpScopeVersionRef.current) {
@@ -930,8 +1049,10 @@ export function GeneratePage({
     const shouldShowSessionActionButton =
       !!browserHandoff.channelAccountId &&
       (browserHandoff.sessionAction === 'request_session' || browserHandoff.sessionAction === 'relogin');
+    const browserHandoffIsReady = (browserHandoff.readiness ?? 'ready') === 'ready';
     const shouldShowBrowserHandoffCompletionActions =
       !!browserHandoff.artifactPath &&
+      browserHandoffIsReady &&
       (!browserHandoffCompletionState.result || browserHandoffCompletionState.result.draftId !== draftId);
 
     return (
@@ -1277,9 +1398,11 @@ export function GeneratePage({
             {(displayState.data as GenerateDraftsResponse).results.map((result, index) => (
               (() => {
                 const reviewState = result.draftId !== undefined ? getReviewState(result.draftId) : null;
-                const publishState = result.draftId !== undefined ? getPublishState(result.draftId) : null;
                 const scheduleState = result.draftId !== undefined ? getScheduleState(result.draftId) : null;
                 const scheduledAt = result.draftId !== undefined ? getScheduledAtValue(result.draftId) : '';
+                const draftTitle = result.title ?? `${result.platform} draft #${result.draftId}`;
+                const publishState =
+                  result.draftId !== undefined ? getDisplayPublishState(result.draftId, draftTitle) : null;
                 const displayedDraftStatus = result.draftId !== undefined ? getDisplayedDraftStatus(result.draftId) : null;
                 const reviewActionDisabled =
                   reviewState !== null &&
@@ -1290,7 +1413,6 @@ export function GeneratePage({
                 const scheduleActionDisabled =
                   scheduleState !== null &&
                   (scheduleState.status === 'loading' || displayedDraftStatus !== 'draft');
-                const draftTitle = result.title ?? `${result.platform} draft #${result.draftId}`;
 
                 return (
                   <article
