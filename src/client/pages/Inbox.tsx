@@ -45,6 +45,7 @@ export interface InboxReplyHandoffRecord {
   channelAccountId?: number;
   platform: string;
   itemId: string | number;
+  handoffAttempt?: number;
   source: string;
   title: string | null;
   author: string | null;
@@ -165,6 +166,7 @@ interface BrowserReplyHandoffDetails {
   platform?: string | null;
   channelAccountId?: number | null;
   accountKey?: string | null;
+  handoffAttempt?: number | null;
   readiness?: string | null;
   sessionAction?: string | BrowserReplyHandoffSessionAction | null;
   artifactPath?: string | null;
@@ -243,6 +245,7 @@ export async function requestInboxReplySessionActionRequest(
 
 export interface CompleteInboxReplyHandoffInput {
   artifactPath: string;
+  handoffAttempt: number;
   replyStatus: 'sent' | 'failed';
   message?: string;
   deliveryUrl?: string;
@@ -274,6 +277,7 @@ export async function completeInboxReplyHandoffRequest(
     },
     body: JSON.stringify({
       artifactPath: input.artifactPath,
+      handoffAttempt: input.handoffAttempt,
       replyStatus: input.replyStatus,
       message:
         input.message ??
@@ -484,6 +488,7 @@ function readBrowserReplyHandoff(details: SendInboxReplyDetails | undefined) {
   const platform = readString(browserReplyHandoff.platform);
   const accountKey = readString(browserReplyHandoff.accountKey);
   const channelAccountId = readPositiveInteger(browserReplyHandoff.channelAccountId);
+  const handoffAttempt = readPositiveInteger(browserReplyHandoff.handoffAttempt);
 
   if (!readiness && !sessionAction && !artifactPath && !platform && !accountKey && !channelAccountId) {
     return null;
@@ -493,6 +498,7 @@ function readBrowserReplyHandoff(details: SendInboxReplyDetails | undefined) {
     platform,
     accountKey,
     channelAccountId,
+    handoffAttempt,
     readiness,
     sessionAction,
     artifactPath,
@@ -557,8 +563,35 @@ function readInboxReplyHandoffItemId(handoff: InboxReplyHandoffRecord) {
     : readPositiveInteger(Number(handoff.itemId));
 }
 
+function readInboxReplyHandoffAttempt(handoff: Pick<InboxReplyHandoffRecord, 'handoffAttempt'>) {
+  return readPositiveInteger(handoff.handoffAttempt);
+}
+
+function pickNewerInboxReplyHandoff(
+  current: InboxReplyHandoffRecord | null,
+  candidate: InboxReplyHandoffRecord,
+) {
+  if (!current) {
+    return candidate;
+  }
+
+  const currentAttempt = readInboxReplyHandoffAttempt(current) ?? 0;
+  const candidateAttempt = readInboxReplyHandoffAttempt(candidate) ?? 0;
+  if (candidateAttempt !== currentAttempt) {
+    return candidateAttempt > currentAttempt ? candidate : current;
+  }
+
+  return Date.parse(candidate.updatedAt) >= Date.parse(current.updatedAt) ? candidate : current;
+}
+
 function findPendingInboxReplyHandoff(handoffs: InboxReplyHandoffRecord[], itemId: number) {
-  return handoffs.find((handoff) => handoff.status === 'pending' && readInboxReplyHandoffItemId(handoff) === itemId) ?? null;
+  return handoffs.reduce<InboxReplyHandoffRecord | null>((current, handoff) => {
+    if (handoff.status !== 'pending' || readInboxReplyHandoffItemId(handoff) !== itemId) {
+      return current;
+    }
+
+    return pickNewerInboxReplyHandoff(current, handoff);
+  }, null);
 }
 
 function isReadyInboxReplyHandoff(handoff: InboxReplyHandoffRecord) {
@@ -569,6 +602,27 @@ function getInboxReplyHandoffBlockedMessage(handoff: InboxReplyHandoffRecord) {
   return handoff.sessionAction === 'relogin'
     ? '等待刷新 Session 后继续回复接管。'
     : '等待补充 Session 后继续回复接管。';
+}
+
+function shouldPreferImmediateInboxReplyHandoff(
+  immediate: ReturnType<typeof readBrowserReplyHandoff>,
+  persisted: InboxReplyHandoffRecord | null,
+) {
+  if (!immediate) {
+    return false;
+  }
+
+  if (!persisted) {
+    return true;
+  }
+
+  const immediateAttempt = readPositiveInteger(immediate.handoffAttempt) ?? 0;
+  const persistedAttempt = readInboxReplyHandoffAttempt(persisted) ?? 0;
+  if (immediateAttempt !== persistedAttempt) {
+    return immediateAttempt > persistedAttempt;
+  }
+
+  return false;
 }
 
 export function InboxPage({
@@ -641,6 +695,7 @@ export function InboxPage({
   const [replyHandoffCompletionItemId, setReplyHandoffCompletionItemId] = useState<number | null>(null);
   const [replyHandoffCompletionResult, setReplyHandoffCompletionResult] =
     useState<InboxReplyHandoffCompletionResponse | null>(null);
+  const [replyHandoffCompletionIdentityKey, setReplyHandoffCompletionIdentityKey] = useState<string | null>(null);
   const [manualReplyAssistantCompletionResult, setManualReplyAssistantCompletionResult] = useState<InboxItem | null>(null);
   const [replyHandoffDraftByArtifactPath, setReplyHandoffDraftByArtifactPath] = useState<
     Record<string, { deliveryUrl: string; message: string }>
@@ -733,6 +788,7 @@ export function InboxPage({
     replyHandoffCompletionAttemptRef.current += 1;
     setReplyHandoffCompletionItemId(null);
     setReplyHandoffCompletionResult(null);
+    setReplyHandoffCompletionIdentityKey(null);
     manualReplyAssistantCompletionAttemptRef.current += 1;
     setManualReplyAssistantCompletionResult(null);
     setReplyHandoffDraftByArtifactPath({});
@@ -786,6 +842,8 @@ export function InboxPage({
   const activeReplyDeliveryItemId = hasCurrentReplyDeliveryFollowUp ? replyDeliveryItemId : selectedItem?.id ?? null;
   const replyDeliveryClosedLocally =
     manualReplyAssistantCompletionItemId !== null && manualReplyAssistantCompletionItemId === activeReplyDeliveryItemId;
+  const immediateReplyBrowserHandoff =
+    hasCurrentReplyDeliveryFollowUp && deliveredReplyFeedback ? readBrowserReplyHandoff(deliveredReplyFeedback.details) : null;
   const persistedReplyHandoff =
     activeReplyDeliveryItemId !== null ? findPendingInboxReplyHandoff(replyHandoffs, activeReplyDeliveryItemId) : null;
   const persistedReplyHandoffFeedback = persistedReplyHandoff
@@ -793,48 +851,52 @@ export function InboxPage({
       ? '发现待处理的 Inbox reply handoff，可以直接结单。'
       : getInboxReplyHandoffBlockedMessage(persistedReplyHandoff)
     : null;
-  const immediateReplyBrowserHandoff =
-    hasCurrentReplyDeliveryFollowUp && deliveredReplyFeedback ? readBrowserReplyHandoff(deliveredReplyFeedback.details) : null;
-  const activeReplyBrowserHandoff = persistedReplyHandoff
-    ? {
-        platform: persistedReplyHandoff.platform,
-        accountKey: persistedReplyHandoff.accountKey,
-        channelAccountId: persistedReplyHandoff.channelAccountId,
-        readiness: persistedReplyHandoff.readiness ?? 'ready',
-        sessionAction: persistedReplyHandoff.sessionAction ?? null,
-        artifactPath: persistedReplyHandoff.artifactPath,
-      }
-    : immediateReplyBrowserHandoff;
+  const shouldUsePersistedReplyHandoff =
+    persistedReplyHandoff !== null &&
+    !shouldPreferImmediateInboxReplyHandoff(immediateReplyBrowserHandoff, persistedReplyHandoff);
+  const activeReplyBrowserHandoff =
+    shouldUsePersistedReplyHandoff
+      ? {
+          platform: persistedReplyHandoff.platform,
+          accountKey: persistedReplyHandoff.accountKey,
+          channelAccountId: readPositiveInteger(persistedReplyHandoff.channelAccountId),
+          handoffAttempt: readInboxReplyHandoffAttempt(persistedReplyHandoff),
+          readiness: persistedReplyHandoff.readiness ?? 'ready',
+          sessionAction: persistedReplyHandoff.sessionAction ?? null,
+          artifactPath: persistedReplyHandoff.artifactPath,
+        }
+      : immediateReplyBrowserHandoff;
   const showReplyDeliveryFollowUp = (hasCurrentReplyDeliveryFollowUp || persistedReplyHandoff !== null) && !replyDeliveryClosedLocally;
   const shouldShowReplyDeliveryActions = showReplyDeliveryFollowUp;
   const sendReplyFeedback =
-    deliveredReplyFeedback && !replyDeliveryClosedLocally
+    shouldUsePersistedReplyHandoff && persistedReplyHandoff && !replyDeliveryClosedLocally
+      ? persistedReplyHandoffFeedback
+      : deliveredReplyFeedback && !replyDeliveryClosedLocally
       ? deliveredReplyFeedback.message
-      : persistedReplyHandoff && !replyDeliveryClosedLocally
-        ? persistedReplyHandoffFeedback
       : displaySendReplyState.status === 'error' && replyDeliveryItemId !== null
         ? `发送回复失败：${displaySendReplyState.error}`
         : null;
-  const sendReplyManualReplyAssistant = hasCurrentReplyDeliveryFollowUp && deliveredReplyFeedback
+  const sendReplyManualReplyAssistant =
+    !shouldUsePersistedReplyHandoff && hasCurrentReplyDeliveryFollowUp && deliveredReplyFeedback
     ? readManualReplyAssistant(deliveredReplyFeedback.details)
     : null;
   const sendReplyFeedbackTone =
-    deliveredReplyFeedback && !replyDeliveryClosedLocally
+    shouldUsePersistedReplyHandoff && persistedReplyHandoff && !replyDeliveryClosedLocally
+      ? 'warning'
+      : deliveredReplyFeedback && !replyDeliveryClosedLocally
       ? deliveredReplyFeedback.status === 'sent'
         ? 'success'
         : deliveredReplyFeedback.status === 'manual_required'
           ? 'warning'
           : 'error'
-      : persistedReplyHandoff
-        ? 'warning'
       : displaySendReplyState.status === 'error'
         ? 'error'
         : null;
   const replyDeliveryFeedbackResetKey =
-    deliveredReplyFeedback && replyDeliveryItemId !== null
-      ? `${replyDeliveryItemId}:${deliveredReplyFeedback.status}:${deliveredReplyFeedback.message}`
-      : persistedReplyHandoff && activeReplyDeliveryItemId !== null
-        ? `persisted:${activeReplyDeliveryItemId}:${persistedReplyHandoff.artifactPath}:${persistedReplyHandoff.readiness ?? 'ready'}`
+    shouldUsePersistedReplyHandoff && persistedReplyHandoff && activeReplyDeliveryItemId !== null
+      ? `persisted:${activeReplyDeliveryItemId}:${persistedReplyHandoff.artifactPath}:${persistedReplyHandoff.readiness ?? 'ready'}:${readInboxReplyHandoffAttempt(persistedReplyHandoff) ?? 'none'}`
+      : deliveredReplyFeedback && replyDeliveryItemId !== null
+      ? `${replyDeliveryItemId}:${deliveredReplyFeedback.status}:${deliveredReplyFeedback.message}:${immediateReplyBrowserHandoff?.artifactPath ?? 'none'}:${immediateReplyBrowserHandoff?.handoffAttempt ?? 'none'}`
       : displaySendReplyState.status === 'error' && replyDeliveryItemId !== null
         ? `error:${replyDeliveryItemId}:${displaySendReplyState.error}`
         : null;
@@ -851,6 +913,7 @@ export function InboxPage({
     replyHandoffCompletionAttemptRef.current += 1;
     setReplyHandoffCompletionItemId(null);
     setReplyHandoffCompletionResult(null);
+    setReplyHandoffCompletionIdentityKey(null);
     manualReplyAssistantCompletionAttemptRef.current += 1;
     setManualReplyAssistantCompletionResult(null);
     setReplyHandoffDraftByArtifactPath({});
@@ -1055,7 +1118,12 @@ export function InboxPage({
   }
 
   function handleCompleteReplyHandoff(replyStatus: 'sent' | 'failed') {
-    if (!activeReplyBrowserHandoff?.artifactPath || activeReplyDeliveryItemId === null) {
+    if (
+      !activeReplyBrowserHandoff?.artifactPath ||
+      !Number.isInteger(activeReplyBrowserHandoff.handoffAttempt) ||
+      activeReplyBrowserHandoff.handoffAttempt <= 0 ||
+      activeReplyDeliveryItemId === null
+    ) {
       return;
     }
 
@@ -1063,12 +1131,14 @@ export function InboxPage({
     const message = draft?.message.trim();
     const deliveryUrl = draft?.deliveryUrl.trim();
     const completionAttemptId = replyHandoffCompletionAttemptRef.current + 1;
+    const completionIdentityKey = `${activeReplyDeliveryItemId}:${activeReplyBrowserHandoff.artifactPath}:${activeReplyBrowserHandoff.handoffAttempt}`;
 
     replyHandoffCompletionAttemptRef.current = completionAttemptId;
     setReplyHandoffCompletionItemId(activeReplyDeliveryItemId);
     setReplyHandoffCompletionResult(null);
     void runReplyHandoffCompletion({
       artifactPath: activeReplyBrowserHandoff.artifactPath,
+      handoffAttempt: activeReplyBrowserHandoff.handoffAttempt,
       replyStatus,
       ...(message ? { message } : {}),
       ...(deliveryUrl ? { deliveryUrl } : {}),
@@ -1078,6 +1148,7 @@ export function InboxPage({
           return;
         }
 
+        setReplyHandoffCompletionIdentityKey(completionIdentityKey);
         setReplyHandoffCompletionResult(result);
         reloadInboxSurface();
       })
@@ -1107,10 +1178,18 @@ export function InboxPage({
   const activeReplyHandoffDraft = activeReplyBrowserHandoff?.artifactPath
     ? replyHandoffDraftByArtifactPath[activeReplyBrowserHandoff.artifactPath]
     : undefined;
+  const activeReplyBrowserHandoffAttempt = readPositiveInteger(activeReplyBrowserHandoff?.handoffAttempt);
+  const activeReplyBrowserHandoffIdentityKey =
+    activeReplyBrowserHandoff?.artifactPath &&
+    activeReplyBrowserHandoffAttempt !== undefined &&
+    activeReplyDeliveryItemId !== null
+      ? `${activeReplyDeliveryItemId}:${activeReplyBrowserHandoff.artifactPath}:${activeReplyBrowserHandoffAttempt}`
+      : null;
   const shouldShowReplyHandoffCompletionActions =
     !!activeReplyBrowserHandoff?.artifactPath &&
+    activeReplyBrowserHandoffAttempt !== undefined &&
     (activeReplyBrowserHandoff.readiness ?? 'ready') === 'ready' &&
-    (!completedReplyHandoff || completedReplyHandoff.itemId !== activeReplyDeliveryItemId) &&
+    activeReplyBrowserHandoffIdentityKey !== replyHandoffCompletionIdentityKey &&
     (!persistedReplyHandoff || isReadyInboxReplyHandoff(persistedReplyHandoff));
   const shouldShowSessionActionButton =
     !!activeReplyBrowserHandoff?.channelAccountId &&
