@@ -614,6 +614,118 @@ describe('settings api', () => {
     }
   });
 
+  it('reports facebookGroup readiness as ready when a managed session file exists without saved metadata', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'facebookGroup',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB Group',
+        authType: 'browser',
+        status: 'unknown',
+      });
+
+      const storageStatePath = path.join(
+        rootDir,
+        'browser-sessions',
+        'managed',
+        'facebookGroup',
+        'launch-campaign.json',
+      );
+      mkdirSync(path.dirname(storageStatePath), { recursive: true });
+      writeFileSync(storageStatePath, JSON.stringify({ cookies: [], origins: [] }, null, 2));
+
+      const loaded = await requestApp('GET', '/api/settings');
+
+      expect(loaded.status).toBe(200);
+      expect(JSON.parse(loaded.body)).toEqual({
+        settings: expect.any(Object),
+        platforms: expect.arrayContaining([
+          expect.objectContaining({
+            platform: 'facebookGroup',
+            ready: true,
+            mode: 'browser',
+            status: 'ready',
+            message: 'Facebook Group 已检测到 1 个可用浏览器 session。',
+          }),
+        ]),
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('reports facebookGroup readiness as ready again when a managed session file reappears after a missing downgrade', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'facebookGroup',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB Group',
+        authType: 'browser',
+        status: 'unknown',
+      });
+
+      await requestApp('POST', '/api/channel-accounts/1/session', {
+        storageState: {
+          cookies: [],
+          origins: [],
+        },
+        status: 'active',
+        validatedAt: '2026-04-19T12:34:56.000Z',
+      });
+
+      const storageStatePath = path.join(
+        rootDir,
+        'browser-sessions',
+        'managed',
+        'facebookGroup',
+        'launch-campaign.json',
+      );
+      rmSync(storageStatePath);
+
+      const missing = await requestApp('GET', '/api/settings');
+      expect(missing.status).toBe(200);
+      expect(JSON.parse(missing.body)).toEqual({
+        settings: expect.any(Object),
+        platforms: expect.arrayContaining([
+          expect.objectContaining({
+            platform: 'facebookGroup',
+            ready: false,
+            mode: 'browser',
+            status: 'needs_session',
+            action: 'request_session',
+          }),
+        ]),
+      });
+
+      mkdirSync(path.dirname(storageStatePath), { recursive: true });
+      writeFileSync(storageStatePath, JSON.stringify({ cookies: [], origins: [] }, null, 2));
+
+      const restored = await requestApp('GET', '/api/settings');
+      expect(restored.status).toBe(200);
+      expect(JSON.parse(restored.body)).toEqual({
+        settings: expect.any(Object),
+        platforms: expect.arrayContaining([
+          expect.objectContaining({
+            platform: 'facebookGroup',
+            ready: true,
+            mode: 'browser',
+            status: 'ready',
+            message: 'Facebook Group 已检测到 1 个可用浏览器 session。',
+            details: expect.objectContaining({
+              activeSessionCount: 1,
+              expiredSessionCount: 0,
+              missingSessionCount: 0,
+            }),
+          }),
+        ]),
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('reports xiaohongshu and weibo readiness from browser session state', async () => {
     const { rootDir } = createTestDatabasePath();
     try {

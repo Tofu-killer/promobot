@@ -1,9 +1,11 @@
 import {
   buildBrowserSessionResolution,
   createSessionStore,
+  resolveManagedBrowserSession,
   type BrowserSessionAction,
   type SessionMetadata,
 } from './browser/sessionStore.js';
+import { createChannelAccountStore } from '../store/channelAccounts.js';
 import { isValidGhostAdminApiKey } from './publishers/blog.js';
 
 export interface PlatformReadiness {
@@ -27,21 +29,23 @@ export interface ChannelAccountConnectionCheck {
 
 export function listPlatformReadiness(): PlatformReadiness[] {
   const sessionStore = createSessionStore();
-  const facebookSessions = sessionStore
-    .listSessions()
-    .filter((session) => normalizePlatform(session.platform) === 'facebookGroup');
-  const instagramSessions = sessionStore
-    .listSessions()
-    .filter((session) => normalizePlatform(session.platform) === 'instagram');
-  const tiktokSessions = sessionStore
-    .listSessions()
-    .filter((session) => normalizePlatform(session.platform) === 'tiktok');
-  const xiaohongshuSessions = sessionStore
-    .listSessions()
-    .filter((session) => normalizePlatform(session.platform) === 'xiaohongshu');
-  const weiboSessions = sessionStore
-    .listSessions()
-    .filter((session) => normalizePlatform(session.platform) === 'weibo');
+  hydrateManagedBrowserSessions(sessionStore);
+  const sessions = sessionStore.listSessions();
+  const facebookSessions = sessions.filter(
+    (session) => normalizePlatform(session.platform) === 'facebookGroup',
+  );
+  const instagramSessions = sessions.filter(
+    (session) => normalizePlatform(session.platform) === 'instagram',
+  );
+  const tiktokSessions = sessions.filter(
+    (session) => normalizePlatform(session.platform) === 'tiktok',
+  );
+  const xiaohongshuSessions = sessions.filter(
+    (session) => normalizePlatform(session.platform) === 'xiaohongshu',
+  );
+  const weiboSessions = sessions.filter(
+    (session) => normalizePlatform(session.platform) === 'weibo',
+  );
 
   return [
     getXReadiness(),
@@ -209,8 +213,11 @@ export function evaluateChannelAccountConnection(account: {
   }
 
   const label = formatPlatformLabel(platform);
-  const resolution = buildBrowserSessionResolution(
-    createSessionStore().getSession(platform, account.accountKey),
+  const sessionStore = createSessionStore();
+  const { resolution } = resolveManagedBrowserSession(
+    sessionStore,
+    platform,
+    account.accountKey,
   );
 
   if (resolution.sessionAction === 'relogin') {
@@ -398,7 +405,7 @@ function getBrowserSessionReadiness(
   accountKey: string,
 ): PlatformReadiness {
   const sessionStore = createSessionStore();
-  const resolution = buildBrowserSessionResolution(sessionStore.getSession(platform, accountKey));
+  const { resolution } = resolveManagedBrowserSession(sessionStore, platform, accountKey);
 
   if (resolution.sessionAction === 'relogin') {
     return {
@@ -442,6 +449,21 @@ function getBrowserSessionReadiness(
 
 function normalizePlatform(platform: string): string {
   return platform === 'facebook-group' ? 'facebookGroup' : platform;
+}
+
+function hydrateManagedBrowserSessions(
+  sessionStore: Pick<ReturnType<typeof createSessionStore>, 'getSession' | 'restoreManagedSession'>,
+) {
+  const channelAccountStore = createChannelAccountStore();
+
+  for (const account of channelAccountStore.list()) {
+    const platform = normalizePlatform(account.platform);
+    if (!isAggregatedBrowserPlatform(platform)) {
+      continue;
+    }
+
+    resolveManagedBrowserSession(sessionStore, platform, account.accountKey);
+  }
 }
 
 function resolveBlogPublishDriver(): string {
@@ -562,4 +584,16 @@ function getAggregatedBrowserPlatformReadiness(
       missingSessionCount,
     },
   };
+}
+
+function isAggregatedBrowserPlatform(
+  platform: string,
+): platform is 'facebookGroup' | 'instagram' | 'tiktok' | 'xiaohongshu' | 'weibo' {
+  return (
+    platform === 'facebookGroup' ||
+    platform === 'instagram' ||
+    platform === 'tiktok' ||
+    platform === 'xiaohongshu' ||
+    platform === 'weibo'
+  );
 }

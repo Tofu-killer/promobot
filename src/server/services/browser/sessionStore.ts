@@ -43,6 +43,11 @@ export interface BrowserSessionResolution {
   sessionAction: BrowserSessionAction | null;
 }
 
+export interface ManagedBrowserSessionResolution {
+  sessionMetadata: SessionMetadata | null;
+  resolution: BrowserSessionResolution;
+}
+
 export interface SessionStoreOptions {
   rootDir: string;
 }
@@ -267,6 +272,31 @@ export function buildBrowserSessionResolution(
   return {
     session: summary,
     sessionAction: null,
+  };
+}
+
+export function resolveManagedBrowserSession(
+  sessionStore: Pick<SessionStore, 'getSession' | 'restoreManagedSession'>,
+  platform: BrowserSessionPlatform,
+  accountKey: string,
+): ManagedBrowserSessionResolution {
+  let session = sessionStore.getSession(platform, accountKey);
+  let resolution = buildBrowserSessionResolution(session);
+
+  if (!session || resolution.session.status === 'missing') {
+    const restoredSession =
+      typeof sessionStore.restoreManagedSession === 'function'
+        ? sessionStore.restoreManagedSession(platform, accountKey)
+        : null;
+    if (restoredSession) {
+      session = restoredSession;
+      resolution = buildBrowserSessionResolution(restoredSession);
+    }
+  }
+
+  return {
+    sessionMetadata: session,
+    resolution,
   };
 }
 

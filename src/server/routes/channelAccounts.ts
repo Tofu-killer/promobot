@@ -9,6 +9,7 @@ import {
 import {
   buildSessionSummary,
   createSessionStore,
+  resolveManagedBrowserSession,
   type BrowserSessionAction,
   type SessionStatus,
   type SessionSummary,
@@ -500,7 +501,11 @@ function attachSessionSummary<
     metadata: Record<string, unknown>;
   },
 >(channelAccount: T, sessionStore = createSessionStore()): T & { session: SessionSummary } {
-  const liveSession = sessionStore.getSession(channelAccount.platform, channelAccount.accountKey);
+  const { sessionMetadata: liveSession } = resolveManagedBrowserSession(
+    sessionStore,
+    channelAccount.platform,
+    channelAccount.accountKey,
+  );
   const metadataSession = normalizeMetadataSessionFallback(
     parseSessionSummary(channelAccount.metadata.session),
   );

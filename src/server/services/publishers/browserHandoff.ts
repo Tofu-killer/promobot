@@ -1,6 +1,6 @@
 import {
-  buildBrowserSessionResolution,
   createSessionStore,
+  resolveManagedBrowserSession,
 } from '../browser/sessionStore.js';
 import { createChannelAccountStore } from '../../store/channelAccounts.js';
 import { createStubPublisher } from './stub.js';
@@ -31,18 +31,7 @@ export function createBrowserHandoffPublisher(
     }
 
     const sessionStore = createSessionStore();
-    let session = sessionStore.getSession(platform, accountKey);
-    let resolution = buildBrowserSessionResolution(session);
-    if (!session || resolution.session.status === 'missing') {
-      const restoredSession =
-        typeof sessionStore.restoreManagedSession === 'function'
-          ? sessionStore.restoreManagedSession(platform, accountKey)
-          : null;
-      if (restoredSession) {
-        session = restoredSession;
-        resolution = buildBrowserSessionResolution(restoredSession);
-      }
-    }
+    const { resolution } = resolveManagedBrowserSession(sessionStore, platform, accountKey);
     const draftId = String(request.draftId);
     const channelAccountId = resolveChannelAccountId(
       channelAccountStore.list(),

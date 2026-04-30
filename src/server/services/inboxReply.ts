@@ -12,8 +12,8 @@ import {
   sanitizeSnippet,
 } from './publishers/http.js';
 import {
-  buildBrowserSessionResolution,
   createSessionStore,
+  resolveManagedBrowserSession,
   type BrowserSessionAction,
   type SessionSummary,
 } from './browser/sessionStore.js';
@@ -1077,21 +1077,7 @@ function resolveBrowserReplySessionResolution(
   accountKey: string,
 ) {
   const sessionStore = createSessionStore();
-  let session = sessionStore.getSession(platform, accountKey);
-  let resolution = buildBrowserSessionResolution(session);
-
-  if (!session || resolution.session.status === 'missing') {
-    const restoredSession =
-      typeof sessionStore.restoreManagedSession === 'function'
-        ? sessionStore.restoreManagedSession(platform, accountKey)
-        : null;
-    if (restoredSession) {
-      session = restoredSession;
-      resolution = buildBrowserSessionResolution(restoredSession);
-    }
-  }
-
-  return resolution;
+  return resolveManagedBrowserSession(sessionStore, platform, accountKey).resolution;
 }
 
 function buildBrowserReplyHandoffMessage(

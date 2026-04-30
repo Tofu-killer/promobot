@@ -978,6 +978,67 @@ describe('channel accounts api', () => {
     }
   });
 
+  it('tests a facebookGroup browser account using a managed session file when metadata has not been written yet', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'facebookGroup',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB Group',
+        authType: 'browser',
+        status: 'unknown',
+      });
+
+      writeStorageStateFile(
+        rootDir,
+        'browser-sessions/managed/facebookGroup/launch-campaign.json',
+      );
+
+      const response = await requestApp('POST', '/api/channel-accounts/1/test');
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        ok: true,
+        test: {
+          checkedAt: expect.any(String),
+          status: 'ready',
+          summary: '可用',
+          message: 'Facebook Group 浏览器 session 可用，可以继续发布流程。',
+          details: {
+            ready: true,
+            mode: 'browser',
+            authType: 'browser',
+            session: {
+              hasSession: true,
+              id: 'facebookGroup:launch-campaign',
+              status: 'active',
+              validatedAt: expect.any(String),
+              storageStatePath: 'browser-sessions/managed/facebookGroup/launch-campaign.json',
+            },
+          },
+        },
+        channelAccount: expect.objectContaining({
+          id: 1,
+          status: 'unknown',
+          session: {
+            hasSession: true,
+            id: 'facebookGroup:launch-campaign',
+            status: 'active',
+            validatedAt: expect.any(String),
+            storageStatePath: 'browser-sessions/managed/facebookGroup/launch-campaign.json',
+          },
+          publishReadiness: expect.objectContaining({
+            platform: 'facebookGroup',
+            ready: true,
+            status: 'ready',
+          }),
+        }),
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('returns 404 when testing a missing channel account', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
@@ -3855,6 +3916,121 @@ describe('channel accounts api', () => {
       expect(JSON.parse(listedAfterSession.body)).toEqual({
         channelAccounts: [
           expect.objectContaining({
+            publishReadiness: expect.objectContaining({
+              platform: 'facebookGroup',
+              ready: true,
+              status: 'ready',
+            }),
+          }),
+        ],
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('restores a managed facebookGroup session in channel account listings when metadata has not been written yet', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'facebookGroup',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB Group',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      writeStorageStateFile(
+        rootDir,
+        'browser-sessions/managed/facebookGroup/launch-campaign.json',
+      );
+
+      const listed = await requestApp('GET', '/api/channel-accounts');
+      expect(JSON.parse(listed.body)).toEqual({
+        channelAccounts: [
+          expect.objectContaining({
+            session: {
+              hasSession: true,
+              id: 'facebookGroup:launch-campaign',
+              status: 'active',
+              validatedAt: expect.any(String),
+              storageStatePath: 'browser-sessions/managed/facebookGroup/launch-campaign.json',
+            },
+            publishReadiness: expect.objectContaining({
+              platform: 'facebookGroup',
+              ready: true,
+              status: 'ready',
+            }),
+          }),
+        ],
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('re-restores a managed facebookGroup session in channel account listings after a missing downgrade', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'facebookGroup',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB Group',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      const attachResponse = await requestApp('POST', '/api/channel-accounts/1/session', {
+        storageState: defaultStorageState,
+        status: 'active',
+        validatedAt: '2026-04-20T12:34:56.000Z',
+      });
+      expect(attachResponse.status).toBe(200);
+
+      const managedStoragePath = path.join(
+        rootDir,
+        'browser-sessions',
+        'managed',
+        'facebookGroup',
+        'launch-campaign.json',
+      );
+      rmSync(managedStoragePath);
+
+      const missing = await requestApp('GET', '/api/channel-accounts');
+      expect(missing.status).toBe(200);
+      expect(JSON.parse(missing.body)).toEqual({
+        channelAccounts: [
+          expect.objectContaining({
+            session: expect.objectContaining({
+              hasSession: false,
+              status: 'missing',
+            }),
+            publishReadiness: expect.objectContaining({
+              platform: 'facebookGroup',
+              ready: false,
+              status: 'needs_session',
+            }),
+          }),
+        ],
+      });
+
+      writeStorageStateFile(
+        rootDir,
+        'browser-sessions/managed/facebookGroup/launch-campaign.json',
+      );
+
+      const restored = await requestApp('GET', '/api/channel-accounts');
+      expect(restored.status).toBe(200);
+      expect(JSON.parse(restored.body)).toEqual({
+        channelAccounts: [
+          expect.objectContaining({
+            session: {
+              hasSession: true,
+              id: 'facebookGroup:launch-campaign',
+              status: 'active',
+              validatedAt: expect.any(String),
+              storageStatePath: 'browser-sessions/managed/facebookGroup/launch-campaign.json',
+            },
             publishReadiness: expect.objectContaining({
               platform: 'facebookGroup',
               ready: true,
