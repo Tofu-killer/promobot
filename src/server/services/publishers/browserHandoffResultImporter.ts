@@ -2,6 +2,7 @@ import { createSQLiteDraftStore } from '../../store/drafts.js';
 import { createSQLitePublishLogStore } from '../../store/publishLogs.js';
 import {
   getBrowserHandoffArtifactByPath,
+  promoteBrowserHandoffArtifactToReady,
   resolveBrowserHandoffArtifact,
 } from './browserHandoffArtifacts.js';
 import {
@@ -136,6 +137,13 @@ export async function importBrowserHandoffResultArtifact(
   const consumedAt = (dependencies.now ?? (() => new Date()))().toISOString();
 
   try {
+    const handoffArtifact = getBrowserHandoffArtifactByPath(resultArtifact.handoffArtifactPath);
+    if (handoffArtifact?.status === 'pending' && handoffArtifact.readiness === 'blocked') {
+      promoteBrowserHandoffArtifactToReady({
+        artifactPath: resultArtifact.handoffArtifactPath,
+      });
+    }
+
     const importResult = await importBrowserHandoffResult({
       artifactPath: resultArtifact.handoffArtifactPath,
       publishStatus: resultArtifact.publishStatus,

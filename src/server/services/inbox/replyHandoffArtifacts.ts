@@ -197,7 +197,7 @@ export function resolveInboxReplyHandoffArtifact(input: {
 
 export function promoteInboxReplyHandoffArtifactToReady(input: {
   artifactPath: string;
-  session: SessionSummary;
+  session?: SessionSummary;
 }) {
   const normalizedPath = input.artifactPath.trim().replace(/\\/g, '/');
   if (!normalizedPath) {
@@ -220,7 +220,7 @@ export function promoteInboxReplyHandoffArtifactToReady(input: {
     ...artifact,
     readiness: 'ready',
     sessionAction: null,
-    session: input.session,
+    session: input.session ?? artifact.session,
     updatedAt: new Date().toISOString(),
   };
 

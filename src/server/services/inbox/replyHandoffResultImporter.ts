@@ -1,6 +1,7 @@
 import { createInboxStore } from '../../store/inbox.js';
 import {
   getInboxReplyHandoffArtifactByPath,
+  promoteInboxReplyHandoffArtifactToReady,
   resolveInboxReplyHandoffArtifact,
 } from './replyHandoffArtifacts.js';
 import {
@@ -128,6 +129,13 @@ export async function importInboxReplyHandoffResultArtifact(
   const consumedAt = (dependencies.now ?? (() => new Date()))().toISOString();
 
   try {
+    const handoffArtifact = getInboxReplyHandoffArtifactByPath(resultArtifact.handoffArtifactPath);
+    if (handoffArtifact?.status === 'pending' && handoffArtifact.readiness === 'blocked') {
+      promoteInboxReplyHandoffArtifactToReady({
+        artifactPath: resultArtifact.handoffArtifactPath,
+      });
+    }
+
     const importResult = await importInboxReplyHandoffResult({
       artifactPath: resultArtifact.handoffArtifactPath,
       replyStatus: resultArtifact.replyStatus,

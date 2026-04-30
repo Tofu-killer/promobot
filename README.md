@@ -54,6 +54,7 @@ PromoBot 现在不是“只有 spec 的空仓库”了。
 - 仓库同时提供了 `pnpm browser:lane:submit -- --request-artifact <path> --storage-state-file <path>`，用于从本地 Playwright storage state JSON 生成 `browser_lane_result` artifact；如果再附带 `--base-url` 和 `--admin-password`，会直接把 `requestArtifactPath + storageState` 提交给 importer API，因此 browser lane 不必和服务端共享同一份 result artifact 目录。
 - 如果想把 `request_session`、publish handoff、reply handoff 三类 dispatch 都收敛到一个入口，仓库现在也提供了 `pnpm browser:lane:bridge`。它直接消费 `browserLaneDispatch` 注入的 `PROMOBOT_BROWSER_DISPATCH_KIND` / `PROMOBOT_BROWSER_ARTIFACT_PATH` 等 env，并按类型转调现有 submitter；外部 runner 只需要补上对应结果 env，例如 session request 可以显式传 `PROMOBOT_BROWSER_STORAGE_STATE_FILE`，也可以直接复用 dispatch 注入的 `PROMOBOT_BROWSER_MANAGED_STORAGE_STATE_PATH`。后者是 Promobot 自己维护的 canonical managed session 相对路径，bridge 会按当前数据根目录把它解析到真实文件。publish handoff 用 `PROMOBOT_BROWSER_PUBLISH_STATUS`，reply handoff 用 `PROMOBOT_BROWSER_REPLY_STATUS`。
 - 如果只是想在源码 checkout 里把 `session_request` dispatch 直接回环到现有 importer / submitter，也可以显式打开 `PROMOBOT_BROWSER_LOCAL_AUTORUN=1`。在没有单独配置 `PROMOBOT_BROWSER_LANE_COMMAND` 时，session request 会自动回退到 `pnpm browser:lane:local`；如果需要换成别的本地包装命令，可改配 `PROMOBOT_BROWSER_LOCAL_RUNNER_COMMAND`。这个 local runner 只是复用当前受管 session 文件和既有 submitter / handoff 完成契约，不等于仓库已经内置了真正的 Playwright 登录 / 发布 / 回复自动化。它只会为 `session_request` 自动补默认结果 env；若手工调用它去处理 publish handoff 或 reply handoff，仍必须显式提供 `PROMOBOT_BROWSER_PUBLISH_STATUS` 或 `PROMOBOT_BROWSER_REPLY_STATUS`，避免误结单。
+- 如果 browser lane 命令是在 artifact 已经生成之后才补上的，或者之前因为没有配置 worker / 本地 autorun 而留下了 `ready` 的未结单 artifact，现在可以用 `pnpm browser:lane:reconcile` 显式补偿。默认是 dry-run；加 `--apply` 才会重新 dispatch 这些 `session_request`、publish handoff、reply handoff，并按需补回缺失的 poll job。
 - `facebook-group`、`instagram`、`tiktok`、`weibo`、`xiaohongshu` 的 browser handoff 现在也有正式完成入口：外部 lane 或人工接管完成后，可调用 `POST /api/system/browser-handoffs/import` 回写 `published/failed` 结果，系统会同步更新草稿状态、publish log 和 handoff artifact。
 - 仓库同时提供了 `pnpm browser:handoff:complete -- --artifact-path <path> --status <published|failed>`，用于在本机直接结单 handoff；如果再附带 `--base-url` 和 `--admin-password`，则会走远程 API 导入。
 - `Social Inbox` 的 reply handoff 也有同级完成入口：外部 lane 或人工接管完成回复后，可调用 `POST /api/system/inbox-reply-handoffs/import` 回写 `sent/failed` 结果，系统会同步更新 inbox item 状态和 handoff artifact；源码 checkout 场景可用 `pnpm inbox:reply:handoff:complete -- --artifact-path <path> --status <sent|failed>` 直接结单，bundle-only 场景则用 `node dist/server/cli/inboxReplyHandoffComplete.js --artifact-path <path> --status <sent|failed>`，两者都支持附带 `--message`、`--delivery-url`、`--external-id`、`--delivered-at`，再加 `--base-url` 和 `--admin-password` 时会改走远程 API。
@@ -82,6 +83,7 @@ pnpm rollback:local -- --backup-dir /tmp/promobot-backup --skip-smoke
 pnpm preflight:local -- --skip-smoke
 pnpm browser:lane:bridge -- --help
 pnpm browser:lane:local -- --help
+pnpm browser:lane:reconcile -- --help
 pnpm inbox:reply:handoff:complete -- --help
 node dist/server/cli/inboxReplyHandoffComplete.js --help
 pnpm browser:artifacts:archive -- --older-than-hours 72

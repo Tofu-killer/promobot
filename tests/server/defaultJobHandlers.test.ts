@@ -43,7 +43,10 @@ function writeStorageStateFile(rootDir: string, storageStatePath: string, modifi
   return filePath;
 }
 
-function writePendingBrowserHandoffArtifact(rootDir: string) {
+function writePendingBrowserHandoffArtifact(
+  rootDir: string,
+  overrides: Record<string, unknown> = {},
+) {
   const artifactPath =
     'artifacts/browser-handoffs/instagram/launch-campaign/instagram-draft-1.json';
   const absolutePath = path.join(rootDir, artifactPath);
@@ -55,6 +58,8 @@ function writePendingBrowserHandoffArtifact(rootDir: string) {
         type: 'browser_manual_handoff',
         channelAccountId: 3,
         status: 'pending',
+        readiness: 'ready',
+        sessionAction: null,
         platform: 'instagram',
         draftId: '1',
         title: 'Launch reel',
@@ -72,6 +77,7 @@ function writePendingBrowserHandoffArtifact(rootDir: string) {
         updatedAt: '2026-04-29T07:56:00.000Z',
         resolvedAt: null,
         resolution: null,
+        ...overrides,
       },
       null,
       2,
@@ -1189,6 +1195,104 @@ describe('default job handlers', () => {
     }
   });
 
+  it('imports matching blocked inbox reply handoff result artifacts when the poll handler runs', async () => {
+    const { rootDir } = createTestDatabasePath();
+
+    try {
+      const inboxStore = createInboxStore();
+      const jobQueueStore = createJobQueueStore();
+      const item = inboxStore.create({
+        projectId: 1,
+        source: 'weibo',
+        status: 'needs_reply',
+        author: 'ops-user',
+        title: 'Community question',
+        excerpt: 'Can you share current response times?',
+        metadata: {
+          accountKey: 'weibo-browser-main',
+        },
+      });
+      const handoffArtifactPath = writePendingInboxReplyHandoffArtifact(rootDir, item.id, {
+        readiness: 'blocked',
+        sessionAction: 'request_session',
+        session: {
+          hasSession: false,
+          id: 'weibo:weibo-browser-main',
+          status: 'missing',
+          validatedAt: null,
+          storageStatePath: null,
+        },
+      });
+      const resultArtifactPath = writeInboxReplyHandoffResultArtifact(
+        rootDir,
+        handoffArtifactPath,
+        item.id,
+      );
+
+      const handlers = createDefaultJobHandlers();
+      await handlers[inboxReplyHandoffPollJobType](
+        {
+          artifactPath: handoffArtifactPath,
+          attempt: 0,
+          maxAttempts: 3,
+          pollDelayMs: 60_000,
+        },
+        createJobRecord({
+          id: 63,
+          type: inboxReplyHandoffPollJobType,
+          payload: {
+            artifactPath: handoffArtifactPath,
+            attempt: 0,
+            maxAttempts: 3,
+            pollDelayMs: 60_000,
+          },
+          runAt: '2026-04-29T08:02:00.000Z',
+        }),
+      );
+
+      expect(inboxStore.list()).toEqual([
+        expect.objectContaining({
+          id: item.id,
+          status: 'handled',
+        }),
+      ]);
+      expect(
+        JSON.parse(readFileSync(path.join(rootDir, handoffArtifactPath), 'utf8')),
+      ).toEqual(
+        expect.objectContaining({
+          status: 'resolved',
+          readiness: 'ready',
+          sessionAction: null,
+          resolvedAt: expect.any(String),
+          resolution: expect.objectContaining({
+            replyStatus: 'sent',
+            itemStatus: 'handled',
+            deliveryUrl: 'https://weibo.test/post/12#reply-42',
+            externalId: 'wb-reply-42',
+            message: 'browser lane replied from weibo',
+          }),
+        }),
+      );
+      expect(
+        JSON.parse(readFileSync(path.join(rootDir, resultArtifactPath), 'utf8')),
+      ).toEqual(
+        expect.objectContaining({
+          consumedAt: expect.any(String),
+          resolution: expect.objectContaining({
+            status: 'imported',
+            handoffArtifactPath,
+            itemId: item.id,
+            itemStatus: 'handled',
+            replyStatus: 'sent',
+          }),
+        }),
+      );
+      expect(jobQueueStore.list({ limit: 10 })).toEqual([]);
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('requeues a follow-up poll job when the inbox reply handoff result is still missing', async () => {
     const { rootDir } = createTestDatabasePath();
 
@@ -1451,6 +1555,102 @@ describe('default job handlers', () => {
           }),
         }),
       );
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('imports matching blocked browser handoff result artifacts when the poll handler runs', async () => {
+    const { rootDir } = createTestDatabasePath();
+
+    try {
+      const draftStore = createSQLiteDraftStore();
+      const publishLogStore = createSQLitePublishLogStore();
+      const jobQueueStore = createJobQueueStore();
+      draftStore.create({
+        projectId: 55,
+        platform: 'instagram',
+        title: 'Launch reel',
+        content: 'Needs browser lane publish',
+        target: 'campaign-1',
+        status: 'review',
+      });
+      const handoffArtifactPath = writePendingBrowserHandoffArtifact(rootDir, {
+        readiness: 'blocked',
+        sessionAction: 'relogin',
+        session: {
+          hasSession: false,
+          id: 'instagram:launch-campaign',
+          status: 'expired',
+          validatedAt: null,
+          storageStatePath: null,
+        },
+      });
+      const resultArtifactPath = writeBrowserHandoffResultArtifact(rootDir, handoffArtifactPath);
+
+      const handlers = createDefaultJobHandlers();
+      await handlers[browserHandoffPollJobType](
+        {
+          artifactPath: handoffArtifactPath,
+          attempt: 0,
+          maxAttempts: 3,
+          pollDelayMs: 60_000,
+        },
+        createJobRecord({
+          id: 52,
+          type: browserHandoffPollJobType,
+          payload: {
+            artifactPath: handoffArtifactPath,
+            attempt: 0,
+            maxAttempts: 3,
+            pollDelayMs: 60_000,
+          },
+          runAt: '2026-04-29T08:02:00.000Z',
+        }),
+      );
+
+      expect(draftStore.getById(1)).toEqual(
+        expect.objectContaining({
+          status: 'published',
+          publishedAt: '2026-04-29T08:01:00.000Z',
+        }),
+      );
+      expect(publishLogStore.listByDraftId(1)).toEqual([
+        expect.objectContaining({
+          draftId: 1,
+          projectId: 55,
+          status: 'published',
+          publishUrl: 'https://instagram.com/p/launch-reel',
+          message: 'browser lane published the reel',
+        }),
+      ]);
+      expect(
+        JSON.parse(readFileSync(path.join(rootDir, handoffArtifactPath), 'utf8')),
+      ).toEqual(
+        expect.objectContaining({
+          status: 'resolved',
+          readiness: 'ready',
+          sessionAction: null,
+          resolvedAt: expect.any(String),
+          resolution: expect.objectContaining({
+            publishStatus: 'published',
+            publishUrl: 'https://instagram.com/p/launch-reel',
+            message: 'browser lane published the reel',
+          }),
+        }),
+      );
+      expect(
+        JSON.parse(readFileSync(path.join(rootDir, resultArtifactPath), 'utf8')),
+      ).toEqual(
+        expect.objectContaining({
+          consumedAt: expect.any(String),
+          resolution: expect.objectContaining({
+            status: 'imported',
+            draftStatus: 'published',
+          }),
+        }),
+      );
+      expect(jobQueueStore.list({ limit: 10 })).toEqual([]);
     } finally {
       cleanupTestDatabasePath(rootDir);
     }

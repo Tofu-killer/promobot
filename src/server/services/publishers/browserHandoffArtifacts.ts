@@ -184,6 +184,43 @@ export function resolveBrowserHandoffArtifact(input: {
   });
 }
 
+export function promoteBrowserHandoffArtifactToReady(input: {
+  artifactPath: string;
+}) {
+  const normalizedPath = input.artifactPath.trim().replace(/\\/g, '/');
+  if (!normalizedPath) {
+    return null;
+  }
+
+  const artifactRootDir = resolveArtifactRootDir();
+  const absolutePath = path.resolve(artifactRootDir, normalizedPath);
+  const portablePath = path.relative(artifactRootDir, absolutePath).split(path.sep).join('/');
+  if (!portablePath.startsWith('artifacts/browser-handoffs/')) {
+    return null;
+  }
+
+  const artifact = readBrowserHandoffArtifact(absolutePath);
+  if (!artifact || artifact.status !== 'pending') {
+    return null;
+  }
+
+  const nextArtifact: BrowserHandoffArtifactRecord = {
+    ...artifact,
+    readiness: 'ready',
+    sessionAction: null,
+    updatedAt: new Date().toISOString(),
+  };
+
+  fs.writeFileSync(absolutePath, JSON.stringify(nextArtifact, null, 2), 'utf8');
+
+  return {
+    artifactPath: portablePath,
+    updatedAt: nextArtifact.updatedAt,
+    readiness: nextArtifact.readiness,
+    sessionAction: nextArtifact.sessionAction,
+  };
+}
+
 export function listBrowserHandoffArtifacts(limit?: number): BrowserHandoffArtifactSummary[] {
   const artifactRootDir = resolveArtifactRootDir();
   const browserHandoffDir = path.join(artifactRootDir, 'artifacts', 'browser-handoffs');

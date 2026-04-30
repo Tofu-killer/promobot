@@ -20,7 +20,7 @@ export interface BrowserLaneDispatchInput {
   itemId?: string;
 }
 
-export type BrowserLaneDispatch = (input: BrowserLaneDispatchInput) => void;
+export type BrowserLaneDispatch = (input: BrowserLaneDispatchInput) => boolean;
 
 interface BrowserLaneDispatchDependencies {
   cwd?: string;
@@ -52,7 +52,7 @@ export function createBrowserLaneDispatch(
   return (input) => {
     const command = resolveBrowserLaneDispatchCommand(env, input.kind);
     if (!command) {
-      return;
+      return false;
     }
 
     try {
@@ -84,12 +84,14 @@ export function createBrowserLaneDispatch(
         );
       });
       child.unref();
+      return true;
     } catch (error) {
       logger.warn(
         `[browser-lane-dispatch] ${input.kind} failed for ${input.artifactPath}: ${
           error instanceof Error ? error.message : String(error)
         }`,
       );
+      return false;
     }
   };
 }

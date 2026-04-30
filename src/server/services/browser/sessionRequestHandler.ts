@@ -26,8 +26,8 @@ import {
 export const channelAccountSessionRequestJobType = 'channel_account_session_request';
 export const channelAccountSessionRequestPollJobType = 'channel_account_session_request_poll';
 
-const defaultSessionRequestPollDelayMs = 60_000;
-const defaultSessionRequestPollMaxAttempts = 60;
+export const defaultSessionRequestPollDelayMs = 60_000;
+export const defaultSessionRequestPollMaxAttempts = 60;
 const sessionRequestPollQueueScanLimit = 200;
 
 export interface ChannelAccountSessionRequestJobPayload {
@@ -508,7 +508,7 @@ function normalizeSessionRequestPollPayload(
   };
 }
 
-function hasOutstandingSessionRequestPollJob(
+export function hasOutstandingSessionRequestPollJob(
   jobQueueStore: Pick<JobQueueStore, 'list'>,
   input: {
     accountId: number;

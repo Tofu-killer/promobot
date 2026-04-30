@@ -5,6 +5,14 @@ import type { JobQueueEntry, JobQueueStore } from '../../store/jobQueue.js';
 import { createJobQueueStore } from '../../store/jobQueue.js';
 import type { PublishLogRecord, PublishLogStore } from '../../store/publishLogs.js';
 import { createSQLitePublishLogStore } from '../../store/publishLogs.js';
+import { listBrowserHandoffArtifacts } from '../publishers/browserHandoffArtifacts.js';
+import {
+  browserHandoffPollJobType,
+  defaultBrowserHandoffPollDelayMs,
+  defaultBrowserHandoffPollMaxAttempts,
+  hasOutstandingBrowserHandoffPollJob,
+} from '../publishers/browserHandoffPollHandler.js';
+import { getBrowserHandoffResultArtifact } from '../publishers/browserHandoffResultArtifacts.js';
 
 type ResumableSessionSummary = {
   hasSession?: boolean;
@@ -14,7 +22,7 @@ type ResumableSessionSummary = {
 export interface ResumeBlockedBrowserPublishesDependencies {
   draftStore?: Pick<DraftStore, 'list'>;
   publishLogStore?: Pick<PublishLogStore, 'listByDraftId'>;
-  jobQueueStore?: Pick<JobQueueStore, 'schedulePublishJob'>;
+  jobQueueStore?: Pick<JobQueueStore, 'enqueue' | 'list' | 'schedulePublishJob'>;
   now?: () => Date;
 }
 
@@ -30,7 +38,8 @@ export function resumeBlockedBrowserPublishesForChannelAccount(
   const draftStore = dependencies.draftStore ?? createSQLiteDraftStore();
   const publishLogStore = dependencies.publishLogStore ?? createSQLitePublishLogStore();
   const jobQueueStore = dependencies.jobQueueStore ?? createJobQueueStore();
-  const nowIso = (dependencies.now ?? (() => new Date()))().toISOString();
+  const now = dependencies.now ?? (() => new Date());
+  const nowIso = now().toISOString();
   const drafts = draftStore.list('review', channelAccount.projectId ?? undefined);
   const resumedJobs: JobQueueEntry[] = [];
 
@@ -42,6 +51,27 @@ export function resumeBlockedBrowserPublishesForChannelAccount(
     const latestPublishLog = getLatestPublishLog(publishLogStore.listByDraftId(draft.id));
     if (!isSessionBlockedPublishLog(latestPublishLog, draft)) {
       continue;
+    }
+
+    const blockedHandoff = findPendingBlockedBrowserHandoffArtifact(channelAccount, draft);
+    if (blockedHandoff) {
+      const hasPollJob = hasOutstandingBrowserHandoffPollJob(jobQueueStore, {
+        artifactPath: blockedHandoff.artifactPath,
+        currentJobId: undefined,
+      });
+      const resultArtifact = getBrowserHandoffResultArtifact({
+        platform: blockedHandoff.platform,
+        accountKey: blockedHandoff.accountKey,
+        draftId: blockedHandoff.draftId,
+      });
+      if (resultArtifact?.consumedAt === null) {
+        if (!hasPollJob) {
+          resumedJobs.push(
+            enqueueBrowserHandoffPollJob(jobQueueStore, blockedHandoff.artifactPath, now),
+          );
+        }
+        continue;
+      }
     }
 
     resumedJobs.push(jobQueueStore.schedulePublishJob(draft.id, nowIso, draft.projectId));
@@ -80,6 +110,38 @@ function isSessionBlockedPublishLog(log: PublishLogRecord | undefined, draft: Dr
     log.message ===
       `${platform} draft ${draft.id} requires the browser session to be refreshed before manual handoff.`
   );
+}
+
+function findPendingBlockedBrowserHandoffArtifact(
+  channelAccount: Pick<ChannelAccountRecord, 'platform' | 'accountKey'>,
+  draft: DraftRecord,
+) {
+  return listBrowserHandoffArtifacts().find(
+    (artifact) =>
+      artifact.status === 'pending' &&
+      artifact.readiness === 'blocked' &&
+      artifact.resolvedAt === null &&
+      artifact.draftId === String(draft.id) &&
+      normalizePlatform(artifact.platform) === normalizePlatform(channelAccount.platform) &&
+      artifact.accountKey === channelAccount.accountKey,
+  );
+}
+
+function enqueueBrowserHandoffPollJob(
+  jobQueueStore: Pick<JobQueueStore, 'enqueue'>,
+  artifactPath: string,
+  now: () => Date,
+) {
+  return jobQueueStore.enqueue({
+    type: browserHandoffPollJobType,
+    payload: {
+      artifactPath,
+      attempt: 0,
+      maxAttempts: defaultBrowserHandoffPollMaxAttempts,
+      pollDelayMs: defaultBrowserHandoffPollDelayMs,
+    },
+    runAt: new Date(now().getTime() + defaultBrowserHandoffPollDelayMs).toISOString(),
+  });
 }
 
 function readDraftAccountKey(metadata: DraftRecord['metadata']) {

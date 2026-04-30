@@ -14,7 +14,7 @@ describe('createBrowserLaneDispatch', () => {
       spawn,
     });
 
-    dispatch({
+    const dispatched = dispatch({
       kind: 'publish_handoff',
       artifactPath: 'artifacts/browser-handoffs/instagram/main/instagram-draft-1.json',
       platform: 'instagram',
@@ -22,6 +22,7 @@ describe('createBrowserLaneDispatch', () => {
       draftId: '1',
     });
 
+    expect(dispatched).toBe(false);
     expect(spawn).not.toHaveBeenCalled();
   });
 
@@ -45,7 +46,7 @@ describe('createBrowserLaneDispatch', () => {
       spawn,
     });
 
-    dispatch({
+    const dispatched = dispatch({
       kind: 'publish_handoff',
       artifactPath: 'artifacts/browser-handoffs/instagram/main/instagram-draft-1.json',
       platform: 'instagram',
@@ -54,6 +55,7 @@ describe('createBrowserLaneDispatch', () => {
       draftId: '1',
     });
 
+    expect(dispatched).toBe(true);
     expect(spawn).toHaveBeenCalledTimes(1);
     expect(spawn).toHaveBeenCalledWith('publish-browser-lane', {
       cwd: '/tmp/promobot',
@@ -89,15 +91,17 @@ describe('createBrowserLaneDispatch', () => {
       spawn,
     });
 
-    dispatch({
-      kind: 'session_request',
-      artifactPath: 'artifacts/browser-lane-requests/x/-promobot/request-session-job-41.json',
-      platform: 'x',
-      accountKey: '@promobot',
-      managedStorageStatePath: 'browser-sessions/managed/x/-promobot.json',
-      requestJobId: 41,
-      sessionAction: 'request_session',
-    });
+    expect(
+      dispatch({
+        kind: 'session_request',
+        artifactPath: 'artifacts/browser-lane-requests/x/-promobot/request-session-job-41.json',
+        platform: 'x',
+        accountKey: '@promobot',
+        managedStorageStatePath: 'browser-sessions/managed/x/-promobot.json',
+        requestJobId: 41,
+        sessionAction: 'request_session',
+      }),
+    ).toBe(true);
 
     expect(spawn).toHaveBeenCalledWith('generic-browser-lane', {
       cwd: process.cwd(),
@@ -128,15 +132,17 @@ describe('createBrowserLaneDispatch', () => {
       spawn,
     });
 
-    dispatch({
-      kind: 'session_request',
-      artifactPath: 'artifacts/browser-lane-requests/instagram/main/request-session-job-4.json',
-      platform: 'instagram',
-      accountKey: 'main',
-      managedStorageStatePath: 'browser-sessions/managed/instagram/main.json',
-      requestJobId: 4,
-      sessionAction: 'request_session',
-    });
+    expect(
+      dispatch({
+        kind: 'session_request',
+        artifactPath: 'artifacts/browser-lane-requests/instagram/main/request-session-job-4.json',
+        platform: 'instagram',
+        accountKey: 'main',
+        managedStorageStatePath: 'browser-sessions/managed/instagram/main.json',
+        requestJobId: 4,
+        sessionAction: 'request_session',
+      }),
+    ).toBe(true);
 
     expect(spawn).toHaveBeenCalledWith('pnpm browser:lane:local', {
       cwd: '/tmp/promobot',
@@ -166,13 +172,15 @@ describe('createBrowserLaneDispatch', () => {
       spawn,
     });
 
-    dispatch({
-      kind: 'publish_handoff',
-      artifactPath: 'artifacts/browser-handoffs/instagram/main/instagram-draft-4.json',
-      platform: 'instagram',
-      accountKey: 'main',
-      draftId: '4',
-    });
+    expect(
+      dispatch({
+        kind: 'publish_handoff',
+        artifactPath: 'artifacts/browser-handoffs/instagram/main/instagram-draft-4.json',
+        platform: 'instagram',
+        accountKey: 'main',
+        draftId: '4',
+      }),
+    ).toBe(false);
 
     expect(spawn).not.toHaveBeenCalled();
   });
@@ -186,13 +194,15 @@ describe('createBrowserLaneDispatch', () => {
       spawn,
     });
 
-    dispatch({
-      kind: 'inbox_reply_handoff',
-      artifactPath: 'artifacts/inbox-reply-handoffs/weibo/main/weibo-inbox-item-4.json',
-      platform: 'weibo',
-      accountKey: 'main',
-      itemId: '4',
-    });
+    expect(
+      dispatch({
+        kind: 'inbox_reply_handoff',
+        artifactPath: 'artifacts/inbox-reply-handoffs/weibo/main/weibo-inbox-item-4.json',
+        platform: 'weibo',
+        accountKey: 'main',
+        itemId: '4',
+      }),
+    ).toBe(false);
 
     expect(spawn).not.toHaveBeenCalled();
   });
@@ -224,22 +234,26 @@ describe('createBrowserLaneDispatch', () => {
     });
 
     expect(() =>
-      dispatch({
-        kind: 'inbox_reply_handoff',
-        artifactPath: 'artifacts/inbox-reply-handoffs/weibo/main/weibo-inbox-item-1.json',
-        platform: 'weibo',
-        accountKey: 'main',
-        itemId: '1',
-      }),
+      expect(
+        dispatch({
+          kind: 'inbox_reply_handoff',
+          artifactPath: 'artifacts/inbox-reply-handoffs/weibo/main/weibo-inbox-item-1.json',
+          platform: 'weibo',
+          accountKey: 'main',
+          itemId: '1',
+        }),
+      ).toBe(false),
     ).not.toThrow();
     expect(() =>
-      dispatch({
-        kind: 'inbox_reply_handoff',
-        artifactPath: 'artifacts/inbox-reply-handoffs/weibo/main/weibo-inbox-item-2.json',
-        platform: 'weibo',
-        accountKey: 'main',
-        itemId: '2',
-      }),
+      expect(
+        dispatch({
+          kind: 'inbox_reply_handoff',
+          artifactPath: 'artifacts/inbox-reply-handoffs/weibo/main/weibo-inbox-item-2.json',
+          platform: 'weibo',
+          accountKey: 'main',
+          itemId: '2',
+        }),
+      ).toBe(true),
     ).not.toThrow();
 
     listeners.close?.(1, null);
@@ -281,13 +295,15 @@ describe('createBrowserLaneDispatch', () => {
     });
 
     expect(() =>
-      dispatch({
-        kind: 'publish_handoff',
-        artifactPath: 'artifacts/browser-handoffs/instagram/main/instagram-draft-9.json',
-        platform: 'instagram',
-        accountKey: 'main',
-        draftId: '9',
-      }),
+      expect(
+        dispatch({
+          kind: 'publish_handoff',
+          artifactPath: 'artifacts/browser-handoffs/instagram/main/instagram-draft-9.json',
+          platform: 'instagram',
+          accountKey: 'main',
+          draftId: '9',
+        }),
+      ).toBe(true),
     ).not.toThrow();
 
     listeners.error?.(new Error('async boom'));

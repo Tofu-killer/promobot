@@ -10,6 +10,7 @@ import {
   listInboxReplyHandoffArtifacts,
   promoteInboxReplyHandoffArtifactToReady,
 } from '../inbox/replyHandoffArtifacts.js';
+import { getInboxReplyHandoffResultArtifact } from '../inbox/replyHandoffResultArtifacts.js';
 import {
   defaultInboxReplyHandoffPollDelayMs,
   defaultInboxReplyHandoffPollMaxAttempts,
@@ -41,6 +42,24 @@ export function resumeBlockedInboxReplyHandoffsForChannelAccount(
   );
 
   for (const artifact of matchingArtifacts) {
+    const hasPollJob = hasOutstandingInboxReplyHandoffPollJob(jobQueueStore, {
+      artifactPath: artifact.artifactPath,
+      currentJobId: undefined,
+    });
+    const resultArtifact = getInboxReplyHandoffResultArtifact({
+      platform: artifact.platform,
+      accountKey: artifact.accountKey,
+      itemId: artifact.itemId,
+    });
+    if (resultArtifact?.consumedAt === null) {
+      if (!hasPollJob) {
+        resumedJobs.push(
+          enqueueInboxReplyHandoffPollJob(jobQueueStore, artifact.artifactPath, now),
+        );
+      }
+      continue;
+    }
+
     const promotedArtifact = promoteInboxReplyHandoffArtifactToReady({
       artifactPath: artifact.artifactPath,
       session,
@@ -58,30 +77,31 @@ export function resumeBlockedInboxReplyHandoffsForChannelAccount(
       itemId: artifact.itemId,
     });
 
-    if (
-      hasOutstandingInboxReplyHandoffPollJob(jobQueueStore, {
-        artifactPath: artifact.artifactPath,
-        currentJobId: undefined,
-      })
-    ) {
+    if (hasPollJob) {
       continue;
     }
 
-    resumedJobs.push(
-      jobQueueStore.enqueue({
-        type: inboxReplyHandoffPollJobType,
-        payload: {
-          artifactPath: artifact.artifactPath,
-          attempt: 0,
-          maxAttempts: defaultInboxReplyHandoffPollMaxAttempts,
-          pollDelayMs: defaultInboxReplyHandoffPollDelayMs,
-        },
-        runAt: new Date(now().getTime() + defaultInboxReplyHandoffPollDelayMs).toISOString(),
-      }),
-    );
+    resumedJobs.push(enqueueInboxReplyHandoffPollJob(jobQueueStore, artifact.artifactPath, now));
   }
 
   return resumedJobs;
+}
+
+function enqueueInboxReplyHandoffPollJob(
+  jobQueueStore: Pick<JobQueueStore, 'enqueue'>,
+  artifactPath: string,
+  now: () => Date,
+) {
+  return jobQueueStore.enqueue({
+    type: inboxReplyHandoffPollJobType,
+    payload: {
+      artifactPath,
+      attempt: 0,
+      maxAttempts: defaultInboxReplyHandoffPollMaxAttempts,
+      pollDelayMs: defaultInboxReplyHandoffPollDelayMs,
+    },
+    runAt: new Date(now().getTime() + defaultInboxReplyHandoffPollDelayMs).toISOString(),
+  });
 }
 
 function isResumableSession(session: SessionSummary | null): session is SessionSummary & {

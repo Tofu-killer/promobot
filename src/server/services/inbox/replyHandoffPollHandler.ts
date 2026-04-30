@@ -45,10 +45,7 @@ export function createInboxReplyHandoffPollJobHandler(
       throw new Error(`inbox reply handoff artifact not found for ${inboxReplyHandoffPollJobType} job ${job.id}`);
     }
 
-    if (
-      handoffArtifact.status !== 'pending' ||
-      handoffArtifact.readiness === 'blocked'
-    ) {
+    if (handoffArtifact.status !== 'pending') {
       return;
     }
 
@@ -60,6 +57,10 @@ export function createInboxReplyHandoffPollJobHandler(
 
     if (resultArtifact?.consumedAt === null) {
       await importResultArtifact(resultArtifact.artifactPath);
+      return;
+    }
+
+    if (handoffArtifact.readiness === 'blocked') {
       return;
     }
 
