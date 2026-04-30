@@ -866,6 +866,13 @@ export function InboxPage({
           artifactPath: persistedReplyHandoff.artifactPath,
         }
       : immediateReplyBrowserHandoff;
+  const activeReplyBrowserHandoffAttempt = readPositiveInteger(activeReplyBrowserHandoff?.handoffAttempt);
+  const activeReplyBrowserHandoffIdentityKey =
+    activeReplyBrowserHandoff?.artifactPath &&
+    activeReplyBrowserHandoffAttempt !== undefined &&
+    activeReplyDeliveryItemId !== null
+      ? `${activeReplyDeliveryItemId}:${activeReplyBrowserHandoff.artifactPath}:${activeReplyBrowserHandoffAttempt}`
+      : null;
   const showReplyDeliveryFollowUp = (hasCurrentReplyDeliveryFollowUp || persistedReplyHandoff !== null) && !replyDeliveryClosedLocally;
   const shouldShowReplyDeliveryActions = showReplyDeliveryFollowUp;
   const sendReplyFeedback =
@@ -910,14 +917,26 @@ export function InboxPage({
   useEffect(() => {
     setManualReplyAssistantFeedback(null);
     setSessionActionItemId(null);
-    replyHandoffCompletionAttemptRef.current += 1;
-    setReplyHandoffCompletionItemId(null);
-    setReplyHandoffCompletionResult(null);
-    setReplyHandoffCompletionIdentityKey(null);
+    const shouldPreserveReplyHandoffCompletion =
+      activeReplyBrowserHandoffIdentityKey !== null &&
+      replyHandoffCompletionIdentityKey !== null &&
+      activeReplyBrowserHandoffIdentityKey === replyHandoffCompletionIdentityKey;
+
+    if (!shouldPreserveReplyHandoffCompletion) {
+      replyHandoffCompletionAttemptRef.current += 1;
+      setReplyHandoffCompletionItemId(null);
+      setReplyHandoffCompletionResult(null);
+      setReplyHandoffCompletionIdentityKey(null);
+    }
     manualReplyAssistantCompletionAttemptRef.current += 1;
     setManualReplyAssistantCompletionResult(null);
     setReplyHandoffDraftByArtifactPath({});
-  }, [deliveredReplyFeedbackItemId, replyDeliveryFeedbackResetKey]);
+  }, [
+    activeReplyBrowserHandoffIdentityKey,
+    deliveredReplyFeedbackItemId,
+    replyDeliveryFeedbackResetKey,
+    replyHandoffCompletionIdentityKey,
+  ]);
 
   const sessionActionFeedback =
     displaySessionActionState.status === 'success' && displaySessionActionState.data && sessionActionItemId !== null
@@ -1178,19 +1197,11 @@ export function InboxPage({
   const activeReplyHandoffDraft = activeReplyBrowserHandoff?.artifactPath
     ? replyHandoffDraftByArtifactPath[activeReplyBrowserHandoff.artifactPath]
     : undefined;
-  const activeReplyBrowserHandoffAttempt = readPositiveInteger(activeReplyBrowserHandoff?.handoffAttempt);
-  const activeReplyBrowserHandoffIdentityKey =
-    activeReplyBrowserHandoff?.artifactPath &&
-    activeReplyBrowserHandoffAttempt !== undefined &&
-    activeReplyDeliveryItemId !== null
-      ? `${activeReplyDeliveryItemId}:${activeReplyBrowserHandoff.artifactPath}:${activeReplyBrowserHandoffAttempt}`
-      : null;
   const shouldShowReplyHandoffCompletionActions =
     !!activeReplyBrowserHandoff?.artifactPath &&
     activeReplyBrowserHandoffAttempt !== undefined &&
     (activeReplyBrowserHandoff.readiness ?? 'ready') === 'ready' &&
-    activeReplyBrowserHandoffIdentityKey !== replyHandoffCompletionIdentityKey &&
-    (!persistedReplyHandoff || isReadyInboxReplyHandoff(persistedReplyHandoff));
+    activeReplyBrowserHandoffIdentityKey !== replyHandoffCompletionIdentityKey;
   const shouldShowSessionActionButton =
     !!activeReplyBrowserHandoff?.channelAccountId &&
     (activeReplyBrowserHandoff.sessionAction === 'request_session' ||
