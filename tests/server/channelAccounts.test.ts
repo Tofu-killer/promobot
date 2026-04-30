@@ -2,7 +2,16 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import express from 'express';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const { browserLaneDispatchSpy } = vi.hoisted(() => ({
+  browserLaneDispatchSpy: vi.fn(),
+}));
+
+vi.mock('../../src/server/services/browser/browserLaneDispatch.js', () => ({
+  createBrowserLaneDispatch: () => browserLaneDispatchSpy,
+}));
+
 import { channelAccountsRouter } from '../../src/server/routes/channelAccounts';
 import { createSQLiteDraftStore } from '../../src/server/store/drafts';
 import { createInboxStore } from '../../src/server/store/inbox';
@@ -158,11 +167,13 @@ describe('channel accounts api', () => {
 
   beforeEach(() => {
     restoreCwd = isolateProcessCwd();
+    browserLaneDispatchSpy.mockReset();
   });
 
   afterEach(() => {
     restoreCwd?.();
     restoreCwd = null;
+    browserLaneDispatchSpy.mockReset();
   });
 
   it('rejects channel account creation when the platform is not supported', async () => {
@@ -2244,6 +2255,17 @@ describe('channel accounts api', () => {
           }),
         }),
       );
+      expect(browserLaneDispatchSpy).toHaveBeenCalledTimes(1);
+      expect(browserLaneDispatchSpy).toHaveBeenCalledWith({
+        kind: 'session_request',
+        artifactPath:
+          'artifacts/browser-lane-requests/instagram/-promobot.official/request-session-job-1.json',
+        platform: 'instagram',
+        accountKey: '@promobot.official',
+        channelAccountId: 1,
+        requestJobId: firstBody.job.id,
+        sessionAction: 'request_session',
+      });
 
       expect(
         JSON.parse(
@@ -2372,6 +2394,7 @@ describe('channel accounts api', () => {
         artifactPath: requestSessionBody.sessionAction.artifactPath,
         reused: true,
       });
+      expect(browserLaneDispatchSpy).not.toHaveBeenCalled();
       expect(jobQueueStore.list({ limit: 10 })).toEqual([
         expect.objectContaining({
           id: requestSessionBody.job.id,

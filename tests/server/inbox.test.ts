@@ -2390,6 +2390,97 @@ describe('inbox api', () => {
     }
   });
 
+  it('redispatches ready browser reply handoffs even when the poll job already exists', async () => {
+    const { rootDir } = createTestDatabasePath();
+    process.env.BROWSER_HANDOFF_OUTPUT_DIR = rootDir;
+
+    try {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-04-29T08:00:00.000Z'));
+      const channelAccountStore = createChannelAccountStore();
+      const jobQueueStore = createJobQueueStore();
+      const channelAccount = channelAccountStore.create({
+        projectId: 1,
+        platform: 'weibo',
+        accountKey: 'weibo-browser-main',
+        displayName: 'Weibo Browser Main',
+        authType: 'browser',
+        status: 'healthy',
+      });
+      createSessionStore().saveSession({
+        platform: 'weibo',
+        accountKey: 'weibo-browser-main',
+        storageState: {
+          cookies: [],
+          origins: [],
+        },
+        status: 'active',
+        lastValidatedAt: '2026-04-25T10:00:00.000Z',
+      });
+
+      const inboxStore = createInboxStore();
+      const item = inboxStore.create({
+        projectId: 1,
+        source: 'weibo',
+        status: 'needs_review',
+        author: 'ops-user',
+        title: 'Need lower latency in APAC',
+        excerpt: 'Can you share current response times?',
+        metadata: {
+          channelAccountId: channelAccount.id,
+          accountKey: 'weibo-browser-main',
+          sourceUrl: 'https://weibo.test/post/1',
+        },
+      });
+      const browserLaneDispatch = vi.fn();
+      const inboxReplyService = createInboxReplyService({
+        channelAccountStore,
+        jobQueueStore,
+        browserLaneDispatch,
+      });
+
+      await inboxReplyService.deliver({
+        item,
+        reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+      });
+      await inboxReplyService.deliver({
+        item,
+        reply: 'Updated reply copy for the same browser handoff artifact.',
+      });
+
+      expect(jobQueueStore.list({ limit: 10 })).toEqual([
+        expect.objectContaining({
+          type: inboxReplyHandoffPollJobType,
+          status: 'pending',
+          attempts: 0,
+          runAt: '2026-04-29T08:01:00.000Z',
+        }),
+      ]);
+      expect(browserLaneDispatch).toHaveBeenCalledTimes(2);
+      expect(browserLaneDispatch).toHaveBeenNthCalledWith(1, {
+        kind: 'inbox_reply_handoff',
+        artifactPath:
+          'artifacts/inbox-reply-handoffs/weibo/weibo-browser-main/weibo-inbox-item-1.json',
+        platform: 'weibo',
+        accountKey: 'weibo-browser-main',
+        channelAccountId: channelAccount.id,
+        itemId: String(item.id),
+      });
+      expect(browserLaneDispatch).toHaveBeenNthCalledWith(2, {
+        kind: 'inbox_reply_handoff',
+        artifactPath:
+          'artifacts/inbox-reply-handoffs/weibo/weibo-browser-main/weibo-inbox-item-1.json',
+        platform: 'weibo',
+        accountKey: 'weibo-browser-main',
+        channelAccountId: channelAccount.id,
+        itemId: String(item.id),
+      });
+    } finally {
+      vi.useRealTimers();
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('routes a promoted instagram monitor reply handoff through the metadata-selected channel account', async () => {
     const { rootDir } = createTestDatabasePath();
     process.env.BROWSER_HANDOFF_OUTPUT_DIR = rootDir;

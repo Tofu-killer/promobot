@@ -199,11 +199,11 @@ export function createInboxReplyService(
           platform,
           context,
         });
-        const pollQueued = maybeEnqueueInboxReplyHandoffPollJob(
-          browserReplyHandoff?.details,
-          jobQueueStore,
-        );
-        if (pollQueued && browserReplyHandoff?.details?.artifactPath) {
+        maybeEnqueueInboxReplyHandoffPollJob(browserReplyHandoff?.details, jobQueueStore);
+        if (
+          browserReplyHandoff?.details?.readiness === 'ready' &&
+          browserReplyHandoff.details.artifactPath
+        ) {
           browserLaneDispatch({
             kind: 'inbox_reply_handoff',
             artifactPath: browserReplyHandoff.details.artifactPath,

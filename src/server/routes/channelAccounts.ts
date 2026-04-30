@@ -14,6 +14,7 @@ import {
   type SessionStatus,
   type SessionSummary,
 } from '../services/browser/sessionStore.js';
+import { createBrowserLaneDispatch } from '../services/browser/browserLaneDispatch.js';
 import {
   createSessionRequestArtifact,
   getLatestSessionRequestArtifact,
@@ -151,6 +152,18 @@ channelAccountsRouter.post('/:id/session/request', (request, response) => {
     latestSessionRequestJobStatus &&
     isReusableSessionRequestStatus(latestSessionRequestJobStatus)
   ) {
+    if (latestSessionRequestJobStatus === 'done') {
+      createBrowserLaneDispatch()({
+        kind: 'session_request',
+        artifactPath: latestSessionRequestArtifact.artifactPath,
+        platform: channelAccount.platform,
+        accountKey: channelAccount.accountKey,
+        channelAccountId: channelAccount.id,
+        requestJobId: latestSessionRequestArtifact.jobId,
+        sessionAction: action,
+      });
+    }
+
     const existingJob = jobQueueStore.get(latestSessionRequestArtifact.jobId);
     response.json({
       ok: true,

@@ -49,6 +49,15 @@ export function resumeBlockedInboxReplyHandoffsForChannelAccount(
       continue;
     }
 
+    browserLaneDispatch({
+      kind: 'inbox_reply_handoff',
+      artifactPath: artifact.artifactPath,
+      platform: artifact.platform,
+      accountKey: artifact.accountKey,
+      channelAccountId: channelAccount.id,
+      itemId: artifact.itemId,
+    });
+
     if (
       hasOutstandingInboxReplyHandoffPollJob(jobQueueStore, {
         artifactPath: artifact.artifactPath,
@@ -70,14 +79,6 @@ export function resumeBlockedInboxReplyHandoffsForChannelAccount(
         runAt: new Date(now().getTime() + defaultInboxReplyHandoffPollDelayMs).toISOString(),
       }),
     );
-    browserLaneDispatch({
-      kind: 'inbox_reply_handoff',
-      artifactPath: artifact.artifactPath,
-      platform: artifact.platform,
-      accountKey: artifact.accountKey,
-      channelAccountId: channelAccount.id,
-      itemId: artifact.itemId,
-    });
   }
 
   return resumedJobs;

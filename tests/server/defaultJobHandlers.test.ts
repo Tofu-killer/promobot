@@ -609,7 +609,12 @@ describe('default job handlers', () => {
         '2026-04-21T09:16:30.000Z',
       );
 
-      const handlers = createDefaultJobHandlers();
+      const dispatchSpy = vi.fn();
+      const handlers = createDefaultJobHandlers({
+        channelAccountSessionRequestHandler: createChannelAccountSessionRequestJobHandler({
+          browserLaneDispatch: dispatchSpy,
+        }),
+      });
       await handlers[channelAccountSessionRequestJobType](
         {
           accountId: channelAccount.id,
@@ -671,6 +676,7 @@ describe('default job handlers', () => {
         }),
       );
       expect(jobQueueStore.list({ limit: 10 })).toEqual([]);
+      expect(dispatchSpy).not.toHaveBeenCalled();
     } finally {
       cleanupTestDatabasePath(rootDir);
     }
@@ -722,7 +728,12 @@ describe('default job handlers', () => {
         notes: 'metadata updated after validation',
       });
 
-      const handlers = createDefaultJobHandlers();
+      const dispatchSpy = vi.fn();
+      const handlers = createDefaultJobHandlers({
+        channelAccountSessionRequestHandler: createChannelAccountSessionRequestJobHandler({
+          browserLaneDispatch: dispatchSpy,
+        }),
+      });
       await handlers[channelAccountSessionRequestJobType](
         {
           accountId: channelAccount.id,
@@ -766,6 +777,7 @@ describe('default job handlers', () => {
           }),
         }),
       );
+      expect(dispatchSpy).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
       cleanupTestDatabasePath(rootDir);
