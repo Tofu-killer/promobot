@@ -99,6 +99,123 @@ describe('browser lane bridge cli', () => {
     });
   });
 
+  it('does not infer remote import from generic env alone', () => {
+    expect(
+      parseBrowserLaneBridgeEnv({
+        PROMOBOT_BROWSER_DISPATCH_KIND: 'session_request',
+        PROMOBOT_BROWSER_ARTIFACT_PATH:
+          'artifacts/browser-lane-requests/x/-promobot/request-session-job-21.json',
+        PROMOBOT_BROWSER_STORAGE_STATE_FILE: '/tmp/storage-state.json',
+        PROMOBOT_BASE_URL: 'http://127.0.0.1:3001',
+        ADMIN_PASSWORD: 'secret',
+      }),
+    ).toEqual({
+      kind: 'session_request',
+      input: {
+        requestArtifactPath:
+          'artifacts/browser-lane-requests/x/-promobot/request-session-job-21.json',
+        storageStateFilePath: '/tmp/storage-state.json',
+      },
+    });
+  });
+
+  it('fills missing remote import env from shared deployment env after explicit import intent', () => {
+    expect(
+      parseBrowserLaneBridgeEnv({
+        PROMOBOT_BROWSER_DISPATCH_KIND: 'publish_handoff',
+        PROMOBOT_BROWSER_ARTIFACT_PATH:
+          'artifacts/browser-handoffs/instagram/main/instagram-draft-10.json',
+        PROMOBOT_BROWSER_IMPORT_BASE_URL: 'http://127.0.0.1:3001',
+        ADMIN_PASSWORD: 'secret',
+      }),
+    ).toEqual({
+      kind: 'publish_handoff',
+      input: {
+        artifactPath: 'artifacts/browser-handoffs/instagram/main/instagram-draft-10.json',
+        publishStatus: 'published',
+        importBaseUrl: 'http://127.0.0.1:3001',
+        adminPassword: 'secret',
+      },
+    });
+
+    expect(
+      parseBrowserLaneBridgeEnv({
+        PROMOBOT_BROWSER_DISPATCH_KIND: 'publish_handoff',
+        PROMOBOT_BROWSER_ARTIFACT_PATH:
+          'artifacts/browser-handoffs/x/main/x-draft-11.json',
+        PROMOBOT_BROWSER_IMPORT_BASE_URL: 'https://promobot.test/',
+        PROMOBOT_ADMIN_PASSWORD: 'ops-secret',
+      }),
+    ).toEqual({
+      kind: 'publish_handoff',
+      input: {
+        artifactPath: 'artifacts/browser-handoffs/x/main/x-draft-11.json',
+        publishStatus: 'published',
+        importBaseUrl: 'https://promobot.test',
+        adminPassword: 'ops-secret',
+      },
+    });
+
+    expect(
+      parseBrowserLaneBridgeEnv({
+        PROMOBOT_BROWSER_DISPATCH_KIND: 'inbox_reply_handoff',
+        PROMOBOT_BROWSER_ARTIFACT_PATH:
+          'artifacts/inbox-reply-handoffs/weibo/main/weibo-inbox-item-8.json',
+        PROMOBOT_BROWSER_ADMIN_PASSWORD: 'bridge-secret',
+        PROMOBOT_BASE_URL: 'https://promobot.test',
+      }),
+    ).toEqual({
+      kind: 'inbox_reply_handoff',
+      input: {
+        artifactPath: 'artifacts/inbox-reply-handoffs/weibo/main/weibo-inbox-item-8.json',
+        replyStatus: 'sent',
+        adminPassword: 'bridge-secret',
+        importBaseUrl: 'https://promobot.test',
+      },
+    });
+  });
+
+  it('falls back to the local server port when remote import is requested without a base url', () => {
+    expect(
+      parseBrowserLaneBridgeEnv({
+        PROMOBOT_BROWSER_DISPATCH_KIND: 'session_request',
+        PROMOBOT_BROWSER_ARTIFACT_PATH:
+          'artifacts/browser-lane-requests/x/-promobot/request-session-job-22.json',
+        PROMOBOT_BROWSER_STORAGE_STATE_FILE: '/tmp/storage-state.json',
+        PROMOBOT_BROWSER_ADMIN_PASSWORD: 'secret',
+        PORT: '4321',
+      }),
+    ).toEqual({
+      kind: 'session_request',
+      input: {
+        requestArtifactPath:
+          'artifacts/browser-lane-requests/x/-promobot/request-session-job-22.json',
+        storageStateFilePath: '/tmp/storage-state.json',
+        importBaseUrl: 'http://127.0.0.1:4321',
+        adminPassword: 'secret',
+      },
+    });
+
+    expect(
+      parseBrowserLaneBridgeEnv({
+        PROMOBOT_BROWSER_DISPATCH_KIND: 'session_request',
+        PROMOBOT_BROWSER_ARTIFACT_PATH:
+          'artifacts/browser-lane-requests/x/-promobot/request-session-job-23.json',
+        PROMOBOT_BROWSER_STORAGE_STATE_FILE: '/tmp/storage-state.json',
+        PROMOBOT_BROWSER_ADMIN_PASSWORD: 'secret',
+      }),
+    ).toEqual({
+      kind: 'session_request',
+      input: {
+        requestArtifactPath:
+          'artifacts/browser-lane-requests/x/-promobot/request-session-job-23.json',
+        storageStateFilePath: '/tmp/storage-state.json',
+        importBaseUrl: 'http://127.0.0.1:3001',
+        adminPassword: 'secret',
+      },
+    });
+  });
+
   it('routes each dispatch kind to the matching submitter', async () => {
     const scenarios = [
       {
@@ -243,5 +360,9 @@ describe('browser lane bridge cli', () => {
     );
     expect(getBrowserLaneBridgeHelpText()).toContain('PROMOBOT_BROWSER_PUBLISH_STATUS');
     expect(getBrowserLaneBridgeHelpText()).toContain('PROMOBOT_BROWSER_REPLY_STATUS');
+    expect(getBrowserLaneBridgeHelpText()).toContain('PROMOBOT_BASE_URL');
+    expect(getBrowserLaneBridgeHelpText()).toContain('PROMOBOT_ADMIN_PASSWORD');
+    expect(getBrowserLaneBridgeHelpText()).toContain('ADMIN_PASSWORD');
+    expect(getBrowserLaneBridgeHelpText()).toContain('PORT');
   });
 });

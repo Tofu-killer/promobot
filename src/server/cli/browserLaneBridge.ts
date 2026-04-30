@@ -3,6 +3,7 @@ import {
   type SubmitSessionRequestResultInput,
 } from '../services/browser/sessionResultSubmitter.js';
 import type { BrowserLaneDispatchKind } from '../services/browser/browserLaneDispatch.js';
+import { loadServerEnvFromRoot } from '../env.js';
 import {
   submitBrowserHandoffCompletion,
   type SubmitBrowserHandoffCompletionInput,
@@ -58,6 +59,7 @@ export function parseBrowserLaneBridgeEnv(
   env: NodeJS.ProcessEnv,
 ): ParsedBrowserLaneBridgeCommand {
   const kind = parseDispatchKind(env.PROMOBOT_BROWSER_DISPATCH_KIND);
+  const remoteImportContext = resolveRemoteImportContext(env);
 
   switch (kind) {
     case 'session_request':
@@ -66,8 +68,6 @@ export function parseBrowserLaneBridgeEnv(
         const validatedAt = optionalEnvValue(env.PROMOBOT_BROWSER_VALIDATED_AT);
         const notes = optionalEnvValue(env.PROMOBOT_BROWSER_NOTES);
         const completedAt = optionalEnvValue(env.PROMOBOT_BROWSER_COMPLETED_AT);
-        const importBaseUrl = optionalEnvValue(env.PROMOBOT_BROWSER_IMPORT_BASE_URL);
-        const adminPassword = optionalEnvValue(env.PROMOBOT_BROWSER_ADMIN_PASSWORD);
         const storageStateFilePath =
           optionalEnvValue(env.PROMOBOT_BROWSER_STORAGE_STATE_FILE) ??
           optionalEnvValue(env.PROMOBOT_BROWSER_MANAGED_STORAGE_STATE_PATH);
@@ -87,8 +87,7 @@ export function parseBrowserLaneBridgeEnv(
           ...(validatedAt ? { validatedAt } : {}),
           ...(notes ? { notes } : {}),
           ...(completedAt ? { completedAt } : {}),
-          ...(importBaseUrl ? { importBaseUrl } : {}),
-          ...(adminPassword ? { adminPassword } : {}),
+          ...remoteImportContext,
         },
       };
       }
@@ -99,8 +98,6 @@ export function parseBrowserLaneBridgeEnv(
         const externalId = optionalEnvValue(env.PROMOBOT_BROWSER_EXTERNAL_ID);
         const publishedAt = optionalEnvValue(env.PROMOBOT_BROWSER_PUBLISHED_AT);
         const queueResult = parseBooleanEnv(env.PROMOBOT_BROWSER_QUEUE_RESULT);
-        const importBaseUrl = optionalEnvValue(env.PROMOBOT_BROWSER_IMPORT_BASE_URL);
-        const adminPassword = optionalEnvValue(env.PROMOBOT_BROWSER_ADMIN_PASSWORD);
 
       return {
         kind,
@@ -115,8 +112,7 @@ export function parseBrowserLaneBridgeEnv(
           ...(externalId ? { externalId } : {}),
           ...(publishedAt ? { publishedAt } : {}),
           ...(queueResult ? { queueResult } : {}),
-          ...(importBaseUrl ? { importBaseUrl } : {}),
-          ...(adminPassword ? { adminPassword } : {}),
+          ...remoteImportContext,
         },
       };
       }
@@ -127,8 +123,6 @@ export function parseBrowserLaneBridgeEnv(
         const externalId = optionalEnvValue(env.PROMOBOT_BROWSER_EXTERNAL_ID);
         const deliveredAt = optionalEnvValue(env.PROMOBOT_BROWSER_DELIVERED_AT);
         const queueResult = parseBooleanEnv(env.PROMOBOT_BROWSER_QUEUE_RESULT);
-        const importBaseUrl = optionalEnvValue(env.PROMOBOT_BROWSER_IMPORT_BASE_URL);
-        const adminPassword = optionalEnvValue(env.PROMOBOT_BROWSER_ADMIN_PASSWORD);
 
       return {
         kind,
@@ -143,8 +137,7 @@ export function parseBrowserLaneBridgeEnv(
           ...(externalId ? { externalId } : {}),
           ...(deliveredAt ? { deliveredAt } : {}),
           ...(queueResult ? { queueResult } : {}),
-          ...(importBaseUrl ? { importBaseUrl } : {}),
-          ...(adminPassword ? { adminPassword } : {}),
+          ...remoteImportContext,
         },
       };
       }
@@ -208,8 +201,12 @@ export function getBrowserLaneBridgeHelpText() {
     '  PROMOBOT_BROWSER_QUEUE_RESULT    true | 1 to write a result artifact without immediate import',
     '',
     'Shared optional env:',
-    '  PROMOBOT_BROWSER_IMPORT_BASE_URL',
-    '  PROMOBOT_BROWSER_ADMIN_PASSWORD',
+    '  PROMOBOT_BROWSER_IMPORT_BASE_URL  Explicitly opt into remote import; if set, missing base URL falls back to PROMOBOT_BASE_URL or http://127.0.0.1:${PORT:-3001}',
+    '  PROMOBOT_BROWSER_ADMIN_PASSWORD   Explicitly opt into remote import; if set, missing password falls back to PROMOBOT_ADMIN_PASSWORD or ADMIN_PASSWORD',
+    '  PROMOBOT_BASE_URL                 Shared deployment base URL fallback for remote import after explicit browser import intent',
+    '  PROMOBOT_ADMIN_PASSWORD           Shared deployment admin password fallback for remote import after explicit browser import intent',
+    '  ADMIN_PASSWORD                    Runtime admin password fallback for remote import after explicit browser import intent',
+    '  PORT                              Local server port fallback for remote import after explicit browser import intent',
     '  --help',
   ].join('\n');
 }
@@ -243,6 +240,38 @@ function optionalEnvValue(value: string | undefined) {
   return normalized ? normalized : undefined;
 }
 
+function resolveRemoteImportContext(env: NodeJS.ProcessEnv) {
+  const explicitImportBaseUrl = normalizeBaseUrl(
+    optionalEnvValue(env.PROMOBOT_BROWSER_IMPORT_BASE_URL),
+  );
+  const explicitAdminPassword = optionalEnvValue(env.PROMOBOT_BROWSER_ADMIN_PASSWORD);
+  if (!explicitImportBaseUrl && !explicitAdminPassword) {
+    return {};
+  }
+
+  const importBaseUrl =
+    explicitImportBaseUrl ??
+    normalizeBaseUrl(optionalEnvValue(env.PROMOBOT_BASE_URL)) ??
+    resolveLocalBaseUrl(optionalEnvValue(env.PORT));
+  const adminPassword =
+    explicitAdminPassword ??
+    optionalEnvValue(env.PROMOBOT_ADMIN_PASSWORD) ??
+    optionalEnvValue(env.ADMIN_PASSWORD);
+
+  return {
+    ...(importBaseUrl ? { importBaseUrl } : {}),
+    ...(adminPassword ? { adminPassword } : {}),
+  };
+}
+
+function normalizeBaseUrl(value: string | undefined) {
+  return value?.replace(/\/+$/, '') || undefined;
+}
+
+function resolveLocalBaseUrl(port: string | undefined) {
+  return `http://127.0.0.1:${port ?? '3001'}`;
+}
+
 function parseBooleanEnv(value: string | undefined) {
   const normalized = optionalEnvValue(value)?.toLowerCase();
   return normalized === '1' || normalized === 'true' || normalized === 'yes';
@@ -272,6 +301,7 @@ async function main() {
     return;
   }
 
+  loadServerEnvFromRoot();
   const result = await runBrowserLaneBridge(process.env);
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 }
