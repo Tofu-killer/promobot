@@ -1427,7 +1427,8 @@ export function ChannelAccountsPage({
                     const sessionActionFeedback =
                       sessionActionStateOverride && sessionActionOverrideAccount?.id === account.id
                         ? sessionActionOverrideFeedback
-                        : sessionActionFeedbackById[account.id] ?? null;
+                        : sessionActionFeedbackById[account.id] ??
+                          getPersistedSessionActionFeedback(account);
                     const showCardSessionActionFeedback =
                       sessionActionFeedback !== null && showSessionActionFeedback(account.id);
                     return (
@@ -1976,6 +1977,42 @@ function getPendingSessionActionLabel(action: 'request_session' | 'relogin') {
 
 function getSessionActionLabelFromAction(action: 'request_session' | 'relogin') {
   return action === 'relogin' ? '重新登录' : '请求登录';
+}
+
+function getSessionActionMessage(action: 'request_session' | 'relogin') {
+  if (action === 'relogin') {
+    return 'Browser relogin request queued. Refresh login manually and attach updated session metadata after the browser lane picks up the job.';
+  }
+
+  return 'Browser session request queued. Complete login manually and attach session metadata after the browser lane picks up the job.';
+}
+
+function getPersistedSessionActionFeedback(account: ChannelAccountRecord): SessionActionFeedback | null {
+  const latestArtifact = account.latestBrowserLaneArtifact;
+  if (!latestArtifact || latestArtifact.resolvedAt !== null) {
+    return null;
+  }
+
+  const readiness = normalizeReadinessRecord(account.publishReadiness);
+  if (readiness?.action !== latestArtifact.action) {
+    return null;
+  }
+
+  return {
+    tone: 'success',
+    action: latestArtifact.action,
+    sessionAction: {
+      action: latestArtifact.action,
+      accountId: account.id,
+      status: latestArtifact.jobStatus,
+      requestedAt: latestArtifact.requestedAt,
+      message: getSessionActionMessage(latestArtifact.action),
+      nextStep: `/api/channel-accounts/${account.id}/session`,
+      jobStatus: latestArtifact.jobStatus,
+      artifactPath: latestArtifact.artifactPath,
+      reused: false,
+    },
+  };
 }
 
 function mergeMetadataWithSession(
