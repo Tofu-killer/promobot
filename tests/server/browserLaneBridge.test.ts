@@ -79,6 +79,7 @@ describe('browser lane bridge cli', () => {
         PROMOBOT_BROWSER_DISPATCH_KIND: 'publish_handoff',
         PROMOBOT_BROWSER_ARTIFACT_PATH:
           'artifacts/browser-handoffs/instagram/main/instagram-draft-9.json',
+        PROMOBOT_BROWSER_PUBLISH_STATUS: 'published',
         PROMOBOT_BROWSER_QUEUE_RESULT: 'true',
         PROMOBOT_BROWSER_MESSAGE: 'published by bridge',
         PROMOBOT_BROWSER_PUBLISH_URL: 'https://instagram.test/p/9',
@@ -125,6 +126,7 @@ describe('browser lane bridge cli', () => {
         PROMOBOT_BROWSER_DISPATCH_KIND: 'publish_handoff',
         PROMOBOT_BROWSER_ARTIFACT_PATH:
           'artifacts/browser-handoffs/instagram/main/instagram-draft-10.json',
+        PROMOBOT_BROWSER_PUBLISH_STATUS: 'published',
         PROMOBOT_BROWSER_IMPORT_BASE_URL: 'http://127.0.0.1:3001',
         ADMIN_PASSWORD: 'secret',
       }),
@@ -143,6 +145,7 @@ describe('browser lane bridge cli', () => {
         PROMOBOT_BROWSER_DISPATCH_KIND: 'publish_handoff',
         PROMOBOT_BROWSER_ARTIFACT_PATH:
           'artifacts/browser-handoffs/x/main/x-draft-11.json',
+        PROMOBOT_BROWSER_PUBLISH_STATUS: 'published',
         PROMOBOT_BROWSER_IMPORT_BASE_URL: 'https://promobot.test/',
         PROMOBOT_ADMIN_PASSWORD: 'ops-secret',
       }),
@@ -161,6 +164,7 @@ describe('browser lane bridge cli', () => {
         PROMOBOT_BROWSER_DISPATCH_KIND: 'inbox_reply_handoff',
         PROMOBOT_BROWSER_ARTIFACT_PATH:
           'artifacts/inbox-reply-handoffs/weibo/main/weibo-inbox-item-8.json',
+        PROMOBOT_BROWSER_REPLY_STATUS: 'sent',
         PROMOBOT_BROWSER_ADMIN_PASSWORD: 'bridge-secret',
         PROMOBOT_BASE_URL: 'https://promobot.test',
       }),
@@ -347,6 +351,30 @@ describe('browser lane bridge cli', () => {
     ).toThrowError(
       new BrowserLaneBridgeError(
         'PROMOBOT_BROWSER_STORAGE_STATE_FILE or PROMOBOT_BROWSER_MANAGED_STORAGE_STATE_PATH is required for session_request dispatches',
+      ),
+    );
+
+    expect(() =>
+      parseBrowserLaneBridgeEnv({
+        PROMOBOT_BROWSER_DISPATCH_KIND: 'publish_handoff',
+        PROMOBOT_BROWSER_ARTIFACT_PATH:
+          'artifacts/browser-handoffs/instagram/main/instagram-draft-33.json',
+      }),
+    ).toThrowError(
+      new BrowserLaneBridgeError(
+        'PROMOBOT_BROWSER_PUBLISH_STATUS is required for publish_handoff dispatches',
+      ),
+    );
+
+    expect(() =>
+      parseBrowserLaneBridgeEnv({
+        PROMOBOT_BROWSER_DISPATCH_KIND: 'inbox_reply_handoff',
+        PROMOBOT_BROWSER_ARTIFACT_PATH:
+          'artifacts/inbox-reply-handoffs/weibo/main/weibo-inbox-item-33.json',
+      }),
+    ).toThrowError(
+      new BrowserLaneBridgeError(
+        'PROMOBOT_BROWSER_REPLY_STATUS is required for inbox_reply_handoff dispatches',
       ),
     );
   });

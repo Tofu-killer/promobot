@@ -106,7 +106,7 @@ export function parseBrowserLaneBridgeEnv(
             env.PROMOBOT_BROWSER_ARTIFACT_PATH,
             'PROMOBOT_BROWSER_ARTIFACT_PATH is required for publish_handoff dispatches',
           ),
-          publishStatus: parsePublishStatus(env.PROMOBOT_BROWSER_PUBLISH_STATUS),
+          publishStatus: requirePublishStatus(env.PROMOBOT_BROWSER_PUBLISH_STATUS),
           ...(message ? { message } : {}),
           ...(publishUrl ? { publishUrl } : {}),
           ...(externalId ? { externalId } : {}),
@@ -131,7 +131,7 @@ export function parseBrowserLaneBridgeEnv(
             env.PROMOBOT_BROWSER_ARTIFACT_PATH,
             'PROMOBOT_BROWSER_ARTIFACT_PATH is required for inbox_reply_handoff dispatches',
           ),
-          replyStatus: parseReplyStatus(env.PROMOBOT_BROWSER_REPLY_STATUS),
+          replyStatus: requireReplyStatus(env.PROMOBOT_BROWSER_REPLY_STATUS),
           ...(message ? { message } : {}),
           ...(deliveryUrl ? { deliveryUrl } : {}),
           ...(externalId ? { externalId } : {}),
@@ -185,7 +185,7 @@ export function getBrowserLaneBridgeHelpText() {
     '  PROMOBOT_BROWSER_COMPLETED_AT',
     '',
     'Publish handoff env:',
-    '  PROMOBOT_BROWSER_PUBLISH_STATUS  published | failed',
+    '  PROMOBOT_BROWSER_PUBLISH_STATUS  Required. published | failed',
     '  PROMOBOT_BROWSER_MESSAGE',
     '  PROMOBOT_BROWSER_PUBLISH_URL',
     '  PROMOBOT_BROWSER_EXTERNAL_ID',
@@ -193,7 +193,7 @@ export function getBrowserLaneBridgeHelpText() {
     '  PROMOBOT_BROWSER_QUEUE_RESULT    true | 1 to write a result artifact without immediate import',
     '',
     'Inbox reply handoff env:',
-    '  PROMOBOT_BROWSER_REPLY_STATUS    sent | failed',
+    '  PROMOBOT_BROWSER_REPLY_STATUS    Required. sent | failed',
     '  PROMOBOT_BROWSER_MESSAGE',
     '  PROMOBOT_BROWSER_DELIVERY_URL',
     '  PROMOBOT_BROWSER_EXTERNAL_ID',
@@ -286,12 +286,26 @@ function parseSessionStatus(value: string | undefined) {
   return undefined;
 }
 
-function parsePublishStatus(value: string | undefined) {
-  return optionalEnvValue(value) === 'failed' ? 'failed' : 'published';
+function requirePublishStatus(value: string | undefined) {
+  const normalized = optionalEnvValue(value);
+  if (normalized === 'published' || normalized === 'failed') {
+    return normalized;
+  }
+
+  throw new BrowserLaneBridgeError(
+    'PROMOBOT_BROWSER_PUBLISH_STATUS is required for publish_handoff dispatches',
+  );
 }
 
-function parseReplyStatus(value: string | undefined) {
-  return optionalEnvValue(value) === 'failed' ? 'failed' : 'sent';
+function requireReplyStatus(value: string | undefined) {
+  const normalized = optionalEnvValue(value);
+  if (normalized === 'sent' || normalized === 'failed') {
+    return normalized;
+  }
+
+  throw new BrowserLaneBridgeError(
+    'PROMOBOT_BROWSER_REPLY_STATUS is required for inbox_reply_handoff dispatches',
+  );
 }
 
 async function main() {

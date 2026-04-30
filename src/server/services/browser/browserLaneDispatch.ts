@@ -98,7 +98,9 @@ function resolveBrowserLaneDispatchCommand(
   env: NodeJS.ProcessEnv,
   kind: BrowserLaneDispatchKind,
 ) {
-  const fallback = normalizeCommand(env.PROMOBOT_BROWSER_LANE_COMMAND);
+  const fallback =
+    normalizeCommand(env.PROMOBOT_BROWSER_LANE_COMMAND) ??
+    resolveLocalBrowserLaneDispatchCommand(env, kind);
   switch (kind) {
     case 'session_request':
       return normalizeCommand(env.PROMOBOT_BROWSER_SESSION_REQUEST_COMMAND) ?? fallback;
@@ -112,6 +114,26 @@ function resolveBrowserLaneDispatchCommand(
 function normalizeCommand(value: string | undefined) {
   const normalized = value?.trim();
   return normalized ? normalized : null;
+}
+
+function resolveLocalBrowserLaneDispatchCommand(
+  env: NodeJS.ProcessEnv,
+  kind: BrowserLaneDispatchKind,
+) {
+  if (kind !== 'session_request') {
+    return null;
+  }
+
+  if (!parseBooleanEnv(env.PROMOBOT_BROWSER_LOCAL_AUTORUN)) {
+    return null;
+  }
+
+  return normalizeCommand(env.PROMOBOT_BROWSER_LOCAL_RUNNER_COMMAND) ?? 'pnpm browser:lane:local';
+}
+
+function parseBooleanEnv(value: string | undefined) {
+  const normalized = value?.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes';
 }
 
 function buildBrowserLaneDispatchEnv(

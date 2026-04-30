@@ -114,6 +114,89 @@ describe('createBrowserLaneDispatch', () => {
     });
   });
 
+  it('uses the opt-in local runner command for session requests when no explicit browser lane command is configured', () => {
+    const child = {
+      once: vi.fn().mockReturnThis(),
+      unref: vi.fn(),
+    };
+    const spawn = vi.fn().mockReturnValue(child);
+    const dispatch = createBrowserLaneDispatch({
+      cwd: '/tmp/promobot',
+      env: {
+        PROMOBOT_BROWSER_LOCAL_AUTORUN: 'true',
+      },
+      spawn,
+    });
+
+    dispatch({
+      kind: 'session_request',
+      artifactPath: 'artifacts/browser-lane-requests/instagram/main/request-session-job-4.json',
+      platform: 'instagram',
+      accountKey: 'main',
+      managedStorageStatePath: 'browser-sessions/managed/instagram/main.json',
+      requestJobId: 4,
+      sessionAction: 'request_session',
+    });
+
+    expect(spawn).toHaveBeenCalledWith('pnpm browser:lane:local', {
+      cwd: '/tmp/promobot',
+      env: expect.objectContaining({
+        PROMOBOT_BROWSER_LOCAL_AUTORUN: 'true',
+        PROMOBOT_BROWSER_DISPATCH_KIND: 'session_request',
+        PROMOBOT_BROWSER_ARTIFACT_PATH:
+          'artifacts/browser-lane-requests/instagram/main/request-session-job-4.json',
+        PROMOBOT_BROWSER_PLATFORM: 'instagram',
+        PROMOBOT_BROWSER_ACCOUNT_KEY: 'main',
+        PROMOBOT_BROWSER_MANAGED_STORAGE_STATE_PATH:
+          'browser-sessions/managed/instagram/main.json',
+        PROMOBOT_BROWSER_REQUEST_JOB_ID: '4',
+        PROMOBOT_BROWSER_SESSION_ACTION: 'request_session',
+      }),
+      shell: true,
+      stdio: 'ignore',
+    });
+  });
+
+  it('does not auto-run the local runner for publish handoffs without an explicit command', () => {
+    const spawn = vi.fn();
+    const dispatch = createBrowserLaneDispatch({
+      env: {
+        PROMOBOT_BROWSER_LOCAL_AUTORUN: 'true',
+      },
+      spawn,
+    });
+
+    dispatch({
+      kind: 'publish_handoff',
+      artifactPath: 'artifacts/browser-handoffs/instagram/main/instagram-draft-4.json',
+      platform: 'instagram',
+      accountKey: 'main',
+      draftId: '4',
+    });
+
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it('does not auto-run the local runner for inbox reply handoffs without an explicit command', () => {
+    const spawn = vi.fn();
+    const dispatch = createBrowserLaneDispatch({
+      env: {
+        PROMOBOT_BROWSER_LOCAL_AUTORUN: 'true',
+      },
+      spawn,
+    });
+
+    dispatch({
+      kind: 'inbox_reply_handoff',
+      artifactPath: 'artifacts/inbox-reply-handoffs/weibo/main/weibo-inbox-item-4.json',
+      platform: 'weibo',
+      accountKey: 'main',
+      itemId: '4',
+    });
+
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
   it('logs and keeps going when the browser lane child fails to start or exits non-zero', () => {
     const logger = {
       warn: vi.fn(),
