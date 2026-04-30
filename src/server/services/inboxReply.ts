@@ -1024,9 +1024,11 @@ function buildBrowserReplyHandoff(input: {
     return null;
   }
 
-  const sessionResolution = buildBrowserSessionResolution(
-    createSessionStore().getSession(handoffPlatform, accountKey),
-  );
+  const sessionResolution = resolveBrowserReplySessionResolution(handoffPlatform, accountKey);
+
+  if (input.context.channelAccount) {
+    input.context.readiness = getChannelAccountPublishReadiness(input.context.channelAccount);
+  }
 
   if (sessionResolution.sessionAction) {
     markInboxReplyHandoffArtifactsObsoleteForAccount({
@@ -1068,6 +1070,28 @@ function buildBrowserReplyHandoff(input: {
       artifactPath: handoffArtifact.artifactPath,
     },
   };
+}
+
+function resolveBrowserReplySessionResolution(
+  platform: ReplyPlatform,
+  accountKey: string,
+) {
+  const sessionStore = createSessionStore();
+  let session = sessionStore.getSession(platform, accountKey);
+  let resolution = buildBrowserSessionResolution(session);
+
+  if (!session || resolution.session.status === 'missing') {
+    const restoredSession =
+      typeof sessionStore.restoreManagedSession === 'function'
+        ? sessionStore.restoreManagedSession(platform, accountKey)
+        : null;
+    if (restoredSession) {
+      session = restoredSession;
+      resolution = buildBrowserSessionResolution(restoredSession);
+    }
+  }
+
+  return resolution;
 }
 
 function buildBrowserReplyHandoffMessage(

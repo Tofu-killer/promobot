@@ -2022,6 +2022,145 @@ describe('inbox api', () => {
     }
   });
 
+  it('restores a managed instagram browser session for reply handoff when metadata has not been written yet', async () => {
+    const { rootDir } = createTestDatabasePath();
+    process.env.BROWSER_HANDOFF_OUTPUT_DIR = rootDir;
+
+    const validatedAt = '2026-04-26T09:17:15.000Z';
+    const managedStorageStatePath = path.join(
+      rootDir,
+      'browser-sessions',
+      'managed',
+      'instagram',
+      'instagram-browser-main.json',
+    );
+    fs.mkdirSync(path.dirname(managedStorageStatePath), { recursive: true });
+    fs.writeFileSync(
+      managedStorageStatePath,
+      JSON.stringify({
+        cookies: [],
+        origins: [],
+      }),
+    );
+    fs.utimesSync(
+      managedStorageStatePath,
+      new Date(validatedAt),
+      new Date(validatedAt),
+    );
+
+    try {
+      const channelAccountStore = createChannelAccountStore();
+      const channelAccount = channelAccountStore.create({
+        projectId: 1,
+        platform: 'instagram',
+        accountKey: 'instagram-browser-main',
+        displayName: 'Instagram Browser Main',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      const inboxStore = createInboxStore();
+      inboxStore.create({
+        projectId: 1,
+        source: 'instagram',
+        status: 'needs_review',
+        author: 'ops-user',
+        title: 'Need lower latency in APAC',
+        excerpt: 'Can you share current response times?',
+        metadata: {
+          channelAccountId: channelAccount.id,
+          accountKey: 'instagram-browser-main',
+          sourceUrl: 'https://www.instagram.com/p/post-1/',
+        },
+      });
+
+      const response = await requestApp('POST', '/api/inbox/1/send-reply', {
+        reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+      });
+
+      const body = JSON.parse(response.body) as {
+        delivery: {
+          details?: {
+            browserReplyHandoff?: {
+              artifactPath?: string;
+            };
+          };
+        };
+      };
+      const artifactPath = body.delivery.details?.browserReplyHandoff?.artifactPath;
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        item: expect.objectContaining({
+          id: 1,
+          status: 'needs_review',
+        }),
+        delivery: expect.objectContaining({
+          success: false,
+          status: 'manual_required',
+          mode: 'browser',
+          message: 'Instagram reply is ready for manual browser handoff with the saved session.',
+          reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+          deliveryUrl: null,
+          externalId: null,
+          details: expect.objectContaining({
+            browserReplyHandoff: expect.objectContaining({
+              platform: 'instagram',
+              channelAccountId: channelAccount.id,
+              accountKey: 'instagram-browser-main',
+              readiness: 'ready',
+              sessionAction: null,
+              artifactPath:
+                'artifacts/inbox-reply-handoffs/instagram/instagram-browser-main/instagram-inbox-item-1.json',
+            }),
+            context: expect.objectContaining({
+              selection: 'channelAccountId',
+              readiness: expect.objectContaining({
+                platform: 'instagram',
+                ready: true,
+                mode: 'browser',
+                status: 'ready',
+              }),
+            }),
+          }),
+        }),
+      });
+      expect(artifactPath).toBeTruthy();
+      expect(createSessionStore().getSession('instagram', 'instagram-browser-main')).toMatchObject({
+        id: 'instagram:instagram-browser-main',
+        platform: 'instagram',
+        accountKey: 'instagram-browser-main',
+        storageStatePath: 'browser-sessions/managed/instagram/instagram-browser-main.json',
+        status: 'active',
+        lastValidatedAt: validatedAt,
+      });
+      expect(
+        JSON.parse(fs.readFileSync(path.join(rootDir, artifactPath as string), 'utf8')),
+      ).toEqual(
+        expect.objectContaining({
+          type: 'browser_inbox_reply_handoff',
+          channelAccountId: channelAccount.id,
+          ownership: 'direct',
+          projectId: 1,
+          status: 'pending',
+          readiness: 'ready',
+          sessionAction: null,
+          platform: 'instagram',
+          itemId: '1',
+          accountKey: 'instagram-browser-main',
+          session: expect.objectContaining({
+            hasSession: true,
+            id: 'instagram:instagram-browser-main',
+            status: 'active',
+            storageStatePath: 'browser-sessions/managed/instagram/instagram-browser-main.json',
+          }),
+        }),
+      );
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('queues a single follow-up inbox reply handoff poll job when a ready browser reply handoff artifact is created', async () => {
     const { rootDir } = createTestDatabasePath();
     process.env.BROWSER_HANDOFF_OUTPUT_DIR = rootDir;
