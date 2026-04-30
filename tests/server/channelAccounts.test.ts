@@ -1874,6 +1874,7 @@ describe('channel accounts api', () => {
           jobId: number;
           jobStatus: string;
           artifactPath: string;
+          managedStorageStatePath?: string;
         };
         channelAccount: { id: number };
       };
@@ -1904,6 +1905,7 @@ describe('channel accounts api', () => {
           jobStatus: 'pending',
           artifactPath:
             'artifacts/browser-lane-requests/x/-promobot/request-session-job-1.json',
+          managedStorageStatePath: 'browser-sessions/managed/x/-promobot.json',
         },
         channelAccount: expect.objectContaining({
           id: 1,
@@ -1932,6 +1934,7 @@ describe('channel accounts api', () => {
         jobId: requestSessionBody.job.id,
         jobStatus: 'pending',
         nextStep: '/api/channel-accounts/1/session',
+        managedStorageStatePath: 'browser-sessions/managed/x/-promobot.json',
       });
 
       const listedAfterRequest = await requestApp('GET', '/api/channel-accounts');
@@ -1948,6 +1951,7 @@ describe('channel accounts api', () => {
               requestedAt: requestSessionBody.job.runAt,
               artifactPath:
                 'artifacts/browser-lane-requests/x/-promobot/request-session-job-1.json',
+              managedStorageStatePath: 'browser-sessions/managed/x/-promobot.json',
               resolvedAt: null,
             }),
           }),
@@ -2006,6 +2010,7 @@ describe('channel accounts api', () => {
           jobId: number;
           jobStatus: string;
           artifactPath: string;
+          managedStorageStatePath?: string;
         };
         channelAccount: { id: number };
       };
@@ -2035,6 +2040,7 @@ describe('channel accounts api', () => {
           jobId: expect.any(Number),
           jobStatus: 'pending',
           artifactPath: 'artifacts/browser-lane-requests/x/-promobot/relogin-job-2.json',
+          managedStorageStatePath: 'browser-sessions/managed/x/-promobot.json',
         },
         channelAccount: expect.objectContaining({
           id: 1,
@@ -2059,6 +2065,7 @@ describe('channel accounts api', () => {
         jobId: reloginBody.job.id,
         jobStatus: 'pending',
         nextStep: '/api/channel-accounts/1/session',
+        managedStorageStatePath: 'browser-sessions/managed/x/-promobot.json',
       });
 
       const queuedJobs = jobQueueStore.list({ limit: 10 });
@@ -2168,9 +2175,21 @@ describe('channel accounts api', () => {
           artifactPath: string;
         };
       };
+      const artifactAbsolutePath = path.join(rootDir, firstBody.sessionAction.artifactPath);
 
       await jobQueueStore.markRunning(firstBody.job.id, '2026-04-27T07:59:00.000Z');
       await jobQueueStore.markDone(firstBody.job.id, '2026-04-27T08:00:00.000Z');
+      writeFileSync(
+        artifactAbsolutePath,
+        JSON.stringify(
+          {
+            ...JSON.parse(readFileSync(artifactAbsolutePath, 'utf8')),
+            managedStorageStatePath: undefined,
+          },
+          null,
+          2,
+        ),
+      );
 
       const secondResponse = await requestApp('POST', '/api/channel-accounts/1/session/request');
       expect(secondResponse.status).toBe(200);
@@ -2240,6 +2259,8 @@ describe('channel accounts api', () => {
         jobStatus: 'done',
         artifactPath:
           'artifacts/browser-lane-requests/instagram/-promobot.official/request-session-job-1.json',
+        managedStorageStatePath:
+          'browser-sessions/managed/instagram/-promobot.official.json',
         reused: true,
       });
       expect(secondBody.channelAccount).toEqual(
@@ -2262,6 +2283,8 @@ describe('channel accounts api', () => {
           'artifacts/browser-lane-requests/instagram/-promobot.official/request-session-job-1.json',
         platform: 'instagram',
         accountKey: '@promobot.official',
+        managedStorageStatePath:
+          'browser-sessions/managed/instagram/-promobot.official.json',
         channelAccountId: 1,
         requestJobId: firstBody.job.id,
         sessionAction: 'request_session',
@@ -2269,10 +2292,7 @@ describe('channel accounts api', () => {
 
       expect(
         JSON.parse(
-          readFileSync(
-            path.join(rootDir, firstBody.sessionAction.artifactPath),
-            'utf8',
-          ),
+          readFileSync(artifactAbsolutePath, 'utf8'),
         ),
       ).toEqual({
         type: 'browser_lane_request',
@@ -2392,6 +2412,8 @@ describe('channel accounts api', () => {
         jobId: requestSessionBody.job.id,
         jobStatus: 'pending',
         artifactPath: requestSessionBody.sessionAction.artifactPath,
+        managedStorageStatePath:
+          'browser-sessions/managed/instagram/-promobot.official.json',
         reused: true,
       });
       expect(browserLaneDispatchSpy).not.toHaveBeenCalled();
@@ -2509,6 +2531,7 @@ describe('channel accounts api', () => {
         jobId: firstBody.job.id,
         jobStatus: 'pending',
         nextStep: '/api/channel-accounts/1/session',
+        managedStorageStatePath: 'browser-sessions/managed/tiktok/-promobot.live.json',
       });
     } finally {
       cleanupTestDatabasePath(rootDir);
@@ -2553,6 +2576,7 @@ describe('channel accounts api', () => {
         jobId: 1,
         jobStatus: 'resolved',
         nextStep: '/api/channel-accounts/1/session',
+        managedStorageStatePath: 'browser-sessions/managed/x/-promobot.json',
         resolvedAt: expect.any(String),
         resolution: {
           status: 'resolved',
@@ -2617,6 +2641,7 @@ describe('channel accounts api', () => {
         jobId: expect.any(Number),
         jobStatus: 'resolved',
         nextStep: '/api/channel-accounts/1/session',
+        managedStorageStatePath: 'browser-sessions/managed/x/-promobot.json',
         resolvedAt: expect.any(String),
         resolution: {
           status: 'resolved',
@@ -2663,6 +2688,7 @@ describe('channel accounts api', () => {
         jobId: expect.any(Number),
         jobStatus: 'resolved',
         nextStep: '/api/channel-accounts/1/session',
+        managedStorageStatePath: 'browser-sessions/managed/x/-promobot.json',
         resolvedAt: expect.any(String),
         resolution: {
           status: 'resolved',
@@ -2732,6 +2758,7 @@ describe('channel accounts api', () => {
         jobId: requestSessionBody.job.id,
         jobStatus: requestSessionBody.job.status,
         nextStep: '/api/channel-accounts/1/session',
+        managedStorageStatePath: 'browser-sessions/managed/x/-promobot.json',
       });
 
       const saveSessionResponse = await requestApp('POST', '/api/channel-accounts/1/session', {
@@ -2779,6 +2806,7 @@ describe('channel accounts api', () => {
         jobId: requestSessionBody.job.id,
         jobStatus: 'resolved',
         nextStep: '/api/channel-accounts/1/session',
+        managedStorageStatePath: 'browser-sessions/managed/x/-promobot.json',
         resolvedAt: expect.any(String),
         resolution: {
           status: 'resolved',

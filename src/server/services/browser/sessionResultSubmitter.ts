@@ -4,6 +4,10 @@ import {
   createSessionRequestResultArtifact,
   getSessionRequestArtifactByPath,
 } from './sessionRequestArtifacts.js';
+import {
+  buildManagedStorageStatePath,
+  resolveManagedStorageStateAbsolutePath,
+} from './sessionStore.js';
 
 export class SessionRequestResultSubmitError extends Error {
   constructor(
@@ -43,7 +47,12 @@ export async function submitSessionRequestResult(
     throw new SessionRequestResultSubmitError('browser lane request artifact already resolved', 409);
   }
 
-  const storageState = readStorageStateFile(input.storageStateFilePath);
+  const managedStorageStatePath =
+    requestArtifact.managedStorageStatePath ??
+    buildManagedStorageStatePath(requestArtifact.platform, requestArtifact.accountKey);
+  const storageState = readStorageStateFile(
+    resolveStorageStateFilePath(input.storageStateFilePath, managedStorageStatePath),
+  );
   const completedAt = input.completedAt ?? (dependencies.now ?? (() => new Date()))().toISOString();
   const resultArtifactPath = createSessionRequestResultArtifact({
     channelAccountId: requestArtifact.channelAccountId,
@@ -149,4 +158,18 @@ function readStorageStateFile(storageStateFilePath: string) {
       400,
     );
   }
+}
+
+function resolveStorageStateFilePath(
+  storageStateFilePath: string,
+  managedStorageStatePath: string,
+) {
+  const normalizedPath = storageStateFilePath.trim();
+  if (!normalizedPath) {
+    return normalizedPath;
+  }
+
+  return normalizedPath === managedStorageStatePath
+    ? resolveManagedStorageStateAbsolutePath(managedStorageStatePath)
+    : normalizedPath;
 }

@@ -12,6 +12,7 @@ export interface BrowserLaneDispatchInput {
   artifactPath: string;
   platform: string;
   accountKey: string;
+  managedStorageStatePath?: string;
   sessionAction?: BrowserSessionAction | null;
   channelAccountId?: number;
   requestJobId?: number;
@@ -123,6 +124,9 @@ function buildBrowserLaneDispatchEnv(
     PROMOBOT_BROWSER_ARTIFACT_PATH: input.artifactPath,
     PROMOBOT_BROWSER_PLATFORM: input.platform,
     PROMOBOT_BROWSER_ACCOUNT_KEY: input.accountKey,
+    ...(typeof input.managedStorageStatePath === 'string' && input.managedStorageStatePath.trim()
+      ? { PROMOBOT_BROWSER_MANAGED_STORAGE_STATE_PATH: input.managedStorageStatePath }
+      : {}),
     ...(input.sessionAction ? { PROMOBOT_BROWSER_SESSION_ACTION: input.sessionAction } : {}),
     ...(typeof input.channelAccountId === 'number'
       ? { PROMOBOT_BROWSER_CHANNEL_ACCOUNT_ID: String(input.channelAccountId) }

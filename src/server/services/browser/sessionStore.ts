@@ -56,6 +56,36 @@ export function createSessionStore(rootDir = resolveDefaultSessionRootDir()) {
   return new SessionStore({ rootDir });
 }
 
+export function buildManagedStorageStatePath(
+  platform: BrowserSessionPlatform,
+  accountKey: string,
+) {
+  return toPortablePath(
+    path.join(
+      'browser-sessions',
+      'managed',
+      sanitizePlatformKey(platform),
+      `${sanitizeAccountKey(accountKey)}.json`,
+    ),
+  );
+}
+
+export function resolveManagedStorageStateAbsolutePath(
+  managedStorageStatePath: string,
+  rootDir = resolveDefaultSessionRootDir(),
+) {
+  const normalizedPath = managedStorageStatePath.trim();
+  if (!normalizedPath) {
+    return '';
+  }
+
+  if (path.isAbsolute(normalizedPath)) {
+    return path.resolve(normalizedPath);
+  }
+
+  return path.join(path.dirname(rootDir), normalizedPath);
+}
+
 export class SessionStore {
   constructor(private readonly options: SessionStoreOptions) {}
 
@@ -121,12 +151,9 @@ export class SessionStore {
     platform: BrowserSessionPlatform,
     accountKey: string,
   ): SessionMetadata | null {
-    const storageKey = sanitizeAccountKey(accountKey);
-    const managedPath = path.join(
+    const managedPath = resolveManagedStorageStateAbsolutePath(
+      buildManagedStorageStatePath(platform, accountKey),
       this.options.rootDir,
-      'managed',
-      sanitizePlatformKey(platform),
-      `${storageKey}.json`,
     );
 
     if (!hasValidStorageStateFileContents(managedPath)) {
@@ -138,9 +165,7 @@ export class SessionStore {
     return this.saveSession({
       platform,
       accountKey,
-      storageStatePath: toPortablePath(
-        path.relative(path.dirname(this.options.rootDir), managedPath),
-      ),
+      storageStatePath: buildManagedStorageStatePath(platform, accountKey),
       status: 'active',
       lastValidatedAt: validatedAt,
     });
@@ -216,17 +241,16 @@ export class SessionStore {
       throw new Error(`storage state payload is invalid for platform ${platform}`);
     }
 
-    const managedPath = path.join(
+    const managedStorageStatePath = buildManagedStorageStatePath(platform, storageKey);
+    const managedPath = resolveManagedStorageStateAbsolutePath(
+      managedStorageStatePath,
       this.options.rootDir,
-      'managed',
-      sanitizePlatformKey(platform),
-      `${storageKey}.json`,
     );
 
     fs.mkdirSync(path.dirname(managedPath), { recursive: true });
     fs.writeFileSync(managedPath, JSON.stringify(storageState, null, 2));
 
-    return toPortablePath(path.relative(path.dirname(this.options.rootDir), managedPath));
+    return managedStorageStatePath;
   }
 }
 

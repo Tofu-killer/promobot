@@ -2,7 +2,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { getDatabasePath } from '../../lib/persistence.js';
-import type { BrowserSessionAction } from './sessionStore.js';
+import {
+  buildManagedStorageStatePath,
+  type BrowserSessionAction,
+} from './sessionStore.js';
 
 export interface SessionRequestArtifactInput {
   channelAccountId: number;
@@ -13,6 +16,7 @@ export interface SessionRequestArtifactInput {
   jobId: number;
   jobStatus: string;
   nextStep: string;
+  managedStorageStatePath?: string;
 }
 
 export interface ResolveSessionRequestArtifactsInput {
@@ -37,6 +41,7 @@ interface SessionRequestArtifactRecord {
   jobId: number;
   jobStatus: string;
   nextStep: string;
+  managedStorageStatePath?: string;
   resolvedAt?: string;
   resolution?: string | Record<string, unknown>;
   savedStorageStatePath?: string;
@@ -81,6 +86,7 @@ export interface SessionRequestArtifactSummary {
   jobStatus: string;
   requestedAt: string;
   artifactPath: string;
+  managedStorageStatePath?: string;
   resolvedAt: string | null;
   resolution?: string | Record<string, unknown>;
 }
@@ -119,6 +125,9 @@ export interface SessionRequestResultArtifactSummary {
 export function createSessionRequestArtifact(input: SessionRequestArtifactInput) {
   const artifactPath = buildArtifactPath(input);
   const absolutePath = path.join(resolveArtifactRootDir(), artifactPath);
+  const managedStorageStatePath =
+    input.managedStorageStatePath ??
+    buildManagedStorageStatePath(input.platform, input.accountKey);
 
   fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
   fs.writeFileSync(
@@ -134,6 +143,7 @@ export function createSessionRequestArtifact(input: SessionRequestArtifactInput)
         jobId: input.jobId,
         jobStatus: input.jobStatus,
         nextStep: input.nextStep,
+        managedStorageStatePath,
       },
       null,
       2,
@@ -314,6 +324,9 @@ export function getLatestSessionRequestArtifact(
     jobStatus: latest.artifact.jobStatus,
     requestedAt: latest.artifact.requestedAt,
     artifactPath: latest.artifactPath,
+    managedStorageStatePath:
+      latest.artifact.managedStorageStatePath ??
+      buildManagedStorageStatePath(latest.artifact.platform, latest.artifact.accountKey),
     resolvedAt: latest.artifact.resolvedAt ?? null,
     ...(latest.artifact.resolution !== undefined ? { resolution: latest.artifact.resolution } : {}),
   };
@@ -511,6 +524,9 @@ export function listSessionRequestArtifacts(limit?: number) {
           jobStatus: artifact.jobStatus,
           requestedAt: artifact.requestedAt,
           artifactPath: path.relative(artifactRootDir, absolutePath).split(path.sep).join('/'),
+          managedStorageStatePath:
+            artifact.managedStorageStatePath ??
+            buildManagedStorageStatePath(artifact.platform, artifact.accountKey),
           resolvedAt: artifact.resolvedAt ?? null,
           ...(artifact.resolution !== undefined ? { resolution: artifact.resolution } : {}),
         });
@@ -558,6 +574,9 @@ function getSessionRequestArtifactByAbsolutePath(
     jobStatus: artifact.jobStatus,
     requestedAt: artifact.requestedAt,
     artifactPath: path.relative(artifactRootDir, absolutePath).split(path.sep).join('/'),
+    managedStorageStatePath:
+      artifact.managedStorageStatePath ??
+      buildManagedStorageStatePath(artifact.platform, artifact.accountKey),
     resolvedAt: artifact.resolvedAt ?? null,
     ...(artifact.resolution !== undefined ? { resolution: artifact.resolution } : {}),
   };

@@ -116,6 +116,7 @@ describe('browser lane session result submitter', () => {
           accountKey: '@promobot',
           action: 'request_session',
           jobId: 19,
+          managedStorageStatePath: 'browser-sessions/managed/x/-promobot.json',
           resolvedAt: null,
         }),
       );
@@ -135,6 +136,67 @@ describe('browser lane session result submitter', () => {
           validatedAt: '2026-04-23T14:01:00.000Z',
           notes: 'browser lane cli',
           consumedAt: null,
+        }),
+      );
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('resolves canonical managed session paths when the submit input uses the dispatched relative path', async () => {
+    const { rootDir } = createTestDatabasePath();
+
+    try {
+      const requestArtifactPath = createSessionRequestArtifact({
+        channelAccountId: 11,
+        platform: 'x',
+        accountKey: '@promobot',
+        action: 'request_session',
+        requestedAt: '2026-04-30T10:00:00.000Z',
+        jobId: 41,
+        jobStatus: 'pending',
+        nextStep: '/api/channel-accounts/11/session',
+      });
+      const managedStorageStatePath = 'browser-sessions/managed/x/-promobot.json';
+      const absoluteManagedStorageStatePath = path.join(rootDir, managedStorageStatePath);
+      fs.mkdirSync(path.dirname(absoluteManagedStorageStatePath), { recursive: true });
+      fs.writeFileSync(
+        absoluteManagedStorageStatePath,
+        JSON.stringify(
+          {
+            cookies: [{ name: 'sid', value: 'managed', domain: '.x.com', path: '/' }],
+            origins: [],
+          },
+          null,
+          2,
+        ),
+      );
+
+      const result = await submitSessionRequestResult({
+        requestArtifactPath,
+        storageStateFilePath: managedStorageStatePath,
+        sessionStatus: 'active',
+        completedAt: '2026-04-30T10:05:00.000Z',
+      });
+
+      expect(result).toEqual({
+        ok: true,
+        imported: false,
+        requestArtifactPath,
+        resultArtifactPath:
+          'artifacts/browser-lane-requests/x/-promobot/request-session-job-41.result.json',
+      });
+      expect(
+        getSessionRequestResultArtifactByPath(
+          'artifacts/browser-lane-requests/x/-promobot/request-session-job-41.result.json',
+        ),
+      ).toEqual(
+        expect.objectContaining({
+          requestJobId: 41,
+          storageState: {
+            cookies: [{ name: 'sid', value: 'managed', domain: '.x.com', path: '/' }],
+            origins: [],
+          },
         }),
       );
     } finally {

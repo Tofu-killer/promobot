@@ -17,8 +17,11 @@ import {
   createBrowserLaneDispatch,
   type BrowserLaneDispatch,
 } from './browserLaneDispatch.js';
-import { createSessionStore } from './sessionStore.js';
-import type { BrowserSessionAction } from './sessionStore.js';
+import {
+  buildManagedStorageStatePath,
+  createSessionStore,
+  type BrowserSessionAction,
+} from './sessionStore.js';
 
 export const channelAccountSessionRequestJobType = 'channel_account_session_request';
 export const channelAccountSessionRequestPollJobType = 'channel_account_session_request_poll';
@@ -151,6 +154,9 @@ export function createChannelAccountSessionRequestJobHandler(
       artifactPath: requestArtifact.artifactPath,
       platform: normalizedPayload.platform,
       accountKey: normalizedPayload.accountKey,
+      managedStorageStatePath:
+        requestArtifact.managedStorageStatePath ??
+        buildManagedStorageStatePath(normalizedPayload.platform, normalizedPayload.accountKey),
       sessionAction: normalizedPayload.action,
       channelAccountId: channelAccount.id,
       requestJobId: job.id,
@@ -355,12 +361,6 @@ function resolveCandidateCompletedAt(timestamp: string | null, requestedAt: stri
   return new Date(timestampMs).toISOString();
 }
 
-function buildManagedStorageStatePath(platform: string, accountKey: string) {
-  return toPortablePath(
-    path.join('browser-sessions', 'managed', sanitizePlatformKey(platform), `${sanitizeAccountKey(accountKey)}.json`),
-  );
-}
-
 function readStorageStateModifiedAt(storageStatePath: string, requestedAt: string) {
   try {
     const absolutePath = resolveStorageStateAbsolutePath(storageStatePath);
@@ -435,20 +435,6 @@ function getAllowedStorageStateRoots() {
 function isPathWithinRoot(candidatePath: string, rootPath: string) {
   const relativePath = path.relative(rootPath, candidatePath);
   return relativePath === '' || (!relativePath.startsWith('..') && !path.isAbsolute(relativePath));
-}
-
-function sanitizeAccountKey(accountKey: string) {
-  const sanitized = accountKey.trim().replace(/[^a-zA-Z0-9._-]+/g, '-');
-  return sanitized.length > 0 ? sanitized : 'default';
-}
-
-function sanitizePlatformKey(platform: string) {
-  const sanitized = platform.trim().replace(/[^a-zA-Z0-9._-]+/g, '-');
-  return sanitized.length > 0 ? sanitized : 'default';
-}
-
-function toPortablePath(value: string) {
-  return value.split(path.sep).join('/');
 }
 
 function isValidStorageStatePayload(value: Record<string, unknown>) {

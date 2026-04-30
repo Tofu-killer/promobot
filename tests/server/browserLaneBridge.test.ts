@@ -52,6 +52,27 @@ describe('browser lane bridge cli', () => {
     });
   });
 
+  it('falls back to the dispatched managed storage path for session request imports', () => {
+    expect(
+      parseBrowserLaneBridgeEnv({
+        PROMOBOT_BROWSER_DISPATCH_KIND: 'session_request',
+        PROMOBOT_BROWSER_ARTIFACT_PATH:
+          'artifacts/browser-lane-requests/x/-promobot/request-session-job-20.json',
+        PROMOBOT_BROWSER_MANAGED_STORAGE_STATE_PATH:
+          'browser-sessions/managed/x/-promobot.json',
+        PROMOBOT_BROWSER_SESSION_STATUS: 'active',
+      }),
+    ).toEqual({
+      kind: 'session_request',
+      input: {
+        requestArtifactPath:
+          'artifacts/browser-lane-requests/x/-promobot/request-session-job-20.json',
+        storageStateFilePath: 'browser-sessions/managed/x/-promobot.json',
+        sessionStatus: 'active',
+      },
+    });
+  });
+
   it('parses publish handoff env into a publish completion input', () => {
     expect(
       parseBrowserLaneBridgeEnv({
@@ -208,7 +229,7 @@ describe('browser lane bridge cli', () => {
       }),
     ).toThrowError(
       new BrowserLaneBridgeError(
-        'PROMOBOT_BROWSER_STORAGE_STATE_FILE is required for session_request dispatches',
+        'PROMOBOT_BROWSER_STORAGE_STATE_FILE or PROMOBOT_BROWSER_MANAGED_STORAGE_STATE_PATH is required for session_request dispatches',
       ),
     );
   });
@@ -217,6 +238,9 @@ describe('browser lane bridge cli', () => {
     expect(getBrowserLaneBridgeHelpText()).toContain('pnpm browser:lane:bridge');
     expect(getBrowserLaneBridgeHelpText()).toContain('PROMOBOT_BROWSER_DISPATCH_KIND');
     expect(getBrowserLaneBridgeHelpText()).toContain('PROMOBOT_BROWSER_STORAGE_STATE_FILE');
+    expect(getBrowserLaneBridgeHelpText()).toContain(
+      'PROMOBOT_BROWSER_MANAGED_STORAGE_STATE_PATH',
+    );
     expect(getBrowserLaneBridgeHelpText()).toContain('PROMOBOT_BROWSER_PUBLISH_STATUS');
     expect(getBrowserLaneBridgeHelpText()).toContain('PROMOBOT_BROWSER_REPLY_STATUS');
   });

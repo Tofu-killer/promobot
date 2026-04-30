@@ -7,6 +7,7 @@ import {
   getChannelAccountPublishReadiness,
 } from '../services/platformReadiness.js';
 import {
+  buildManagedStorageStatePath,
   buildSessionSummary,
   createSessionStore,
   resolveManagedBrowserSession,
@@ -152,12 +153,17 @@ channelAccountsRouter.post('/:id/session/request', (request, response) => {
     latestSessionRequestJobStatus &&
     isReusableSessionRequestStatus(latestSessionRequestJobStatus)
   ) {
+    const managedStorageStatePath =
+      latestSessionRequestArtifact.managedStorageStatePath ??
+      buildManagedStorageStatePath(channelAccount.platform, channelAccount.accountKey);
+
     if (latestSessionRequestJobStatus === 'done') {
       createBrowserLaneDispatch()({
         kind: 'session_request',
         artifactPath: latestSessionRequestArtifact.artifactPath,
         platform: channelAccount.platform,
         accountKey: channelAccount.accountKey,
+        managedStorageStatePath,
         channelAccountId: channelAccount.id,
         requestJobId: latestSessionRequestArtifact.jobId,
         sessionAction: action,
@@ -189,6 +195,7 @@ channelAccountsRouter.post('/:id/session/request', (request, response) => {
         jobId: latestSessionRequestArtifact.jobId,
         jobStatus: latestSessionRequestJobStatus,
         artifactPath: latestSessionRequestArtifact.artifactPath,
+        managedStorageStatePath,
         reused: true,
       },
       channelAccount: attachSessionSummary(channelAccount, createSessionStore()),
@@ -211,7 +218,15 @@ channelAccountsRouter.post('/:id/session/request', (request, response) => {
     jobId: job.id,
     jobStatus: job.status,
     nextStep,
+    managedStorageStatePath: buildManagedStorageStatePath(
+      channelAccount.platform,
+      channelAccount.accountKey,
+    ),
   });
+  const managedStorageStatePath = buildManagedStorageStatePath(
+    channelAccount.platform,
+    channelAccount.accountKey,
+  );
 
   response.json({
     ok: true,
@@ -233,6 +248,7 @@ channelAccountsRouter.post('/:id/session/request', (request, response) => {
       jobId: job.id,
       jobStatus: job.status,
       artifactPath,
+      managedStorageStatePath,
     },
     channelAccount: attachSessionSummary(channelAccount, createSessionStore()),
   });

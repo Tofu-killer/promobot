@@ -68,6 +68,9 @@ export function parseBrowserLaneBridgeEnv(
         const completedAt = optionalEnvValue(env.PROMOBOT_BROWSER_COMPLETED_AT);
         const importBaseUrl = optionalEnvValue(env.PROMOBOT_BROWSER_IMPORT_BASE_URL);
         const adminPassword = optionalEnvValue(env.PROMOBOT_BROWSER_ADMIN_PASSWORD);
+        const storageStateFilePath =
+          optionalEnvValue(env.PROMOBOT_BROWSER_STORAGE_STATE_FILE) ??
+          optionalEnvValue(env.PROMOBOT_BROWSER_MANAGED_STORAGE_STATE_PATH);
 
       return {
         kind,
@@ -77,8 +80,8 @@ export function parseBrowserLaneBridgeEnv(
             'PROMOBOT_BROWSER_ARTIFACT_PATH is required for session_request dispatches',
           ),
           storageStateFilePath: requireEnvValue(
-            env.PROMOBOT_BROWSER_STORAGE_STATE_FILE,
-            'PROMOBOT_BROWSER_STORAGE_STATE_FILE is required for session_request dispatches',
+            storageStateFilePath,
+            'PROMOBOT_BROWSER_STORAGE_STATE_FILE or PROMOBOT_BROWSER_MANAGED_STORAGE_STATE_PATH is required for session_request dispatches',
           ),
           ...(sessionStatus ? { sessionStatus } : {}),
           ...(validatedAt ? { validatedAt } : {}),
@@ -182,6 +185,7 @@ export function getBrowserLaneBridgeHelpText() {
     '',
     'Session request env:',
     '  PROMOBOT_BROWSER_STORAGE_STATE_FILE',
+    '  PROMOBOT_BROWSER_MANAGED_STORAGE_STATE_PATH  Fallback managed storage path forwarded by browserLaneDispatch and resolved against the Promobot data root',
     '  PROMOBOT_BROWSER_SESSION_STATUS  active | expired | missing',
     '  PROMOBOT_BROWSER_VALIDATED_AT',
     '  PROMOBOT_BROWSER_NOTES',

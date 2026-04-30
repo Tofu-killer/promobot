@@ -94,6 +94,7 @@ describe('createBrowserLaneDispatch', () => {
       artifactPath: 'artifacts/browser-lane-requests/x/-promobot/request-session-job-41.json',
       platform: 'x',
       accountKey: '@promobot',
+      managedStorageStatePath: 'browser-sessions/managed/x/-promobot.json',
       requestJobId: 41,
       sessionAction: 'request_session',
     });
@@ -103,6 +104,8 @@ describe('createBrowserLaneDispatch', () => {
       env: expect.objectContaining({
         PROMOBOT_BROWSER_LANE_COMMAND: 'generic-browser-lane',
         PROMOBOT_BROWSER_DISPATCH_KIND: 'session_request',
+        PROMOBOT_BROWSER_MANAGED_STORAGE_STATE_PATH:
+          'browser-sessions/managed/x/-promobot.json',
         PROMOBOT_BROWSER_REQUEST_JOB_ID: '41',
         PROMOBOT_BROWSER_SESSION_ACTION: 'request_session',
       }),

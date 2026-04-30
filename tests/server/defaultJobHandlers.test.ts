@@ -332,6 +332,7 @@ describe('default job handlers', () => {
         jobId: 41,
         jobStatus: 'resolved',
         nextStep,
+        managedStorageStatePath: 'browser-sessions/managed/x/-promobot.json',
         resolvedAt: sessionMetadata.updatedAt,
         resolution: {
           status: 'resolved',
@@ -569,6 +570,7 @@ describe('default job handlers', () => {
         artifactPath: 'artifacts/browser-lane-requests/x/-promobot/request-session-job-41.json',
         platform: channelAccount.platform,
         accountKey: channelAccount.accountKey,
+        managedStorageStatePath: 'browser-sessions/managed/x/-promobot.json',
         sessionAction: 'request_session',
         channelAccountId: channelAccount.id,
         requestJobId: 41,

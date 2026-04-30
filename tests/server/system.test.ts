@@ -2046,6 +2046,7 @@ describe('system runtime api', () => {
             jobStatus: 'pending',
             artifactPath:
               'artifacts/browser-lane-requests/x/-promobot/request-session-job-1.json',
+            managedStorageStatePath: 'browser-sessions/managed/x/-promobot.json',
             resolvedAt: null,
           }),
         ],
