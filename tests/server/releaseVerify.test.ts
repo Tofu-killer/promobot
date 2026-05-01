@@ -187,6 +187,66 @@ describe('release verify cli', () => {
     );
   });
 
+  it('fails when bundle contains files not declared in the manifest contract', async () => {
+    const releaseVerify = await loadReleaseVerifyModule();
+    expect(releaseVerify).toBeTruthy();
+    if (!releaseVerify) {
+      return;
+    }
+
+    const inputDir = createTempDir();
+    writeRequiredBundleCore(inputDir);
+    writeBundleNativeEntryScripts(inputDir);
+    writeFile(inputDir, 'ops/debug.sh', '#!/usr/bin/env bash\n');
+
+    writeManifest(inputDir, {
+      ok: true,
+      files: [
+        'package.json',
+        'database/schema.sql',
+        'pnpm-lock.yaml',
+        'docs/DEPLOYMENT.md',
+        '.env.example',
+        'dist/server/index.js',
+        'dist/server/cli/deploymentSmoke.js',
+        'dist/server/cli/browserHandoffComplete.js',
+        'dist/server/cli/inboxReplyHandoffComplete.js',
+        'dist/server/cli/releaseVerify.js',
+        'dist/client/index.html',
+        'pm2.config.js',
+        'ops/deploy-promobot.sh',
+        'ops/deploy-release.sh',
+        'ops/verify-downloaded-release.sh',
+        'ops/verify-release.sh',
+      ],
+      missing: [],
+    });
+
+    const summary = releaseVerify.runReleaseVerify({ inputDir });
+
+    expect(summary.ok).toBe(false);
+    expect(summary.missing).toEqual([]);
+    expect(summary.checks).toEqual(
+      expect.arrayContaining([
+        {
+          kind: 'manifest-item',
+          name: 'ops/debug.sh',
+          ok: false,
+          target: path.join(inputDir, 'ops/debug.sh'),
+        },
+      ]),
+    );
+    expect(summary.warnings).toEqual(
+      expect.arrayContaining([
+        {
+          code: 'unexpected-bundle-file',
+          message: 'Bundle contains a regular file not declared by the release manifest: ops/debug.sh',
+          target: path.join(inputDir, 'ops/debug.sh'),
+        },
+      ]),
+    );
+  });
+
   it('passes when manifest and required bundle files exist without checksum metadata', async () => {
     const releaseVerify = await loadReleaseVerifyModule();
     expect(releaseVerify).toBeTruthy();

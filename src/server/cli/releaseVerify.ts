@@ -162,7 +162,9 @@ export function runReleaseVerify(input: { inputDir: string }): ReleaseVerifySumm
   const manifestFiles = normalizeManifestFiles(manifest);
   const manifestChecksums = getManifestChecksumMap(manifest);
   const manifestFilePaths = new Set(manifestFiles.map((entry) => entry.relativePath));
+  const expectedFilePaths = new Set<string>(['manifest.json', ...manifestFilePaths, ...REQUIRED_RELEASE_PATHS]);
   const manifestMissing = Array.isArray(manifest.missing) ? manifest.missing : [];
+  let hasUnexpectedFiles = false;
 
   if (manifest.ok === false) {
     warnings.push({
@@ -208,8 +210,28 @@ export function runReleaseVerify(input: { inputDir: string }): ReleaseVerifySumm
     }
   }
 
+  for (const relativePath of collectBundleFiles(inputDir)) {
+    if (expectedFilePaths.has(relativePath)) {
+      continue;
+    }
+
+    hasUnexpectedFiles = true;
+    const target = path.join(inputDir, relativePath);
+    checks.push({
+      kind: 'manifest-item',
+      name: relativePath,
+      ok: false,
+      target,
+    });
+    warnings.push({
+      code: 'unexpected-bundle-file',
+      message: `Bundle contains a regular file not declared by the release manifest: ${relativePath}`,
+      target,
+    });
+  }
+
   return {
-    ok: missing.length === 0 && manifestMissing.length === 0 && manifest.ok !== false,
+    ok: missing.length === 0 && manifestMissing.length === 0 && manifest.ok !== false && !hasUnexpectedFiles,
     inputDir,
     manifestPath,
     checks,
@@ -332,6 +354,37 @@ function getManifestChecksumMap(manifest: ReleaseBundleManifest) {
   }
 
   return checksumMap;
+}
+
+function collectBundleFiles(rootDir: string) {
+  const files: string[] = [];
+  const pendingDirs = [''];
+
+  while (pendingDirs.length > 0) {
+    const relativeDir = pendingDirs.pop();
+    if (relativeDir === undefined) {
+      continue;
+    }
+
+    const absoluteDir = relativeDir ? path.join(rootDir, relativeDir) : rootDir;
+    const entries = fs.readdirSync(absoluteDir, { withFileTypes: true });
+
+    for (const entry of entries) {
+      const relativePath = relativeDir ? path.posix.join(relativeDir, entry.name) : entry.name;
+      if (entry.isDirectory()) {
+        pendingDirs.push(relativePath);
+        continue;
+      }
+
+      if (!entry.isFile()) {
+        continue;
+      }
+
+      files.push(relativePath);
+    }
+  }
+
+  return files.sort();
 }
 
 function verifyFileChecksum(target: string, expectedChecksum: string) {
