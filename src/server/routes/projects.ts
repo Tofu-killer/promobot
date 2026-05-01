@@ -51,8 +51,10 @@ projectsRouter.post('/', (request, response) => {
     typeof siteUrl !== 'string' ||
     typeof siteDescription !== 'string' ||
     !Array.isArray(sellingPoints) ||
+    !sellingPoints.every((value: unknown) => typeof value === 'string') ||
     (brandVoice !== undefined && typeof brandVoice !== 'string') ||
-    (ctas !== undefined && !Array.isArray(ctas))
+    (ctas !== undefined &&
+      (!Array.isArray(ctas) || !ctas.every((value: unknown) => typeof value === 'string')))
   ) {
     response.status(400).json({ error: 'invalid project payload' });
     return;
@@ -119,13 +121,17 @@ projectsRouter.patch('/:id', (request, response) => {
   const body = (input ?? {}) as Record<string, unknown>;
   if (
     body.sellingPoints !== undefined &&
-    !Array.isArray(body.sellingPoints)
+    (!Array.isArray(body.sellingPoints) ||
+      !body.sellingPoints.every((value: unknown) => typeof value === 'string'))
   ) {
     response.status(400).json({ error: 'invalid project payload' });
     return;
   }
 
-  if (body.ctas !== undefined && !Array.isArray(body.ctas)) {
+  if (
+    body.ctas !== undefined &&
+    (!Array.isArray(body.ctas) || !body.ctas.every((value: unknown) => typeof value === 'string'))
+  ) {
     response.status(400).json({ error: 'invalid project payload' });
     return;
   }

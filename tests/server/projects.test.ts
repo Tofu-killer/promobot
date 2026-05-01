@@ -240,6 +240,59 @@ describe('projects api', () => {
     }
   });
 
+  it('rejects project payload arrays that mix strings with non-string values', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const invalidCreate = await requestApp('POST', '/api/projects', {
+        name: 'Mixed Payload Workspace',
+        siteName: 'PromoBot',
+        siteUrl: 'https://mixed.example.com',
+        siteDescription: 'Mixed payload coverage',
+        sellingPoints: ['Existing flow'],
+        ctas: ['Talk to sales', 123],
+      });
+
+      expect(invalidCreate.status).toBe(400);
+      expect(JSON.parse(invalidCreate.body)).toEqual({
+        error: 'invalid project payload',
+      });
+
+      const created = await requestApp('POST', '/api/projects', {
+        name: 'Strict Workspace',
+        siteName: 'PromoBot',
+        siteUrl: 'https://strict.example.com',
+        siteDescription: 'Strict payload coverage',
+        sellingPoints: ['Existing flow'],
+      });
+
+      expect(created.status).toBe(201);
+
+      const invalidUpdate = await requestApp('PATCH', '/api/projects/1', {
+        sellingPoints: ['Valid point', { bad: true }],
+      });
+
+      expect(invalidUpdate.status).toBe(400);
+      expect(JSON.parse(invalidUpdate.body)).toEqual({
+        error: 'invalid project payload',
+      });
+
+      const listed = await requestApp('GET', '/api/projects');
+
+      expect(listed.status).toBe(200);
+      expect(JSON.parse(listed.body)).toEqual({
+        projects: [
+          expect.objectContaining({
+            id: 1,
+            sellingPoints: ['Existing flow'],
+            ctas: [],
+          }),
+        ],
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('rejects archive mutations through PATCH and keeps the project visible until the archive route is used', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
