@@ -192,6 +192,45 @@ describe('projects api', () => {
     }
   });
 
+  it('rejects invalid project update payloads instead of silently ignoring them', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const created = await requestApp('POST', '/api/projects', {
+        name: 'Legacy Workspace',
+        siteName: 'PromoBot',
+        siteUrl: 'https://legacy.example.com',
+        siteDescription: 'Legacy create payload',
+        sellingPoints: ['Existing flow'],
+      });
+
+      expect(created.status).toBe(201);
+
+      const updated = await requestApp('PATCH', '/api/projects/1', {
+        ctas: 'Talk to sales',
+      });
+
+      expect(updated.status).toBe(400);
+      expect(JSON.parse(updated.body)).toEqual({
+        error: 'invalid project payload',
+      });
+
+      const listed = await requestApp('GET', '/api/projects');
+
+      expect(listed.status).toBe(200);
+      expect(JSON.parse(listed.body)).toEqual({
+        projects: [
+          expect.objectContaining({
+            id: 1,
+            ctas: [],
+            archived: false,
+          }),
+        ],
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('rejects archive mutations through PATCH and keeps the project visible until the archive route is used', async () => {
     const { rootDir } = createTestDatabasePath();
     try {

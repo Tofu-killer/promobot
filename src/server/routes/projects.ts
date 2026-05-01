@@ -105,23 +105,42 @@ projectsRouter.patch('/:id', (request, response) => {
     return;
   }
 
-  const input = request.body ?? {};
+  const input = request.body;
+  if (input !== undefined && (input === null || typeof input !== 'object' || Array.isArray(input))) {
+    response.status(400).json({ error: 'invalid project payload' });
+    return;
+  }
+
+  const body = (input ?? {}) as Record<string, unknown>;
+  if (
+    body.sellingPoints !== undefined &&
+    !Array.isArray(body.sellingPoints)
+  ) {
+    response.status(400).json({ error: 'invalid project payload' });
+    return;
+  }
+
+  if (body.ctas !== undefined && !Array.isArray(body.ctas)) {
+    response.status(400).json({ error: 'invalid project payload' });
+    return;
+  }
+
   if (input !== null && typeof input === 'object' && 'archived' in input) {
     response.status(400).json({ error: 'project archive must use POST /api/projects/:id/archive' });
     return;
   }
 
   const project = projectStore.update(id, {
-    name: typeof input.name === 'string' ? input.name : undefined,
-    siteName: typeof input.siteName === 'string' ? input.siteName : undefined,
-    siteUrl: typeof input.siteUrl === 'string' ? input.siteUrl : undefined,
-    siteDescription: typeof input.siteDescription === 'string' ? input.siteDescription : undefined,
-    sellingPoints: Array.isArray(input.sellingPoints)
-      ? input.sellingPoints.filter((value: unknown): value is string => typeof value === 'string')
+    name: typeof body.name === 'string' ? body.name : undefined,
+    siteName: typeof body.siteName === 'string' ? body.siteName : undefined,
+    siteUrl: typeof body.siteUrl === 'string' ? body.siteUrl : undefined,
+    siteDescription: typeof body.siteDescription === 'string' ? body.siteDescription : undefined,
+    sellingPoints: Array.isArray(body.sellingPoints)
+      ? body.sellingPoints.filter((value: unknown): value is string => typeof value === 'string')
       : undefined,
-    brandVoice: typeof input.brandVoice === 'string' ? input.brandVoice : undefined,
-    ctas: Array.isArray(input.ctas)
-      ? input.ctas.filter((value: unknown): value is string => typeof value === 'string')
+    brandVoice: typeof body.brandVoice === 'string' ? body.brandVoice : undefined,
+    ctas: Array.isArray(body.ctas)
+      ? body.ctas.filter((value: unknown): value is string => typeof value === 'string')
       : undefined,
   });
 
