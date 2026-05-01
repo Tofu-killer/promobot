@@ -561,6 +561,8 @@ pnpm runtime:backup
 pnpm runtime:backup -- --output-dir /tmp/promobot-backup-manual
 ```
 
+自定义 `--output-dir` 时，目标目录必须不存在或为空；CLI 会拒绝写入已有非空目录，避免旧的 `browser-sessions` 或旧 manifest 残留被合并进新的 runtime 快照。
+
 需要恢复时：
 
 ```bash

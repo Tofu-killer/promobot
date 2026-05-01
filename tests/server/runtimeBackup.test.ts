@@ -438,6 +438,138 @@ describe('runtime backup cli', () => {
     }
   });
 
+  it('rejects a custom output directory when it already contains backup artifacts', async () => {
+    const runtimeBackup = await loadRuntimeBackupModule();
+    const testDatabase = createTestDatabasePath();
+
+    expect(runtimeBackup).not.toBeNull();
+
+    try {
+      const outputDir = path.join(testDatabase.rootDir, 'snapshots', 'manual-backup');
+      const staleManifestPath = path.join(outputDir, 'manifest.json');
+      const staleBrowserSessionPath = path.join(
+        outputDir,
+        'browser-sessions',
+        'managed',
+        'stale.json',
+      );
+      fs.mkdirSync(path.dirname(staleBrowserSessionPath), { recursive: true });
+      fs.writeFileSync(staleManifestPath, '{"ok":true}', 'utf8');
+      fs.writeFileSync(staleBrowserSessionPath, '{"stale":true}', 'utf8');
+
+      const stdout = createStdoutBuffer();
+
+      await expect(
+        runtimeBackup?.runRuntimeBackupCli(['--output-dir', outputDir], {
+          now: () => new Date('2026-04-24T15:00:00.000Z'),
+          repoRootDir: testDatabase.rootDir,
+          stdout: stdout.stdout,
+        }),
+      ).rejects.toThrow(`runtime backup output directory must be empty: ${outputDir}`);
+
+      expect(stdout.read()).toBe('');
+      expect(fs.readFileSync(staleManifestPath, 'utf8')).toBe('{"ok":true}');
+      expect(fs.readFileSync(staleBrowserSessionPath, 'utf8')).toBe('{"stale":true}');
+      expect(fs.existsSync(path.join(outputDir, 'database'))).toBe(false);
+    } finally {
+      cleanupTestDatabasePath(testDatabase.rootDir);
+    }
+  });
+
+  it('allows reusing an existing empty custom output directory', async () => {
+    const runtimeBackup = await loadRuntimeBackupModule();
+    const testDatabase = createTestDatabasePath();
+
+    expect(runtimeBackup).not.toBeNull();
+
+    try {
+      const outputDir = path.join(testDatabase.rootDir, 'snapshots', 'manual-backup');
+      const databasePath = path.join(testDatabase.rootDir, 'data', 'promobot.sqlite');
+      const browserSessionsDir = path.join(testDatabase.rootDir, 'data', 'browser-sessions');
+      setDatabasePath(databasePath);
+      fs.mkdirSync(outputDir, { recursive: true });
+      fs.mkdirSync(path.dirname(databasePath), { recursive: true });
+      fs.mkdirSync(path.join(browserSessionsDir, 'managed'), { recursive: true });
+      fs.writeFileSync(databasePath, 'sqlite-data', 'utf8');
+      fs.writeFileSync(
+        path.join(browserSessionsDir, 'managed', 'session.json'),
+        JSON.stringify({ cookies: [{ name: 'sid', value: 'abc' }] }, null, 2),
+        'utf8',
+      );
+      fs.writeFileSync(path.join(testDatabase.rootDir, '.env'), 'ADMIN_PASSWORD=secret\n', 'utf8');
+
+      const stdout = createStdoutBuffer();
+      const summary = (await runtimeBackup?.runRuntimeBackupCli(['--output-dir', outputDir], {
+        now: () => new Date('2026-04-24T15:30:00.000Z'),
+        repoRootDir: testDatabase.rootDir,
+        stdout: stdout.stdout,
+      })) as {
+        copied: Array<{
+          destinationPath: string;
+          kind: string;
+          sourcePath: string;
+          type: string;
+        }>;
+        manifestPath: string;
+        missing: unknown[];
+        ok: boolean;
+      };
+
+      expect(summary.ok).toBe(true);
+      expect(summary.missing).toEqual([]);
+      expect(summary.copied).toContainEqual({
+        kind: 'database',
+        type: 'file',
+        sourcePath: databasePath,
+        destinationPath: path.join(outputDir, 'database', 'promobot.sqlite'),
+      });
+      expect(summary.copied).toContainEqual({
+        kind: 'browserSessions',
+        type: 'directory',
+        sourcePath: browserSessionsDir,
+        destinationPath: path.join(outputDir, 'browser-sessions'),
+      });
+      expect(summary.copied).toContainEqual({
+        kind: 'envFile',
+        type: 'file',
+        sourcePath: path.join(testDatabase.rootDir, '.env'),
+        destinationPath: path.join(outputDir, '.env'),
+      });
+      expect(JSON.parse(fs.readFileSync(summary.manifestPath, 'utf8'))).toEqual(summary);
+      expect(JSON.parse(stdout.read())).toEqual(summary);
+    } finally {
+      cleanupTestDatabasePath(testDatabase.rootDir);
+    }
+  });
+
+  it('rejects a custom output path when it already exists as a file', async () => {
+    const runtimeBackup = await loadRuntimeBackupModule();
+    const testDatabase = createTestDatabasePath();
+
+    expect(runtimeBackup).not.toBeNull();
+
+    try {
+      const outputFilePath = path.join(testDatabase.rootDir, 'snapshots', 'manual-backup.json');
+      fs.mkdirSync(path.dirname(outputFilePath), { recursive: true });
+      fs.writeFileSync(outputFilePath, '{"existing":true}', 'utf8');
+
+      const stdout = createStdoutBuffer();
+
+      await expect(
+        runtimeBackup?.runRuntimeBackupCli(['--output-dir', outputFilePath], {
+          now: () => new Date('2026-04-24T15:45:00.000Z'),
+          repoRootDir: testDatabase.rootDir,
+          stdout: stdout.stdout,
+        }),
+      ).rejects.toThrow(`runtime backup output path must be a directory: ${outputFilePath}`);
+
+      expect(stdout.read()).toBe('');
+      expect(fs.readFileSync(outputFilePath, 'utf8')).toBe('{"existing":true}');
+    } finally {
+      cleanupTestDatabasePath(testDatabase.rootDir);
+    }
+  });
+
   it('sets a non-zero exit code for incomplete backups', async () => {
     const runtimeBackup = await loadRuntimeBackupModule();
 

@@ -82,7 +82,7 @@ export function getRuntimeBackupHelpText() {
     'Create a point-in-time runtime backup under backups/<timestamp> by default.',
     '',
     'Options:',
-    '  --output-dir <path>   Write the backup into a custom directory',
+    '  --output-dir <path>   Write the backup into a custom directory (must not already contain files)',
     '  --help                Show this help text',
   ].join('\n');
 }
@@ -106,6 +106,7 @@ export async function runRuntimeBackupCli(
   const outputDir = path.resolve(
     parsed.outputDir?.trim() || path.join(repoRootDir, 'backups', sanitizeTimestamp(createdAt)),
   );
+  ensureRuntimeBackupOutputDir(outputDir);
 
   const summary: RuntimeBackupSummary = {
     ok: true,
@@ -116,8 +117,6 @@ export async function runRuntimeBackupCli(
     copied: [],
     missing: [],
   };
-
-  fs.mkdirSync(outputDir, { recursive: true });
 
   const runtimePaths = resolveRuntimePaths(repoRootDir);
   const envFilePath = path.join(repoRootDir, '.env');
@@ -196,6 +195,22 @@ function copyBackupItem(
   }
 
   summary.copied.push(item);
+}
+
+function ensureRuntimeBackupOutputDir(outputDir: string) {
+  if (!fs.existsSync(outputDir)) {
+    fs.mkdirSync(outputDir, { recursive: true });
+    return;
+  }
+
+  const stats = fs.statSync(outputDir);
+  if (!stats.isDirectory()) {
+    throw new Error(`runtime backup output path must be a directory: ${outputDir}`);
+  }
+
+  if (fs.readdirSync(outputDir).length > 0) {
+    throw new Error(`runtime backup output directory must be empty: ${outputDir}`);
+  }
 }
 
 function resolveRuntimePaths(repoRootDir: string): RuntimeBackupPaths {
