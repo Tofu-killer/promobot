@@ -15,6 +15,10 @@ export function parseBrowserLaneSubmitArgs(argv: string[]): SubmitSessionRequest
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
 
+    if (token === '--') {
+      continue;
+    }
+
     if (token === '--help' || token === '-h') {
       parsed.showHelp = true;
       continue;
@@ -22,57 +26,81 @@ export function parseBrowserLaneSubmitArgs(argv: string[]): SubmitSessionRequest
 
     const nextValue = argv[index + 1];
     if (token === '--request-artifact') {
-      parsed.requestArtifactPath = nextValue ?? '';
+      if (!nextValue || nextValue.startsWith('--')) {
+        throw new Error('--request-artifact requires a value');
+      }
+      parsed.requestArtifactPath = nextValue;
       index += 1;
       continue;
     }
 
     if (token === '--storage-state-file') {
-      parsed.storageStateFilePath = nextValue ?? '';
+      if (!nextValue || nextValue.startsWith('--')) {
+        throw new Error('--storage-state-file requires a value');
+      }
+      parsed.storageStateFilePath = nextValue;
       index += 1;
       continue;
     }
 
     if (token === '--base-url') {
-      parsed.importBaseUrl = nextValue ?? '';
+      if (!nextValue || nextValue.startsWith('--')) {
+        throw new Error('--base-url requires a value');
+      }
+      parsed.importBaseUrl = nextValue;
       index += 1;
       continue;
     }
 
     if (token === '--admin-password') {
-      parsed.adminPassword = nextValue ?? '';
+      if (!nextValue || nextValue.startsWith('--')) {
+        throw new Error('--admin-password requires a value');
+      }
+      parsed.adminPassword = nextValue;
       index += 1;
       continue;
     }
 
     if (token === '--status') {
-      const status = nextValue ?? '';
-      if (status === 'active' || status === 'expired' || status === 'missing') {
-        parsed.sessionStatus = status;
-      } else {
-        parsed.sessionStatus = undefined;
+      if (!nextValue || nextValue.startsWith('--')) {
+        throw new Error('--status requires a value');
       }
+      if (nextValue !== 'active' && nextValue !== 'expired' && nextValue !== 'missing') {
+        throw new Error('--status must be one of: active, expired, missing');
+      }
+      parsed.sessionStatus = nextValue;
       index += 1;
       continue;
     }
 
     if (token === '--validated-at') {
-      parsed.validatedAt = nextValue ?? '';
+      if (!nextValue || nextValue.startsWith('--')) {
+        throw new Error('--validated-at requires a value');
+      }
+      parsed.validatedAt = nextValue;
       index += 1;
       continue;
     }
 
     if (token === '--notes') {
-      parsed.notes = nextValue ?? '';
+      if (!nextValue || nextValue.startsWith('--')) {
+        throw new Error('--notes requires a value');
+      }
+      parsed.notes = nextValue;
       index += 1;
       continue;
     }
 
     if (token === '--completed-at') {
-      parsed.completedAt = nextValue ?? '';
+      if (!nextValue || nextValue.startsWith('--')) {
+        throw new Error('--completed-at requires a value');
+      }
+      parsed.completedAt = nextValue;
       index += 1;
       continue;
     }
+
+    throw new Error(`unknown argument: ${token}`);
   }
 
   return parsed;

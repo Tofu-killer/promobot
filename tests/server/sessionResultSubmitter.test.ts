@@ -356,6 +356,44 @@ describe('browser lane session result submitter', () => {
       importBaseUrl: 'http://127.0.0.1:3001',
       adminPassword: 'secret',
     });
+    expect(parseBrowserLaneSubmitArgs(['--', '--help'])).toEqual({
+      requestArtifactPath: '',
+      storageStateFilePath: '',
+      showHelp: true,
+    });
+    expect(() => parseBrowserLaneSubmitArgs(['--request-artifact'])).toThrow(
+      '--request-artifact requires a value',
+    );
+    expect(() =>
+      parseBrowserLaneSubmitArgs(['--request-artifact', '--storage-state-file']),
+    ).toThrow('--request-artifact requires a value');
+    expect(() => parseBrowserLaneSubmitArgs(['--storage-state-file'])).toThrow(
+      '--storage-state-file requires a value',
+    );
+    expect(() => parseBrowserLaneSubmitArgs(['--base-url'])).toThrow(
+      '--base-url requires a value',
+    );
+    expect(() => parseBrowserLaneSubmitArgs(['--admin-password'])).toThrow(
+      '--admin-password requires a value',
+    );
+    expect(() => parseBrowserLaneSubmitArgs(['--validated-at'])).toThrow(
+      '--validated-at requires a value',
+    );
+    expect(() => parseBrowserLaneSubmitArgs(['--notes'])).toThrow(
+      '--notes requires a value',
+    );
+    expect(() => parseBrowserLaneSubmitArgs(['--completed-at'])).toThrow(
+      '--completed-at requires a value',
+    );
+    expect(() => parseBrowserLaneSubmitArgs(['--status'])).toThrow(
+      '--status requires a value',
+    );
+    expect(() => parseBrowserLaneSubmitArgs(['--status', 'bogus'])).toThrow(
+      '--status must be one of: active, expired, missing',
+    );
+    expect(() => parseBrowserLaneSubmitArgs(['--wat'])).toThrow(
+      'unknown argument: --wat',
+    );
     expect(getBrowserLaneSubmitHelpText()).toContain('--request-artifact <path>');
   });
 });
