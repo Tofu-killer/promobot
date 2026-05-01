@@ -52,6 +52,9 @@ describe('deployment document contracts', () => {
     expect(devSection).toContain(
       '- `pnpm preflight:local -- [options]`：先跑 `preflight:prod`，并把 `--require-env` 这类 prod preflight 参数透传过去，再按需追加 smoke check',
     );
+    expect(devSection).toContain(
+      '- `pnpm verify:release -- --input-dir <path>`：调用 shell wrapper 校验目录型 release bundle；在源码仓库里会转到 `release:verify`，在已解压的 bundle 根目录里会改用 bundle 自带的 compiled verifier；若显式加 `--smoke`，当前 checkout 还必须提供对应的 `deploymentSmoke` CLI，否则 wrapper 会直接失败',
+    );
   });
 
   it('keeps DEPLOYMENT source and bundle stage mappings aligned with the executable order', () => {
@@ -97,6 +100,9 @@ describe('deployment document contracts', () => {
     );
     expect(deploymentDoc).toContain(
       '它会先调用 `preflight:prod`，所以也支持把 `--require-env` 这类 prod preflight 参数透传过去，再按需追加 smoke check。',
+    );
+    expect(deploymentDoc).toContain(
+      '如果显式加 `--smoke`，当前 checkout 或已解压 bundle 根目录里还必须存在对应的 smoke CLI：源码仓库要有 `src/server/cli/deploymentSmoke.ts`，bundle 根目录要有 `dist/server/cli/deploymentSmoke.js`；缺少对应入口时 wrapper 会直接失败。',
     );
   });
 });

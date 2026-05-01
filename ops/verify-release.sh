@@ -20,7 +20,9 @@ or make network requests unless --smoke is explicitly enabled after verification
 
 Options:
   --input-dir <path>          Release input directory to verify (required)
-  --smoke                     Run a smoke check after release verification succeeds
+  --smoke                     Run a smoke check after release verification succeeds.
+                              Requires src/server/cli/deploymentSmoke.ts or
+                              dist/server/cli/deploymentSmoke.js when enabled.
   --base-url <url>            Smoke check base URL (default: PROMOBOT_BASE_URL or http://127.0.0.1:<PORT>)
   --admin-password <secret>   Smoke check admin password
   --help, -h                  Show this help
@@ -262,7 +264,7 @@ main() {
     elif [ "${use_compiled_smoke}" -eq 1 ]; then
       PROMOBOT_ADMIN_PASSWORD="${admin_password}" node dist/server/cli/deploymentSmoke.js --base-url "${base_url}"
     else
-      fail "Could not find src/server/cli/deploymentSmoke.ts or dist/server/cli/deploymentSmoke.js in ${repo_root}"
+      fail "--smoke requires src/server/cli/deploymentSmoke.ts or dist/server/cli/deploymentSmoke.js in ${repo_root}"
     fi
   fi
 }

@@ -101,7 +101,7 @@ pnpm browser:artifacts:archive -- --older-than-hours 72
 - `pnpm runtime:restore -- --input-dir <backupDir>`：按 backup manifest 恢复运行时数据，并在覆盖前为已有目标创建 `.pre-restore-<timestamp>` 备份
 - `pnpm release:local -- [options]`：先按需执行 `pnpm build`，再调用 `release:bundle` 生成目录型可交付发布物
 - `pnpm release:deploy -- [options]`：调用 `ops/deploy-release.sh`，用于从已打好的 release bundle 根目录直接部署；这和 `deploy:local` 的源码仓库部署不是同一条链路
-- `pnpm verify:release -- --input-dir <path>`：调用 shell wrapper 校验目录型 release bundle；在源码仓库里会转到 `release:verify`，在已解压的 bundle 根目录里会改用 bundle 自带的 compiled verifier
+- `pnpm verify:release -- --input-dir <path>`：调用 shell wrapper 校验目录型 release bundle；在源码仓库里会转到 `release:verify`，在已解压的 bundle 根目录里会改用 bundle 自带的 compiled verifier；若显式加 `--smoke`，当前 checkout 还必须提供对应的 `deploymentSmoke` CLI，否则 wrapper 会直接失败
 - `pnpm verify:downloaded-release -- --archive-file <path>`：调用仓库内的 `ops/verify-downloaded-release.sh`；正式 GitHub Release 页面现在会额外挂出同内容的 standalone `verify-downloaded-release.sh` helper，下载方即使不 checkout 仓库，也可以只拿 `archive + .sha256 + .metadata.json + helper` 在本机跑同一条校验链。两者都会先校验已下载的 archive、`.sha256` sidecar、`.metadata.json` metadata sidecar，再把解压目录交给 bundle 自带的 `releaseVerify` CLI
 - `pnpm deploy:local -- [options]`：执行本机部署链路，封装 `pnpm install`、`pnpm build`、PM2 reload/start 和可选 smoke check
 - `pnpm rollback:local -- --backup-dir <path> [options]`：先停 PM2、从已有 runtime backup 恢复数据，再按恢复后的环境重启服务，并按需追加 smoke check
@@ -192,7 +192,7 @@ node dist/server/cli/deploymentSmoke.js --base-url http://127.0.0.1:3001
 - `pm2.config.js` 现在会把日志落到仓库下的 `logs/`，并带基本重启/退避配置。
 - `ops/release-promobot.sh` 现在提供一条本地 release 打包脚本；它会先按需构建，再调用 `release:bundle` 生成可交付目录。
 - `ops/deploy-release.sh` 现在提供 bundle 内直接部署入口；进入 release bundle 根目录后可直接运行 `pnpm release:deploy`。
-- `ops/verify-release.sh` 现在提供 release 校验脚本；在源码仓库里会先跑 `release:verify`，在已解压 bundle 根目录里会改用 bundled `releaseVerify.js`，并且只会在校验成功后、且显式开启时才追加 smoke。
+- `ops/verify-release.sh` 现在提供 release 校验脚本；在源码仓库里会先跑 `release:verify`，在已解压 bundle 根目录里会改用 bundled `releaseVerify.js`，并且只会在校验成功后、且显式开启时才追加 smoke。若显式开启 `--smoke`，源码仓库还必须有 `src/server/cli/deploymentSmoke.ts`，bundle 根目录还必须有 `dist/server/cli/deploymentSmoke.js`；缺少对应入口时 wrapper 会直接失败。
 - `ops/preflight-promobot.sh` 现在提供上线前预检脚本；它会先跑 `preflight:prod`，再按需追加 smoke check。
 - `ops/deploy-promobot.sh` 现在提供一条可重复的本机部署脚本；默认会执行 install/build/PM2 切换，并默认启用 smoke check。脚本会优先读取 `--admin-password`，否则回退到 shell 里的 `PROMOBOT_ADMIN_PASSWORD` / `ADMIN_PASSWORD`，以及仓库根 `.env` 里的 `PROMOBOT_ADMIN_PASSWORD` / `ADMIN_PASSWORD`；如不想跑 smoke，可显式传 `--skip-smoke`。
 - `ops/rollback-promobot.sh` 现在提供对应的本机回滚脚本；它会先停 PM2，再调用 `runtime:restore` 恢复运行时数据，最后重启服务并可选追加 smoke check。需要保留当前 `.env` 时，可给 rollback 传 `--skip-env`。

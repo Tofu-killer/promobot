@@ -279,7 +279,7 @@ pnpm release:verify -- --input-dir /tmp/promobot-release
 pnpm verify:release -- --input-dir /tmp/promobot-release
 ```
 
-`verify:release` 默认只做目录结构和 manifest 校验，不会启动服务；在源码仓库里它会转到 `pnpm release:verify`，在已解压的 bundle 根目录里则会改用 bundle 自带的 compiled verifier。只有显式开启 smoke 时，才会在校验成功后追加 `smoke:server`。
+`verify:release` 默认只做目录结构和 manifest 校验，不会启动服务；在源码仓库里它会转到 `pnpm release:verify`，在已解压的 bundle 根目录里则会改用 bundle 自带的 compiled verifier。只有显式开启 smoke 时，才会在校验成功后追加 `smoke:server`。如果显式加 `--smoke`，当前 checkout 或已解压 bundle 根目录里还必须存在对应的 smoke CLI：源码仓库要有 `src/server/cli/deploymentSmoke.ts`，bundle 根目录要有 `dist/server/cli/deploymentSmoke.js`；缺少对应入口时 wrapper 会直接失败。
 
 如果你拿到的是下载后的 archive，而不是已经解压好的目录型 bundle，可直接用：
 

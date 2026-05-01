@@ -68,6 +68,8 @@ describe('release shell wrappers', () => {
       expect(result.stdout).not.toContain('[-- <release:verify args>]');
       expect(result.stdout).toContain('--input-dir <path>');
       expect(result.stdout).toContain('--smoke');
+      expect(result.stdout).toContain('Requires src/server/cli/deploymentSmoke.ts or');
+      expect(result.stdout).toContain('dist/server/cli/deploymentSmoke.js when enabled.');
       expect(result.stdout).not.toContain('Everything after -- is passed through');
       expect(result.stdout).not.toContain('-- --json');
     }
@@ -235,6 +237,88 @@ describe('release shell wrappers', () => {
     expect(fs.readFileSync(fixture.smokeMarkerPath, 'utf8')).toContain(
       'PROMOBOT_ADMIN_PASSWORD=bundle-secret',
     );
+    expect(fs.existsSync(fixture.pnpmMarkerPath)).toBe(false);
+  });
+
+  it('fails verify-release smoke when the source checkout is missing deploymentSmoke', () => {
+    const fixture = createVerifyReleaseFixture({ mode: 'source' });
+    fs.rmSync(path.join(fixture.rootDir, 'src/server/cli/deploymentSmoke.ts'));
+
+    const result = runScript(
+      fixture.scriptPath,
+      [
+        '--input-dir',
+        fixture.inputDir,
+        '--smoke',
+        '--base-url',
+        'http://127.0.0.1:6123',
+        '--admin-password',
+        'cli-secret',
+      ],
+      {
+        cwd: fixture.rootDir,
+        env: {
+          ...process.env,
+          PATH: `${fixture.binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+        },
+      },
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain('Running pnpm release:verify with --input-dir');
+    expect(result.stdout).toContain('Running smoke check against http://127.0.0.1:6123');
+    expect(result.stderr).toContain(
+      '--smoke requires src/server/cli/deploymentSmoke.ts or dist/server/cli/deploymentSmoke.js in',
+    );
+    expect(fs.readFileSync(fixture.sequenceMarkerPath, 'utf8')).toBe('verify\n');
+    expect(fs.readFileSync(fixture.pnpmMarkerPath, 'utf8')).toContain(
+      `release:verify -- --input-dir ${fixture.inputDir}`,
+    );
+    expect(fs.readFileSync(fixture.pnpmMarkerPath, 'utf8')).not.toContain('smoke:server');
+    expect(fs.existsSync(fixture.smokeMarkerPath)).toBe(false);
+    expect(fs.existsSync(fixture.nodeMarkerPath)).toBe(false);
+  });
+
+  it('fails verify-release smoke when the extracted bundle is missing deploymentSmoke', () => {
+    const fixture = createVerifyReleaseFixture({ mode: 'bundle' });
+    fs.rmSync(path.join(fixture.rootDir, 'dist/server/cli/deploymentSmoke.js'));
+
+    const result = runScript(
+      fixture.scriptPath,
+      [
+        '--input-dir',
+        fixture.inputDir,
+        '--smoke',
+        '--base-url',
+        'http://127.0.0.1:6123',
+        '--admin-password',
+        'bundle-secret',
+      ],
+      {
+        cwd: fixture.rootDir,
+        env: {
+          ...process.env,
+          PATH: `${fixture.binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+        },
+      },
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain(
+      `Running node dist/server/cli/releaseVerify.js with --input-dir ${fixture.inputDir}`,
+    );
+    expect(result.stdout).toContain('Running smoke check against http://127.0.0.1:6123');
+    expect(result.stderr).toContain(
+      '--smoke requires src/server/cli/deploymentSmoke.ts or dist/server/cli/deploymentSmoke.js in',
+    );
+    expect(fs.readFileSync(fixture.sequenceMarkerPath, 'utf8')).toBe('verify\n');
+    expect(fs.readFileSync(fixture.nodeMarkerPath, 'utf8')).toContain(
+      `dist/server/cli/releaseVerify.js --input-dir ${fixture.inputDir}`,
+    );
+    expect(fs.readFileSync(fixture.nodeMarkerPath, 'utf8')).not.toContain(
+      'dist/server/cli/deploymentSmoke.js --base-url http://127.0.0.1:6123',
+    );
+    expect(fs.existsSync(fixture.smokeMarkerPath)).toBe(false);
     expect(fs.existsSync(fixture.pnpmMarkerPath)).toBe(false);
   });
 
