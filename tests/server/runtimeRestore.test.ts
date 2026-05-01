@@ -593,6 +593,71 @@ describe('runtime restore cli', () => {
     }
   });
 
+  it('rejects restore payloads that escape the imported backup directory', async () => {
+    const runtimeRestore = await loadRuntimeRestoreModule();
+    const testDatabase = createTestDatabasePath();
+
+    expect(runtimeRestore).not.toBeNull();
+
+    try {
+      const inputDir = path.join(testDatabase.rootDir, 'imports', 'runtime-backup');
+      const externalBackupPath = path.join(testDatabase.rootDir, 'external-backup.sqlite');
+
+      fs.mkdirSync(path.dirname(testDatabase.databasePath), { recursive: true });
+      fs.writeFileSync(testDatabase.databasePath, 'current-db', 'utf8');
+      fs.writeFileSync(externalBackupPath, 'outside-payload', 'utf8');
+
+      writeBackupManifest({
+        inputDir,
+        copied: [
+          {
+            kind: 'database',
+            type: 'file',
+            sourcePath: testDatabase.databasePath,
+            destinationPath: externalBackupPath,
+          },
+        ],
+      });
+
+      const stdout = createStdoutBuffer();
+      const summary = (await runtimeRestore?.runRuntimeRestoreCli(['--input-dir', inputDir], {
+        now: () => new Date('2026-04-24T22:50:00.000Z'),
+        repoRootDir: testDatabase.rootDir,
+        stdout: stdout.stdout,
+      })) as {
+        backupsCreated: unknown[];
+        missing: Array<{
+          expectedPath: string;
+          kind: string;
+          reason: string;
+          targetPath: string;
+          type: string;
+        }>;
+        restored: unknown[];
+      };
+
+      expect(summary.ok).toBe(false);
+      expect(summary.restored).toEqual([]);
+      expect(summary.backupsCreated).toEqual([]);
+      expect(summary.missing).toEqual([
+        {
+          kind: 'database',
+          type: 'file',
+          expectedPath: externalBackupPath,
+          targetPath: testDatabase.databasePath,
+          reason: 'backup-incomplete',
+        },
+      ]);
+      expect(fs.readFileSync(testDatabase.databasePath, 'utf8')).toBe('current-db');
+      expect(
+        fs.existsSync(`${testDatabase.databasePath}.pre-restore-2026-04-24T22-50-00.000Z`),
+      ).toBe(false);
+      expect(JSON.parse(stdout.read())).toEqual(summary);
+    } finally {
+      cleanupTestDatabasePath(testDatabase.rootDir);
+    }
+  });
+
   it('refuses to restore from a manifest that is already marked incomplete', async () => {
     const runtimeRestore = await loadRuntimeRestoreModule();
     const testDatabase = createTestDatabasePath();
