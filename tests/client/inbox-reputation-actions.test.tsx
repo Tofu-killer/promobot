@@ -1532,6 +1532,191 @@ describe('Inbox action wiring', () => {
     });
   });
 
+  it('reloads a blocked persisted inbox reply handoff after queuing the required session action and restores inline completion', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    const inboxItem = {
+      id: 7,
+      source: 'weibo',
+      status: 'needs_reply',
+      author: 'ops-user',
+      title: 'Need lower latency in APAC',
+      excerpt: 'Can you share current response times?',
+      createdAt: '2026-04-19T10:00:00.000Z',
+    } as const;
+    const loadInboxAction = vi.fn().mockResolvedValue({
+      items: [inboxItem],
+      total: 1,
+      unread: 1,
+    });
+    const loadInboxReplyHandoffsAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        handoffs: [
+          {
+            platform: 'weibo',
+            itemId: 7,
+            source: 'weibo',
+            title: 'Need lower latency in APAC',
+            author: 'ops-user',
+            accountKey: 'acct-ops',
+            channelAccountId: 12,
+            status: 'pending',
+            readiness: 'blocked',
+            sessionAction: 'relogin',
+            artifactPath: 'artifacts/inbox-reply-handoffs/weibo/acct-ops/weibo-item-7.json',
+            handoffAttempt: 1,
+            createdAt: '2026-04-24T10:00:00.000Z',
+            updatedAt: '2026-04-24T10:00:00.000Z',
+            resolvedAt: null,
+          },
+        ],
+        total: 1,
+      })
+      .mockResolvedValueOnce({
+        handoffs: [
+          {
+            platform: 'weibo',
+            itemId: 7,
+            source: 'weibo',
+            title: 'Need lower latency in APAC',
+            author: 'ops-user',
+            accountKey: 'acct-ops',
+            channelAccountId: 12,
+            status: 'pending',
+            readiness: 'ready',
+            sessionAction: null,
+            artifactPath: 'artifacts/inbox-reply-handoffs/weibo/acct-ops/weibo-item-7.json',
+            handoffAttempt: 2,
+            createdAt: '2026-04-24T10:00:00.000Z',
+            updatedAt: '2026-04-24T10:05:00.000Z',
+            resolvedAt: null,
+          },
+        ],
+        total: 1,
+      })
+      .mockResolvedValue({
+        handoffs: [],
+        total: 0,
+      });
+    const requestChannelAccountSessionAction = vi.fn().mockResolvedValue({
+      sessionAction: {
+        action: 'relogin',
+        message: 'Browser relogin request queued for the restored inbox reply handoff.',
+        artifactPath: 'artifacts/browser-lane-requests/weibo/acct-ops/relogin-job-17.json',
+      },
+    });
+    const completeInboxReplyHandoffAction = vi.fn().mockResolvedValue({
+      ok: true,
+      imported: true,
+      artifactPath: 'artifacts/inbox-reply-handoffs/weibo/acct-ops/weibo-item-7.json',
+      itemId: 7,
+      itemStatus: 'handled',
+      platform: 'weibo',
+      mode: 'browser',
+      status: 'sent',
+      success: true,
+      deliveryUrl: 'https://weibo.com/messages/7',
+      externalId: null,
+      message: 'reply sent manually after relogin reload',
+      deliveredAt: '2026-04-24T10:10:00.000Z',
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(InboxPage as never, {
+          loadInboxAction,
+          loadInboxReplyHandoffsAction,
+          requestChannelAccountSessionAction,
+          completeInboxReplyHandoffAction,
+          stateOverride: {
+            status: 'success',
+            data: {
+              items: [inboxItem],
+              total: 1,
+              unread: 1,
+            },
+          } satisfies ApiState<unknown>,
+        }),
+      );
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    expect(loadInboxReplyHandoffsAction).toHaveBeenCalledTimes(1);
+    expect(collectText(container)).toContain('等待刷新 Session 后继续回复接管。');
+    expect(collectText(container)).toContain('Handoff 状态：blocked');
+    expect(findElement(container, (element) => element.tagName === 'BUTTON' && collectText(element).includes('标记已发送'))).toBeNull();
+
+    const reloginButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('重新登录'),
+    );
+    expect(reloginButton).not.toBeNull();
+
+    await act(async () => {
+      reloginButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    expect(requestChannelAccountSessionAction).toHaveBeenCalledWith(12, {
+      action: 'relogin',
+    });
+    expect(loadInboxReplyHandoffsAction).toHaveBeenCalledTimes(2);
+    expect(collectText(container)).toContain('发现待处理的 Inbox reply handoff，可以直接结单。');
+    expect(collectText(container)).toContain('Handoff 状态：ready');
+    expect(collectText(container)).toContain('Handoff 路径：artifacts/inbox-reply-handoffs/weibo/acct-ops/weibo-item-7.json');
+    expect(findElement(container, (element) => element.tagName === 'BUTTON' && collectText(element).includes('重新登录'))).toBeNull();
+
+    const deliveryUrlInput = findElement(
+      container,
+      (element) => element.getAttribute('data-inbox-reply-handoff-field') === 'deliveryUrl',
+    );
+    const messageInput = findElement(
+      container,
+      (element) => element.getAttribute('data-inbox-reply-handoff-field') === 'message',
+    );
+    const markSentButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('标记已发送'),
+    );
+    expect(deliveryUrlInput).not.toBeNull();
+    expect(messageInput).not.toBeNull();
+    expect(markSentButton).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(deliveryUrlInput as never, 'https://weibo.com/messages/7', window as never);
+      updateFieldValue(messageInput as never, 'reply sent manually after relogin reload', window as never);
+      await flush();
+    });
+
+    await act(async () => {
+      markSentButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    expect(completeInboxReplyHandoffAction).toHaveBeenCalledWith({
+      artifactPath: 'artifacts/inbox-reply-handoffs/weibo/acct-ops/weibo-item-7.json',
+      handoffAttempt: 2,
+      replyStatus: 'sent',
+      deliveryUrl: 'https://weibo.com/messages/7',
+      message: 'reply sent manually after relogin reload',
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('queues the requested browser session action directly from the inbox manual-required feedback', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');

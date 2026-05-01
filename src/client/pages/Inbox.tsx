@@ -1133,7 +1133,11 @@ export function InboxPage({
     void runSessionAction({
       accountId: activeReplyBrowserHandoff.channelAccountId,
       action,
-    }).catch(() => undefined);
+    })
+      .then(() => {
+        void reloadReplyHandoffs();
+      })
+      .catch(() => undefined);
   }
 
   function handleCompleteReplyHandoff(replyStatus: 'sent' | 'failed') {
