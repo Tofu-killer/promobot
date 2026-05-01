@@ -233,10 +233,12 @@ pnpm preflight:prod -- --require-env AI_API_KEY,ADMIN_PASSWORD
 如果你还想顺手追加一次 smoke，而不是手动再敲第二条命令，可运行：
 
 ```bash
-pnpm preflight:local -- --skip-smoke
+pnpm preflight:local -- --require-env AI_API_KEY,ADMIN_PASSWORD --skip-smoke
 ```
 
 脚本位置：`ops/preflight-promobot.sh`
+
+它会先调用 `preflight:prod`，所以也支持把 `--require-env` 这类 prod preflight 参数透传过去，再按需追加 smoke check。
 
 如果你需要一份可分发的目录型发布物，而不是直接拿源码目录上线，可运行：
 

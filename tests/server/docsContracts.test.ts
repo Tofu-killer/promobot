@@ -46,6 +46,12 @@ describe('deployment document contracts', () => {
     expect(releaseFlowSection).toContain(
       '如果走 release bundle 交付，则在 `preflight` 和 `verify` 之间补一段 `release bundle`。',
     );
+    expect(devSection).toContain(
+      'pnpm preflight:local -- --require-env AI_API_KEY,ADMIN_PASSWORD --skip-smoke',
+    );
+    expect(devSection).toContain(
+      '- `pnpm preflight:local -- [options]`：先跑 `preflight:prod`，并把 `--require-env` 这类 prod preflight 参数透传过去，再按需追加 smoke check',
+    );
   });
 
   it('keeps DEPLOYMENT source and bundle stage mappings aligned with the executable order', () => {
@@ -86,5 +92,11 @@ describe('deployment document contracts', () => {
       '- `deploy`：在 bundle 根目录执行 `pnpm release:deploy -- --skip-smoke`',
       '- `smoke`：在 bundle 根目录执行 `node dist/server/cli/deploymentSmoke.js --base-url http://127.0.0.1:3001`',
     ]);
+    expect(deploymentDoc).toContain(
+      'pnpm preflight:local -- --require-env AI_API_KEY,ADMIN_PASSWORD --skip-smoke',
+    );
+    expect(deploymentDoc).toContain(
+      '它会先调用 `preflight:prod`，所以也支持把 `--require-env` 这类 prod preflight 参数透传过去，再按需追加 smoke check。',
+    );
   });
 });
