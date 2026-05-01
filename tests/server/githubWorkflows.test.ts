@@ -78,4 +78,52 @@ describe('GitHub workflow contracts', () => {
     expect(publishReleaseJob).toContain('Expected $CHECKSUM_FILE in the downloaded release bundle artifact');
     expect(publishReleaseJob).toContain('Expected $METADATA_FILE in the downloaded release bundle artifact');
   });
+
+  it('keeps the uploaded release bundle artifact aligned with the standalone helper and sidecars', () => {
+    const releaseBundleWorkflow = fs.readFileSync(
+      path.resolve('.github/workflows/release-bundle.yml'),
+      'utf8',
+    );
+    const uploadArtifactStep = releaseBundleWorkflow.slice(
+      releaseBundleWorkflow.indexOf('      - name: Upload release bundle artifact'),
+      releaseBundleWorkflow.indexOf('      - name: Write workflow run summary'),
+    );
+
+    expect(uploadArtifactStep).toContain("uses: actions/upload-artifact@v7.0.1");
+    expect(uploadArtifactStep).toContain('name: ${{ steps.asset_names.outputs.artifact_name }}');
+    expect(uploadArtifactStep).toContain('${{ steps.asset_names.outputs.bundle_dir }}');
+    expect(uploadArtifactStep).toContain('${{ steps.asset_names.outputs.helper_path }}');
+    expect(uploadArtifactStep).toContain('${{ steps.asset_names.outputs.archive_path }}');
+    expect(uploadArtifactStep).toContain('${{ steps.asset_names.outputs.checksum_path }}');
+    expect(uploadArtifactStep).toContain('${{ steps.asset_names.outputs.metadata_path }}');
+    expect(uploadArtifactStep).toContain('if-no-files-found: error');
+    expect(uploadArtifactStep).toContain('compression-level: 0');
+  });
+
+  it('keeps the GitHub Release body guidance aligned with the downloaded helper contract', () => {
+    const releaseBundleWorkflow = fs.readFileSync(
+      path.resolve('.github/workflows/release-bundle.yml'),
+      'utf8',
+    );
+    const releaseBodyStep = releaseBundleWorkflow.slice(
+      releaseBundleWorkflow.indexOf('      - name: Generate GitHub Release body'),
+      releaseBundleWorkflow.indexOf('      - name: Publish release bundle assets to GitHub Release'),
+    );
+
+    expect(releaseBodyStep).toContain('Release status:');
+    expect(releaseBodyStep).toContain('Published release asset set:');
+    expect(releaseBodyStep).toContain(
+      'Metadata asset contract remains the ordered archive/checksum/metadata trio',
+    );
+    expect(releaseBodyStep).toContain('Standalone helper purpose:');
+    expect(releaseBodyStep).toContain('Download order:');
+    expect(releaseBodyStep).toContain('Recommended verification flow:');
+    expect(releaseBodyStep).toContain('bash -n ./${helperFile}');
+    expect(releaseBodyStep).toContain(
+      'bash ./${helperFile} --archive ./${assetsByKind.archive}',
+    );
+    expect(releaseBodyStep).toContain('The extracted directory name should match');
+    expect(releaseBodyStep).toContain('bundle_dir_name: ${bundleDirName}');
+    expect(releaseBodyStep).toContain('assetsByKind.metadata');
+  });
 });
