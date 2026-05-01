@@ -17,6 +17,8 @@ Usage: ops/preflight-promobot.sh [options]
 Runs pnpm preflight:prod from the repo root, then optionally runs the server smoke check.
 
 Options:
+  --require-env <comma-separated keys>
+                              Forward required env keys to pnpm preflight:prod
   --skip-smoke                 Skip pnpm smoke:server
   --base-url <url>             Smoke check base URL (default: PROMOBOT_BASE_URL or http://127.0.0.1:<PORT>)
   --admin-password <secret>    Smoke check admin password
@@ -92,6 +94,7 @@ read_first_env_file_value() {
 
 main() {
   local skip_smoke=0
+  local require_env=""
   local base_url=""
   local admin_password=""
   local script_dir
@@ -108,6 +111,19 @@ main() {
         ;;
       --skip-smoke)
         skip_smoke=1
+        shift
+        ;;
+      --require-env)
+        [ "$#" -ge 2 ] || fail "--require-env requires a value"
+        case "$2" in
+          --*) fail "--require-env requires a value" ;;
+        esac
+        require_env="$2"
+        shift 2
+        ;;
+      --require-env=*)
+        require_env="${1#*=}"
+        [ -n "$require_env" ] || fail "--require-env requires a value"
         shift
         ;;
       --base-url)
@@ -189,7 +205,11 @@ main() {
   require_command pnpm
 
   log "Running pnpm preflight:prod"
-  pnpm preflight:prod
+  if [ -n "$require_env" ]; then
+    pnpm preflight:prod -- --require-env "$require_env"
+  else
+    pnpm preflight:prod
+  fi
 
   if [ "$skip_smoke" -eq 1 ]; then
     log "Skipping smoke check"

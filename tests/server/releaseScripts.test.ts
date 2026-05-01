@@ -490,6 +490,7 @@ describe('release shell wrappers', () => {
 
       expect(result.status).toBe(0);
       expect(result.stdout).toContain('Usage: ops/preflight-promobot.sh [options]');
+      expect(result.stdout).toContain('--require-env <comma-separated keys>');
       expect(result.stdout).toContain('--skip-smoke');
       expect(result.stdout).toContain('--admin-password <secret>');
     }
@@ -502,6 +503,8 @@ describe('release shell wrappers', () => {
 
   it('rejects missing and empty preflight-promobot option values', () => {
     const cases: Array<{ args: string[]; error: string }> = [
+      { args: ['--require-env'], error: '--require-env requires a value' },
+      { args: ['--require-env='], error: '--require-env requires a value' },
       { args: ['--base-url'], error: '--base-url requires a value' },
       { args: ['--base-url='], error: '--base-url requires a value' },
       { args: ['--admin-password'], error: '--admin-password requires a value' },
@@ -532,6 +535,29 @@ describe('release shell wrappers', () => {
     expect(fs.readFileSync(fixture.pnpmMarkerPath, 'utf8')).toContain('preflight:prod');
     expect(fs.readFileSync(fixture.pnpmMarkerPath, 'utf8')).not.toContain('smoke:server');
     expect(fs.existsSync(fixture.smokeMarkerPath)).toBe(false);
+  });
+
+  it('forwards require-env keys to preflight:prod before local smoke handling', () => {
+    const fixture = createPreflightPromobotFixture();
+    const result = runScript(
+      fixture.scriptPath,
+      ['--require-env', 'AI_API_KEY,ADMIN_PASSWORD', '--skip-smoke'],
+      {
+        cwd: fixture.rootDir,
+        env: {
+          ...process.env,
+          PATH: `${fixture.binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+        },
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Running pnpm preflight:prod');
+    expect(result.stdout).toContain('Skipping smoke check');
+    expect(fs.readFileSync(fixture.pnpmMarkerPath, 'utf8')).toContain(
+      'preflight:prod -- --require-env AI_API_KEY,ADMIN_PASSWORD',
+    );
+    expect(fs.readFileSync(fixture.pnpmMarkerPath, 'utf8')).not.toContain('smoke:server');
   });
 
   it('prefers explicit preflight-promobot smoke args over environment defaults', () => {
