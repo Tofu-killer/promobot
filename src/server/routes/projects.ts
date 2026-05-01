@@ -314,7 +314,7 @@ function parseUpdateSourceConfigInput(
     return invalidSourceConfigPayload();
   }
 
-  if (input.projectId !== undefined && (!isPositiveInteger(input.projectId) || input.projectId !== projectId)) {
+  if (input.projectId !== undefined) {
     return invalidSourceConfigPayload();
   }
 
