@@ -587,6 +587,92 @@ describe('projects api', () => {
     }
   });
 
+  it('rejects source config payloads that try to rebind project ownership', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const firstProject = await requestApp('POST', '/api/projects', {
+        name: 'Monitoring Workspace',
+        siteName: 'PromoBot',
+        siteUrl: 'https://example.com',
+        siteDescription: 'Brand monitoring',
+        sellingPoints: ['Fast iteration'],
+      });
+      expect(firstProject.status).toBe(201);
+
+      const secondProject = await requestApp('POST', '/api/projects', {
+        name: 'Second Workspace',
+        siteName: 'PromoBot 2',
+        siteUrl: 'https://example-two.com',
+        siteDescription: 'Ownership boundary',
+        sellingPoints: ['Strict routing'],
+      });
+      expect(secondProject.status).toBe(201);
+
+      const invalidCreate = await requestApp('POST', '/api/projects/1/source-configs', {
+        projectId: 2,
+        sourceType: 'keyword+reddit',
+        platform: 'reddit',
+        label: 'Cross-wired source config',
+        configJson: {
+          query: 'promobot',
+        },
+        enabled: true,
+        pollIntervalMinutes: 30,
+      });
+
+      expect(invalidCreate.status).toBe(400);
+      expect(JSON.parse(invalidCreate.body)).toEqual({
+        error: 'invalid source config payload',
+      });
+
+      const created = await requestApp('POST', '/api/projects/1/source-configs', {
+        projectId: 1,
+        sourceType: 'keyword+reddit',
+        platform: 'reddit',
+        label: 'Competitor mentions',
+        configJson: {
+          query: 'promobot',
+        },
+        enabled: true,
+        pollIntervalMinutes: 30,
+      });
+      expect(created.status).toBe(201);
+
+      const invalidUpdate = await requestApp('PATCH', '/api/projects/1/source-configs/1', {
+        projectId: 2,
+        label: 'Hijacked feed',
+      });
+
+      expect(invalidUpdate.status).toBe(400);
+      expect(JSON.parse(invalidUpdate.body)).toEqual({
+        error: 'invalid source config payload',
+      });
+
+      const firstProjectConfigs = await requestApp('GET', '/api/projects/1/source-configs');
+      expect(firstProjectConfigs.status).toBe(200);
+      expect(JSON.parse(firstProjectConfigs.body)).toEqual({
+        sourceConfigs: [
+          expect.objectContaining({
+            id: 1,
+            projectId: 1,
+            label: 'Competitor mentions',
+            configJson: {
+              query: 'promobot',
+            },
+          }),
+        ],
+      });
+
+      const secondProjectConfigs = await requestApp('GET', '/api/projects/2/source-configs');
+      expect(secondProjectConfigs.status).toBe(200);
+      expect(JSON.parse(secondProjectConfigs.body)).toEqual({
+        sourceConfigs: [],
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('accepts profile source configs when either the handle or profile url remains canonical', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
