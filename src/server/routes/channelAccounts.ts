@@ -555,6 +555,15 @@ function attachSessionSummary<
     platform: channelAccount.platform,
     accountKey: channelAccount.accountKey,
   });
+  const latestBrowserLaneArtifactWithLiveStatus =
+    latestBrowserLaneArtifact && latestBrowserLaneArtifact.resolvedAt === null
+      ? {
+          ...latestBrowserLaneArtifact,
+          jobStatus:
+            jobQueueStore.get(latestBrowserLaneArtifact.jobId)?.status ??
+            latestBrowserLaneArtifact.jobStatus,
+        }
+      : latestBrowserLaneArtifact;
   const latestBrowserHandoffArtifact = getLatestBrowserHandoffArtifact({
     channelAccountId: channelAccount.id,
     platform: channelAccount.platform,
@@ -570,7 +579,7 @@ function attachSessionSummary<
     ...channelAccount,
     metadata: syncResponseMetadataSession(channelAccount.metadata, session),
     session,
-    latestBrowserLaneArtifact,
+    latestBrowserLaneArtifact: latestBrowserLaneArtifactWithLiveStatus,
     latestBrowserHandoffArtifact,
     latestInboxReplyHandoffArtifact,
     publishReadiness: getChannelAccountPublishReadiness({

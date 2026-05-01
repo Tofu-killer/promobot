@@ -2314,6 +2314,24 @@ describe('channel accounts api', () => {
           attempts: 1,
         }),
       ]);
+
+      const listedResponse = await requestApp('GET', '/api/channel-accounts');
+      expect(listedResponse.status).toBe(200);
+      expect(JSON.parse(listedResponse.body)).toEqual({
+        channelAccounts: [
+          expect.objectContaining({
+            id: 1,
+            latestBrowserLaneArtifact: expect.objectContaining({
+              action: 'request_session',
+              jobStatus: 'done',
+              requestedAt: firstBody.job.runAt,
+              artifactPath:
+                'artifacts/browser-lane-requests/instagram/-promobot.official/request-session-job-1.json',
+              resolvedAt: null,
+            }),
+          }),
+        ],
+      });
     } finally {
       cleanupTestDatabasePath(rootDir);
     }
