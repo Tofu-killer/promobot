@@ -61,7 +61,7 @@ export function parseRuntimeBackupArgs(argv: string[]): RuntimeBackupArgs {
 
     if (token === '--output-dir') {
       const nextValue = argv[index + 1];
-      if (!nextValue || nextValue.startsWith('--')) {
+      if (!nextValue || nextValue.startsWith('--') || nextValue.trim().length === 0) {
         throw new Error('--output-dir requires a value');
       }
       parsed.outputDir = nextValue;

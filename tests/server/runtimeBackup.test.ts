@@ -70,6 +70,12 @@ describe('runtime backup cli', () => {
     expect(() => runtimeBackup?.parseRuntimeBackupArgs(['--output-dir'])).toThrow(
       '--output-dir requires a value',
     );
+    expect(() =>
+      runtimeBackup?.parseRuntimeBackupArgs(['--output-dir', '   ']),
+    ).toThrow('--output-dir requires a value');
+    await expect(
+      runtimeBackup?.runRuntimeBackupCli(['--output-dir', '   ']),
+    ).rejects.toThrow('--output-dir requires a value');
     expect(runtimeBackup?.getRuntimeBackupHelpText()).toContain(
       'Usage: tsx src/server/cli/runtimeBackup.ts [options]',
     );
