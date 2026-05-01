@@ -234,4 +234,32 @@ describe('GitHub workflow contracts', () => {
       '      - name: Verify standalone downloaded release helper',
     ]);
   });
+
+  it('keeps release-bundle concurrency and timeout protections aligned with deployment guidance', () => {
+    const releaseBundleWorkflow = fs.readFileSync(
+      path.resolve('.github/workflows/release-bundle.yml'),
+      'utf8',
+    );
+    const deploymentDoc = fs.readFileSync(path.resolve('docs/DEPLOYMENT.md'), 'utf8');
+    const releaseBundleJob = releaseBundleWorkflow.slice(
+      releaseBundleWorkflow.indexOf('  release-bundle:'),
+      releaseBundleWorkflow.indexOf('  publish-release-asset:'),
+    );
+    const publishReleaseJob = releaseBundleWorkflow.slice(
+      releaseBundleWorkflow.indexOf('  publish-release-asset:'),
+    );
+
+    expect(deploymentDoc).toContain(
+      'workflow 还会把同一 ref 的 run 串行化，并给 build / publish job 加超时保护，避免并发运行或卡死 runner 时互相踩资产',
+    );
+
+    expect(releaseBundleWorkflow).toContain('concurrency:');
+    expect(releaseBundleWorkflow).toContain(
+      '  group: ${{ github.workflow }}-${{ github.ref || github.run_id }}',
+    );
+    expect(releaseBundleWorkflow).toContain('  cancel-in-progress: false');
+
+    expect(releaseBundleJob).toContain('    timeout-minutes: 45');
+    expect(publishReleaseJob).toContain('    timeout-minutes: 20');
+  });
 });
