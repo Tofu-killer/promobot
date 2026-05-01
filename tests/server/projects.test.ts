@@ -855,6 +855,65 @@ describe('projects api', () => {
     }
   });
 
+  it('returns 404 without mutating a source config owned by another project', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const firstProject = await requestApp('POST', '/api/projects', {
+        name: 'Workspace One',
+        siteName: 'Workspace One',
+        siteUrl: 'https://workspace-one.test',
+        siteDescription: 'Ownership coverage one',
+        sellingPoints: ['Baseline feed'],
+      });
+      expect(firstProject.status).toBe(201);
+
+      const secondProject = await requestApp('POST', '/api/projects', {
+        name: 'Workspace Two',
+        siteName: 'Workspace Two',
+        siteUrl: 'https://workspace-two.test',
+        siteDescription: 'Ownership coverage two',
+        sellingPoints: ['Protected feed'],
+      });
+      expect(secondProject.status).toBe(201);
+
+      const created = await requestApp('POST', '/api/projects/2/source-configs', {
+        projectId: 2,
+        sourceType: 'rss',
+        platform: 'rss',
+        label: 'Protected feed',
+        configJson: { feedUrl: 'https://example.com/protected.xml' },
+        enabled: true,
+        pollIntervalMinutes: 30,
+      });
+      expect(created.status).toBe(201);
+
+      const wrongProjectUpdate = await requestApp('PATCH', '/api/projects/1/source-configs/1', {
+        label: 'Hijacked feed',
+        configJson: { feedUrl: 'https://example.com/hijacked.xml' },
+      });
+
+      expect(wrongProjectUpdate.status).toBe(404);
+      expect(JSON.parse(wrongProjectUpdate.body)).toEqual({
+        error: 'source config not found',
+      });
+
+      const listed = await requestApp('GET', '/api/projects/2/source-configs');
+      expect(listed.status).toBe(200);
+      expect(JSON.parse(listed.body)).toEqual({
+        sourceConfigs: [
+          expect.objectContaining({
+            id: 1,
+            projectId: 2,
+            label: 'Protected feed',
+            configJson: { feedUrl: 'https://example.com/protected.xml' },
+          }),
+        ],
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('excludes archived project source configs from enabled listings', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
