@@ -3,6 +3,19 @@ import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
+function expectOrdered(content: string, snippets: string[]) {
+  let previousIndex = -1;
+
+  for (const snippet of snippets) {
+    const index = content.indexOf(snippet);
+    expect(index, `expected section to contain ${snippet}`).toBeGreaterThanOrEqual(0);
+    expect(index, `expected ${snippet} to appear after the previous step`).toBeGreaterThan(
+      previousIndex,
+    );
+    previousIndex = index;
+  }
+}
+
 describe('GitHub workflow contracts', () => {
   it('runs CI for branch pushes, keeps tag releases on the release-bundle workflow, and exposes manual entrypoints', () => {
     const ciWorkflow = fs.readFileSync(path.resolve('.github/workflows/ci.yml'), 'utf8');
@@ -184,5 +197,41 @@ describe('GitHub workflow contracts', () => {
     expect(publishReleaseJob).toContain(
       'prerelease: ${{ needs.release-bundle.outputs.prerelease }}',
     );
+  });
+
+  it('keeps the default release bundle verification chain aligned with the documented workflow steps', () => {
+    const releaseBundleWorkflow = fs.readFileSync(
+      path.resolve('.github/workflows/release-bundle.yml'),
+      'utf8',
+    );
+    const readme = fs.readFileSync(path.resolve('README.md'), 'utf8');
+    const deploymentDoc = fs.readFileSync(path.resolve('docs/DEPLOYMENT.md'), 'utf8');
+    const releaseBundleJob = releaseBundleWorkflow.slice(
+      releaseBundleWorkflow.indexOf('  release-bundle:'),
+      releaseBundleWorkflow.indexOf('  publish-release-asset:'),
+    );
+
+    expect(readme).toContain(
+      'GitHub Actions `Release Bundle`：支持手动触发和 `v*` tag push；默认都会执行 `pnpm test`、`pnpm build`、静态 preflight、release bundle 生成与校验。',
+    );
+    expect(deploymentDoc).toContain(
+      '默认会执行 `pnpm test`、`pnpm build`、静态 `preflight`、`release:bundle` 和 `release:verify`',
+    );
+
+    expectOrdered(releaseBundleJob, [
+      '      - name: Run tests',
+      '      - name: Build',
+      '      - name: Run static preflight',
+      '      - name: Generate release bundle',
+      '      - name: Verify release bundle',
+      '      - name: Archive release bundle',
+      '      - name: Verify archived release bundle',
+      '      - name: Generate archived release bundle checksum sidecar',
+      '      - name: Verify archived release bundle checksum sidecar',
+      '      - name: Stage downloaded release verification helper',
+      '      - name: Generate archived release bundle metadata',
+      '      - name: Verify archived release bundle metadata',
+      '      - name: Verify standalone downloaded release helper',
+    ]);
   });
 });
