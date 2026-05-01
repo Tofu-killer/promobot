@@ -304,6 +304,10 @@ function readRuntimeBackupManifest(manifestPath: string) {
     throw new Error(`invalid manifest missing entries: ${manifestPath}`);
   }
 
+  if (parsed.outputDir !== undefined && typeof parsed.outputDir !== 'string') {
+    throw new Error(`invalid manifest outputDir: ${manifestPath}`);
+  }
+
   return parsed;
 }
 

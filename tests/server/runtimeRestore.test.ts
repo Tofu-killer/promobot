@@ -248,6 +248,60 @@ describe('runtime restore cli', () => {
     }
   });
 
+  it('rejects invalid manifest outputDir values before touching restore targets', async () => {
+    const runtimeRestore = await loadRuntimeRestoreModule();
+    const testDatabase = createTestDatabasePath();
+
+    expect(runtimeRestore).not.toBeNull();
+
+    try {
+      const inputDir = path.join(testDatabase.rootDir, 'imports', 'runtime-backup');
+      const manifestPath = path.join(inputDir, 'manifest.json');
+      const stdout = createStdoutBuffer();
+
+      fs.mkdirSync(path.dirname(testDatabase.databasePath), { recursive: true });
+      fs.mkdirSync(inputDir, { recursive: true });
+      fs.writeFileSync(testDatabase.databasePath, 'current-db', 'utf8');
+      fs.writeFileSync(
+        manifestPath,
+        JSON.stringify(
+          {
+            ok: true,
+            outputDir: { path: inputDir },
+            copied: [
+              {
+                kind: 'database',
+                type: 'file',
+                sourcePath: testDatabase.databasePath,
+                destinationPath: path.join(inputDir, 'database', 'promobot.sqlite'),
+              },
+            ],
+            missing: [],
+          },
+          null,
+          2,
+        ),
+        'utf8',
+      );
+
+      await expect(
+        runtimeRestore?.runRuntimeRestoreCli(['--input-dir', inputDir], {
+          now: () => new Date('2026-04-24T12:50:00.000Z'),
+          repoRootDir: testDatabase.rootDir,
+          stdout: stdout.stdout,
+        }),
+      ).rejects.toThrow(`invalid manifest outputDir: ${manifestPath}`);
+
+      expect(fs.readFileSync(testDatabase.databasePath, 'utf8')).toBe('current-db');
+      expect(stdout.read()).toBe('');
+      expect(
+        fs.existsSync(`${testDatabase.databasePath}.pre-restore-2026-04-24T12-50-00.000Z`),
+      ).toBe(false);
+    } finally {
+      cleanupTestDatabasePath(testDatabase.rootDir);
+    }
+  });
+
   it('restores runtime files into their original source paths and creates pre-restore backups', async () => {
     const runtimeRestore = await loadRuntimeRestoreModule();
     const testDatabase = createTestDatabasePath();
