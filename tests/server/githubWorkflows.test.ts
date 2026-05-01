@@ -25,4 +25,46 @@ describe('GitHub workflow contracts', () => {
     expect(releaseBundleWorkflow).toContain("      - 'v*'");
     expect(releaseBundleWorkflow).not.toContain('    branches:');
   });
+
+  it('keeps the release-bundle manual preview, test policy, and metadata contracts aligned', () => {
+    const releaseBundleWorkflow = fs.readFileSync(
+      path.resolve('.github/workflows/release-bundle.yml'),
+      'utf8',
+    );
+    const publishReleaseJob = releaseBundleWorkflow.slice(
+      releaseBundleWorkflow.indexOf('  publish-release-asset:'),
+    );
+
+    expect(releaseBundleWorkflow).toContain('      asset_suffix:');
+    expect(releaseBundleWorkflow).toContain('      skip_tests:');
+    expect(releaseBundleWorkflow).toContain("tests_summary='executed (required for tag release)'");
+    expect(releaseBundleWorkflow).toContain(
+      "tests_summary='skipped via manual workflow_dispatch input'",
+    );
+    expect(releaseBundleWorkflow).toContain(
+      "tests_summary='executed (default manual behavior)'",
+    );
+    expect(releaseBundleWorkflow).toContain(
+      "if: ${{ steps.test_policy.outputs.skip_tests != 'true' }}",
+    );
+    expect(releaseBundleWorkflow).toContain(
+      "[[ ! \"$ASSET_SUFFIX\" =~ ^[a-z0-9]([a-z0-9._-]{0,30}[a-z0-9])?$ ]]",
+    );
+    expect(releaseBundleWorkflow).toContain('asset_suffix must be 1-32 chars');
+    expect(releaseBundleWorkflow).toContain('test_execution: {');
+    expect(releaseBundleWorkflow).toContain('summary: process.env.TESTS_SUMMARY');
+    expect(releaseBundleWorkflow).toContain(
+      "release_url: process.env.GITHUB_REF_TYPE === 'tag'",
+    );
+    expect(releaseBundleWorkflow).toContain(': null,');
+    expect(releaseBundleWorkflow).toContain("uses: actions/upload-artifact@v7.0.1");
+    expect(releaseBundleWorkflow).toContain('Write workflow run summary');
+
+    expect(publishReleaseJob).toContain('  publish-release-asset:');
+    expect(publishReleaseJob).toContain(
+      "if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')",
+    );
+    expect(publishReleaseJob).toContain('Publish release bundle assets to GitHub Release');
+    expect(publishReleaseJob).toContain('uses: softprops/action-gh-release@v2');
+  });
 });
