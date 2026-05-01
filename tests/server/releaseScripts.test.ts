@@ -703,6 +703,67 @@ describe('release shell wrappers', () => {
     expect(result.stderr).toContain('--metadata-file not found');
   });
 
+  it('fails verify-downloaded-release when metadata validation rejects unsupported or mismatched sidecar fields', async () => {
+    type DownloadedReleaseFixture = Awaited<ReturnType<typeof createDownloadedReleaseFixture>>;
+    type DownloadedReleaseMetadata = {
+      archive_file: string;
+      assets: Array<{ kind: string; name: string }>;
+      bundle_dir_name: string;
+      checksum_algorithm: string;
+    };
+
+    const cases: Array<{
+      expectedError: (fixture: DownloadedReleaseFixture) => string;
+      mutate: (metadata: DownloadedReleaseMetadata, fixture: DownloadedReleaseFixture) => void;
+    }> = [
+      {
+        expectedError: () => 'unsupported checksum_algorithm: sha512 !== sha256',
+        mutate: (metadata) => {
+          metadata.checksum_algorithm = 'sha512';
+        },
+      },
+      {
+        expectedError: (fixture) =>
+          `metadata archive_file mismatch: unexpected-release.tar.gz !== ${path.basename(fixture.archivePath)}`,
+        mutate: (metadata) => {
+          metadata.archive_file = 'unexpected-release.tar.gz';
+        },
+      },
+      {
+        expectedError: () => 'unsafe metadata bundle_dir_name: .',
+        mutate: (metadata) => {
+          metadata.bundle_dir_name = '.';
+        },
+      },
+      {
+        expectedError: () => 'metadata.assets[0].kind mismatch: checksum !== archive',
+        mutate: (metadata, fixture) => {
+          metadata.assets = [
+            { kind: 'checksum', name: path.basename(fixture.checksumPath) },
+            { kind: 'archive', name: path.basename(fixture.archivePath) },
+            { kind: 'metadata', name: path.basename(fixture.metadataPath) },
+          ];
+        },
+      },
+    ];
+
+    for (const testCase of cases) {
+      const fixture = await createDownloadedReleaseFixture();
+      const metadata = JSON.parse(fs.readFileSync(fixture.metadataPath, 'utf8')) as DownloadedReleaseMetadata;
+
+      testCase.mutate(metadata, fixture);
+      fs.writeFileSync(fixture.metadataPath, JSON.stringify(metadata, null, 2) + '\n', 'utf8');
+
+      const result = runScript(fixture.scriptPath, ['--archive-file', fixture.archivePath], {
+        cwd: fixture.rootDir,
+      });
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('Metadata validation failed');
+      expect(result.stderr).toContain(testCase.expectedError(fixture));
+    }
+  });
+
   it('verifies and extracts a downloaded release archive', async () => {
     const fixture = await createDownloadedReleaseFixture();
     const extractRoot = path.join(fixture.rootDir, 'extract-target');
