@@ -97,6 +97,16 @@ describe('release verify cli', () => {
         },
         {
           kind: 'manifest-item',
+          name: 'docs/DEPLOYMENT.md',
+          target: path.join(inputDir, 'docs/DEPLOYMENT.md'),
+        },
+        {
+          kind: 'manifest-item',
+          name: '.env.example',
+          target: path.join(inputDir, '.env.example'),
+        },
+        {
+          kind: 'manifest-item',
           name: 'dist/client/index.html',
           target: path.join(inputDir, 'dist/client/index.html'),
         },
@@ -193,6 +203,8 @@ describe('release verify cli', () => {
       files: [
         'package.json',
         'pnpm-lock.yaml',
+        'docs/DEPLOYMENT.md',
+        '.env.example',
         'dist/server/index.js',
         'dist/server/cli/deploymentSmoke.js',
         'dist/server/cli/browserHandoffComplete.js',
@@ -232,6 +244,18 @@ describe('release verify cli', () => {
           name: 'pnpm-lock.yaml',
           ok: true,
           target: path.join(inputDir, 'pnpm-lock.yaml'),
+        },
+        {
+          kind: 'manifest-item',
+          name: 'docs/DEPLOYMENT.md',
+          ok: true,
+          target: path.join(inputDir, 'docs/DEPLOYMENT.md'),
+        },
+        {
+          kind: 'manifest-item',
+          name: '.env.example',
+          ok: true,
+          target: path.join(inputDir, '.env.example'),
         },
         {
           kind: 'manifest-item',
@@ -523,6 +547,8 @@ function writeRequiredBundleCore(
     browserHandoffCompleteCliContent?: string;
     deployScript?: string;
     deploymentSmokeContent?: string;
+    deploymentDocContent?: string;
+    envExampleContent?: string;
     inboxReplyHandoffCompleteCliContent?: string;
     packageJsonContent?: string;
     pm2Content?: string;
@@ -533,6 +559,8 @@ function writeRequiredBundleCore(
   writeFile(rootDir, 'package.json', content.packageJsonContent ?? '{}\n');
   writeFile(rootDir, 'database/schema.sql', 'create table drafts (id integer primary key);\n');
   writeFile(rootDir, 'pnpm-lock.yaml', 'lockfileVersion: 9\n');
+  writeFile(rootDir, 'docs/DEPLOYMENT.md', content.deploymentDocContent ?? '# Deploy\n');
+  writeFile(rootDir, '.env.example', content.envExampleContent ?? 'ADMIN_PASSWORD=change-me\n');
   writeFile(rootDir, 'dist/server/index.js', content.serverContent ?? 'console.log("server");\n');
   writeFile(
     rootDir,

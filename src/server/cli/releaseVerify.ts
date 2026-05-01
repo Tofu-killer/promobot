@@ -66,6 +66,8 @@ const REQUIRED_RELEASE_PATHS = [
   'package.json',
   'database/schema.sql',
   'pnpm-lock.yaml',
+  'docs/DEPLOYMENT.md',
+  '.env.example',
   'dist/server/index.js',
   'dist/server/cli/deploymentSmoke.js',
   'dist/server/cli/browserHandoffComplete.js',
