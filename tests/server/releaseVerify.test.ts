@@ -330,6 +330,53 @@ describe('release verify cli', () => {
     expect(JSON.parse(stdout.read())).toEqual(summary);
   });
 
+  it('passes when the downloaded release helper is absent from an otherwise valid bundle', async () => {
+    const releaseVerify = await loadReleaseVerifyModule();
+    expect(releaseVerify).toBeTruthy();
+    if (!releaseVerify) {
+      return;
+    }
+
+    const inputDir = createTempDir();
+    writeRequiredBundleCore(inputDir);
+    writeBundleNativeEntryScripts(inputDir);
+
+    writeManifest(inputDir, {
+      ok: true,
+      files: [
+        'package.json',
+        'pnpm-lock.yaml',
+        'docs/DEPLOYMENT.md',
+        '.env.example',
+        'dist/server/index.js',
+        'dist/server/cli/deploymentSmoke.js',
+        'dist/server/cli/browserHandoffComplete.js',
+        'dist/server/cli/inboxReplyHandoffComplete.js',
+        'dist/server/cli/releaseVerify.js',
+        'dist/client/index.html',
+        'pm2.config.js',
+        'ops/deploy-promobot.sh',
+        'ops/deploy-release.sh',
+        'ops/verify-release.sh',
+      ],
+      missing: [],
+    });
+
+    const summary = releaseVerify.runReleaseVerify({ inputDir });
+
+    expect(summary.ok).toBe(true);
+    expect(summary.missing).toEqual([]);
+    expect(summary.warnings).toEqual([]);
+    expect(summary.checks).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'manifest-item',
+          name: 'ops/verify-downloaded-release.sh',
+        }),
+      ]),
+    );
+  });
+
   it('fails when bundle-native release wrapper scripts are missing from an older manifest', async () => {
     const releaseVerify = await loadReleaseVerifyModule();
     expect(releaseVerify).toBeTruthy();

@@ -307,6 +307,7 @@ describe('release bundle cli', () => {
     writeFile(repoRoot, 'ops/deploy-promobot.sh', '#!/usr/bin/env bash\n');
     writeFile(repoRoot, 'ops/preflight-promobot.sh', '#!/usr/bin/env bash\n');
     writeFile(repoRoot, 'ops/rollback-promobot.sh', '#!/usr/bin/env bash\n');
+    writeFile(repoRoot, 'ops/verify-downloaded-release.sh', '#!/usr/bin/env bash\n');
     writeFile(repoRoot, 'ops/verify-release.sh', '#!/usr/bin/env bash\n');
     writeFile(repoRoot, 'ops/logrotate.promobot.conf', 'rotate 7\n');
 
@@ -341,6 +342,7 @@ describe('release bundle cli', () => {
         'ops/deploy-release.sh',
         'ops/preflight-promobot.sh',
         'ops/rollback-promobot.sh',
+        'ops/verify-downloaded-release.sh',
         'ops/verify-release.sh',
         'package.json',
         'pm2.config.js',
@@ -376,6 +378,9 @@ describe('release bundle cli', () => {
     );
     expect(summary.checksums['dist/client/index.html']).toBe(sha256Hex('<!doctype html>\n'));
     expect(summary.checksums['docs/DEPLOYMENT.md']).toBe(sha256Hex('# Deploy\n'));
+    expect(summary.checksums['ops/verify-downloaded-release.sh']).toBe(
+      sha256Hex('#!/usr/bin/env bash\n'),
+    );
     expect(summary.checksums['ops/verify-release.sh']).toBe(sha256Hex('#!/usr/bin/env bash\n'));
     expect(summary.checksums).not.toHaveProperty('manifest.json');
 
@@ -385,6 +390,9 @@ describe('release bundle cli', () => {
     expect(fs.readFileSync(path.join(outputDir, 'dist/client/index.html'), 'utf8')).toBe(
       '<!doctype html>\n',
     );
+    expect(
+      fs.readFileSync(path.join(outputDir, 'ops/verify-downloaded-release.sh'), 'utf8'),
+    ).toBe('#!/usr/bin/env bash\n');
     expect(fs.existsSync(path.join(outputDir, 'ops/logrotate.promobot.conf'))).toBe(false);
     expect(JSON.parse(stdout.read())).toEqual(summary);
     expect(JSON.parse(fs.readFileSync(path.join(outputDir, 'manifest.json'), 'utf8'))).toEqual(
