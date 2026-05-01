@@ -332,6 +332,37 @@ export function getLatestSessionRequestArtifact(
   };
 }
 
+export function getLatestUnresolvedSessionRequestArtifactsByAction(
+  input: {
+    channelAccountId: number;
+    platform: string;
+    accountKey: string;
+  },
+): Partial<Record<BrowserSessionAction, SessionRequestArtifactSummary>> {
+  const actions: BrowserSessionAction[] = ['request_session', 'relogin'];
+  const artifacts = actions
+    .map((action) =>
+      getLatestSessionRequestArtifact({
+        ...input,
+        action,
+        unresolvedOnly: true,
+      }),
+    )
+    .filter((artifact): artifact is SessionRequestArtifactSummary => artifact !== null);
+
+  if (artifacts.length === 0) {
+    return {};
+  }
+
+  return artifacts.reduce<Partial<Record<BrowserSessionAction, SessionRequestArtifactSummary>>>(
+    (current, artifact) => ({
+      ...current,
+      [artifact.action]: artifact,
+    }),
+    {},
+  );
+}
+
 export function getSessionRequestArtifact(
   input: SessionRequestArtifactLookupInput,
 ): SessionRequestArtifactSummary | null {

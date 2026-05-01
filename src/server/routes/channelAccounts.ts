@@ -19,6 +19,7 @@ import { createBrowserLaneDispatch } from '../services/browser/browserLaneDispat
 import {
   createSessionRequestArtifact,
   getLatestSessionRequestArtifact,
+  getLatestUnresolvedSessionRequestArtifactsByAction,
   resolveSessionRequestArtifacts,
 } from '../services/browser/sessionRequestArtifacts.js';
 import { resumeBlockedInboxReplyHandoffsForChannelAccount } from '../services/browser/resumeBlockedInboxReplyHandoffs.js';
@@ -557,6 +558,23 @@ function attachSessionSummary<
             latestBrowserLaneArtifact.jobStatus,
         }
       : latestBrowserLaneArtifact;
+  const activeSessionActionArtifacts = Object.fromEntries(
+    Object.entries(
+      getLatestUnresolvedSessionRequestArtifactsByAction({
+        channelAccountId: channelAccount.id,
+        platform: channelAccount.platform,
+        accountKey: channelAccount.accountKey,
+      }),
+    ).map(([action, artifact]) => [
+      action,
+      artifact.resolvedAt === null
+        ? {
+            ...artifact,
+            jobStatus: jobQueueStore.get(artifact.jobId)?.status ?? artifact.jobStatus,
+          }
+        : artifact,
+    ]),
+  );
   const latestBrowserHandoffArtifact = getLatestBrowserHandoffArtifact({
     channelAccountId: channelAccount.id,
     platform: channelAccount.platform,
@@ -573,6 +591,7 @@ function attachSessionSummary<
     metadata: syncResponseMetadataSession(channelAccount.metadata, session),
     session,
     latestBrowserLaneArtifact: latestBrowserLaneArtifactWithLiveStatus,
+    activeSessionActionArtifacts,
     latestBrowserHandoffArtifact,
     latestInboxReplyHandoffArtifact,
     publishReadiness: getChannelAccountPublishReadiness({

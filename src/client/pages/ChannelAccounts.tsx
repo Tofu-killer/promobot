@@ -7,6 +7,17 @@ import { JsonPreview } from '../components/JsonPreview';
 import { PageHeader } from '../components/PageHeader';
 import { SectionCard } from '../components/SectionCard';
 
+type BrowserSessionAction = 'request_session' | 'relogin';
+
+interface SessionActionArtifactSummary {
+  action: BrowserSessionAction;
+  jobStatus: string;
+  requestedAt: string;
+  artifactPath: string;
+  resolvedAt: string | null;
+  resolution?: unknown;
+}
+
 export interface ChannelAccountRecord {
   id: number;
   projectId?: number | null;
@@ -17,14 +28,8 @@ export interface ChannelAccountRecord {
   status: string;
   metadata: Record<string, unknown>;
   session?: ChannelAccountSessionSummary;
-  latestBrowserLaneArtifact?: {
-    action: 'request_session' | 'relogin';
-    jobStatus: string;
-    requestedAt: string;
-    artifactPath: string;
-    resolvedAt: string | null;
-    resolution?: unknown;
-  };
+  latestBrowserLaneArtifact?: SessionActionArtifactSummary;
+  activeSessionActionArtifacts?: Partial<Record<BrowserSessionAction, SessionActionArtifactSummary>>;
   latestBrowserHandoffArtifact?: {
     channelAccountId?: number;
     accountDisplayName?: string | null;
@@ -124,13 +129,13 @@ export interface SaveChannelAccountSessionResponse {
 }
 
 export interface RequestChannelAccountSessionActionPayload {
-  action?: 'request_session' | 'relogin';
+  action?: BrowserSessionAction;
 }
 
 export interface RequestChannelAccountSessionActionResponse {
   ok: boolean;
   sessionAction: {
-    action: 'request_session' | 'relogin';
+    action: BrowserSessionAction;
     accountId: number;
     status: string;
     requestedAt: string;
@@ -265,7 +270,7 @@ interface SessionSaveFeedback {
 
 interface SessionActionFeedback {
   tone: 'success' | 'error';
-  action: 'request_session' | 'relogin';
+  action: BrowserSessionAction;
   sessionAction?: RequestChannelAccountSessionResponse['sessionAction'];
   message?: string;
 }
@@ -2023,13 +2028,21 @@ function getSessionActionMessage(action: 'request_session' | 'relogin') {
 }
 
 function getPersistedSessionActionFeedback(account: ChannelAccountRecord): SessionActionFeedback | null {
-  const latestArtifact = account.latestBrowserLaneArtifact;
-  if (!latestArtifact || latestArtifact.resolvedAt !== null) {
+  const readiness = normalizeReadinessRecord(account.publishReadiness);
+  const readinessAction =
+    readiness?.action === 'request_session' || readiness?.action === 'relogin'
+      ? readiness.action
+      : null;
+  if (!readinessAction) {
     return null;
   }
 
-  const readiness = normalizeReadinessRecord(account.publishReadiness);
-  if (readiness?.action !== latestArtifact.action) {
+  const latestArtifact =
+    account.activeSessionActionArtifacts?.[readinessAction] ??
+    (account.latestBrowserLaneArtifact?.action === readinessAction
+      ? account.latestBrowserLaneArtifact
+      : undefined);
+  if (!latestArtifact || latestArtifact.resolvedAt !== null) {
     return null;
   }
 

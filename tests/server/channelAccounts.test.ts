@@ -2447,6 +2447,22 @@ describe('channel accounts api', () => {
       expect(repeatedRequestSessionBody.channelAccount).toEqual(
         expect.objectContaining({
           id: 1,
+          activeSessionActionArtifacts: {
+            request_session: expect.objectContaining({
+              action: 'request_session',
+              jobStatus: 'pending',
+              requestedAt: requestSessionBody.job.runAt,
+              artifactPath: requestSessionBody.sessionAction.artifactPath,
+              resolvedAt: null,
+            }),
+            relogin: expect.objectContaining({
+              action: 'relogin',
+              jobStatus: 'pending',
+              requestedAt: reloginBody.job.runAt,
+              artifactPath: reloginBody.sessionAction.artifactPath,
+              resolvedAt: null,
+            }),
+          },
           latestBrowserLaneArtifact: expect.objectContaining({
             action: 'relogin',
             jobStatus: 'pending',
@@ -2462,6 +2478,22 @@ describe('channel accounts api', () => {
         channelAccounts: [
           expect.objectContaining({
             id: 1,
+            activeSessionActionArtifacts: {
+              request_session: expect.objectContaining({
+                action: 'request_session',
+                jobStatus: 'pending',
+                requestedAt: requestSessionBody.job.runAt,
+                artifactPath: requestSessionBody.sessionAction.artifactPath,
+                resolvedAt: null,
+              }),
+              relogin: expect.objectContaining({
+                action: 'relogin',
+                jobStatus: 'pending',
+                requestedAt: reloginBody.job.runAt,
+                artifactPath: reloginBody.sessionAction.artifactPath,
+                resolvedAt: null,
+              }),
+            },
             latestBrowserLaneArtifact: expect.objectContaining({
               action: 'relogin',
               jobStatus: 'pending',
