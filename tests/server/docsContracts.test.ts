@@ -105,4 +105,20 @@ describe('deployment document contracts', () => {
       '如果显式加 `--smoke`，当前 checkout 或已解压 bundle 根目录里还必须存在对应的 smoke CLI：源码仓库要有 `src/server/cli/deploymentSmoke.ts`，bundle 根目录要有 `dist/server/cli/deploymentSmoke.js`；缺少对应入口时 wrapper 会直接失败。',
     );
   });
+
+  it('keeps metadata sidecar schema wording aligned with workflow test_execution fields', () => {
+    const readme = fs.readFileSync(path.resolve('README.md'), 'utf8');
+    const deploymentDoc = fs.readFileSync(path.resolve('docs/DEPLOYMENT.md'), 'utf8');
+
+    for (const doc of [readme, deploymentDoc]) {
+      expect(doc).toContain('`test_execution.summary`');
+      expect(doc).toContain('`test_execution.state`');
+      expect(doc).toContain('`test_execution.mode`');
+      expect(doc).not.toContain('新增的 `tests_summary`');
+      expect(doc).not.toContain('`tests_summary` 只描述这次 metadata sidecar');
+      expect(doc).not.toContain('`.metadata.json` metadata sidecar 里的 `schema_version`、`checksum_algorithm`、`archive_format`、`artifact_name`、`event_name`、`prerelease`、`generated_at`、`run_url`、`release_url`、`tests_summary`');
+      expect(doc).not.toContain('读取 `schema_version` / `checksum_algorithm` / `archive_format` / ref / commit / `generated_at` / `run_url` / `release_url` / `tests_summary`');
+      expect(doc).not.toContain('查看 `.metadata.json` 中的 `schema_version` / `checksum_algorithm` / `archive_format` / ref / commit / `generated_at` / `run_url` / `release_url` / `tests_summary`');
+    }
+  });
 });
