@@ -62,6 +62,10 @@ describe('GitHub workflow contracts', () => {
 
     expect(ciJob).toContain('    permissions:');
     expect(ciJob).toContain('      contents: read');
+    expect(ciJob).toContain('uses: pnpm/action-setup@v6.0.3');
+    expect(ciJob).toContain('          version: 10');
+    expect(ciJob).toContain('uses: actions/setup-node@v6.4.0');
+    expect(ciJob).toContain('          node-version: 22');
     expect(ciJob).toContain('run: pnpm test');
     expect(ciJob).toContain('run: pnpm build');
     expect(ciJob).toContain('      - name: Smoke release bundle flow');
