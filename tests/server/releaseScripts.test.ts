@@ -215,6 +215,120 @@ describe('release shell wrappers', () => {
     expect(result.stderr).toContain(`database/schema.sql not found in ${fixture.rootDir}`);
   });
 
+  it('shows deploy-promobot help for direct and leading dash-dash help paths', () => {
+    for (const args of [['--help'], ['--', '--help']]) {
+      const result = runRepoScript('ops/deploy-promobot.sh', args);
+
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain('Usage: ops/deploy-promobot.sh [options]');
+      expect(result.stdout).toContain('--skip-install');
+      expect(result.stdout).toContain('--skip-smoke');
+      expect(result.stdout).toContain('--admin-password <secret>');
+    }
+
+    const packageJson = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8')) as {
+      scripts?: Record<string, string>;
+    };
+    expect(packageJson.scripts?.['deploy:local']).toBe('bash ops/deploy-promobot.sh');
+  });
+
+  it('rejects missing and empty deploy-promobot option values', () => {
+    const cases: Array<{ args: string[]; error: string }> = [
+      { args: ['--base-url'], error: '--base-url requires a value' },
+      { args: ['--base-url='], error: '--base-url requires a value' },
+      { args: ['--admin-password'], error: '--admin-password requires a value' },
+      { args: ['--admin-password='], error: '--admin-password requires a value' },
+    ];
+
+    for (const testCase of cases) {
+      const result = runRepoScript('ops/deploy-promobot.sh', testCase.args);
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain(testCase.error);
+    }
+  });
+
+  it('fails deploy-promobot smoke validation when no admin password is configured', () => {
+    const fixture = createDeployPromobotFixture();
+    const env = {
+      ...process.env,
+      PATH: `${fixture.binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+    };
+
+    delete env.PROMOBOT_ADMIN_PASSWORD;
+    delete env.ADMIN_PASSWORD;
+    delete env.PROMOBOT_BASE_URL;
+    delete env.PORT;
+
+    const result = runScript(fixture.scriptPath, ['--skip-install'], {
+      cwd: fixture.rootDir,
+      env,
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(
+      'Smoke check requires --admin-password, PROMOBOT_ADMIN_PASSWORD, ADMIN_PASSWORD, or repo-root .env ADMIN_PASSWORD; use --skip-smoke to disable it',
+    );
+    expect(fs.existsSync(fixture.pnpmMarkerPath)).toBe(false);
+    expect(fs.existsSync(fixture.pm2MarkerPath)).toBe(false);
+  });
+
+  it('uses repo-root .env defaults when deploy-promobot runs smoke checks', () => {
+    const fixture = createDeployPromobotFixture({
+      envFileContent: 'PORT=4312\nADMIN_PASSWORD=repo-root-secret\n',
+    });
+    const env = {
+      ...process.env,
+      PATH: `${fixture.binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+    };
+
+    delete env.PROMOBOT_ADMIN_PASSWORD;
+    delete env.ADMIN_PASSWORD;
+    delete env.PROMOBOT_BASE_URL;
+    delete env.PORT;
+
+    const result = runScript(fixture.scriptPath, ['--skip-install'], {
+      cwd: fixture.rootDir,
+      env,
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Skipping pnpm install');
+    expect(result.stdout).toContain('Running pnpm build');
+    expect(result.stdout).toContain('Starting PM2 app from pm2.config.js');
+    expect(result.stdout).toContain('Running smoke check against http://127.0.0.1:4312 (attempt 1/10)');
+    expect(result.stdout).toContain('Deployment completed');
+    expect(fs.readFileSync(fixture.pnpmMarkerPath, 'utf8')).toContain('build');
+    expect(fs.readFileSync(fixture.pnpmMarkerPath, 'utf8')).toContain(
+      'smoke:server -- --base-url http://127.0.0.1:4312',
+    );
+    expect(fs.readFileSync(fixture.smokeMarkerPath, 'utf8')).toContain(
+      'PROMOBOT_ADMIN_PASSWORD=repo-root-secret',
+    );
+  });
+
+  it('falls back to pm2 start when deploy-promobot reload fails', () => {
+    const fixture = createDeployPromobotFixture({
+      existingPm2Process: true,
+      failReload: true,
+    });
+    const result = runScript(fixture.scriptPath, ['--skip-install', '--skip-smoke'], {
+      cwd: fixture.rootDir,
+      env: {
+        ...process.env,
+        PATH: `${fixture.binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+      },
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Reloading PM2 app from pm2.config.js');
+    expect(result.stdout).toContain('PM2 reload failed, trying a fresh start');
+    expect(result.stdout).toContain('Skipping smoke check');
+    const pm2Invocations = fs.readFileSync(fixture.pm2MarkerPath, 'utf8');
+    expect(pm2Invocations).toContain('reload pm2.config.js --update-env');
+    expect(pm2Invocations).toContain('start pm2.config.js --update-env');
+  });
+
   it('shows verify-downloaded-release help for direct and leading dash-dash help paths', () => {
     for (const args of [['--help'], ['--', '--help']]) {
       const result = runRepoScript('ops/verify-downloaded-release.sh', args);
@@ -454,6 +568,74 @@ exit 0
     pm2MarkerPath,
     pnpmMarkerPath,
     scriptPath,
+  };
+}
+
+function createDeployPromobotFixture(
+  options: {
+    envFileContent?: string;
+    existingPm2Process?: boolean;
+    failReload?: boolean;
+  } = {},
+) {
+  const rootDir = createTempDir('promobot-deploy-local-script-');
+  const binDir = path.join(rootDir, 'bin');
+  const pm2MarkerPath = path.join(rootDir, 'pm2-invocations.log');
+  const pnpmMarkerPath = path.join(rootDir, 'pnpm-invocations.log');
+  const smokeMarkerPath = path.join(rootDir, 'smoke-invocations.log');
+  const scriptPath = path.join(rootDir, 'ops/deploy-promobot.sh');
+
+  fs.mkdirSync(path.dirname(scriptPath), { recursive: true });
+  fs.copyFileSync(path.resolve(repoRoot, 'ops/deploy-promobot.sh'), scriptPath);
+
+  writeFile(rootDir, 'package.json', '{}\n');
+  writeFile(rootDir, 'pnpm-lock.yaml', 'lockfileVersion: 9\n');
+  writeFile(rootDir, 'pm2.config.js', 'export default {};\n');
+
+  if (options.envFileContent) {
+    writeFile(rootDir, '.env', options.envFileContent);
+  }
+
+  writeExecutable(
+    binDir,
+    'pnpm',
+    `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${pnpmMarkerPath}"
+if [ "\${1:-}" = "smoke:server" ]; then
+  printf 'PROMOBOT_ADMIN_PASSWORD=%s\\n' "\${PROMOBOT_ADMIN_PASSWORD:-}" >> "${smokeMarkerPath}"
+  printf 'ARGS=%s\\n' "$*" >> "${smokeMarkerPath}"
+fi
+exit 0
+`,
+  );
+
+  writeExecutable(
+    binDir,
+    'pm2',
+    `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${pm2MarkerPath}"
+if [ "\${1:-}" = "jlist" ]; then
+  if [ "${options.existingPm2Process ? '1' : '0'}" = "1" ]; then
+    printf '[{"name":"promobot"}]\\n'
+  else
+    printf '[]\\n'
+  fi
+  exit 0
+fi
+if [ "\${1:-}" = "reload" ] && [ "${options.failReload ? '1' : '0'}" = "1" ]; then
+  exit 1
+fi
+exit 0
+`,
+  );
+
+  return {
+    rootDir,
+    binDir,
+    pm2MarkerPath,
+    pnpmMarkerPath,
+    scriptPath,
+    smokeMarkerPath,
   };
 }
 
