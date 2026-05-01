@@ -545,6 +545,71 @@ describe('runtime restore cli', () => {
     }
   });
 
+  it('treats backup payload type mismatches as missing and leaves restore targets untouched', async () => {
+    const runtimeRestore = await loadRuntimeRestoreModule();
+    const testDatabase = createTestDatabasePath();
+
+    expect(runtimeRestore).not.toBeNull();
+
+    try {
+      const inputDir = path.join(testDatabase.rootDir, 'imports', 'runtime-backup');
+      const databaseBackupPath = path.join(inputDir, 'database', 'promobot.sqlite');
+      const preRestoreBackupPath = `${testDatabase.databasePath}.pre-restore-2026-04-24T22-15-00.000Z`;
+
+      fs.mkdirSync(path.dirname(testDatabase.databasePath), { recursive: true });
+      fs.writeFileSync(testDatabase.databasePath, 'current-db', 'utf8');
+      fs.mkdirSync(databaseBackupPath, { recursive: true });
+      fs.writeFileSync(path.join(databaseBackupPath, 'nested.txt'), 'wrong-shape', 'utf8');
+
+      writeBackupManifest({
+        inputDir,
+        copied: [
+          {
+            kind: 'database',
+            type: 'file',
+            sourcePath: testDatabase.databasePath,
+            destinationPath: databaseBackupPath,
+          },
+        ],
+      });
+
+      const stdout = createStdoutBuffer();
+      const summary = (await runtimeRestore?.runRuntimeRestoreCli(['--input-dir', inputDir], {
+        now: () => new Date('2026-04-24T22:15:00.000Z'),
+        repoRootDir: testDatabase.rootDir,
+        stdout: stdout.stdout,
+      })) as {
+        backupsCreated: unknown[];
+        missing: Array<{
+          expectedPath: string;
+          kind: string;
+          reason: string;
+          targetPath: string;
+          type: string;
+        }>;
+        restored: unknown[];
+      };
+
+      expect(summary.ok).toBe(false);
+      expect(summary.restored).toEqual([]);
+      expect(summary.backupsCreated).toEqual([]);
+      expect(summary.missing).toEqual([
+        {
+          kind: 'database',
+          type: 'file',
+          expectedPath: databaseBackupPath,
+          targetPath: testDatabase.databasePath,
+          reason: 'backup-missing',
+        },
+      ]);
+      expect(fs.readFileSync(testDatabase.databasePath, 'utf8')).toBe('current-db');
+      expect(fs.existsSync(preRestoreBackupPath)).toBe(false);
+      expect(JSON.parse(stdout.read())).toEqual(summary);
+    } finally {
+      cleanupTestDatabasePath(testDatabase.rootDir);
+    }
+  });
+
   it('refuses partial restores when a later backup entry is missing', async () => {
     const runtimeRestore = await loadRuntimeRestoreModule();
     const testDatabase = createTestDatabasePath();
