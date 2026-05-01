@@ -3,10 +3,32 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync, type SpawnSyncOptions } from 'node:child_process';
 
+import ts from 'typescript';
 import { afterEach, describe, expect, it } from 'vitest';
 
 const repoRoot = process.cwd();
 const tempDirs = new Set<string>();
+
+type ReleaseBundleModule = {
+  runReleaseBundle: (
+    input: {
+      outputDir: string;
+      repoRoot: string;
+    },
+    dependencies?: {
+      now?: () => Date;
+    },
+  ) => {
+    checksums: Record<string, string>;
+    createdAt: string;
+    files: string[];
+    manifestPath: string;
+    missing: string[];
+    ok: boolean;
+    outputDir: string;
+    repoRoot: string;
+  };
+};
 
 afterEach(() => {
   for (const dir of tempDirs) {
@@ -669,8 +691,8 @@ describe('release shell wrappers', () => {
     }
   });
 
-  it('fails verify-downloaded-release when expected sidecars are missing', () => {
-    const fixture = createDownloadedReleaseFixture();
+  it('fails verify-downloaded-release when expected sidecars are missing', async () => {
+    const fixture = await createDownloadedReleaseFixture();
     fs.rmSync(fixture.metadataPath);
 
     const result = runScript(fixture.scriptPath, ['--archive-file', fixture.archivePath], {
@@ -681,27 +703,53 @@ describe('release shell wrappers', () => {
     expect(result.stderr).toContain('--metadata-file not found');
   });
 
-  it('verifies and extracts a downloaded release archive', () => {
-    const fixture = createDownloadedReleaseFixture();
+  it('verifies and extracts a downloaded release archive', async () => {
+    const fixture = await createDownloadedReleaseFixture();
     const extractRoot = path.join(fixture.rootDir, 'extract-target');
 
     const result = runScript(
       fixture.scriptPath,
-      ['--archive-file', fixture.archivePath, '--extract-to', extractRoot],
+      ['--archive-file', fixture.archivePath, '--extract-to', extractRoot, '--keep-extracted'],
       {
         cwd: fixture.rootDir,
       },
     );
 
+    const extractedRoots = fs
+      .readdirSync(extractRoot)
+      .map((entry) => path.join(extractRoot, entry))
+      .filter((entryPath) => fs.statSync(entryPath).isDirectory());
+    const extractedBundleDir = path.join(extractedRoots[0] ?? '', 'promobot-release-bundle');
+    const extractedManifest = JSON.parse(
+      fs.readFileSync(path.join(extractedBundleDir, 'manifest.json'), 'utf8'),
+    ) as {
+      files?: string[];
+      missing?: string[];
+      ok?: boolean;
+    };
+
     expect(result.status).toBe(0);
     expect(result.stdout).toContain('Verifying archive checksum');
     expect(result.stdout).toContain('Running extracted bundle release verifier');
-    expect(result.stdout).toContain('Verification succeeded; extracted bundle will be cleaned up');
-    expect(fs.existsSync(path.join(extractRoot, 'promobot-release-bundle'))).toBe(false);
+    expect(result.stdout).toContain('Verification succeeded; kept extracted bundle');
+    expect(fs.existsSync(extractedBundleDir)).toBe(true);
+    expect(extractedManifest.ok).toBe(true);
+    expect(extractedManifest.missing).toEqual([]);
+    expect(extractedManifest.files).toEqual(
+      expect.arrayContaining([
+        '.env.example',
+        'database/schema.sql',
+        'docs/DEPLOYMENT.md',
+        'dist/server/cli/browserHandoffComplete.js',
+        'dist/server/cli/inboxReplyHandoffComplete.js',
+        'ops/deploy-release.sh',
+        'ops/verify-release.sh',
+      ]),
+    );
   });
 
-  it('fails verify-downloaded-release when archive checksum verification fails', () => {
-    const fixture = createDownloadedReleaseFixture();
+  it('fails verify-downloaded-release when archive checksum verification fails', async () => {
+    const fixture = await createDownloadedReleaseFixture();
 
     fs.writeFileSync(fixture.checksumPath, `0000000000000000000000000000000000000000000000000000000000000000  ${path.basename(fixture.archivePath)}\n`, 'utf8');
 
@@ -713,8 +761,8 @@ describe('release shell wrappers', () => {
     expect(result.stderr).toContain('Archive checksum verification failed');
   });
 
-  it('fails verify-downloaded-release when archive entries contain unsafe paths', () => {
-    const fixture = createDownloadedReleaseFixture();
+  it('fails verify-downloaded-release when archive entries contain unsafe paths', async () => {
+    const fixture = await createDownloadedReleaseFixture();
     const binDir = path.join(fixture.rootDir, 'bin');
 
     writeExecutable(
@@ -742,8 +790,8 @@ exit 99
     expect(result.stderr).toContain('Archive entry contains an unsafe path');
   });
 
-  it('fails verify-downloaded-release when metadata bundle_dir_name does not match the archive root', () => {
-    const fixture = createDownloadedReleaseFixture();
+  it('fails verify-downloaded-release when metadata bundle_dir_name does not match the archive root', async () => {
+    const fixture = await createDownloadedReleaseFixture();
     const metadata = JSON.parse(fs.readFileSync(fixture.metadataPath, 'utf8')) as {
       bundle_dir_name: string;
     };
@@ -1110,28 +1158,28 @@ exit 0
   };
 }
 
-function createDownloadedReleaseFixture() {
+async function createDownloadedReleaseFixture() {
+  const releaseBundle = await loadReleaseBundleModule();
+  if (!releaseBundle) {
+    throw new Error('Failed to load release bundle module');
+  }
+
   const rootDir = createTempDir('promobot-verify-downloaded-release-');
   const scriptPath = path.join(rootDir, 'ops/verify-downloaded-release.sh');
   const archivePath = path.join(rootDir, 'downloads/promobot-release-bundle.tar.gz');
   const metadataPath = `${archivePath}.metadata.json`;
   const checksumPath = `${archivePath}.sha256`;
+  const bundleRepoRoot = path.join(rootDir, 'bundle-repo');
   const bundleSourceDir = path.join(rootDir, 'bundle-source/promobot-release-bundle');
 
   fs.mkdirSync(path.dirname(scriptPath), { recursive: true });
   fs.copyFileSync(path.resolve(repoRoot, 'ops/verify-downloaded-release.sh'), scriptPath);
 
-  writeFile(rootDir, 'bundle-source/promobot-release-bundle/manifest.json', '{}\n');
-  writeFile(rootDir, 'bundle-source/promobot-release-bundle/dist/server/index.js', 'console.log("server");\n');
-  writeFile(rootDir, 'bundle-source/promobot-release-bundle/dist/client/index.html', '<!doctype html>\n');
-  writeFile(rootDir, 'bundle-source/promobot-release-bundle/pm2.config.js', 'export default {};\n');
-  writeFile(rootDir, 'bundle-source/promobot-release-bundle/ops/deploy-promobot.sh', '#!/usr/bin/env bash\n');
-  writeFile(rootDir, 'bundle-source/promobot-release-bundle/ops/deploy-release.sh', '#!/usr/bin/env bash\n');
-  writeFile(rootDir, 'bundle-source/promobot-release-bundle/ops/verify-release.sh', '#!/usr/bin/env bash\n');
-  writeFile(rootDir, 'bundle-source/promobot-release-bundle/package.json', '{}\n');
-  writeFile(rootDir, 'bundle-source/promobot-release-bundle/pnpm-lock.yaml', 'lockfileVersion: 9\n');
-  writeFile(rootDir, 'bundle-source/promobot-release-bundle/dist/server/cli/deploymentSmoke.js', 'console.log("smoke");\n');
-  writeFile(rootDir, 'bundle-source/promobot-release-bundle/dist/server/cli/releaseVerify.js', 'console.log("verify");\n');
+  seedValidReleaseBundleRepoRoot(bundleRepoRoot);
+  releaseBundle.runReleaseBundle({
+    repoRoot: bundleRepoRoot,
+    outputDir: bundleSourceDir,
+  });
 
   fs.mkdirSync(path.dirname(archivePath), { recursive: true });
 
@@ -1207,6 +1255,14 @@ function createDownloadedReleaseFixture() {
   };
 }
 
+async function loadReleaseBundleModule(): Promise<ReleaseBundleModule | null> {
+  try {
+    return (await import('../../src/server/cli/releaseBundle')) as ReleaseBundleModule;
+  } catch {
+    return null;
+  }
+}
+
 function createTempDir(prefix: string) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   tempDirs.add(dir);
@@ -1224,4 +1280,47 @@ function writeFile(rootDir: string, relativePath: string, content: string) {
   const targetPath = path.join(rootDir, relativePath);
   fs.mkdirSync(path.dirname(targetPath), { recursive: true });
   fs.writeFileSync(targetPath, content);
+}
+
+function seedValidReleaseBundleRepoRoot(rootDir: string) {
+  writeFile(rootDir, 'package.json', '{ "name": "promobot-fixture", "type": "module" }\n');
+  writeFile(rootDir, 'pnpm-lock.yaml', 'lockfileVersion: 9\n');
+  writeFile(rootDir, 'pm2.config.js', 'export default {};\n');
+  writeFile(rootDir, '.env.example', 'ADMIN_PASSWORD=change-me\n');
+  writeFile(rootDir, 'database/schema.sql', 'create table drafts (id integer primary key);\n');
+  writeFile(rootDir, 'docs/DEPLOYMENT.md', '# Deploy\n');
+  writeFile(rootDir, 'dist/server/index.js', 'console.log("server");\n');
+  writeFile(rootDir, 'dist/server/chunks/app.js', 'export const app = true;\n');
+  writeFile(rootDir, 'dist/server/cli/deploymentSmoke.js', 'console.log("smoke");\n');
+  writeFile(
+    rootDir,
+    'dist/server/cli/browserHandoffComplete.js',
+    'console.log("browser handoff complete");\n',
+  );
+  writeFile(
+    rootDir,
+    'dist/server/cli/inboxReplyHandoffComplete.js',
+    'console.log("inbox reply handoff complete");\n',
+  );
+  writeFile(
+    rootDir,
+    'dist/server/cli/releaseVerify.js',
+    compileReleaseVerifyCliSource(),
+  );
+  writeFile(rootDir, 'dist/client/index.html', '<!doctype html>\n');
+  writeFile(rootDir, 'dist/client/assets/app.js', 'console.log("client");\n');
+  writeFile(rootDir, 'ops/deploy-promobot.sh', '#!/usr/bin/env bash\n');
+  writeFile(rootDir, 'ops/deploy-release.sh', '#!/usr/bin/env bash\n');
+  writeFile(rootDir, 'ops/verify-release.sh', '#!/usr/bin/env bash\n');
+}
+
+function compileReleaseVerifyCliSource() {
+  const source = fs.readFileSync(path.resolve(repoRoot, 'src/server/cli/releaseVerify.ts'), 'utf8');
+  return ts.transpileModule(source, {
+    compilerOptions: {
+      module: ts.ModuleKind.ESNext,
+      target: ts.ScriptTarget.ES2022,
+    },
+    fileName: 'releaseVerify.ts',
+  }).outputText;
 }
