@@ -866,6 +866,21 @@ exit 99
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('Archive entry escaped metadata bundle_dir_name');
   });
+
+  it('fails verify-downloaded-release when the extracted bundle is missing releaseVerify.js', async () => {
+    const fixture = await createDownloadedReleaseFixture({
+      mutateBundleSourceDir: (bundleSourceDir) => {
+        fs.rmSync(path.join(bundleSourceDir, 'dist/server/cli/releaseVerify.js'));
+      },
+    });
+
+    const result = runScript(fixture.scriptPath, ['--archive-file', fixture.archivePath], {
+      cwd: fixture.rootDir,
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('Extracted bundle is missing dist/server/cli/releaseVerify.js');
+  });
 });
 
 function runRepoScript(relativePath: string, args: string[], options: SpawnSyncOptions = {}) {
@@ -1219,7 +1234,11 @@ exit 0
   };
 }
 
-async function createDownloadedReleaseFixture() {
+async function createDownloadedReleaseFixture(
+  options: {
+    mutateBundleSourceDir?: (bundleSourceDir: string) => void;
+  } = {},
+) {
   const releaseBundle = await loadReleaseBundleModule();
   if (!releaseBundle) {
     throw new Error('Failed to load release bundle module');
@@ -1241,6 +1260,7 @@ async function createDownloadedReleaseFixture() {
     repoRoot: bundleRepoRoot,
     outputDir: bundleSourceDir,
   });
+  options.mutateBundleSourceDir?.(bundleSourceDir);
 
   fs.mkdirSync(path.dirname(archivePath), { recursive: true });
 
