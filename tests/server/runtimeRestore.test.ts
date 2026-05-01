@@ -910,6 +910,47 @@ describe('runtime restore cli', () => {
     }
   });
 
+  it('refuses to restore when the manifest is marked incomplete without listing missing entries', async () => {
+    const runtimeRestore = await loadRuntimeRestoreModule();
+    const testDatabase = createTestDatabasePath();
+
+    expect(runtimeRestore).not.toBeNull();
+
+    try {
+      const inputDir = path.join(testDatabase.rootDir, 'imports', 'runtime-backup');
+      fs.mkdirSync(path.dirname(testDatabase.databasePath), { recursive: true });
+      fs.writeFileSync(testDatabase.databasePath, 'current-db', 'utf8');
+
+      writeBackupManifest({
+        inputDir,
+        copied: [],
+        ok: false,
+        missing: [],
+      });
+
+      const stdout = createStdoutBuffer();
+      const summary = (await runtimeRestore?.runRuntimeRestoreCli(['--input-dir', inputDir], {
+        now: () => new Date('2026-04-24T23:05:00.000Z'),
+        repoRootDir: testDatabase.rootDir,
+        stdout: stdout.stdout,
+      })) as {
+        ok: boolean;
+        restored: unknown[];
+        backupsCreated: unknown[];
+        missing: unknown[];
+      };
+
+      expect(summary.ok).toBe(false);
+      expect(summary.restored).toEqual([]);
+      expect(summary.backupsCreated).toEqual([]);
+      expect(summary.missing).toEqual([]);
+      expect(fs.readFileSync(testDatabase.databasePath, 'utf8')).toBe('current-db');
+      expect(JSON.parse(stdout.read())).toEqual(summary);
+    } finally {
+      cleanupTestDatabasePath(testDatabase.rootDir);
+    }
+  });
+
   it('sets a non-zero exit code for incomplete restores', async () => {
     const runtimeRestore = await loadRuntimeRestoreModule();
 
