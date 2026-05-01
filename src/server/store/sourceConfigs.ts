@@ -61,12 +61,24 @@ function listEnabledSourceConfigs(database: DatabaseConnection): SourceConfigRec
   return database
     .prepare(
       `
-        SELECT id, project_id AS projectId, source_type AS sourceType, platform, label,
-               config_json AS configJson, enabled, poll_interval_minutes AS pollIntervalMinutes,
-               created_at AS createdAt, updated_at AS updatedAt
+        SELECT source_configs.id AS id,
+               source_configs.project_id AS projectId,
+               source_configs.source_type AS sourceType,
+               source_configs.platform AS platform,
+               source_configs.label AS label,
+               source_configs.config_json AS configJson,
+               source_configs.enabled AS enabled,
+               source_configs.poll_interval_minutes AS pollIntervalMinutes,
+               source_configs.created_at AS createdAt,
+               source_configs.updated_at AS updatedAt
         FROM source_configs
-        WHERE enabled = 1
-        ORDER BY project_id ASC, id ASC
+        LEFT JOIN projects ON projects.id = source_configs.project_id
+        WHERE source_configs.enabled = 1
+          AND (
+            projects.id IS NULL
+            OR (projects.archived = 0 AND projects.archived_at IS NULL)
+          )
+        ORDER BY source_configs.project_id ASC, source_configs.id ASC
       `,
     )
     .all()

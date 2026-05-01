@@ -846,6 +846,50 @@ describe('projects api', () => {
     }
   });
 
+  it('excludes archived project source configs from enabled listings', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const projectResponse = await requestApp('POST', '/api/projects', {
+        name: 'Archive Me',
+        siteName: 'Archive Demo',
+        siteUrl: 'https://archive.test',
+        siteDescription: 'Archive coverage',
+        sellingPoints: ['Quiet sunset'],
+      });
+
+      expect(projectResponse.status).toBe(201);
+
+      const sourceConfigStore = createSourceConfigStore();
+      sourceConfigStore.create({
+        projectId: 1,
+        sourceType: 'rss',
+        platform: 'rss',
+        label: 'Competitor feed',
+        configJson: {
+          feedUrl: 'https://example.com/feed.xml',
+        },
+        enabled: true,
+        pollIntervalMinutes: 30,
+      });
+
+      expect(sourceConfigStore.listEnabled()).toEqual([
+        expect.objectContaining({
+          id: 1,
+          projectId: 1,
+          sourceType: 'rss',
+          enabled: true,
+        }),
+      ]);
+
+      const archived = await requestApp('POST', '/api/projects/1/archive');
+
+      expect(archived.status).toBe(200);
+      expect(sourceConfigStore.listEnabled()).toEqual([]);
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('archives projects and excludes them from the default list', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
