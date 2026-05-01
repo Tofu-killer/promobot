@@ -77,6 +77,7 @@ const REQUIRED_RELEASE_PATHS = [
   'pm2.config.js',
   'ops/deploy-promobot.sh',
   'ops/deploy-release.sh',
+  'ops/verify-downloaded-release.sh',
   'ops/verify-release.sh',
 ] as const;
 

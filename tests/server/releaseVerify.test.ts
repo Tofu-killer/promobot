@@ -319,6 +319,12 @@ describe('release verify cli', () => {
         },
         {
           kind: 'manifest-item',
+          name: 'ops/verify-downloaded-release.sh',
+          ok: true,
+          target: path.join(inputDir, 'ops/verify-downloaded-release.sh'),
+        },
+        {
+          kind: 'manifest-item',
           name: 'ops/verify-release.sh',
           ok: true,
           target: path.join(inputDir, 'ops/verify-release.sh'),
@@ -330,7 +336,7 @@ describe('release verify cli', () => {
     expect(JSON.parse(stdout.read())).toEqual(summary);
   });
 
-  it('passes when the downloaded release helper is absent from an otherwise valid bundle', async () => {
+  it('fails when the downloaded release helper is absent from an otherwise valid bundle', async () => {
     const releaseVerify = await loadReleaseVerifyModule();
     expect(releaseVerify).toBeTruthy();
     if (!releaseVerify) {
@@ -339,7 +345,7 @@ describe('release verify cli', () => {
 
     const inputDir = createTempDir();
     writeRequiredBundleCore(inputDir);
-    writeBundleNativeEntryScripts(inputDir);
+    writeBundleNativeEntryScripts(inputDir, { includeDownloadedReleaseHelper: false });
 
     writeManifest(inputDir, {
       ok: true,
@@ -364,15 +370,24 @@ describe('release verify cli', () => {
 
     const summary = releaseVerify.runReleaseVerify({ inputDir });
 
-    expect(summary.ok).toBe(true);
-    expect(summary.missing).toEqual([]);
-    expect(summary.warnings).toEqual([]);
-    expect(summary.checks).not.toEqual(
+    expect(summary.ok).toBe(false);
+    expect(summary.missing).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({
+        {
           kind: 'manifest-item',
           name: 'ops/verify-downloaded-release.sh',
-        }),
+          target: path.join(inputDir, 'ops/verify-downloaded-release.sh'),
+        },
+      ]),
+    );
+    expect(summary.checks).toEqual(
+      expect.arrayContaining([
+        {
+          kind: 'manifest-item',
+          name: 'ops/verify-downloaded-release.sh',
+          ok: false,
+          target: path.join(inputDir, 'ops/verify-downloaded-release.sh'),
+        },
       ]),
     );
   });
@@ -582,8 +597,16 @@ function writeFile(rootDir: string, relativePath: string, content: string) {
   fs.writeFileSync(targetPath, content, 'utf8');
 }
 
-function writeBundleNativeEntryScripts(rootDir: string) {
+function writeBundleNativeEntryScripts(
+  rootDir: string,
+  options: {
+    includeDownloadedReleaseHelper?: boolean;
+  } = {},
+) {
   writeFile(rootDir, 'ops/deploy-release.sh', '#!/usr/bin/env bash\n');
+  if (options.includeDownloadedReleaseHelper !== false) {
+    writeFile(rootDir, 'ops/verify-downloaded-release.sh', '#!/usr/bin/env bash\n');
+  }
   writeFile(rootDir, 'ops/verify-release.sh', '#!/usr/bin/env bash\n');
 }
 
