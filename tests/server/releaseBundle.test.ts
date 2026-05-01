@@ -42,6 +42,22 @@ type ReleaseBundleModule = {
   ) => Promise<ReleaseBundleSummary | null>;
 };
 
+type ReleaseVerifyModule = {
+  runReleaseVerify: (input: { inputDir: string }) => {
+    missing: Array<{
+      kind: 'manifest' | 'manifest-item';
+      name: string;
+      target: string;
+    }>;
+    ok: boolean;
+    warnings: Array<{
+      code: string;
+      message: string;
+      target: string;
+    }>;
+  };
+};
+
 const tempDirs = new Set<string>();
 
 afterEach(() => {
@@ -146,7 +162,15 @@ describe('release bundle cli', () => {
         'ops/deploy-release.sh',
         'package.json',
       ],
-      missing: ['dist/client/**', 'pnpm-lock.yaml', 'pm2.config.js'],
+      missing: [
+        'dist/client/**',
+        'pnpm-lock.yaml',
+        'pm2.config.js',
+        'dist/server/cli/deploymentSmoke.js',
+        'dist/server/cli/inboxReplyHandoffComplete.js',
+        'dist/server/cli/releaseVerify.js',
+        'ops/verify-release.sh',
+      ],
     });
     expect(Object.keys(summary.checksums).sort()).toEqual(
       summary.files.filter((relativePath) => relativePath !== 'manifest.json'),
@@ -160,7 +184,7 @@ describe('release bundle cli', () => {
     expect(process.exitCode).toBe(1);
   });
 
-  it('copies the release bundle into the output directory and writes a machine-readable manifest with checksums', async () => {
+  it('reports missing release verification inputs that must ship inside a valid bundle', async () => {
     const releaseBundle = await loadReleaseBundleModule();
 
     expect(releaseBundle).toBeTruthy();
@@ -176,18 +200,60 @@ describe('release bundle cli', () => {
     writeFile(repoRoot, 'database/schema.sql', 'create table drafts (id integer primary key);\n');
     writeFile(repoRoot, 'docs/DEPLOYMENT.md', '# Deploy\n');
     writeFile(repoRoot, 'dist/server/index.js', 'console.log("server");\n');
+    writeFile(repoRoot, 'dist/client/index.html', '<!doctype html>\n');
+    writeFile(repoRoot, 'ops/deploy-release.sh', '#!/usr/bin/env bash\n');
+    writeFile(repoRoot, 'ops/deploy-promobot.sh', '#!/usr/bin/env bash\n');
+
+    const outputDir = path.join(repoRoot, 'artifacts', 'release-bundle');
+    const summary = releaseBundle.runReleaseBundle({
+      repoRoot,
+      outputDir,
+    });
+
+    expect(summary.ok).toBe(false);
+    expect(summary.missing).toEqual(
+      expect.arrayContaining([
+        'dist/server/cli/deploymentSmoke.js',
+        'dist/server/cli/inboxReplyHandoffComplete.js',
+        'dist/server/cli/releaseVerify.js',
+        'ops/verify-release.sh',
+      ]),
+    );
+  });
+
+  it('copies the release bundle into the output directory and writes a machine-readable manifest with checksums', async () => {
+    const releaseBundle = await loadReleaseBundleModule();
+    const releaseVerify = await loadReleaseVerifyModule();
+
+    expect(releaseBundle).toBeTruthy();
+    expect(releaseVerify).toBeTruthy();
+    if (!releaseBundle || !releaseVerify) {
+      return;
+    }
+
+    const repoRoot = createTempRepoRoot();
+    writeFile(repoRoot, 'package.json', '{ "name": "promobot" }\n');
+    writeFile(repoRoot, 'pnpm-lock.yaml', 'lockfile\n');
+    writeFile(repoRoot, 'pm2.config.js', 'export default {};\n');
+    writeFile(repoRoot, '.env.example', 'ADMIN_PASSWORD=change-me\n');
+    writeFile(repoRoot, 'database/schema.sql', 'create table drafts (id integer primary key);\n');
+    writeFile(repoRoot, 'docs/DEPLOYMENT.md', '# Deploy\n');
+    writeFile(repoRoot, 'dist/server/index.js', 'console.log("server");\n');
     writeFile(repoRoot, 'dist/server/chunks/app.js', 'export const app = true;\n');
+    writeFile(repoRoot, 'dist/server/cli/deploymentSmoke.js', 'console.log("smoke");\n');
     writeFile(
       repoRoot,
       'dist/server/cli/inboxReplyHandoffComplete.js',
       'console.log("handoff complete");\n',
     );
+    writeFile(repoRoot, 'dist/server/cli/releaseVerify.js', 'console.log("verify");\n');
     writeFile(repoRoot, 'dist/client/index.html', '<!doctype html>\n');
     writeFile(repoRoot, 'dist/client/assets/app.js', 'console.log("client");\n');
     writeFile(repoRoot, 'ops/deploy-release.sh', '#!/usr/bin/env bash\n');
     writeFile(repoRoot, 'ops/deploy-promobot.sh', '#!/usr/bin/env bash\n');
     writeFile(repoRoot, 'ops/preflight-promobot.sh', '#!/usr/bin/env bash\n');
     writeFile(repoRoot, 'ops/rollback-promobot.sh', '#!/usr/bin/env bash\n');
+    writeFile(repoRoot, 'ops/verify-release.sh', '#!/usr/bin/env bash\n');
     writeFile(repoRoot, 'ops/logrotate.promobot.conf', 'rotate 7\n');
 
     const outputDir = path.join(repoRoot, 'artifacts', 'release-bundle');
@@ -210,7 +276,9 @@ describe('release bundle cli', () => {
         'dist/client/assets/app.js',
         'dist/client/index.html',
         'dist/server/chunks/app.js',
+        'dist/server/cli/deploymentSmoke.js',
         'dist/server/cli/inboxReplyHandoffComplete.js',
+        'dist/server/cli/releaseVerify.js',
         'dist/server/index.js',
         'docs/DEPLOYMENT.md',
         'manifest.json',
@@ -218,6 +286,7 @@ describe('release bundle cli', () => {
         'ops/deploy-release.sh',
         'ops/preflight-promobot.sh',
         'ops/rollback-promobot.sh',
+        'ops/verify-release.sh',
         'package.json',
         'pm2.config.js',
         'pnpm-lock.yaml',
@@ -238,11 +307,18 @@ describe('release bundle cli', () => {
     expect(summary.checksums['dist/server/chunks/app.js']).toBe(
       sha256Hex('export const app = true;\n'),
     );
+    expect(summary.checksums['dist/server/cli/deploymentSmoke.js']).toBe(
+      sha256Hex('console.log("smoke");\n'),
+    );
     expect(summary.checksums['dist/server/cli/inboxReplyHandoffComplete.js']).toBe(
       sha256Hex('console.log("handoff complete");\n'),
     );
+    expect(summary.checksums['dist/server/cli/releaseVerify.js']).toBe(
+      sha256Hex('console.log("verify");\n'),
+    );
     expect(summary.checksums['dist/client/index.html']).toBe(sha256Hex('<!doctype html>\n'));
     expect(summary.checksums['docs/DEPLOYMENT.md']).toBe(sha256Hex('# Deploy\n'));
+    expect(summary.checksums['ops/verify-release.sh']).toBe(sha256Hex('#!/usr/bin/env bash\n'));
     expect(summary.checksums).not.toHaveProperty('manifest.json');
 
     expect(fs.readFileSync(path.join(outputDir, 'dist/server/index.js'), 'utf8')).toBe(
@@ -256,12 +332,27 @@ describe('release bundle cli', () => {
     expect(JSON.parse(fs.readFileSync(path.join(outputDir, 'manifest.json'), 'utf8'))).toEqual(
       summary,
     );
+    expect(releaseVerify.runReleaseVerify({ inputDir: outputDir })).toEqual(
+      expect.objectContaining({
+        ok: true,
+        missing: [],
+        warnings: [],
+      }),
+    );
   });
 });
 
 async function loadReleaseBundleModule(): Promise<ReleaseBundleModule | null> {
   try {
     return (await import('../../src/server/cli/releaseBundle')) as ReleaseBundleModule;
+  } catch {
+    return null;
+  }
+}
+
+async function loadReleaseVerifyModule(): Promise<ReleaseVerifyModule | null> {
+  try {
+    return (await import('../../src/server/cli/releaseVerify')) as ReleaseVerifyModule;
   } catch {
     return null;
   }

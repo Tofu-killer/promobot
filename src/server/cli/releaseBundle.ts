@@ -53,6 +53,10 @@ const REQUIRED_FILES = [
   path.join('database', 'schema.sql'),
   path.join('docs', 'DEPLOYMENT.md'),
   '.env.example',
+  path.join('dist', 'server', 'cli', 'deploymentSmoke.js'),
+  path.join('dist', 'server', 'cli', 'inboxReplyHandoffComplete.js'),
+  path.join('dist', 'server', 'cli', 'releaseVerify.js'),
+  path.join('ops', 'verify-release.sh'),
 ] as const;
 
 export function parseReleaseBundleArgs(argv: string[]): ReleaseBundleArgs {
