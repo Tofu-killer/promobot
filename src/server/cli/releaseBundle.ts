@@ -61,6 +61,7 @@ const REQUIRED_FILES = [
   path.join('dist', 'client', 'index.html'),
   path.join('ops', 'deploy-promobot.sh'),
   path.join('ops', 'deploy-release.sh'),
+  path.join('ops', 'verify-downloaded-release.sh'),
   path.join('ops', 'verify-release.sh'),
 ] as const;
 
