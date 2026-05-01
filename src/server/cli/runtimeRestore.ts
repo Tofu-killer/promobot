@@ -73,6 +73,12 @@ interface RuntimeRestoreSummary {
   backupsCreated: RuntimeRestoreBackupItem[];
 }
 
+interface RuntimeRestorePlanItem {
+  item: RuntimeBackupManifestItem;
+  backupPath: string;
+  targetPath: string;
+}
+
 export function parseRuntimeRestoreArgs(argv: string[]): RuntimeRestoreArgs {
   const parsed: RuntimeRestoreArgs = {};
 
@@ -177,6 +183,7 @@ export async function runRuntimeRestoreCli(
     return summary;
   }
 
+  const restorePlan: RuntimeRestorePlanItem[] = [];
   for (const item of manifest.copied ?? []) {
     const backupPath = resolveBackupPath(item, {
       inputDir: resolvedInputDir,
@@ -206,13 +213,27 @@ export async function runRuntimeRestoreCli(
       continue;
     }
 
-    maybeBackupExistingTarget(item, targetPath, restoredAt, summary);
-    restoreBackupItem(item, backupPath, targetPath);
-    summary.restored.push({
-      kind: item.kind,
-      type: item.type,
+    restorePlan.push({
+      item,
       backupPath,
       targetPath,
+    });
+  }
+
+  if (summary.missing.length > 0) {
+    summary.ok = false;
+    stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
+    return summary;
+  }
+
+  for (const plannedItem of restorePlan) {
+    maybeBackupExistingTarget(plannedItem.item, plannedItem.targetPath, restoredAt, summary);
+    restoreBackupItem(plannedItem.item, plannedItem.backupPath, plannedItem.targetPath);
+    summary.restored.push({
+      kind: plannedItem.item.kind,
+      type: plannedItem.item.type,
+      backupPath: plannedItem.backupPath,
+      targetPath: plannedItem.targetPath,
     });
   }
 
