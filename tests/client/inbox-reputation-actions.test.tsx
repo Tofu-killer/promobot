@@ -2069,6 +2069,287 @@ describe('Inbox action wiring', () => {
     });
   });
 
+  it('keeps request-session feedback scoped to the original inbox item when another blocked handoff is selected', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    const requestChannelAccountSessionAction = vi.fn().mockResolvedValue({
+      sessionAction: {
+        action: 'request_session',
+        message: 'Browser session request queued for the X inbox handoff.',
+        artifactPath: 'artifacts/browser-lane-requests/x/x-browser-main/request-session-job-17.json',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(InboxPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              items: [
+                {
+                  id: 7,
+                  source: 'x',
+                  status: 'needs_reply',
+                  author: 'routerwatch',
+                  title: 'Project A inbox thread',
+                  excerpt: 'Can you share current response times?',
+                  createdAt: '2026-04-19T10:00:00.000Z',
+                },
+                {
+                  id: 8,
+                  source: 'weibo',
+                  status: 'needs_reply',
+                  author: 'ops-user',
+                  title: 'Project B inbox thread',
+                  excerpt: 'How do monthly usage caps work?',
+                  createdAt: '2026-04-19T10:05:00.000Z',
+                },
+              ],
+              total: 2,
+              unread: 2,
+            },
+          } satisfies ApiState<unknown>,
+          replyHandoffsStateOverride: {
+            status: 'success',
+            data: {
+              handoffs: [
+                {
+                  platform: 'x',
+                  itemId: 7,
+                  source: 'x',
+                  title: 'Project A inbox thread',
+                  author: 'routerwatch',
+                  accountKey: 'x-browser-main',
+                  channelAccountId: 15,
+                  status: 'pending',
+                  readiness: 'blocked',
+                  sessionAction: 'request_session',
+                  artifactPath: 'artifacts/inbox-reply-handoffs/x/x-browser-main/x-item-7.json',
+                  handoffAttempt: 1,
+                  createdAt: '2026-04-24T10:00:00.000Z',
+                  updatedAt: '2026-04-24T10:00:00.000Z',
+                  resolvedAt: null,
+                },
+                {
+                  platform: 'weibo',
+                  itemId: 8,
+                  source: 'weibo',
+                  title: 'Project B inbox thread',
+                  author: 'ops-user',
+                  accountKey: 'weibo-ops',
+                  channelAccountId: 18,
+                  status: 'pending',
+                  readiness: 'blocked',
+                  sessionAction: 'relogin',
+                  artifactPath: 'artifacts/inbox-reply-handoffs/weibo/weibo-ops/weibo-item-8.json',
+                  handoffAttempt: 1,
+                  createdAt: '2026-04-24T10:05:00.000Z',
+                  updatedAt: '2026-04-24T10:05:00.000Z',
+                  resolvedAt: null,
+                },
+              ],
+              total: 2,
+            },
+          } satisfies ApiState<unknown>,
+          requestChannelAccountSessionAction,
+        }),
+      );
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('等待补充 Session 后继续回复接管。');
+    const requestSessionButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('请求登录'),
+    );
+    expect(requestSessionButton).not.toBeNull();
+
+    await act(async () => {
+      requestSessionButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(requestChannelAccountSessionAction).toHaveBeenCalledWith(15, {
+      action: 'request_session',
+    });
+    expect(collectText(container)).toContain('Browser session request queued for the X inbox handoff.');
+    expect(collectText(container)).toContain(
+      'artifacts/browser-lane-requests/x/x-browser-main/request-session-job-17.json',
+    );
+
+    const secondItem = findElement(
+      container,
+      (element) => element.tagName === 'ARTICLE' && collectText(element).includes('Project B inbox thread'),
+    );
+    expect(secondItem).not.toBeNull();
+
+    await act(async () => {
+      secondItem?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('等待刷新 Session 后继续回复接管。');
+    expect(findElement(container, (element) => element.tagName === 'BUTTON' && collectText(element).includes('重新登录'))).not.toBeNull();
+    expect(collectText(container)).not.toContain('Browser session request queued for the X inbox handoff.');
+    expect(collectText(container)).not.toContain(
+      'artifacts/browser-lane-requests/x/x-browser-main/request-session-job-17.json',
+    );
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('keeps a pending session-action result scoped to the original inbox item when another blocked handoff is selected', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    const pendingSessionAction = createDeferredPromise<{
+      sessionAction: {
+        action: 'relogin';
+        message: string;
+        artifactPath: string | null;
+      };
+    }>();
+    const requestChannelAccountSessionAction = vi.fn().mockImplementation(() => pendingSessionAction.promise);
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(InboxPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              items: [
+                {
+                  id: 7,
+                  source: 'weibo',
+                  status: 'needs_reply',
+                  author: 'ops-user',
+                  title: 'Project A inbox thread',
+                  excerpt: 'Can you share current response times?',
+                  createdAt: '2026-04-19T10:00:00.000Z',
+                },
+                {
+                  id: 8,
+                  source: 'x',
+                  status: 'needs_reply',
+                  author: 'routerwatch',
+                  title: 'Project B inbox thread',
+                  excerpt: 'How do monthly usage caps work?',
+                  createdAt: '2026-04-19T10:05:00.000Z',
+                },
+              ],
+              total: 2,
+              unread: 2,
+            },
+          } satisfies ApiState<unknown>,
+          replyHandoffsStateOverride: {
+            status: 'success',
+            data: {
+              handoffs: [
+                {
+                  platform: 'weibo',
+                  itemId: 7,
+                  source: 'weibo',
+                  title: 'Project A inbox thread',
+                  author: 'ops-user',
+                  accountKey: 'weibo-ops',
+                  channelAccountId: 18,
+                  status: 'pending',
+                  readiness: 'blocked',
+                  sessionAction: 'relogin',
+                  artifactPath: 'artifacts/inbox-reply-handoffs/weibo/weibo-ops/weibo-item-7.json',
+                  handoffAttempt: 1,
+                  createdAt: '2026-04-24T10:00:00.000Z',
+                  updatedAt: '2026-04-24T10:00:00.000Z',
+                  resolvedAt: null,
+                },
+                {
+                  platform: 'x',
+                  itemId: 8,
+                  source: 'x',
+                  title: 'Project B inbox thread',
+                  author: 'routerwatch',
+                  accountKey: 'x-browser-main',
+                  channelAccountId: 15,
+                  status: 'pending',
+                  readiness: 'blocked',
+                  sessionAction: 'request_session',
+                  artifactPath: 'artifacts/inbox-reply-handoffs/x/x-browser-main/x-item-8.json',
+                  handoffAttempt: 1,
+                  createdAt: '2026-04-24T10:05:00.000Z',
+                  updatedAt: '2026-04-24T10:05:00.000Z',
+                  resolvedAt: null,
+                },
+              ],
+              total: 2,
+            },
+          } satisfies ApiState<unknown>,
+          requestChannelAccountSessionAction,
+        }),
+      );
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('等待刷新 Session 后继续回复接管。');
+    const reloginButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('重新登录'),
+    );
+    expect(reloginButton).not.toBeNull();
+
+    await act(async () => {
+      reloginButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(requestChannelAccountSessionAction).toHaveBeenCalledWith(18, {
+      action: 'relogin',
+    });
+
+    const secondItem = findElement(
+      container,
+      (element) => element.tagName === 'ARTICLE' && collectText(element).includes('Project B inbox thread'),
+    );
+    expect(secondItem).not.toBeNull();
+
+    await act(async () => {
+      secondItem?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('等待补充 Session 后继续回复接管。');
+    expect(findElement(container, (element) => element.tagName === 'BUTTON' && collectText(element).includes('请求登录'))).not.toBeNull();
+
+    await act(async () => {
+      pendingSessionAction.resolve({
+        sessionAction: {
+          action: 'relogin',
+          message: 'Browser relogin request queued for Project A.',
+          artifactPath: 'artifacts/browser-lane-requests/weibo/weibo-ops/relogin-job-17.json',
+        },
+      });
+      await flush();
+      await flush();
+    });
+
+    expect(collectText(container)).not.toContain('Browser relogin request queued for Project A.');
+    expect(collectText(container)).not.toContain('artifacts/browser-lane-requests/weibo/weibo-ops/relogin-job-17.json');
+    expect(findElement(container, (element) => element.tagName === 'BUTTON' && collectText(element).includes('请求登录'))).not.toBeNull();
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('hides browser handoff follow-up actions after the operator switches to another inbox item', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
@@ -3637,6 +3918,199 @@ describe('Inbox action wiring', () => {
       findElement(container, (element) => element.tagName === 'BUTTON' && collectText(element).includes('标记已发送')),
     ).not.toBeNull();
     expect(loadInboxAction).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('keeps a pending inbox reply handoff completion scoped to the original item when another ready handoff is selected', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    const inboxItems = [
+      {
+        id: 7,
+        source: 'reddit',
+        status: 'needs_reply',
+        author: 'user123',
+        title: 'Project A inbox thread',
+        excerpt: 'Can you share current response times?',
+        createdAt: '2026-04-19T10:00:00.000Z',
+      },
+      {
+        id: 8,
+        source: 'reddit',
+        status: 'needs_reply',
+        author: 'ops-user',
+        title: 'Project B inbox thread',
+        excerpt: 'How do monthly usage caps work?',
+        createdAt: '2026-04-19T10:05:00.000Z',
+      },
+    ];
+    const pendingCompletion = createDeferredPromise<{
+      ok: boolean;
+      imported: boolean;
+      artifactPath: string;
+      itemId: number;
+      itemStatus: string;
+      platform: string;
+      mode: string;
+      status: string;
+      success: boolean;
+      deliveryUrl: string | null;
+      externalId: string | null;
+      message: string;
+      deliveredAt: string | null;
+    }>();
+    const completeInboxReplyHandoffAction = vi.fn().mockImplementation(() => pendingCompletion.promise);
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(InboxPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              items: inboxItems,
+              total: 2,
+              unread: 2,
+            },
+          } satisfies ApiState<unknown>,
+          replyHandoffsStateOverride: {
+            status: 'success',
+            data: {
+              handoffs: [
+                {
+                  platform: 'reddit',
+                  itemId: 7,
+                  source: 'reddit',
+                  title: 'Project A inbox thread',
+                  author: 'user123',
+                  accountKey: 'reddit-main',
+                  channelAccountId: 9,
+                  status: 'pending',
+                  readiness: 'ready',
+                  sessionAction: null,
+                  artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-7.json',
+                  handoffAttempt: 1,
+                  createdAt: '2026-04-24T10:00:00.000Z',
+                  updatedAt: '2026-04-24T10:00:00.000Z',
+                  resolvedAt: null,
+                },
+                {
+                  platform: 'reddit',
+                  itemId: 8,
+                  source: 'reddit',
+                  title: 'Project B inbox thread',
+                  author: 'ops-user',
+                  accountKey: 'reddit-secondary',
+                  channelAccountId: 11,
+                  status: 'pending',
+                  readiness: 'ready',
+                  sessionAction: null,
+                  artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-secondary/reddit-item-8.json',
+                  handoffAttempt: 1,
+                  createdAt: '2026-04-24T10:05:00.000Z',
+                  updatedAt: '2026-04-24T10:05:00.000Z',
+                  resolvedAt: null,
+                },
+              ],
+              total: 2,
+            },
+          } satisfies ApiState<unknown>,
+          completeInboxReplyHandoffAction,
+        }),
+      );
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('发现待处理的 Inbox reply handoff，可以直接结单。');
+    expect(collectText(container)).toContain(
+      'Handoff 路径：artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-7.json',
+    );
+
+    const deliveryUrlInput = findElement(
+      container,
+      (element) => element.getAttribute('data-inbox-reply-handoff-field') === 'deliveryUrl',
+    );
+    const messageInput = findElement(
+      container,
+      (element) => element.getAttribute('data-inbox-reply-handoff-field') === 'message',
+    );
+    const markSentButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('标记已发送'),
+    );
+    expect(deliveryUrlInput).not.toBeNull();
+    expect(messageInput).not.toBeNull();
+    expect(markSentButton).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(
+        deliveryUrlInput as never,
+        'https://reddit.com/message/messages/project-a',
+        window as never,
+      );
+      updateFieldValue(messageInput as never, 'reply sent manually for Project A', window as never);
+      await flush();
+    });
+
+    await act(async () => {
+      markSentButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(completeInboxReplyHandoffAction).toHaveBeenCalledWith({
+      artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-7.json',
+      handoffAttempt: 1,
+      replyStatus: 'sent',
+      deliveryUrl: 'https://reddit.com/message/messages/project-a',
+      message: 'reply sent manually for Project A',
+    });
+
+    const secondItem = findElement(
+      container,
+      (element) => element.tagName === 'ARTICLE' && collectText(element).includes('Project B inbox thread'),
+    );
+    expect(secondItem).not.toBeNull();
+
+    await act(async () => {
+      secondItem?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(collectText(container)).toContain(
+      'Handoff 路径：artifacts/inbox-reply-handoffs/reddit/reddit-secondary/reddit-item-8.json',
+    );
+    expect(findElement(container, (element) => element.tagName === 'BUTTON' && collectText(element).includes('标记已发送'))).not.toBeNull();
+
+    await act(async () => {
+      pendingCompletion.resolve({
+        ok: true,
+        imported: true,
+        artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-7.json',
+        itemId: 7,
+        itemStatus: 'handled',
+        platform: 'reddit',
+        mode: 'browser',
+        status: 'sent',
+        success: true,
+        deliveryUrl: 'https://reddit.com/message/messages/project-a',
+        externalId: null,
+        message: 'reply sent manually for Project A',
+        deliveredAt: '2026-04-23T11:15:00.000Z',
+      });
+      await flush();
+      await flush();
+    });
+
+    expect(collectText(container)).not.toContain('已结单 inbox reply item #7 (handled)');
+    expect(collectText(container)).not.toContain('reply sent manually for Project A');
+    expect(collectText(container)).not.toContain('https://reddit.com/message/messages/project-a');
+    expect(findElement(container, (element) => element.tagName === 'BUTTON' && collectText(element).includes('标记已发送'))).not.toBeNull();
 
     await act(async () => {
       root.unmount();
