@@ -162,7 +162,7 @@ export function runReleaseVerify(input: { inputDir: string }): ReleaseVerifySumm
   const manifestFiles = normalizeManifestFiles(manifest);
   const manifestChecksums = getManifestChecksumMap(manifest);
   const manifestFilePaths = new Set(manifestFiles.map((entry) => entry.relativePath));
-  const expectedFilePaths = new Set<string>(['manifest.json', ...manifestFilePaths, ...REQUIRED_RELEASE_PATHS]);
+  const expectedFilePaths = new Set<string>(['manifest.json', ...manifestFilePaths]);
   const manifestMissing = Array.isArray(manifest.missing) ? manifest.missing : [];
   let hasUnexpectedFiles = false;
 

@@ -262,6 +262,7 @@ describe('release verify cli', () => {
       ok: true,
       files: [
         'package.json',
+        'database/schema.sql',
         'pnpm-lock.yaml',
         'docs/DEPLOYMENT.md',
         '.env.example',
@@ -273,6 +274,9 @@ describe('release verify cli', () => {
         'dist/client/index.html',
         'pm2.config.js',
         'ops/deploy-promobot.sh',
+        'ops/deploy-release.sh',
+        'ops/verify-downloaded-release.sh',
+        'ops/verify-release.sh',
       ],
       missing: [],
     });
@@ -298,6 +302,12 @@ describe('release verify cli', () => {
           name: 'package.json',
           ok: true,
           target: path.join(inputDir, 'package.json'),
+        },
+        {
+          kind: 'manifest-item',
+          name: 'database/schema.sql',
+          ok: true,
+          target: path.join(inputDir, 'database/schema.sql'),
         },
         {
           kind: 'manifest-item',
@@ -367,12 +377,6 @@ describe('release verify cli', () => {
         },
         {
           kind: 'manifest-item',
-          name: 'database/schema.sql',
-          ok: true,
-          target: path.join(inputDir, 'database/schema.sql'),
-        },
-        {
-          kind: 'manifest-item',
           name: 'ops/deploy-release.sh',
           ok: true,
           target: path.join(inputDir, 'ops/deploy-release.sh'),
@@ -394,6 +398,76 @@ describe('release verify cli', () => {
       warnings: [],
     });
     expect(JSON.parse(stdout.read())).toEqual(summary);
+  });
+
+  it('fails when required bundle files exist on disk but are omitted from manifest declarations', async () => {
+    const releaseVerify = await loadReleaseVerifyModule();
+    expect(releaseVerify).toBeTruthy();
+    if (!releaseVerify) {
+      return;
+    }
+
+    const inputDir = createTempDir();
+    writeRequiredBundleCore(inputDir);
+    writeBundleNativeEntryScripts(inputDir);
+
+    writeManifest(inputDir, {
+      ok: true,
+      files: [
+        'package.json',
+        'database/schema.sql',
+        'pnpm-lock.yaml',
+        'docs/DEPLOYMENT.md',
+        '.env.example',
+        'dist/server/index.js',
+        'dist/server/cli/deploymentSmoke.js',
+        'dist/server/cli/browserHandoffComplete.js',
+        'dist/server/cli/inboxReplyHandoffComplete.js',
+        'dist/server/cli/releaseVerify.js',
+        'dist/client/index.html',
+        'pm2.config.js',
+        'ops/deploy-promobot.sh',
+        'ops/deploy-release.sh',
+      ],
+      missing: [],
+    });
+
+    const summary = releaseVerify.runReleaseVerify({ inputDir });
+
+    expect(summary.ok).toBe(false);
+    expect(summary.missing).toEqual([]);
+    expect(summary.checks).toEqual(
+      expect.arrayContaining([
+        {
+          kind: 'manifest-item',
+          name: 'ops/verify-downloaded-release.sh',
+          ok: false,
+          target: path.join(inputDir, 'ops/verify-downloaded-release.sh'),
+        },
+        {
+          kind: 'manifest-item',
+          name: 'ops/verify-release.sh',
+          ok: false,
+          target: path.join(inputDir, 'ops/verify-release.sh'),
+        },
+      ]),
+    );
+    expect(summary.warnings).toEqual(
+      expect.arrayContaining([
+        {
+          code: 'unexpected-bundle-file',
+          message:
+            'Bundle contains a regular file not declared by the release manifest: ops/verify-downloaded-release.sh',
+          target: path.join(inputDir, 'ops/verify-downloaded-release.sh'),
+        },
+        {
+          code: 'unexpected-bundle-file',
+          message:
+            'Bundle contains a regular file not declared by the release manifest: ops/verify-release.sh',
+          target: path.join(inputDir, 'ops/verify-release.sh'),
+        },
+      ]),
+    );
   });
 
   it('fails when the downloaded release helper is absent from an otherwise valid bundle', async () => {
@@ -526,13 +600,19 @@ describe('release verify cli', () => {
         'package.json',
         'database/schema.sql',
         'pnpm-lock.yaml',
+        'docs/DEPLOYMENT.md',
+        '.env.example',
         'dist/server/index.js',
         'dist/server/cli/deploymentSmoke.js',
+        'dist/server/cli/browserHandoffComplete.js',
         'dist/server/cli/inboxReplyHandoffComplete.js',
         'dist/server/cli/releaseVerify.js',
         'dist/client/index.html',
         'pm2.config.js',
         'ops/deploy-promobot.sh',
+        'ops/deploy-release.sh',
+        'ops/verify-downloaded-release.sh',
+        'ops/verify-release.sh',
       ],
       missing: [],
       checksums: {
@@ -569,6 +649,8 @@ describe('release verify cli', () => {
         { path: 'package.json' },
         { path: 'database/schema.sql' },
         { relativePath: 'pnpm-lock.yaml' },
+        { path: 'docs/DEPLOYMENT.md' },
+        { relativePath: '.env.example' },
         { path: 'dist/server/index.js' },
         { relativePath: 'dist/server/cli/deploymentSmoke.js' },
         { path: 'dist/server/cli/browserHandoffComplete.js' },
@@ -578,6 +660,7 @@ describe('release verify cli', () => {
         { relativePath: 'pm2.config.js' },
         { name: 'ops/deploy-promobot.sh' },
         { path: 'ops/deploy-release.sh' },
+        { name: 'ops/verify-downloaded-release.sh' },
         { relativePath: 'ops/verify-release.sh' },
       ],
       missing: [],
