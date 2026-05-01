@@ -191,6 +191,17 @@ export async function runRuntimeRestoreCli(
     });
     const targetPath = path.resolve(item.sourcePath);
 
+    if (!isPathInside(repoRootDir, targetPath)) {
+      summary.missing.push({
+        kind: item.kind,
+        type: item.type,
+        expectedPath: targetPath,
+        targetPath,
+        reason: 'backup-incomplete',
+      });
+      continue;
+    }
+
     if (parsed.skipEnv && item.kind === 'envFile') {
       summary.skipped.push({
         kind: item.kind,
