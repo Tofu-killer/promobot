@@ -133,22 +133,34 @@ export function parseDeploymentSmokeArgs(argv: string[]) {
     const token = argv[index];
     const nextValue = argv[index + 1];
 
+    if (token === '--') {
+      continue;
+    }
+
     if (token === '--help' || token === '-h') {
       parsed.showHelp = true;
       continue;
     }
 
     if (token === '--base-url') {
+      if (!nextValue || nextValue.startsWith('--')) {
+        throw new Error('--base-url requires a value');
+      }
       parsed.baseUrl = nextValue ?? '';
       index += 1;
       continue;
     }
 
     if (token === '--admin-password') {
+      if (!nextValue || nextValue.startsWith('--')) {
+        throw new Error('--admin-password requires a value');
+      }
       parsed.adminPassword = nextValue ?? '';
       index += 1;
       continue;
     }
+
+    throw new Error(`unknown argument: ${token}`);
   }
 
   return parsed;

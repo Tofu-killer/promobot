@@ -264,6 +264,43 @@ describe('deployment smoke cli', () => {
     expect(getDeploymentSmokeHelpText()).toContain('/api/system/inbox-reply-handoffs?limit=1');
   });
 
+  it('treats a help flag after -- as a help request', () => {
+    expect(parseDeploymentSmokeArgs(['--', '--help'])).toEqual({
+      baseUrl: '',
+      adminPassword: '',
+      showHelp: true,
+    });
+  });
+
+  it('rejects --base-url without a value', () => {
+    expect(() => parseDeploymentSmokeArgs(['--base-url'])).toThrow(
+      '--base-url requires a value',
+    );
+    expect(() =>
+      parseDeploymentSmokeArgs(['--base-url', '--admin-password', 'secret']),
+    ).toThrow('--base-url requires a value');
+  });
+
+  it('rejects --admin-password without a value', () => {
+    expect(() => parseDeploymentSmokeArgs(['--admin-password'])).toThrow(
+      '--admin-password requires a value',
+    );
+    expect(() =>
+      parseDeploymentSmokeArgs([
+        '--base-url',
+        'http://127.0.0.1:3001',
+        '--admin-password',
+        '--help',
+      ]),
+    ).toThrow('--admin-password requires a value');
+  });
+
+  it('rejects unknown deployment smoke cli arguments', () => {
+    expect(() => parseDeploymentSmokeArgs(['--wat'])).toThrow(
+      'unknown argument: --wat',
+    );
+  });
+
   it('falls back to environment passwords when the cli argument is omitted', async () => {
     const { rootDir } = createTestDatabasePath();
     const previousHandoffOutputDir = process.env.BROWSER_HANDOFF_OUTPUT_DIR;
