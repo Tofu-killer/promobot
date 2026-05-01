@@ -105,6 +105,11 @@ projectsRouter.patch('/:id', (request, response) => {
     return;
   }
 
+  if (!projectExists(id)) {
+    response.status(404).json({ error: 'project not found' });
+    return;
+  }
+
   const input = request.body;
   if (input !== undefined && (input === null || typeof input !== 'object' || Array.isArray(input))) {
     response.status(400).json({ error: 'invalid project payload' });

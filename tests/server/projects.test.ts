@@ -934,4 +934,94 @@ describe('projects api', () => {
       cleanupTestDatabasePath(rootDir);
     }
   });
+
+  it('rejects updates for archived projects', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const created = await requestApp('POST', '/api/projects', {
+        name: 'Archive Me',
+        siteName: 'Archive Demo',
+        siteUrl: 'https://archive.test',
+        siteDescription: 'Archive coverage',
+        sellingPoints: ['Quiet sunset'],
+      });
+
+      expect(created.status).toBe(201);
+
+      const archived = await requestApp('POST', '/api/projects/1/archive');
+      expect(archived.status).toBe(200);
+
+      const updated = await requestApp('PATCH', '/api/projects/1', {
+        name: 'Archive Me Later',
+      });
+
+      expect(updated.status).toBe(404);
+      expect(JSON.parse(updated.body)).toEqual({
+        error: 'project not found',
+      });
+
+      const listed = await requestApp('GET', '/api/projects');
+      expect(listed.status).toBe(200);
+      expect(JSON.parse(listed.body)).toEqual({
+        projects: [],
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('returns 404 for source config routes after a project is archived', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const created = await requestApp('POST', '/api/projects', {
+        name: 'Archive Me',
+        siteName: 'Archive Demo',
+        siteUrl: 'https://archive.test',
+        siteDescription: 'Archive coverage',
+        sellingPoints: ['Quiet sunset'],
+      });
+
+      expect(created.status).toBe(201);
+
+      const sourceConfigStore = createSourceConfigStore();
+      sourceConfigStore.create({
+        projectId: 1,
+        sourceType: 'rss',
+        platform: 'rss',
+        label: 'Competitor feed',
+        configJson: {
+          feedUrl: 'https://example.com/feed.xml',
+        },
+        enabled: true,
+        pollIntervalMinutes: 30,
+      });
+
+      const archived = await requestApp('POST', '/api/projects/1/archive');
+      expect(archived.status).toBe(200);
+
+      const listed = await requestApp('GET', '/api/projects/1/source-configs');
+      expect(listed.status).toBe(404);
+      expect(JSON.parse(listed.body)).toEqual({ error: 'project not found' });
+
+      const posted = await requestApp('POST', '/api/projects/1/source-configs', {
+        projectId: 1,
+        sourceType: 'rss',
+        platform: 'rss',
+        label: 'Second feed',
+        configJson: { feedUrl: 'https://example.com/second.xml' },
+        enabled: true,
+        pollIntervalMinutes: 30,
+      });
+      expect(posted.status).toBe(404);
+      expect(JSON.parse(posted.body)).toEqual({ error: 'project not found' });
+
+      const patched = await requestApp('PATCH', '/api/projects/1/source-configs/1', {
+        label: 'Archived feed',
+      });
+      expect(patched.status).toBe(404);
+      expect(JSON.parse(patched.body)).toEqual({ error: 'project not found' });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
 });
