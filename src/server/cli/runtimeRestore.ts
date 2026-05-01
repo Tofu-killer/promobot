@@ -82,6 +82,12 @@ interface RuntimeRestorePlanItem {
   targetPath: string;
 }
 
+interface RuntimeRestoreAppliedItem {
+  backup: RuntimeRestoreBackupItem | null;
+  item: RuntimeBackupManifestItem;
+  targetPath: string;
+}
+
 export function parseRuntimeRestoreArgs(argv: string[]): RuntimeRestoreArgs {
   const parsed: RuntimeRestoreArgs = {};
 
@@ -264,15 +270,30 @@ export async function runRuntimeRestoreCli(
     return summary;
   }
 
-  for (const plannedItem of restorePlan) {
-    maybeBackupExistingTarget(plannedItem.item, plannedItem.targetPath, restoredAt, summary);
-    restoreBackupItem(plannedItem.item, plannedItem.backupPath, plannedItem.targetPath);
-    summary.restored.push({
-      kind: plannedItem.item.kind,
-      type: plannedItem.item.type,
-      backupPath: plannedItem.backupPath,
-      targetPath: plannedItem.targetPath,
-    });
+  const appliedItems: RuntimeRestoreAppliedItem[] = [];
+  try {
+    for (const plannedItem of restorePlan) {
+      const backup = maybeBackupExistingTarget(plannedItem.item, plannedItem.targetPath, restoredAt);
+      appliedItems.push({
+        backup,
+        item: plannedItem.item,
+        targetPath: plannedItem.targetPath,
+      });
+
+      restoreBackupItem(plannedItem.item, plannedItem.backupPath, plannedItem.targetPath);
+      if (backup) {
+        summary.backupsCreated.push(backup);
+      }
+      summary.restored.push({
+        kind: plannedItem.item.kind,
+        type: plannedItem.item.type,
+        backupPath: plannedItem.backupPath,
+        targetPath: plannedItem.targetPath,
+      });
+    }
+  } catch (error) {
+    rollbackAppliedRestoreItems(appliedItems);
+    throw error;
   }
 
   summary.ok = summary.missing.length === 0;
@@ -407,20 +428,38 @@ function maybeBackupExistingTarget(
   item: RuntimeBackupManifestItem,
   targetPath: string,
   restoredAt: string,
-  summary: RuntimeRestoreSummary,
 ) {
   if (!fs.existsSync(targetPath)) {
-    return;
+    return null;
   }
 
   const backupPath = getUniquePreRestorePath(targetPath, restoredAt);
   fs.renameSync(targetPath, backupPath);
-  summary.backupsCreated.push({
+  return {
     kind: item.kind,
     type: item.type,
     originalPath: targetPath,
     backupPath,
-  });
+  };
+}
+
+function rollbackAppliedRestoreItems(appliedItems: RuntimeRestoreAppliedItem[]) {
+  for (let index = appliedItems.length - 1; index >= 0; index -= 1) {
+    const appliedItem = appliedItems[index];
+    removeRestoreTarget(appliedItem.targetPath);
+    if (appliedItem.backup) {
+      fs.mkdirSync(path.dirname(appliedItem.backup.originalPath), { recursive: true });
+      fs.renameSync(appliedItem.backup.backupPath, appliedItem.backup.originalPath);
+    }
+  }
+}
+
+function removeRestoreTarget(targetPath: string) {
+  if (!fs.existsSync(targetPath)) {
+    return;
+  }
+
+  fs.rmSync(targetPath, { recursive: true, force: true });
 }
 
 function getUniquePreRestorePath(targetPath: string, restoredAt: string) {

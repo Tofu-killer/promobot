@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
 
 type RuntimeRestoreModule = {
@@ -83,6 +83,7 @@ function writeBackupManifest(options: {
 
 afterEach(() => {
   process.exitCode = undefined;
+  vi.restoreAllMocks();
 });
 
 describe('runtime restore cli', () => {
@@ -353,6 +354,77 @@ describe('runtime restore cli', () => {
       expect(
         fs.existsSync(`${testDatabase.databasePath}.pre-restore-2026-04-24T12-55-00.000Z`),
       ).toBe(false);
+    } finally {
+      cleanupTestDatabasePath(testDatabase.rootDir);
+    }
+  });
+
+  it('rolls back earlier restore steps when a later target fails to restore', async () => {
+    const runtimeRestore = await loadRuntimeRestoreModule();
+    const testDatabase = createTestDatabasePath();
+
+    expect(runtimeRestore).not.toBeNull();
+
+    try {
+      const inputDir = path.join(testDatabase.rootDir, 'imports', 'runtime-backup');
+      const envFilePath = path.join(testDatabase.rootDir, '.env');
+      const databaseBackupPath = path.join(inputDir, 'database', 'promobot.sqlite');
+      const envBackupPath = path.join(inputDir, '.env');
+      const stdout = createStdoutBuffer();
+      const originalCopyFileSync = fs.copyFileSync.bind(fs);
+      let copyFileCalls = 0;
+
+      fs.mkdirSync(path.dirname(testDatabase.databasePath), { recursive: true });
+      fs.mkdirSync(path.dirname(databaseBackupPath), { recursive: true });
+      fs.writeFileSync(testDatabase.databasePath, 'current-db', 'utf8');
+      fs.writeFileSync(envFilePath, 'ADMIN_PASSWORD=current\n', 'utf8');
+      fs.writeFileSync(databaseBackupPath, 'restored-db', 'utf8');
+      fs.writeFileSync(envBackupPath, 'ADMIN_PASSWORD=restored\n', 'utf8');
+
+      writeBackupManifest({
+        inputDir,
+        copied: [
+          {
+            kind: 'database',
+            type: 'file',
+            sourcePath: testDatabase.databasePath,
+            destinationPath: databaseBackupPath,
+          },
+          {
+            kind: 'envFile',
+            type: 'file',
+            sourcePath: envFilePath,
+            destinationPath: envBackupPath,
+          },
+        ],
+      });
+
+      vi.spyOn(fs, 'copyFileSync').mockImplementation(
+        ((source: fs.PathLike, destination: fs.PathLike, mode?: number) => {
+          copyFileCalls += 1;
+          if (copyFileCalls === 2) {
+            throw new Error('simulated copy failure');
+          }
+
+          originalCopyFileSync(source, destination, mode);
+        }) as typeof fs.copyFileSync,
+      );
+
+      await expect(
+        runtimeRestore?.runRuntimeRestoreCli(['--input-dir', inputDir], {
+          now: () => new Date('2026-04-24T13:05:00.000Z'),
+          repoRootDir: testDatabase.rootDir,
+          stdout: stdout.stdout,
+        }),
+      ).rejects.toThrow('simulated copy failure');
+
+      expect(fs.readFileSync(testDatabase.databasePath, 'utf8')).toBe('current-db');
+      expect(fs.readFileSync(envFilePath, 'utf8')).toBe('ADMIN_PASSWORD=current\n');
+      expect(stdout.read()).toBe('');
+      expect(
+        fs.existsSync(`${testDatabase.databasePath}.pre-restore-2026-04-24T13-05-00.000Z`),
+      ).toBe(false);
+      expect(fs.existsSync(`${envFilePath}.pre-restore-2026-04-24T13-05-00.000Z`)).toBe(false);
     } finally {
       cleanupTestDatabasePath(testDatabase.rootDir);
     }
