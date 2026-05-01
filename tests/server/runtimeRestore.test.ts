@@ -302,6 +302,62 @@ describe('runtime restore cli', () => {
     }
   });
 
+  it('rejects duplicate manifest entries that resolve to the same restore target', async () => {
+    const runtimeRestore = await loadRuntimeRestoreModule();
+    const testDatabase = createTestDatabasePath();
+
+    expect(runtimeRestore).not.toBeNull();
+
+    try {
+      const inputDir = path.join(testDatabase.rootDir, 'imports', 'runtime-backup');
+      const manifestPath = path.join(inputDir, 'manifest.json');
+      const duplicateTargetPath = testDatabase.databasePath;
+      const firstBackupPath = path.join(inputDir, 'database', 'promobot.sqlite');
+      const secondBackupPath = path.join(inputDir, 'database', 'duplicate-promobot.sqlite');
+      const stdout = createStdoutBuffer();
+
+      fs.mkdirSync(path.dirname(testDatabase.databasePath), { recursive: true });
+      fs.mkdirSync(path.dirname(firstBackupPath), { recursive: true });
+      fs.writeFileSync(testDatabase.databasePath, 'current-db', 'utf8');
+      fs.writeFileSync(firstBackupPath, 'restored-db-one', 'utf8');
+      fs.writeFileSync(secondBackupPath, 'restored-db-two', 'utf8');
+
+      writeBackupManifest({
+        inputDir,
+        copied: [
+          {
+            kind: 'database',
+            type: 'file',
+            sourcePath: duplicateTargetPath,
+            destinationPath: firstBackupPath,
+          },
+          {
+            kind: 'database',
+            type: 'file',
+            sourcePath: duplicateTargetPath,
+            destinationPath: secondBackupPath,
+          },
+        ],
+      });
+
+      await expect(
+        runtimeRestore?.runRuntimeRestoreCli(['--input-dir', inputDir], {
+          now: () => new Date('2026-04-24T12:55:00.000Z'),
+          repoRootDir: testDatabase.rootDir,
+          stdout: stdout.stdout,
+        }),
+      ).rejects.toThrow(`duplicate manifest restore target: ${manifestPath}`);
+
+      expect(fs.readFileSync(testDatabase.databasePath, 'utf8')).toBe('current-db');
+      expect(stdout.read()).toBe('');
+      expect(
+        fs.existsSync(`${testDatabase.databasePath}.pre-restore-2026-04-24T12-55-00.000Z`),
+      ).toBe(false);
+    } finally {
+      cleanupTestDatabasePath(testDatabase.rootDir);
+    }
+  });
+
   it('restores runtime files into their original source paths and creates pre-restore backups', async () => {
     const runtimeRestore = await loadRuntimeRestoreModule();
     const testDatabase = createTestDatabasePath();

@@ -194,6 +194,7 @@ export async function runRuntimeRestoreCli(
   }
 
   const restorePlan: RuntimeRestorePlanItem[] = [];
+  const restoreTargets = new Set<string>();
   for (const item of manifest.copied ?? []) {
     const backupPath = resolveBackupPath(item, {
       inputDir: resolvedInputDir,
@@ -234,6 +235,10 @@ export async function runRuntimeRestoreCli(
       continue;
     }
 
+    if (restoreTargets.has(targetPath)) {
+      throw new Error(`duplicate manifest restore target: ${manifestPath}`);
+    }
+
     if (!hasExpectedEntry(backupPath, item.type)) {
       summary.missing.push({
         kind: item.kind,
@@ -245,6 +250,7 @@ export async function runRuntimeRestoreCli(
       continue;
     }
 
+    restoreTargets.add(targetPath);
     restorePlan.push({
       item,
       backupPath,
