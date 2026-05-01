@@ -152,6 +152,102 @@ describe('runtime restore cli', () => {
     }
   });
 
+  it('rejects invalid nested manifest entries before touching restore targets', async () => {
+    const runtimeRestore = await loadRuntimeRestoreModule();
+    const testDatabase = createTestDatabasePath();
+
+    expect(runtimeRestore).not.toBeNull();
+
+    try {
+      const inputDir = path.join(testDatabase.rootDir, 'imports', 'runtime-backup');
+      const manifestPath = path.join(inputDir, 'manifest.json');
+      const envFilePath = path.join(testDatabase.rootDir, '.env');
+
+      fs.mkdirSync(path.dirname(testDatabase.databasePath), { recursive: true });
+      fs.mkdirSync(inputDir, { recursive: true });
+      fs.writeFileSync(testDatabase.databasePath, 'current-db', 'utf8');
+      fs.writeFileSync(envFilePath, 'ADMIN_PASSWORD=current\n', 'utf8');
+
+      const invalidManifestCases = [
+        {
+          name: 'copied entry missing destinationPath',
+          manifest: {
+            ok: true,
+            outputDir: inputDir,
+            copied: [
+              {
+                kind: 'database',
+                type: 'file',
+                sourcePath: testDatabase.databasePath,
+              },
+            ],
+            missing: [],
+          },
+          expectedMessage: `invalid manifest copied entries: ${manifestPath}`,
+        },
+        {
+          name: 'copied entry with unsupported type',
+          manifest: {
+            ok: true,
+            outputDir: inputDir,
+            copied: [
+              {
+                kind: 'database',
+                type: 'symlink',
+                sourcePath: testDatabase.databasePath,
+                destinationPath: path.join(inputDir, 'database', 'promobot.sqlite'),
+              },
+            ],
+            missing: [],
+          },
+          expectedMessage: `invalid manifest copied entries: ${manifestPath}`,
+        },
+        {
+          name: 'missing entry missing expectedPath',
+          manifest: {
+            ok: false,
+            outputDir: inputDir,
+            copied: [],
+            missing: [
+              {
+                kind: 'envFile',
+                type: 'file',
+              },
+            ],
+          },
+          expectedMessage: `invalid manifest missing entries: ${manifestPath}`,
+        },
+      ];
+
+      for (const testCase of invalidManifestCases) {
+        const stdout = createStdoutBuffer();
+        fs.writeFileSync(manifestPath, JSON.stringify(testCase.manifest, null, 2), 'utf8');
+
+        await expect(
+          runtimeRestore?.runRuntimeRestoreCli(['--input-dir', inputDir], {
+            now: () => new Date('2026-04-24T12:45:00.000Z'),
+            repoRootDir: testDatabase.rootDir,
+            stdout: stdout.stdout,
+          }),
+          testCase.name,
+        ).rejects.toThrow(testCase.expectedMessage);
+
+        expect(fs.readFileSync(testDatabase.databasePath, 'utf8'), testCase.name).toBe('current-db');
+        expect(fs.readFileSync(envFilePath, 'utf8'), testCase.name).toBe('ADMIN_PASSWORD=current\n');
+        expect(stdout.read(), testCase.name).toBe('');
+        expect(
+          fs.existsSync(`${testDatabase.databasePath}.pre-restore-2026-04-24T12-45-00.000Z`),
+          testCase.name,
+        ).toBe(false);
+        expect(fs.existsSync(`${envFilePath}.pre-restore-2026-04-24T12-45-00.000Z`), testCase.name).toBe(
+          false,
+        );
+      }
+    } finally {
+      cleanupTestDatabasePath(testDatabase.rootDir);
+    }
+  });
+
   it('restores runtime files into their original source paths and creates pre-restore backups', async () => {
     const runtimeRestore = await loadRuntimeRestoreModule();
     const testDatabase = createTestDatabasePath();

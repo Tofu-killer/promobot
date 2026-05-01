@@ -17,6 +17,9 @@ interface RuntimeRestoreDependencies {
 type RuntimeItemKind = 'database' | 'browserSessions' | 'envFile';
 type RuntimeItemType = 'file' | 'directory';
 
+const RUNTIME_ITEM_KINDS: RuntimeItemKind[] = ['database', 'browserSessions', 'envFile'];
+const RUNTIME_ITEM_TYPES: RuntimeItemType[] = ['file', 'directory'];
+
 interface RuntimeBackupManifestItem {
   kind: RuntimeItemKind;
   type: RuntimeItemType;
@@ -289,11 +292,60 @@ function readRuntimeBackupManifest(manifestPath: string) {
     throw new Error(`invalid manifest copied entries: ${manifestPath}`);
   }
 
+  if (parsed.copied?.some((item) => !isValidRuntimeBackupManifestItem(item))) {
+    throw new Error(`invalid manifest copied entries: ${manifestPath}`);
+  }
+
   if (parsed.missing !== undefined && !Array.isArray(parsed.missing)) {
     throw new Error(`invalid manifest missing entries: ${manifestPath}`);
   }
 
+  if (parsed.missing?.some((item) => !isValidRuntimeBackupManifestMissingItem(item))) {
+    throw new Error(`invalid manifest missing entries: ${manifestPath}`);
+  }
+
   return parsed;
+}
+
+function isValidRuntimeBackupManifestItem(item: unknown): item is RuntimeBackupManifestItem {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) {
+    return false;
+  }
+
+  const candidate = item as Partial<RuntimeBackupManifestItem>;
+  return (
+    isRuntimeItemKind(candidate.kind) &&
+    isRuntimeItemType(candidate.type) &&
+    isNonEmptyString(candidate.sourcePath) &&
+    isNonEmptyString(candidate.destinationPath)
+  );
+}
+
+function isValidRuntimeBackupManifestMissingItem(
+  item: unknown,
+): item is NonNullable<RuntimeBackupManifest['missing']>[number] {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) {
+    return false;
+  }
+
+  const candidate = item as Partial<NonNullable<RuntimeBackupManifest['missing']>[number]>;
+  return (
+    isRuntimeItemKind(candidate.kind) &&
+    isRuntimeItemType(candidate.type) &&
+    isNonEmptyString(candidate.expectedPath)
+  );
+}
+
+function isRuntimeItemKind(value: unknown): value is RuntimeItemKind {
+  return typeof value === 'string' && RUNTIME_ITEM_KINDS.includes(value as RuntimeItemKind);
+}
+
+function isRuntimeItemType(value: unknown): value is RuntimeItemType {
+  return typeof value === 'string' && RUNTIME_ITEM_TYPES.includes(value as RuntimeItemType);
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
 }
 
 function resolveRecordedOutputDir(manifest: RuntimeBackupManifest, inputDir: string) {
