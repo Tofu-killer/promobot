@@ -83,6 +83,100 @@ describe('release shell wrappers', () => {
     expect(result.stderr).toContain('Unknown argument: --');
   });
 
+  it('runs verify-release from a source checkout without requiring a prebuilt releaseVerify artifact', () => {
+    const fixture = createVerifyReleaseFixture({ mode: 'source' });
+    const result = runScript(fixture.scriptPath, ['--input-dir', fixture.inputDir], {
+      cwd: fixture.rootDir,
+      env: {
+        ...process.env,
+        PATH: `${fixture.binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+      },
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Running pnpm release:verify with --input-dir');
+    expect(result.stderr).not.toContain('run pnpm build first');
+    expect(fs.readFileSync(fixture.pnpmMarkerPath, 'utf8')).toContain(
+      `release:verify -- --input-dir ${fixture.inputDir}`,
+    );
+    expect(fs.readFileSync(fixture.sequenceMarkerPath, 'utf8')).toBe('verify\n');
+    expect(fs.existsSync(fixture.nodeMarkerPath)).toBe(false);
+  });
+
+  it('runs verify-release smoke only after release verification succeeds in a source checkout', () => {
+    const fixture = createVerifyReleaseFixture({ mode: 'source' });
+    const result = runScript(
+      fixture.scriptPath,
+      [
+        '--input-dir',
+        fixture.inputDir,
+        '--smoke',
+        '--base-url',
+        'http://127.0.0.1:6123',
+        '--admin-password',
+        'cli-secret',
+      ],
+      {
+        cwd: fixture.rootDir,
+        env: {
+          ...process.env,
+          PATH: `${fixture.binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+        },
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Running pnpm release:verify with --input-dir');
+    expect(result.stdout).toContain('Running smoke check against http://127.0.0.1:6123');
+    expect(fs.readFileSync(fixture.sequenceMarkerPath, 'utf8')).toBe('verify\nsmoke\n');
+    expect(fs.readFileSync(fixture.pnpmMarkerPath, 'utf8')).toContain(
+      `release:verify -- --input-dir ${fixture.inputDir}`,
+    );
+    expect(fs.readFileSync(fixture.pnpmMarkerPath, 'utf8')).toContain(
+      'smoke:server -- --base-url http://127.0.0.1:6123',
+    );
+    expect(fs.readFileSync(fixture.smokeMarkerPath, 'utf8')).toContain(
+      'PROMOBOT_ADMIN_PASSWORD=cli-secret',
+    );
+    expect(fs.existsSync(fixture.nodeMarkerPath)).toBe(false);
+  });
+
+  it('uses bundled compiled CLIs when verify-release runs from an extracted release bundle', () => {
+    const fixture = createVerifyReleaseFixture({ mode: 'bundle' });
+    const result = runScript(
+      fixture.scriptPath,
+      [
+        '--input-dir',
+        fixture.inputDir,
+        '--smoke',
+        '--base-url',
+        'http://127.0.0.1:6123',
+        '--admin-password',
+        'bundle-secret',
+      ],
+      {
+        cwd: fixture.rootDir,
+        env: {
+          ...process.env,
+          PATH: `${fixture.binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+        },
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(fs.readFileSync(fixture.sequenceMarkerPath, 'utf8')).toBe('verify\nsmoke\n');
+    expect(fs.readFileSync(fixture.nodeMarkerPath, 'utf8')).toContain(
+      `dist/server/cli/releaseVerify.js --input-dir ${fixture.inputDir}`,
+    );
+    expect(fs.readFileSync(fixture.nodeMarkerPath, 'utf8')).toContain(
+      'dist/server/cli/deploymentSmoke.js --base-url http://127.0.0.1:6123',
+    );
+    expect(fs.readFileSync(fixture.smokeMarkerPath, 'utf8')).toContain(
+      'PROMOBOT_ADMIN_PASSWORD=bundle-secret',
+    );
+    expect(fs.existsSync(fixture.pnpmMarkerPath)).toBe(false);
+  });
+
   it('shows deploy-release help for direct and leading dash-dash help paths', () => {
     for (const args of [['--help'], ['--', '--help']]) {
       const result = runRepoScript('ops/deploy-release.sh', args);
@@ -636,6 +730,125 @@ function runScript(scriptPath: string, args: string[], options: SpawnSyncOptions
     encoding: 'utf8',
     ...options,
   });
+}
+
+function createVerifyReleaseFixture(
+  options: {
+    mode?: 'source' | 'bundle';
+    verifyExitCode?: number;
+    verifyFailureMessage?: string;
+    smokeExitCode?: number;
+    smokeFailureMessage?: string;
+  } = {},
+) {
+  const mode = options.mode ?? 'source';
+  const rootDir = createTempDir('promobot-verify-release-script-');
+  const binDir = path.join(rootDir, 'bin');
+  const pnpmMarkerPath = path.join(rootDir, 'pnpm-invocations.log');
+  const nodeMarkerPath = path.join(rootDir, 'node-invocations.log');
+  const smokeMarkerPath = path.join(rootDir, 'smoke-invocations.log');
+  const sequenceMarkerPath = path.join(rootDir, 'verify-release-sequence.log');
+  const scriptPath = path.join(rootDir, 'ops/verify-release.sh');
+  const inputDir = path.join(rootDir, 'release-input');
+
+  fs.mkdirSync(path.dirname(scriptPath), { recursive: true });
+  fs.copyFileSync(path.resolve(repoRoot, 'ops/verify-release.sh'), scriptPath);
+
+  writeFile(rootDir, 'package.json', '{}\n');
+  writeFile(rootDir, 'release-input/manifest.json', '{}\n');
+
+  if (mode === 'source') {
+    writeFile(rootDir, 'src/server/cli/releaseVerify.ts', 'console.log("verify");\n');
+    writeFile(rootDir, 'src/server/cli/deploymentSmoke.ts', 'console.log("smoke");\n');
+  } else {
+    writeFile(rootDir, 'dist/server/cli/releaseVerify.js', 'console.log("verify");\n');
+    writeFile(rootDir, 'dist/server/cli/deploymentSmoke.js', 'console.log("smoke");\n');
+  }
+
+  writeExecutable(
+    binDir,
+    'pnpm',
+    `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${pnpmMarkerPath}"
+case "\${1:-}" in
+  release:verify)
+    printf 'verify\\n' >> "${sequenceMarkerPath}"
+    if [ "${options.verifyExitCode ?? 0}" -ne 0 ]; then
+      printf '%s\\n' "${options.verifyFailureMessage ?? 'release verify failed'}" >&2
+      exit ${options.verifyExitCode ?? 0}
+    fi
+    exit 0
+    ;;
+  smoke:server)
+    printf 'smoke\\n' >> "${sequenceMarkerPath}"
+    printf 'PROMOBOT_ADMIN_PASSWORD=%s\\n' "\${PROMOBOT_ADMIN_PASSWORD:-}" >> "${smokeMarkerPath}"
+    printf 'ARGS=%s\\n' "$*" >> "${smokeMarkerPath}"
+    if [ "${options.smokeExitCode ?? 0}" -ne 0 ]; then
+      printf '%s\\n' "${options.smokeFailureMessage ?? 'smoke failed'}" >&2
+      exit ${options.smokeExitCode ?? 0}
+    fi
+    exit 0
+    ;;
+esac
+printf 'unexpected pnpm invocation: %s\\n' "$*" >&2
+exit 88
+`,
+  );
+
+  writeExecutable(
+    binDir,
+    'node',
+    mode === 'source'
+      ? `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${nodeMarkerPath}"
+printf 'unexpected node invocation: %s\\n' "$*" >&2
+exit 89
+`
+      : `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${nodeMarkerPath}"
+case "\${1:-}" in
+  dist/server/cli/releaseVerify.js)
+    if [ "\${2:-}" != "--input-dir" ] || [ -z "\${3:-}" ]; then
+      printf 'missing release verify args\\n' >&2
+      exit 91
+    fi
+    printf 'verify\\n' >> "${sequenceMarkerPath}"
+    if [ "${options.verifyExitCode ?? 0}" -ne 0 ]; then
+      printf '%s\\n' "${options.verifyFailureMessage ?? 'release verify failed'}" >&2
+      exit ${options.verifyExitCode ?? 0}
+    fi
+    exit 0
+    ;;
+  dist/server/cli/deploymentSmoke.js)
+    if [ "\${2:-}" != "--base-url" ] || [ -z "\${3:-}" ]; then
+      printf 'missing deployment smoke args\\n' >&2
+      exit 92
+    fi
+    printf 'smoke\\n' >> "${sequenceMarkerPath}"
+    printf 'PROMOBOT_ADMIN_PASSWORD=%s\\n' "\${PROMOBOT_ADMIN_PASSWORD:-}" >> "${smokeMarkerPath}"
+    printf 'ARGS=%s\\n' "$*" >> "${smokeMarkerPath}"
+    if [ "${options.smokeExitCode ?? 0}" -ne 0 ]; then
+      printf '%s\\n' "${options.smokeFailureMessage ?? 'smoke failed'}" >&2
+      exit ${options.smokeExitCode ?? 0}
+    fi
+    exit 0
+    ;;
+esac
+printf 'unexpected node invocation: %s\\n' "$*" >&2
+exit 90
+`,
+  );
+
+  return {
+    rootDir,
+    binDir,
+    inputDir,
+    scriptPath,
+    pnpmMarkerPath,
+    nodeMarkerPath,
+    smokeMarkerPath,
+    sequenceMarkerPath,
+  };
 }
 
 function createDeployReleaseFixture(

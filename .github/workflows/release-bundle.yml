@@ -637,7 +637,7 @@ jobs:
             `2. Run \`bash ./${metadata.helper_file} --archive ./${assetsByKind.archive}\` to validate the downloaded asset set end-to-end; the helper will check \`${assetsByKind.checksum}\` and \`${assetsByKind.metadata}\`, extract the archive, and run the bundled release verifier.`,
             `3. Manual fallback: read \`${assetsByKind.metadata}\` to confirm the ${isTagRelease ? 'tag' : 'ref'}, commit SHA, and asset-to-bundle mapping.`,
             `4. Manual fallback: run \`sha256sum -c ${assetsByKind.checksum}\`, then extract \`${assetsByKind.archive}\` with \`tar -xzf ${assetsByKind.archive}\`.`,
-            `5. Manual fallback: verify the extracted \`${metadata.bundle_dir_name}\` directory with \`pnpm release:verify -- --input-dir ./${metadata.bundle_dir_name}\` or \`pnpm verify:release -- --input-dir ./${metadata.bundle_dir_name}\`.`,
+            `5. Manual fallback: verify the extracted \`${metadata.bundle_dir_name}\` directory with \`pnpm verify:release -- --input-dir ./${metadata.bundle_dir_name}\`. If you are validating the same bundle from a source checkout, you can also run \`pnpm release:verify -- --input-dir ./${metadata.bundle_dir_name}\`.`,
             '',
             isTagRelease
               ? `Next step: the publish job will attach the same files plus \`${metadata.helper_file}\` to the [GitHub Release page](${releasePageUrl}) for \`${process.env.GITHUB_REF_NAME}\`.`
@@ -901,7 +901,7 @@ jobs:
             `2. Run \`bash ./${helperFile} --archive ./${assetsByKind.archive}\` to validate \`${assetsByKind.checksum}\`, \`${assetsByKind.metadata}\`, extract the archive, and run the bundled release verifier in one local step.`,
             `3. Manual fallback: read \`${assetsByKind.metadata}\` to confirm the tag, commit SHA, and asset-to-bundle mapping.`,
             `4. Manual fallback: run \`sha256sum -c ${assetsByKind.checksum}\`, then extract \`${assetsByKind.archive}\` with \`tar -xzf ${assetsByKind.archive}\`.`,
-            `5. Manual fallback: verify the extracted \`${bundleDirName}\` directory with \`pnpm release:verify -- --input-dir ./${bundleDirName}\` or \`pnpm verify:release -- --input-dir ./${bundleDirName}\`.`,
+            `5. Manual fallback: verify the extracted \`${bundleDirName}\` directory with \`pnpm verify:release -- --input-dir ./${bundleDirName}\`. If you are validating the same bundle from a source checkout, you can also run \`pnpm release:verify -- --input-dir ./${bundleDirName}\`.`,
             '',
             `The extracted directory name should match \`bundle_dir_name: ${bundleDirName}\` in \`${assetsByKind.metadata}\`.`,
           ].join('\n');

@@ -277,7 +277,7 @@ pnpm release:verify -- --input-dir /tmp/promobot-release
 pnpm verify:release -- --input-dir /tmp/promobot-release
 ```
 
-`verify:release` 默认只做目录结构和 manifest 校验，不会启动服务；只有显式开启 smoke 时，才会追加 `smoke:server`。
+`verify:release` 默认只做目录结构和 manifest 校验，不会启动服务；在源码仓库里它会转到 `pnpm release:verify`，在已解压的 bundle 根目录里则会改用 bundle 自带的 compiled verifier。只有显式开启 smoke 时，才会在校验成功后追加 `smoke:server`。
 
 如果你拿到的是下载后的 archive，而不是已经解压好的目录型 bundle，可直接用：
 
@@ -305,7 +305,7 @@ pnpm release:deploy
 建议流程：
 
 1. 在构建机的源码仓库里运行 `pnpm release:bundle` 或 `pnpm release:local`
-2. 用 `pnpm release:verify` 或 `pnpm verify:release` 校验 bundle
+2. 在源码仓库里用 `pnpm release:verify` 或 `pnpm verify:release` 校验 bundle
 3. 把 bundle 目录复制到目标机
 4. 在目标机进入 bundle 根目录，执行 `pnpm release:deploy`
 
@@ -323,10 +323,10 @@ pnpm release:deploy
 - 手动 preview run（`workflow_dispatch`）还可选传 `skip_tests=true`，作为只用于加速手动 preview 包的自担风险选项：默认仍会执行 `pnpm test`；只有这条手动 preview 入口能跳过，`v*` tag push 这条 tag release 入口不受影响，仍会执行测试。它只影响打包前是否执行 `pnpm test`，不会改变已生成 archive、`.sha256` sidecar、`.metadata.json` metadata sidecar、bundle 内 `manifest.json` 和后续校验链语义
 - `prerelease` 状态只和 `v*` tag push 这条 tag release 有关。当前 workflow 会按 tag 名本身自动判定是否为 semver 预发布：像 `v1.2.3-rc.1`、`v1.2.3-beta.1` 这类会标成 `prerelease=true`，`v1.2.3` 这类正式版 tag 仍保持 `false`。这个判定不从 `asset_suffix`、`release body` 或 `summary` 推导；`release body` 现在只是把这个既有状态和对应测试执行状态以给人读的方式显示出来
 - 只有 `v*` tag push 这条正式发版入口，才会在保留 Actions artifact 的同时，把带版本号的 archive、`.sha256` sidecar 和 `.metadata.json` metadata sidecar 附着到 GitHub Release；这个手动 preview suffix（`asset_suffix`）不参与这条正式发版命名。新的 release asset sidecar 只服务这条 tar.gz 下载链路，如果只是临时取包 / 验包，直接下载 Actions artifact 即可
-- 与版本化 archive 同名派生的 `.metadata.json` sidecar 的定位是给下载方 / 自动化方消费的机器可读说明，用来描述 `Release Bundle` workflow 产出的 bundle、archive 和校验入口；它不替代配套 `.sha256` sidecar，也不替代解压后对 `manifest.json` 以及 `pnpm release:verify` / `pnpm verify:release` 的 bundle 校验
+- 与版本化 archive 同名派生的 `.metadata.json` sidecar 的定位是给下载方 / 自动化方消费的机器可读说明，用来描述 `Release Bundle` workflow 产出的 bundle、archive 和校验入口；它不替代配套 `.sha256` sidecar，也不替代解压后对 `manifest.json` 以及 `pnpm verify:release` 的 bundle 校验。只有在源码仓库里手动复核 bundle 时，才需要直接调用 `pnpm release:verify`
 - `.metadata.json` metadata sidecar 里的 `schema_version`、`checksum_algorithm`、`archive_format`、`artifact_name`、`event_name`、`prerelease`、`generated_at`、`run_url`、`release_url`、`tests_summary` 和有序 asset 列表也应按同一层级理解：`schema_version` 对应 metadata sidecar 自身的 schema 版本，`checksum_algorithm` 对应 archive 下载链路的 checksum 算法，`archive_format` 对应 archive 下载链路的封装格式，`artifact_name` 对应 Actions artifact 下载入口，`event_name` 对应 workflow 触发来源，`prerelease` 对应 GitHub Release 状态，`generated_at` 对应 metadata sidecar 的生成时间，`run_url` 对应这次 workflow run 页面链接，`release_url` 对应 GitHub Release 页面链接，但只有 tag release 时有值、手动 preview run 为 `null`，`tests_summary` 对应这次产物的测试执行状态，并且只会是 `skipped via manual workflow_dispatch input`、`executed (default manual behavior)`、`executed (required for tag release)` 三种固定字符串之一，有序 asset 列表对应下载方 / 自动化方消费的 asset 清单顺序。这里这些字段只说明 metadata sidecar 的发布上下文，以及 `archive -> .sha256 sidecar -> .metadata.json metadata sidecar` 这组文件该按什么顺序识别与消费，不是 `release body` 文案，不是 workflow run `summary` 摘要，也不替代 workflow run 页面里给人读的 `summary`，更不是 bundle 内 `manifest.json` 的内容摘要
 - 默认会执行 `pnpm test`、`pnpm build`、静态 `preflight`、`release:bundle` 和 `release:verify`
-- Actions artifact 里同时带 bundle 目录、archive、`.sha256` sidecar 和 `.metadata.json` metadata sidecar；正式 GitHub Release 页面则会在这组三件套之外额外分发 standalone `verify-downloaded-release.sh` helper，方便下载方不 checkout 仓库也能直接跑现成校验入口。GitHub Release asset 的 tar.gz 下载应先用配套 sidecar 做下载完整性校验，再用 `.metadata.json` 读取 `schema_version` / `checksum_algorithm` / `archive_format` / ref / commit / `generated_at` / `run_url` / `release_url` / `tests_summary` / 文件名这些发布上下文，最后再解压拿到目录型 bundle。解压后的 `manifest.json` 和 `pnpm release:verify` / `pnpm verify:release` 校验的是 bundle 内文件，不是 tar.gz 下载字节本身
+- Actions artifact 里同时带 bundle 目录、archive、`.sha256` sidecar 和 `.metadata.json` metadata sidecar；正式 GitHub Release 页面则会在这组三件套之外额外分发 standalone `verify-downloaded-release.sh` helper，方便下载方不 checkout 仓库也能直接跑现成校验入口。GitHub Release asset 的 tar.gz 下载应先用配套 sidecar 做下载完整性校验，再用 `.metadata.json` 读取 `schema_version` / `checksum_algorithm` / `archive_format` / ref / commit / `generated_at` / `run_url` / `release_url` / `tests_summary` / 文件名这些发布上下文，最后再解压拿到目录型 bundle。解压后的 `manifest.json` 和 `pnpm verify:release` 校验的是 bundle 内文件；只有仍在源码仓库里复核时，才直接调用 `pnpm release:verify`
 
 如果你走 GitHub Release asset 下载链路，建议顺序是：
 
@@ -334,7 +334,7 @@ pnpm release:deploy
 2. 无源码 checkout 时直接运行 `bash ./verify-downloaded-release.sh --archive-file <archive>`；有源码 checkout 时可运行 `pnpm verify:downloaded-release -- --archive-file <archive>`
 3. 如果需要人工核对，再查看 `.metadata.json` 中的 `schema_version` / `checksum_algorithm` / `archive_format` / ref / commit / `generated_at` / `run_url` / `release_url` / `tests_summary` / 资产文件名是否符合预期
 4. helper / `pnpm verify:downloaded-release` 校验通过后，保留解压出来的目录型 release bundle 和其中的 `manifest.json`
-5. 如需再次单独复核目录内容，可对解压后的目录运行 `pnpm release:verify -- --input-dir <path>` 或 `pnpm verify:release -- --input-dir <path>`
+5. 如需再次单独复核目录内容，可对解压后的目录运行 `pnpm verify:release -- --input-dir <path>`；如果是在源码仓库里复核同一个 bundle，也可以运行 `pnpm release:verify -- --input-dir <path>`
 6. 校验通过后，再在 bundle 根目录执行 `pnpm release:deploy`
 
 换句话说：
@@ -391,7 +391,7 @@ pnpm smoke:server -- --base-url http://127.0.0.1:3001
 
 - `preflight`：`pnpm preflight:prod -- --require-env AI_API_KEY,ADMIN_PASSWORD`
 - `release bundle`：`pnpm release:bundle -- --output-dir /tmp/promobot-release`
-- `verify`：`pnpm verify:release -- --input-dir /tmp/promobot-release`
+- `verify`：在源码仓库里执行 `pnpm verify:release -- --input-dir /tmp/promobot-release`
 - `deploy`：在 bundle 根目录执行 `pnpm release:deploy -- --skip-smoke`
 - `smoke`：在 bundle 根目录执行 `node dist/server/cli/deploymentSmoke.js --base-url http://127.0.0.1:3001`
 
@@ -411,7 +411,7 @@ node dist/server/cli/deploymentSmoke.js --base-url http://127.0.0.1:3001
 node dist/server/cli/inboxReplyHandoffComplete.js --help
 ```
 
-这条链路建议在构建机先做一次 `verify:release`，再把 bundle 目录发往目标机。目标机上的独立 smoke 继续沿用 bundle 自带的 compiled CLI，与 `ops/deploy-release.sh` 内部的检查方式保持一致。
+这条链路建议在构建机先做一次 `verify:release`，再把 bundle 目录发往目标机。目标机如果只拿到已解压 bundle，也可以直接在 bundle 根目录复跑同一个 `verify:release` wrapper；它会自动切到 bundle 自带的 compiled verifier。独立 smoke 继续沿用 bundle 自带的 compiled CLI，与 `ops/deploy-release.sh` 内部的检查方式保持一致。
 
 ## 用 PM2 运行
 

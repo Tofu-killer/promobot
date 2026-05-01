@@ -95,12 +95,12 @@ pnpm browser:artifacts:archive -- --older-than-hours 72
 - `pnpm start`：启动 `dist/server/index.js`，并在 `dist/client` 存在时直接提供构建后的前端
 - `pnpm preflight:prod -- [options]`：做静态上线前检查，输出 JSON summary，不启动服务
 - `pnpm release:bundle -- --output-dir <path>`：把构建产物、PM2 配置、必要 ops 脚本和部署文档复制到目录型 release bundle，并生成带文件 checksum 信息的 manifest JSON
-- `pnpm release:verify -- --input-dir <path>`：校验目录型 release bundle 的 manifest、关键文件是否完整，并在 manifest 带 checksum 时重算 bundle 内现有文件内容做完整性校验；它不负责 tar.gz 下载文件本身的校验
+- `pnpm release:verify -- --input-dir <path>`：源码仓库里的目录型 release bundle 校验入口，校验 manifest、关键文件是否完整，并在 manifest 带 checksum 时重算 bundle 内现有文件内容做完整性校验；它不负责 tar.gz 下载文件本身的校验
 - `pnpm runtime:backup`：把当前可定位的 SQLite 文件来源、真实运行时 `browser-sessions/` 根目录和仓库根 `.env` 复制到时间戳备份目录，并生成 manifest JSON；若有缺失项，会在 manifest 里标记并以非零退出码返回。自定义 `--output-dir` 时，目标目录必须不存在或为空
 - `pnpm runtime:restore -- --input-dir <backupDir>`：按 backup manifest 恢复运行时数据，并在覆盖前为已有目标创建 `.pre-restore-<timestamp>` 备份
 - `pnpm release:local -- [options]`：先按需执行 `pnpm build`，再调用 `release:bundle` 生成目录型可交付发布物
 - `pnpm release:deploy -- [options]`：调用 `ops/deploy-release.sh`，用于从已打好的 release bundle 根目录直接部署；这和 `deploy:local` 的源码仓库部署不是同一条链路
-- `pnpm verify:release -- --input-dir <path>`：调用 shell wrapper 执行 `release:verify`，用于交付前检查 release bundle
+- `pnpm verify:release -- --input-dir <path>`：调用 shell wrapper 校验目录型 release bundle；在源码仓库里会转到 `release:verify`，在已解压的 bundle 根目录里会改用 bundle 自带的 compiled verifier
 - `pnpm verify:downloaded-release -- --archive-file <path>`：调用仓库内的 `ops/verify-downloaded-release.sh`；正式 GitHub Release 页面现在会额外挂出同内容的 standalone `verify-downloaded-release.sh` helper，下载方即使不 checkout 仓库，也可以只拿 `archive + .sha256 + .metadata.json + helper` 在本机跑同一条校验链。两者都会先校验已下载的 archive、`.sha256` sidecar、`.metadata.json` metadata sidecar，再把解压目录交给 bundle 自带的 `releaseVerify` CLI
 - `pnpm deploy:local -- [options]`：执行本机部署链路，封装 `pnpm install`、`pnpm build`、PM2 reload/start 和可选 smoke check
 - `pnpm rollback:local -- --backup-dir <path> [options]`：先停 PM2、从已有 runtime backup 恢复数据，再按恢复后的环境重启服务，并按需追加 smoke check
@@ -125,9 +125,9 @@ pnpm browser:artifacts:archive -- --older-than-hours 72
 
 - `pnpm deploy:local` / `ops/deploy-promobot.sh` 面向“目标机上已有源码 checkout”的部署：脚本会在源码仓库里执行 install / build / PM2 切换。
 - `pnpm release:deploy` / `ops/deploy-release.sh` 面向“目标机只拿到目录型 release bundle”的部署：bundle 会随产物带上 deploy 脚本，解压后直接在 bundle 根目录执行即可。
-- 新生成的 bundle manifest 会记录 bundle 内文件 checksum；`pnpm release:verify` / `pnpm verify:release` 会在文件存在时重算并比对，不匹配会返回失败。旧 manifest 没有 checksum 时，仍按原来的目录结构校验处理。
+- 新生成的 bundle manifest 会记录 bundle 内文件 checksum；`pnpm release:verify`（源码仓库入口）和 `pnpm verify:release`（源码仓库或已解压 bundle 根目录入口）都会在文件存在时重算并比对，不匹配会返回失败。旧 manifest 没有 checksum 时，仍按原来的目录结构校验处理。
 - GitHub Release 上和版本化 release archive 配套的 `.sha256` sidecar 只用于 tar.gz 下载完整性校验；这一步发生在解压前，和 bundle 内 `manifest.json` 的文件 checksum 校验不是一回事。
-- GitHub Release 上与该版本化 archive 同名派生的 `.metadata.json` sidecar 是机器可读说明，帮助下载方 / 自动化方识别 bundle、archive 和 sidecar 的关系；它不替代 tar.gz sidecar，也不替代解压后对 `manifest.json` 以及 `pnpm release:verify` / `pnpm verify:release` 的 bundle 校验。
+- GitHub Release 上与该版本化 archive 同名派生的 `.metadata.json` sidecar 是机器可读说明，帮助下载方 / 自动化方识别 bundle、archive 和 sidecar 的关系；它不替代 tar.gz sidecar，也不替代解压后对 `manifest.json` 以及 `pnpm verify:release` 的 bundle 校验。只有在源码仓库里手动复核 bundle 时，才需要直接调用 `pnpm release:verify`。
 - `pnpm verify:downloaded-release` / `ops/verify-downloaded-release.sh` 则把“已下载 archive -> sidecar 校验 -> 解压 -> 目录校验”串成一条本地入口；正式 GitHub Release 页面现在会额外分发 standalone `verify-downloaded-release.sh` helper，它是同一份 helper 的 release 资产形态，方便下载方在没有源码 checkout 时直接运行。无论是仓库内的 `pnpm` 入口还是 release 页面分发的 helper，都会先校验 `.sha256` 和 `.metadata.json` 是否与 archive 对得上，再把解压目录交给 bundle 自带的 `dist/server/cli/releaseVerify.js`，因此不会再造第四套目录校验规则。
 - 正式 `v*` tag push 生成的 GitHub Release 页面会自带一段 download / verify 说明；这段内容由 `Release Bundle` workflow 写进 `release body`，会列出该 tag 对应的版本化 archive、`.sha256` sidecar、`.metadata.json` metadata sidecar、额外分发的 standalone `verify-downloaded-release.sh` helper，以及推荐的校验顺序，也会把该 tag 的 `prerelease` 和 `tests_summary` 对应的测试执行状态写成给人读的页面说明。真正要下载和核对的仍是页面下方这些 `release asset`，以及解压后 bundle 里的 `manifest.json`。
 - 这里的 `prerelease` 只指 GitHub Release 页面上的 prerelease 状态，不影响 `release asset` 文件名，也不是从 `release body` 文案或 workflow run 页面里的 `summary` 反推。当前 workflow 会根据 tag 名自动设置它：带 semver 预发布后缀的 tag 会标成 `prerelease`，正式版 tag 不会；`release body` 现在只是把这个既有状态和对应测试执行状态以给人读的方式显示出来。

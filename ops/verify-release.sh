@@ -14,13 +14,13 @@ usage() {
   cat <<'EOF'
 Usage: ops/verify-release.sh --input-dir <path> [options]
 
-Runs pnpm release:verify from the repo root.
+Runs release verification from either a source checkout or an extracted bundle root.
 By default this only runs release verification. It does not start services
-or make network requests unless --smoke is explicitly enabled.
+or make network requests unless --smoke is explicitly enabled after verification succeeds.
 
 Options:
   --input-dir <path>          Release input directory to verify (required)
-  --smoke                     Run pnpm smoke:server before pnpm release:verify
+  --smoke                     Run a smoke check after release verification succeeds
   --base-url <url>            Smoke check base URL (default: PROMOBOT_BASE_URL or http://127.0.0.1:<PORT>)
   --admin-password <secret>   Smoke check admin password
   --help, -h                  Show this help
@@ -107,8 +107,11 @@ main() {
   local shell_env_file
   local root_env_file
   local resolved_port
+  local use_source_verify=0
+  local use_source_smoke=0
+  local use_compiled_verify=0
+  local use_compiled_smoke=0
   local -a env_candidates=()
-  local -a verify_cmd=()
 
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -194,7 +197,35 @@ main() {
   [ -f "package.json" ] || fail "package.json not found in ${repo_root}"
   [ -d "${input_dir}" ] || fail "--input-dir directory not found: ${input_dir}"
 
-  require_command pnpm
+  if [ -f "src/server/cli/releaseVerify.ts" ]; then
+    use_source_verify=1
+  elif [ -f "dist/server/cli/releaseVerify.js" ]; then
+    use_compiled_verify=1
+  else
+    fail "Could not find src/server/cli/releaseVerify.ts or dist/server/cli/releaseVerify.js in ${repo_root}"
+  fi
+
+  if [ -f "src/server/cli/deploymentSmoke.ts" ]; then
+    use_source_smoke=1
+  elif [ -f "dist/server/cli/deploymentSmoke.js" ]; then
+    use_compiled_smoke=1
+  fi
+
+  if [ "${use_source_verify}" -eq 1 ] || [ "${use_source_smoke}" -eq 1 ]; then
+    require_command pnpm
+  fi
+
+  if [ "${use_compiled_verify}" -eq 1 ] || [ "${use_compiled_smoke}" -eq 1 ]; then
+    require_command node
+  fi
+
+  if [ "${use_source_verify}" -eq 1 ]; then
+    log "Running pnpm release:verify with --input-dir ${input_dir}"
+    pnpm release:verify -- --input-dir "${input_dir}"
+  else
+    log "Running node dist/server/cli/releaseVerify.js with --input-dir ${input_dir}"
+    node dist/server/cli/releaseVerify.js --input-dir "${input_dir}"
+  fi
 
   if [ "${run_smoke}" -eq 1 ]; then
     if [ -z "$base_url" ]; then
@@ -226,13 +257,14 @@ main() {
     fi
 
     log "Running smoke check against ${base_url}"
-    PROMOBOT_ADMIN_PASSWORD="${admin_password}" pnpm smoke:server -- --base-url "${base_url}"
+    if [ "${use_source_smoke}" -eq 1 ]; then
+      PROMOBOT_ADMIN_PASSWORD="${admin_password}" pnpm smoke:server -- --base-url "${base_url}"
+    elif [ "${use_compiled_smoke}" -eq 1 ]; then
+      PROMOBOT_ADMIN_PASSWORD="${admin_password}" node dist/server/cli/deploymentSmoke.js --base-url "${base_url}"
+    else
+      fail "Could not find src/server/cli/deploymentSmoke.ts or dist/server/cli/deploymentSmoke.js in ${repo_root}"
+    fi
   fi
-
-  [ -f "dist/server/cli/releaseVerify.js" ] || fail "dist/server/cli/releaseVerify.js not found; run pnpm build first"
-
-  log "Running node dist/server/cli/releaseVerify.js with --input-dir ${input_dir}"
-  node dist/server/cli/releaseVerify.js --input-dir "${input_dir}"
 }
 
 main "$@"
