@@ -125,6 +125,17 @@ projectsRouter.patch('/:id', (request, response) => {
     return;
   }
 
+  if (
+    hasInvalidOptionalStringField(body, 'name') ||
+    hasInvalidOptionalStringField(body, 'siteName') ||
+    hasInvalidOptionalStringField(body, 'siteUrl') ||
+    hasInvalidOptionalStringField(body, 'siteDescription') ||
+    hasInvalidOptionalStringField(body, 'brandVoice')
+  ) {
+    response.status(400).json({ error: 'invalid project payload' });
+    return;
+  }
+
   if (input !== null && typeof input === 'object' && 'archived' in input) {
     response.status(400).json({ error: 'project archive must use POST /api/projects/:id/archive' });
     return;
@@ -217,6 +228,13 @@ function parseRouteId(value: string | undefined) {
 
 function projectExists(projectId: number) {
   return projectStore.list().some((project) => project.id === projectId);
+}
+
+function hasInvalidOptionalStringField(
+  body: Record<string, unknown>,
+  field: 'name' | 'siteName' | 'siteUrl' | 'siteDescription' | 'brandVoice',
+) {
+  return body[field] !== undefined && typeof body[field] !== 'string';
 }
 
 type SourceConfigParseResult<T> =

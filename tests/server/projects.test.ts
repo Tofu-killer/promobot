@@ -205,14 +205,23 @@ describe('projects api', () => {
 
       expect(created.status).toBe(201);
 
-      const updated = await requestApp('PATCH', '/api/projects/1', {
-        ctas: 'Talk to sales',
-      });
+      const invalidPayloads = [
+        { name: 123 },
+        { siteName: false },
+        { siteUrl: { href: 'https://example.com' } },
+        { siteDescription: ['Wrong shape'] },
+        { brandVoice: 456 },
+        { ctas: 'Talk to sales' },
+      ];
 
-      expect(updated.status).toBe(400);
-      expect(JSON.parse(updated.body)).toEqual({
-        error: 'invalid project payload',
-      });
+      for (const payload of invalidPayloads) {
+        const updated = await requestApp('PATCH', '/api/projects/1', payload);
+
+        expect(updated.status).toBe(400);
+        expect(JSON.parse(updated.body)).toEqual({
+          error: 'invalid project payload',
+        });
+      }
 
       const listed = await requestApp('GET', '/api/projects');
 
