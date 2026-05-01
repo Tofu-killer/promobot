@@ -283,6 +283,36 @@ describe('projects api', () => {
     }
   });
 
+  it('rejects project create payloads that include unknown fields', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const created = await requestApp('POST', '/api/projects', {
+        name: 'Strict Workspace',
+        siteName: 'PromoBot',
+        siteUrl: 'https://strict.example.com',
+        siteDescription: 'Strict payload coverage',
+        sellingPoints: ['Existing flow'],
+        brandVoice: 'Direct and clear',
+        ctas: ['Talk to sales'],
+        foo: 'bar',
+      });
+
+      expect(created.status).toBe(400);
+      expect(JSON.parse(created.body)).toEqual({
+        error: 'invalid project payload',
+      });
+
+      const listed = await requestApp('GET', '/api/projects');
+
+      expect(listed.status).toBe(200);
+      expect(JSON.parse(listed.body)).toEqual({
+        projects: [],
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('rejects project payload arrays that mix strings with non-string values', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
@@ -750,6 +780,46 @@ describe('projects api', () => {
       const secondProjectConfigs = await requestApp('GET', '/api/projects/2/source-configs');
       expect(secondProjectConfigs.status).toBe(200);
       expect(JSON.parse(secondProjectConfigs.body)).toEqual({
+        sourceConfigs: [],
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('rejects source config create payloads that include unknown fields', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const projectResponse = await requestApp('POST', '/api/projects', {
+        name: 'Monitoring Workspace',
+        siteName: 'PromoBot',
+        siteUrl: 'https://example.com',
+        siteDescription: 'Brand monitoring',
+        sellingPoints: ['Fast iteration'],
+      });
+      expect(projectResponse.status).toBe(201);
+
+      const created = await requestApp('POST', '/api/projects/1/source-configs', {
+        projectId: 1,
+        sourceType: 'keyword+reddit',
+        platform: 'reddit',
+        label: 'Competitor mentions',
+        configJson: {
+          query: 'promobot',
+        },
+        enabled: true,
+        pollIntervalMinutes: 30,
+        foo: 'bar',
+      });
+
+      expect(created.status).toBe(400);
+      expect(JSON.parse(created.body)).toEqual({
+        error: 'invalid source config payload',
+      });
+
+      const listed = await requestApp('GET', '/api/projects/1/source-configs');
+      expect(listed.status).toBe(200);
+      expect(JSON.parse(listed.body)).toEqual({
         sourceConfigs: [],
       });
     } finally {

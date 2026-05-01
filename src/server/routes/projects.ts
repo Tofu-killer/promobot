@@ -35,6 +35,26 @@ projectsRouter.get('/:id/source-configs', (request, response) => {
 });
 
 projectsRouter.post('/', (request, response) => {
+  const input = request.body;
+  if (input === null || typeof input !== 'object' || Array.isArray(input)) {
+    response.status(400).json({ error: 'invalid project payload' });
+    return;
+  }
+
+  const allowedFields = new Set([
+    'name',
+    'siteName',
+    'siteUrl',
+    'siteDescription',
+    'sellingPoints',
+    'brandVoice',
+    'ctas',
+  ]);
+  if (Object.keys(input).some((key) => !allowedFields.has(key))) {
+    response.status(400).json({ error: 'invalid project payload' });
+    return;
+  }
+
   const {
     name,
     siteName,
@@ -43,7 +63,7 @@ projectsRouter.post('/', (request, response) => {
     sellingPoints,
     brandVoice,
     ctas,
-  } = request.body ?? {};
+  } = input;
 
   if (
     typeof name !== 'string' ||
@@ -280,6 +300,19 @@ function parseCreateSourceConfigInput(
 ): SourceConfigParseResult<CreateSourceConfigInput> {
   const input = asObject(body);
   if (!input) {
+    return invalidSourceConfigPayload();
+  }
+
+  const allowedFields = new Set([
+    'projectId',
+    'sourceType',
+    'platform',
+    'label',
+    'configJson',
+    'enabled',
+    'pollIntervalMinutes',
+  ]);
+  if (Object.keys(input).some((key) => !allowedFields.has(key))) {
     return invalidSourceConfigPayload();
   }
 
