@@ -586,9 +586,11 @@ jobs:
           }
 
           const releasePageUrl = isTagRelease ? metadata.release_url : null;
+          const releaseTypeLabel = metadata.prerelease ? 'Prerelease' : 'Full release';
           const summaryRows = isTagRelease
             ? [
                 ['Run mode', 'Tag release'],
+                ['Release status', releaseTypeLabel],
                 ['Release tag', `\`${process.env.GITHUB_REF_NAME}\``],
                 ['`pnpm test`', metadata.test_execution.summary],
                 ['Derived `asset_basename`', `\`${metadata.asset_basename}\``],

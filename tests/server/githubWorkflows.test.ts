@@ -156,4 +156,33 @@ describe('GitHub workflow contracts', () => {
       'bash ./${metadata.helper_file} --archive-file ./${assetsByKind.archive}',
     );
   });
+
+  it('keeps prerelease status aligned across workflow outputs, metadata, release body, and run summary', () => {
+    const releaseBundleWorkflow = fs.readFileSync(
+      path.resolve('.github/workflows/release-bundle.yml'),
+      'utf8',
+    );
+    const summaryStep = releaseBundleWorkflow.slice(
+      releaseBundleWorkflow.indexOf('      - name: Write workflow run summary'),
+      releaseBundleWorkflow.indexOf('  publish-release-asset:'),
+    );
+    const publishReleaseJob = releaseBundleWorkflow.slice(
+      releaseBundleWorkflow.indexOf('  publish-release-asset:'),
+    );
+
+    expect(releaseBundleWorkflow).toContain('      - name: Derive release prerelease flag');
+    expect(releaseBundleWorkflow).toContain('echo "prerelease=$is_prerelease" >> "$GITHUB_OUTPUT"');
+    expect(releaseBundleWorkflow).toContain(
+      '      prerelease: ${{ steps.release_flags.outputs.prerelease }}',
+    );
+    expect(releaseBundleWorkflow).toContain("prerelease: process.env.PRERELEASE === 'true'");
+    expect(releaseBundleWorkflow).toContain(
+      "const releaseTypeLabel = metadata.prerelease ? 'Prerelease' : 'Full release';",
+    );
+    expect(summaryStep).toContain("['Release status', releaseTypeLabel]");
+    expect(publishReleaseJob).toContain('uses: softprops/action-gh-release@v2');
+    expect(publishReleaseJob).toContain(
+      'prerelease: ${{ needs.release-bundle.outputs.prerelease }}',
+    );
+  });
 });
