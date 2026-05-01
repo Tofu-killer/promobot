@@ -202,14 +202,7 @@ channelAccountsRouter.post('/:id/session/request', (request, response) => {
         managedStorageStatePath,
         reused: true,
       },
-      channelAccount: {
-        ...channelAccountWithSessionSummary,
-        latestBrowserLaneArtifact: {
-          ...latestSessionRequestArtifact,
-          jobStatus: latestSessionRequestJobStatus,
-          managedStorageStatePath,
-        },
-      },
+      channelAccount: channelAccountWithSessionSummary,
     });
     return;
   }

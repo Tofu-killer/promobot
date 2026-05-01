@@ -5771,6 +5771,130 @@ describe('channel account edit actions', () => {
     });
   });
 
+  it('keeps the reused session-action receipt separate from the latest browser-lane artifact for the same account', async () => {
+    const { container } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ChannelAccountsPage } = await import('../../src/client/pages/ChannelAccounts');
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ChannelAccountsPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              channelAccounts: [
+                {
+                  id: 7,
+                  platform: 'instagram',
+                  accountKey: 'acct-instagram',
+                  displayName: 'Instagram Ops',
+                  authType: 'browser',
+                  status: 'healthy',
+                  metadata: {},
+                  session: {
+                    hasSession: false,
+                    status: 'missing',
+                    validatedAt: null,
+                    storageStatePath: null,
+                    id: 'instagram:acct-instagram',
+                  },
+                  latestBrowserLaneArtifact: {
+                    action: 'relogin',
+                    jobStatus: 'pending',
+                    requestedAt: '2026-04-19T05:00:00.000Z',
+                    artifactPath: 'artifacts/browser-lane-requests/instagram/acct-instagram/relogin-job-27.json',
+                    resolvedAt: null,
+                  },
+                  publishReadiness: {
+                    platform: 'instagram',
+                    ready: false,
+                    mode: 'browser',
+                    status: 'needs_session',
+                    message: 'Instagram 浏览器登录态缺失，请先完成登录。',
+                    action: 'request_session',
+                  },
+                  createdAt: '2026-04-19T00:00:00.000Z',
+                  updatedAt: '2026-04-19T05:00:00.000Z',
+                },
+              ],
+            },
+          },
+          sessionActionStateOverride: {
+            status: 'success',
+            data: {
+              ok: true,
+              sessionAction: {
+                action: 'request_session',
+                accountId: 7,
+                status: 'pending',
+                requestedAt: '2026-04-19T03:10:00.000Z',
+                message:
+                  'An unresolved browser session request already exists. Reuse the current browser lane work order and attach session metadata after login is complete.',
+                nextStep: '/api/channel-accounts/7/session',
+                jobId: 19,
+                jobStatus: 'pending',
+                artifactPath:
+                  'artifacts/browser-lane-requests/instagram/acct-instagram/request-session-job-19.json',
+                reused: true,
+              },
+              channelAccount: {
+                id: 7,
+                platform: 'instagram',
+                accountKey: 'acct-instagram',
+                displayName: 'Instagram Ops',
+                authType: 'browser',
+                status: 'healthy',
+                metadata: {},
+                session: {
+                  hasSession: false,
+                  status: 'missing',
+                  validatedAt: null,
+                  storageStatePath: null,
+                  id: 'instagram:acct-instagram',
+                },
+                latestBrowserLaneArtifact: {
+                  action: 'relogin',
+                  jobStatus: 'pending',
+                  requestedAt: '2026-04-19T05:00:00.000Z',
+                  artifactPath:
+                    'artifacts/browser-lane-requests/instagram/acct-instagram/relogin-job-27.json',
+                  resolvedAt: null,
+                },
+                publishReadiness: {
+                  platform: 'instagram',
+                  ready: false,
+                  mode: 'browser',
+                  status: 'needs_session',
+                  message: 'Instagram 浏览器登录态缺失，请先完成登录。',
+                  action: 'request_session',
+                },
+                createdAt: '2026-04-19T00:00:00.000Z',
+                updatedAt: '2026-04-19T05:00:00.000Z',
+              },
+            },
+          },
+        }),
+      );
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('请求登录工单已存在，继续沿用');
+    expect(collectText(container)).toContain(
+      'Artifact Path：artifacts/browser-lane-requests/instagram/acct-instagram/request-session-job-19.json',
+    );
+    expect(collectText(container)).toContain('最近工单：重新登录');
+    expect(collectText(container)).toContain('工单时间：2026-04-19T05:00:00.000Z');
+    expect(collectText(container)).toContain(
+      '工单路径：artifacts/browser-lane-requests/instagram/acct-instagram/relogin-job-27.json',
+    );
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('hides stale session-action overlays when a later local save validation fails for the same account', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');

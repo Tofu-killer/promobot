@@ -2448,14 +2448,30 @@ describe('channel accounts api', () => {
         expect.objectContaining({
           id: 1,
           latestBrowserLaneArtifact: expect.objectContaining({
-            action: 'request_session',
+            action: 'relogin',
             jobStatus: 'pending',
-            requestedAt: requestSessionBody.job.runAt,
-            artifactPath: requestSessionBody.sessionAction.artifactPath,
+            requestedAt: reloginBody.job.runAt,
+            artifactPath: reloginBody.sessionAction.artifactPath,
             resolvedAt: null,
           }),
         }),
       );
+      const listedResponse = await requestApp('GET', '/api/channel-accounts');
+      expect(listedResponse.status).toBe(200);
+      expect(JSON.parse(listedResponse.body)).toEqual({
+        channelAccounts: [
+          expect.objectContaining({
+            id: 1,
+            latestBrowserLaneArtifact: expect.objectContaining({
+              action: 'relogin',
+              jobStatus: 'pending',
+              requestedAt: reloginBody.job.runAt,
+              artifactPath: reloginBody.sessionAction.artifactPath,
+              resolvedAt: null,
+            }),
+          }),
+        ],
+      });
       expect(browserLaneDispatchSpy).not.toHaveBeenCalled();
       expect(jobQueueStore.list({ limit: 10 })).toEqual([
         expect.objectContaining({
