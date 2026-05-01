@@ -329,6 +329,172 @@ describe('release shell wrappers', () => {
     expect(pm2Invocations).toContain('start pm2.config.js --update-env');
   });
 
+  it('shows preflight-promobot help for direct and leading dash-dash help paths', () => {
+    for (const args of [['--help'], ['--', '--help']]) {
+      const result = runRepoScript('ops/preflight-promobot.sh', args);
+
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain('Usage: ops/preflight-promobot.sh [options]');
+      expect(result.stdout).toContain('--skip-smoke');
+      expect(result.stdout).toContain('--admin-password <secret>');
+    }
+
+    const packageJson = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8')) as {
+      scripts?: Record<string, string>;
+    };
+    expect(packageJson.scripts?.['preflight:local']).toBe('bash ops/preflight-promobot.sh');
+  });
+
+  it('rejects missing and empty preflight-promobot option values', () => {
+    const cases: Array<{ args: string[]; error: string }> = [
+      { args: ['--base-url'], error: '--base-url requires a value' },
+      { args: ['--base-url='], error: '--base-url requires a value' },
+      { args: ['--admin-password'], error: '--admin-password requires a value' },
+      { args: ['--admin-password='], error: '--admin-password requires a value' },
+    ];
+
+    for (const testCase of cases) {
+      const result = runRepoScript('ops/preflight-promobot.sh', testCase.args);
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain(testCase.error);
+    }
+  });
+
+  it('runs only preflight:prod when preflight-promobot skips smoke', () => {
+    const fixture = createPreflightPromobotFixture();
+    const result = runScript(fixture.scriptPath, ['--skip-smoke'], {
+      cwd: fixture.rootDir,
+      env: {
+        ...process.env,
+        PATH: `${fixture.binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+      },
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Running pnpm preflight:prod');
+    expect(result.stdout).toContain('Skipping smoke check');
+    expect(fs.readFileSync(fixture.pnpmMarkerPath, 'utf8')).toContain('preflight:prod');
+    expect(fs.readFileSync(fixture.pnpmMarkerPath, 'utf8')).not.toContain('smoke:server');
+    expect(fs.existsSync(fixture.smokeMarkerPath)).toBe(false);
+  });
+
+  it('prefers explicit preflight-promobot smoke args over environment defaults', () => {
+    const fixture = createPreflightPromobotFixture({
+      rootEnvFileContent: 'PORT=4988\nADMIN_PASSWORD=root-secret\n',
+      shellEnvFileContent: 'PORT=5123\nPROMOBOT_ADMIN_PASSWORD=shell-secret\n',
+    });
+    const result = runScript(
+      fixture.scriptPath,
+      ['--base-url', 'http://127.0.0.1:6123', '--admin-password', 'cli-secret'],
+      {
+        cwd: fixture.rootDir,
+        env: {
+          ...process.env,
+          PATH: `${fixture.binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+          PROMOBOT_BASE_URL: 'http://127.0.0.1:7001',
+          PROMOBOT_ADMIN_PASSWORD: 'env-secret',
+          ADMIN_PASSWORD: 'admin-env-secret',
+          PORT: '7002',
+        },
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Running smoke check against http://127.0.0.1:6123');
+    expect(fs.readFileSync(fixture.pnpmMarkerPath, 'utf8')).toContain(
+      'smoke:server -- --base-url http://127.0.0.1:6123',
+    );
+    expect(fs.readFileSync(fixture.smokeMarkerPath, 'utf8')).toContain(
+      'PROMOBOT_ADMIN_PASSWORD=cli-secret',
+    );
+    expect(fs.readFileSync(fixture.smokeMarkerPath, 'utf8')).not.toContain(
+      'PROMOBOT_ADMIN_PASSWORD=shell-secret',
+    );
+  });
+
+  it('fails preflight-promobot smoke validation when no admin password is configured', () => {
+    const fixture = createPreflightPromobotFixture();
+    const env = {
+      ...process.env,
+      PATH: `${fixture.binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+    };
+
+    delete env.PROMOBOT_ADMIN_PASSWORD;
+    delete env.ADMIN_PASSWORD;
+    delete env.PROMOBOT_BASE_URL;
+    delete env.PORT;
+
+    const result = runScript(fixture.scriptPath, [], {
+      cwd: fixture.rootDir,
+      env,
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(
+      'Smoke check requires --admin-password, PROMOBOT_ADMIN_PASSWORD, ADMIN_PASSWORD, shell/.env, or repo-root .env; use --skip-smoke to disable it',
+    );
+    expect(fs.existsSync(fixture.pnpmMarkerPath)).toBe(false);
+  });
+
+  it('prefers shell env defaults when preflight-promobot runs smoke checks', () => {
+    const fixture = createPreflightPromobotFixture({
+      rootEnvFileContent: 'PORT=4988\nADMIN_PASSWORD=root-secret\n',
+      shellEnvFileContent: 'PORT=5123\nPROMOBOT_ADMIN_PASSWORD=shell-secret\n',
+    });
+    const env = {
+      ...process.env,
+      PATH: `${fixture.binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+    };
+
+    delete env.PROMOBOT_ADMIN_PASSWORD;
+    delete env.ADMIN_PASSWORD;
+    delete env.PROMOBOT_BASE_URL;
+    delete env.PORT;
+
+    const result = runScript(fixture.scriptPath, [], {
+      cwd: fixture.rootDir,
+      env,
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Running pnpm preflight:prod');
+    expect(result.stdout).toContain('Running smoke check against http://127.0.0.1:5123');
+    expect(result.stdout).toContain('Preflight completed');
+    expect(fs.readFileSync(fixture.pnpmMarkerPath, 'utf8')).toContain('preflight:prod');
+    expect(fs.readFileSync(fixture.pnpmMarkerPath, 'utf8')).toContain(
+      'smoke:server -- --base-url http://127.0.0.1:5123',
+    );
+    expect(fs.readFileSync(fixture.smokeMarkerPath, 'utf8')).toContain(
+      'PROMOBOT_ADMIN_PASSWORD=shell-secret',
+    );
+  });
+
+  it('propagates preflight-promobot preflight failures without running smoke', () => {
+    const fixture = createPreflightPromobotFixture({
+      preflightExitCode: 7,
+      preflightFailureMessage: 'preflight failed',
+    });
+    const result = runScript(
+      fixture.scriptPath,
+      ['--base-url', 'http://127.0.0.1:6123', '--admin-password', 'cli-secret'],
+      {
+        cwd: fixture.rootDir,
+        env: {
+          ...process.env,
+          PATH: `${fixture.binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+        },
+      },
+    );
+
+    expect(result.status).toBe(7);
+    expect(result.stdout).toContain('Running pnpm preflight:prod');
+    expect(result.stderr).toContain('preflight failed');
+    expect(fs.readFileSync(fixture.pnpmMarkerPath, 'utf8')).toContain('preflight:prod');
+    expect(fs.readFileSync(fixture.pnpmMarkerPath, 'utf8')).not.toContain('smoke:server');
+    expect(fs.existsSync(fixture.smokeMarkerPath)).toBe(false);
+  });
+
   it('shows verify-downloaded-release help for direct and leading dash-dash help paths', () => {
     for (const args of [['--help'], ['--', '--help']]) {
       const result = runRepoScript('ops/verify-downloaded-release.sh', args);
@@ -633,6 +799,59 @@ exit 0
     rootDir,
     binDir,
     pm2MarkerPath,
+    pnpmMarkerPath,
+    scriptPath,
+    smokeMarkerPath,
+  };
+}
+
+function createPreflightPromobotFixture(
+  options: {
+    rootEnvFileContent?: string;
+    shellEnvFileContent?: string;
+    preflightExitCode?: number;
+    preflightFailureMessage?: string;
+  } = {},
+) {
+  const rootDir = createTempDir('promobot-preflight-local-script-');
+  const binDir = path.join(rootDir, 'bin');
+  const pnpmMarkerPath = path.join(rootDir, 'pnpm-invocations.log');
+  const smokeMarkerPath = path.join(rootDir, 'smoke-invocations.log');
+  const scriptPath = path.join(rootDir, 'ops/preflight-promobot.sh');
+
+  fs.mkdirSync(path.dirname(scriptPath), { recursive: true });
+  fs.copyFileSync(path.resolve(repoRoot, 'ops/preflight-promobot.sh'), scriptPath);
+
+  writeFile(rootDir, 'package.json', '{}\n');
+
+  if (options.rootEnvFileContent) {
+    writeFile(rootDir, '.env', options.rootEnvFileContent);
+  }
+
+  if (options.shellEnvFileContent) {
+    writeFile(rootDir, 'shell/.env', options.shellEnvFileContent);
+  }
+
+  writeExecutable(
+    binDir,
+    'pnpm',
+    `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${pnpmMarkerPath}"
+if [ "\${1:-}" = "preflight:prod" ] && [ "${options.preflightExitCode ?? 0}" -ne 0 ]; then
+  printf '%s\\n' "${options.preflightFailureMessage ?? 'preflight failed'}" >&2
+  exit ${options.preflightExitCode ?? 0}
+fi
+if [ "\${1:-}" = "smoke:server" ]; then
+  printf 'PROMOBOT_ADMIN_PASSWORD=%s\\n' "\${PROMOBOT_ADMIN_PASSWORD:-}" >> "${smokeMarkerPath}"
+  printf 'ARGS=%s\\n' "$*" >> "${smokeMarkerPath}"
+fi
+exit 0
+`,
+  );
+
+  return {
+    rootDir,
+    binDir,
     pnpmMarkerPath,
     scriptPath,
     smokeMarkerPath,
