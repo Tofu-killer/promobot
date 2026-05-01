@@ -65,6 +65,11 @@ const REQUIRED_FILES = [
   path.join('ops', 'verify-release.sh'),
 ] as const;
 
+const OPTIONAL_BUNDLED_OPS_FILES = [
+  path.join('ops', 'preflight-promobot.sh'),
+  path.join('ops', 'rollback-promobot.sh'),
+] as const;
+
 export function parseReleaseBundleArgs(argv: string[]): ReleaseBundleArgs {
   const parsed: ReleaseBundleArgs = {};
 
@@ -148,7 +153,6 @@ export function runReleaseBundle(
   copyRequiredOpsScripts({
     copiedFiles,
     destinationDir: path.join(outputDir, 'ops'),
-    missing,
     sourceDir: path.join(repoRoot, 'ops'),
   });
 
@@ -261,32 +265,24 @@ function copyRequiredFile(input: {
 function copyRequiredOpsScripts(input: {
   copiedFiles: Set<string>;
   destinationDir: string;
-  missing: string[];
   sourceDir: string;
 }) {
-  if (!isDirectory(input.sourceDir)) {
-    input.missing.push('ops/*.sh');
-    return;
-  }
+  let createdDestinationDir = false;
 
-  const entries = fs
-    .readdirSync(input.sourceDir, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && entry.name.endsWith('.sh'))
-    .map((entry) => entry.name)
-    .sort((left, right) => left.localeCompare(right));
+  for (const relativePath of OPTIONAL_BUNDLED_OPS_FILES) {
+    const sourcePath = path.join(path.dirname(input.sourceDir), relativePath);
+    if (!isRegularFile(sourcePath)) {
+      continue;
+    }
 
-  if (entries.length === 0) {
-    input.missing.push('ops/*.sh');
-    return;
-  }
+    if (!createdDestinationDir) {
+      fs.mkdirSync(input.destinationDir, { recursive: true });
+      createdDestinationDir = true;
+    }
 
-  fs.mkdirSync(input.destinationDir, { recursive: true });
-
-  for (const entry of entries) {
-    const sourcePath = path.join(input.sourceDir, entry);
-    const destinationPath = path.join(input.destinationDir, entry);
+    const destinationPath = path.join(path.dirname(input.destinationDir), relativePath);
     fs.copyFileSync(sourcePath, destinationPath);
-    input.copiedFiles.add(toPosixPath(path.join('ops', entry)));
+    input.copiedFiles.add(toPosixPath(relativePath));
   }
 }
 

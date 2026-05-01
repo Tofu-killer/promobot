@@ -259,7 +259,12 @@ release bundle 当前至少会包含：
 - `package.json`
 - `pnpm-lock.yaml`
 - `pm2.config.js`
-- `ops/*.sh`（包括 `ops/deploy-release.sh`）
+- `ops/deploy-promobot.sh`
+- `ops/deploy-release.sh`
+- `ops/preflight-promobot.sh`
+- `ops/rollback-promobot.sh`
+- `ops/verify-downloaded-release.sh`
+- `ops/verify-release.sh`
 - `docs/DEPLOYMENT.md`
 - `.env.example`
 

@@ -457,6 +457,58 @@ describe('release bundle cli', () => {
     );
   });
 
+  it('does not bundle repo-only release wrapper scripts outside the release bundle contract', async () => {
+    const releaseBundle = await loadReleaseBundleModule();
+
+    expect(releaseBundle).toBeTruthy();
+    if (!releaseBundle) {
+      return;
+    }
+
+    const repoRoot = createTempRepoRoot();
+    writeFile(repoRoot, 'package.json', '{ "name": "promobot" }\n');
+    writeFile(repoRoot, 'pnpm-lock.yaml', 'lockfile\n');
+    writeFile(repoRoot, 'pm2.config.js', 'export default {};\n');
+    writeFile(repoRoot, '.env.example', 'ADMIN_PASSWORD=change-me\n');
+    writeFile(repoRoot, 'database/schema.sql', 'create table drafts (id integer primary key);\n');
+    writeFile(repoRoot, 'docs/DEPLOYMENT.md', '# Deploy\n');
+    writeFile(repoRoot, 'dist/server/index.js', 'console.log("server");\n');
+    writeFile(repoRoot, 'dist/server/cli/deploymentSmoke.js', 'console.log("smoke");\n');
+    writeFile(
+      repoRoot,
+      'dist/server/cli/browserHandoffComplete.js',
+      'console.log("browser handoff complete");\n',
+    );
+    writeFile(
+      repoRoot,
+      'dist/server/cli/inboxReplyHandoffComplete.js',
+      'console.log("handoff complete");\n',
+    );
+    writeFile(repoRoot, 'dist/server/cli/releaseVerify.js', 'console.log("verify");\n');
+    writeFile(repoRoot, 'dist/client/index.html', '<!doctype html>\n');
+    writeFile(repoRoot, 'ops/deploy-release.sh', '#!/usr/bin/env bash\n');
+    writeFile(repoRoot, 'ops/deploy-promobot.sh', '#!/usr/bin/env bash\n');
+    writeFile(repoRoot, 'ops/preflight-promobot.sh', '#!/usr/bin/env bash\n');
+    writeFile(repoRoot, 'ops/release-promobot.sh', '#!/usr/bin/env bash\n');
+    writeFile(repoRoot, 'ops/rollback-promobot.sh', '#!/usr/bin/env bash\n');
+    writeFile(repoRoot, 'ops/verify-downloaded-release.sh', '#!/usr/bin/env bash\n');
+    writeFile(repoRoot, 'ops/verify-release.sh', '#!/usr/bin/env bash\n');
+
+    const outputDir = path.join(repoRoot, 'artifacts', 'release-bundle');
+    const summary = releaseBundle.runReleaseBundle({
+      repoRoot,
+      outputDir,
+    });
+
+    expect(summary.ok).toBe(true);
+    expect(summary.files).toEqual(
+      expect.arrayContaining(['ops/preflight-promobot.sh', 'ops/rollback-promobot.sh']),
+    );
+    expect(summary.files).not.toContain('ops/release-promobot.sh');
+    expect(summary.checksums).not.toHaveProperty('ops/release-promobot.sh');
+    expect(fs.existsSync(path.join(outputDir, 'ops/release-promobot.sh'))).toBe(false);
+  });
+
   it('removes stale undeclared files from an existing output directory before writing a new bundle', async () => {
     const releaseBundle = await loadReleaseBundleModule();
     const releaseVerify = await loadReleaseVerifyModule();
