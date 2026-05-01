@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 type ReleaseBundleSummary = {
   checksums: Record<string, string>;
@@ -466,6 +466,34 @@ describe('release bundle cli', () => {
         warnings: [],
       }),
     );
+  });
+
+  it('rejects output directories that would delete the repo root during bundle cleanup', async () => {
+    const releaseBundle = await loadReleaseBundleModule();
+
+    expect(releaseBundle).toBeTruthy();
+    if (!releaseBundle) {
+      return;
+    }
+
+    const repoRoot = createTempRepoRoot();
+    const rmSyncSpy = vi
+      .spyOn(fs, 'rmSync')
+      .mockImplementation(() => undefined as ReturnType<typeof fs.rmSync>);
+
+    try {
+      for (const outputDir of [repoRoot, path.dirname(repoRoot)]) {
+        expect(() =>
+          releaseBundle.runReleaseBundle({
+            repoRoot,
+            outputDir,
+          }),
+        ).toThrow('--output-dir must stay outside the repo root cleanup boundary');
+      }
+      expect(rmSyncSpy).not.toHaveBeenCalled();
+    } finally {
+      rmSyncSpy.mockRestore();
+    }
   });
 });
 

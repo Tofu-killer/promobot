@@ -119,6 +119,7 @@ export function runReleaseBundle(
   const copiedFiles = new Set<string>();
   const missing: string[] = [];
 
+  assertSafeOutputDir({ outputDir, repoRoot });
   prepareOutputDir(outputDir);
 
   for (const directory of REQUIRED_DIRECTORIES) {
@@ -199,6 +200,15 @@ export async function runReleaseBundleCli(
 export function applyReleaseBundleExitCode(summary: { ok: boolean } | null) {
   if (summary && !summary.ok) {
     process.exitCode = 1;
+  }
+}
+
+function assertSafeOutputDir(input: { outputDir: string; repoRoot: string }) {
+  if (
+    input.outputDir === input.repoRoot ||
+    isSameOrAncestorDirectory(input.outputDir, input.repoRoot)
+  ) {
+    throw new Error('--output-dir must stay outside the repo root cleanup boundary');
   }
 }
 
@@ -304,6 +314,14 @@ function listFilesRecursively(targetPath: string): string[] {
 function prepareOutputDir(outputDir: string) {
   fs.rmSync(outputDir, { force: true, recursive: true });
   fs.mkdirSync(outputDir, { recursive: true });
+}
+
+function isSameOrAncestorDirectory(candidateAncestor: string, targetPath: string) {
+  const relativePath = path.relative(candidateAncestor, targetPath);
+  return (
+    relativePath === '' ||
+    (!relativePath.startsWith('..') && relativePath !== '.' && !path.isAbsolute(relativePath))
+  );
 }
 
 function isDirectory(targetPath: string) {
