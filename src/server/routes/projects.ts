@@ -119,6 +119,22 @@ projectsRouter.patch('/:id', (request, response) => {
   }
 
   const body = (input ?? {}) as Record<string, unknown>;
+  const allowedFields = new Set([
+    'name',
+    'siteName',
+    'siteUrl',
+    'siteDescription',
+    'sellingPoints',
+    'brandVoice',
+    'ctas',
+    'archived',
+  ]);
+  const bodyKeys = Object.keys(body);
+  if (bodyKeys.some((key) => !allowedFields.has(key))) {
+    response.status(400).json({ error: 'invalid project payload' });
+    return;
+  }
+
   if (
     body.sellingPoints !== undefined &&
     (!Array.isArray(body.sellingPoints) ||

@@ -240,6 +240,49 @@ describe('projects api', () => {
     }
   });
 
+  it('rejects project update payloads that only send unknown fields', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const created = await requestApp('POST', '/api/projects', {
+        name: 'Legacy Workspace',
+        siteName: 'PromoBot',
+        siteUrl: 'https://legacy.example.com',
+        siteDescription: 'Legacy create payload',
+        sellingPoints: ['Existing flow'],
+        brandVoice: 'Direct and clear',
+        ctas: ['Talk to sales'],
+      });
+
+      expect(created.status).toBe(201);
+
+      for (const invalidPayload of [{ brandVoce: 'Warm' }, { foo: 'bar' }]) {
+        const updated = await requestApp('PATCH', '/api/projects/1', invalidPayload);
+
+        expect(updated.status).toBe(400);
+        expect(JSON.parse(updated.body)).toEqual({
+          error: 'invalid project payload',
+        });
+      }
+
+      const listed = await requestApp('GET', '/api/projects');
+
+      expect(listed.status).toBe(200);
+      expect(JSON.parse(listed.body)).toEqual({
+        projects: [
+          expect.objectContaining({
+            id: 1,
+            name: 'Legacy Workspace',
+            brandVoice: 'Direct and clear',
+            ctas: ['Talk to sales'],
+            archived: false,
+          }),
+        ],
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('rejects project payload arrays that mix strings with non-string values', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
