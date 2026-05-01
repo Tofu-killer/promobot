@@ -39,6 +39,46 @@ describe('GitHub workflow contracts', () => {
     expect(releaseBundleWorkflow).not.toContain('    branches:');
   });
 
+  it('keeps CI workflow lint and release bundle smoke aligned with the documented contract', () => {
+    const ciWorkflow = fs.readFileSync(path.resolve('.github/workflows/ci.yml'), 'utf8');
+    const readme = fs.readFileSync(path.resolve('README.md'), 'utf8');
+    const deploymentDoc = fs.readFileSync(path.resolve('docs/DEPLOYMENT.md'), 'utf8');
+    const lintJob = ciWorkflow.slice(ciWorkflow.indexOf('  lint:'), ciWorkflow.indexOf('  ci:'));
+    const ciJob = ciWorkflow.slice(ciWorkflow.indexOf('  ci:'));
+
+    expect(readme).toContain(
+      'GitHub Actions `CI`：`main` 的 push / pull_request 现在会先跑 `lint` job，通过 `rhysd/actionlint@v1.7.12` 校验 workflow，并用 `bash -n ops/*.sh` 检查 ops shell wrapper 语法；`lint` 和 `ci` 两个 job 都显式收敛到 `permissions: contents: read`；随后 `ci` job 继续运行 `pnpm test`、`pnpm build`，并追加一轮目录型 release bundle smoke：基于已构建的 `dist/server/cli/releaseBundle.js` 产出 bundle，再调用 bundle 自带的 `ops/verify-release.sh` 校验，用于提前拦截 workflow / shell wrapper 语法、测试、构建以及 release bundle 交付链回归',
+    );
+    expect(deploymentDoc).toContain(
+      '与之分开的主 GitHub Actions `CI` workflow 会在 `main` 的 push / pull_request 上先跑 `lint` job：通过 `rhysd/actionlint@v1.7.12` 校验 workflow，并用 `bash -n ops/*.sh` 检查 ops shell wrapper 语法；`lint` 和 `ci` 两个 job 都显式收敛到 `permissions: contents: read`；随后 `ci` job 再执行 `pnpm test`、`pnpm build`，并追加一轮目录型 release bundle smoke：基于已构建的 `dist/server/cli/releaseBundle.js` 产出 bundle，再调用 bundle 自带的 `ops/verify-release.sh` 校验',
+    );
+
+    expect(lintJob).toContain('    permissions:');
+    expect(lintJob).toContain('      contents: read');
+    expect(lintJob).toContain('uses: rhysd/actionlint@v1.7.12');
+    expect(lintJob).toContain('run: bash -n ops/*.sh');
+
+    expect(ciJob).toContain('    permissions:');
+    expect(ciJob).toContain('      contents: read');
+    expect(ciJob).toContain('run: pnpm test');
+    expect(ciJob).toContain('run: pnpm build');
+    expect(ciJob).toContain('      - name: Smoke release bundle flow');
+    expect(ciJob).toContain('RELEASE_BUNDLE_DIR: ${{ runner.temp }}/promobot-release');
+    expect(ciJob).toContain(
+      'node dist/server/cli/releaseBundle.js --output-dir "$RELEASE_BUNDLE_DIR"',
+    );
+    expect(ciJob).toContain(
+      'bash "$RELEASE_BUNDLE_DIR/ops/verify-release.sh" --input-dir "$RELEASE_BUNDLE_DIR"',
+    );
+    expectOrdered(ciJob, [
+      '      - name: Install dependencies',
+      '      - name: Rebuild native dependencies',
+      '      - name: Run tests',
+      '      - name: Build',
+      '      - name: Smoke release bundle flow',
+    ]);
+  });
+
   it('keeps the release-bundle manual preview, test policy, and metadata contracts aligned', () => {
     const releaseBundleWorkflow = fs.readFileSync(
       path.resolve('.github/workflows/release-bundle.yml'),
