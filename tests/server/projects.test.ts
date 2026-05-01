@@ -774,6 +774,66 @@ describe('projects api', () => {
     }
   });
 
+  it('rejects source config patch payloads that omit all supported fields or only send unknown fields', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const projectResponse = await requestApp('POST', '/api/projects', {
+        name: 'Monitoring Workspace',
+        siteName: 'PromoBot',
+        siteUrl: 'https://example.com',
+        siteDescription: 'Brand monitoring',
+        sellingPoints: ['Fast iteration'],
+      });
+      expect(projectResponse.status).toBe(201);
+
+      const created = await requestApp('POST', '/api/projects/1/source-configs', {
+        projectId: 1,
+        sourceType: 'keyword+reddit',
+        platform: 'reddit',
+        label: 'Competitor mentions',
+        configJson: {
+          query: 'promobot',
+        },
+        enabled: true,
+        pollIntervalMinutes: 30,
+      });
+      expect(created.status).toBe(201);
+
+      const createdPayload = JSON.parse(created.body) as {
+        sourceConfig: {
+          updatedAt: string;
+        };
+      };
+
+      for (const invalidPayload of [{}, { lable: 'Brand mentions' }]) {
+        const invalidUpdate = await requestApp('PATCH', '/api/projects/1/source-configs/1', invalidPayload);
+
+        expect(invalidUpdate.status).toBe(400);
+        expect(JSON.parse(invalidUpdate.body)).toEqual({
+          error: 'invalid source config payload',
+        });
+      }
+
+      const listResponse = await requestApp('GET', '/api/projects/1/source-configs');
+      expect(listResponse.status).toBe(200);
+      expect(JSON.parse(listResponse.body)).toEqual({
+        sourceConfigs: [
+          expect.objectContaining({
+            id: 1,
+            projectId: 1,
+            label: 'Competitor mentions',
+            configJson: {
+              query: 'promobot',
+            },
+            updatedAt: createdPayload.sourceConfig.updatedAt,
+          }),
+        ],
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('accepts profile source configs when either the handle or profile url remains canonical', async () => {
     const { rootDir } = createTestDatabasePath();
     try {

@@ -314,6 +314,19 @@ function parseUpdateSourceConfigInput(
     return invalidSourceConfigPayload();
   }
 
+  const allowedFields = new Set([
+    'sourceType',
+    'platform',
+    'label',
+    'configJson',
+    'enabled',
+    'pollIntervalMinutes',
+  ]);
+  const inputKeys = Object.keys(input);
+  if (inputKeys.length === 0 || inputKeys.some((key) => !allowedFields.has(key))) {
+    return invalidSourceConfigPayload();
+  }
+
   if (input.projectId !== undefined) {
     return invalidSourceConfigPayload();
   }
