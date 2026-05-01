@@ -262,4 +262,56 @@ describe('GitHub workflow contracts', () => {
     expect(releaseBundleJob).toContain('    timeout-minutes: 45');
     expect(publishReleaseJob).toContain('    timeout-minutes: 20');
   });
+
+  it('keeps release body and workflow summary status semantics aligned with the documented release guidance', () => {
+    const releaseBundleWorkflow = fs.readFileSync(
+      path.resolve('.github/workflows/release-bundle.yml'),
+      'utf8',
+    );
+    const readme = fs.readFileSync(path.resolve('README.md'), 'utf8');
+    const deploymentDoc = fs.readFileSync(path.resolve('docs/DEPLOYMENT.md'), 'utf8');
+    const summaryStep = releaseBundleWorkflow.slice(
+      releaseBundleWorkflow.indexOf('      - name: Write workflow run summary'),
+      releaseBundleWorkflow.indexOf('  publish-release-asset:'),
+    );
+    const releaseBodyStep = releaseBundleWorkflow.slice(
+      releaseBundleWorkflow.indexOf('      - name: Generate GitHub Release body'),
+      releaseBundleWorkflow.indexOf('      - name: Publish release bundle assets to GitHub Release'),
+    );
+
+    for (const doc of [readme, deploymentDoc]) {
+      expect(doc).toContain(
+        '也会把该 tag 的 `prerelease` 和 `test_execution.summary` 对应的测试执行状态写成给人读的页面说明',
+      );
+    }
+
+    expect(readme).toContain(
+      '对手动 preview run，它会显示带 preview suffix 的最终派生命名；对 tag release（`v*` tag push），它会显示带 tag 版本号的最终派生命名，并把下一步指向 GitHub Release 页面。',
+    );
+    expect(deploymentDoc).toContain(
+      '对手动 preview run，它会显示带 preview suffix 的最终派生命名；对 tag release（`v*` tag push），它会显示带 tag 版本号的最终派生命名，并把下一步指向 GitHub Release 页面',
+    );
+
+    expect(releaseBodyStep).toContain("['Release type', releaseTypeLabel]");
+    expect(releaseBodyStep).toContain("['Tests summary', metadata.test_execution.summary]");
+    expect(releaseBodyStep).toContain("['Verification helper', `\\`${helperFile}\\``]");
+
+    expect(summaryStep).toContain("['Run mode', 'Tag release']");
+    expect(summaryStep).toContain("['Release tag', `\\`${process.env.GITHUB_REF_NAME}\\``]");
+    expect(summaryStep).toContain("['`pnpm test`', metadata.test_execution.summary]");
+    expect(summaryStep).toContain("['Run mode', 'Manual preview']");
+    expect(summaryStep).toContain(
+      "['Requested `asset_suffix`', requestedPreviewSuffix ? `\\`${requestedPreviewSuffix}\\`` : '`not set`']",
+    );
+    expect(summaryStep).toContain(
+      "['`asset_suffix` effective', requestedPreviewSuffix",
+    );
+    expect(summaryStep).toContain(
+      'Next step: the publish job will attach the same files plus',
+    );
+    expect(summaryStep).toContain('to the [GitHub Release page](${releasePageUrl})');
+    expect(summaryStep).toContain(
+      ': `Next step: download the \\`${process.env.ARTIFACT_NAME}\\` artifact from this run; it now includes \\`${metadata.helper_file}\\` alongside the archive and sidecars.`,',
+    );
+  });
 });
