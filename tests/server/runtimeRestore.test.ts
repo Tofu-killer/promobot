@@ -383,6 +383,107 @@ describe('runtime restore cli', () => {
     }
   });
 
+  it('allows --skip-env to restore from a manifest that is incomplete only because .env is missing', async () => {
+    const runtimeRestore = await loadRuntimeRestoreModule();
+    const testDatabase = createTestDatabasePath();
+
+    expect(runtimeRestore).not.toBeNull();
+
+    try {
+      const inputDir = path.join(testDatabase.rootDir, 'imports', 'runtime-backup');
+      const envFilePath = path.join(testDatabase.rootDir, '.env');
+      const databaseBackupPath = path.join(inputDir, 'database', 'promobot.sqlite');
+
+      fs.mkdirSync(path.dirname(testDatabase.databasePath), { recursive: true });
+      fs.writeFileSync(testDatabase.databasePath, 'current-db', 'utf8');
+      fs.writeFileSync(envFilePath, 'ADMIN_PASSWORD=old\n', 'utf8');
+      fs.mkdirSync(path.dirname(databaseBackupPath), { recursive: true });
+      fs.writeFileSync(databaseBackupPath, 'restored-db', 'utf8');
+
+      writeBackupManifest({
+        inputDir,
+        copied: [
+          {
+            kind: 'database',
+            type: 'file',
+            sourcePath: testDatabase.databasePath,
+            destinationPath: databaseBackupPath,
+          },
+        ],
+        ok: false,
+        missing: [
+          {
+            kind: 'envFile',
+            type: 'file',
+            expectedPath: envFilePath,
+          },
+        ],
+      });
+
+      const stdout = createStdoutBuffer();
+      const summary = (await runtimeRestore?.runRuntimeRestoreCli(
+        ['--input-dir', inputDir, '--skip-env'],
+        {
+          now: () => new Date('2026-04-24T20:30:00.000Z'),
+          repoRootDir: testDatabase.rootDir,
+          stdout: stdout.stdout,
+        },
+      )) as {
+        backupsCreated: Array<{
+          backupPath: string;
+          kind: string;
+          originalPath: string;
+          type: string;
+        }>;
+        inputDir: string;
+        manifestPath: string;
+        missing: unknown[];
+        repoRoot: string;
+        restored: Array<{
+          backupPath: string;
+          kind: string;
+          targetPath: string;
+          type: string;
+        }>;
+        restoredAt: string;
+        skipped: unknown[];
+      };
+
+      expect(summary).toEqual({
+        ok: true,
+        restoredAt: '2026-04-24T20:30:00.000Z',
+        repoRoot: testDatabase.rootDir,
+        inputDir,
+        manifestPath: path.join(inputDir, 'manifest.json'),
+        restored: [
+          {
+            kind: 'database',
+            type: 'file',
+            backupPath: databaseBackupPath,
+            targetPath: testDatabase.databasePath,
+          },
+        ],
+        skipped: [],
+        missing: [],
+        backupsCreated: [
+          {
+            kind: 'database',
+            type: 'file',
+            originalPath: testDatabase.databasePath,
+            backupPath: `${testDatabase.databasePath}.pre-restore-2026-04-24T20-30-00.000Z`,
+          },
+        ],
+      });
+
+      expect(fs.readFileSync(testDatabase.databasePath, 'utf8')).toBe('restored-db');
+      expect(fs.readFileSync(envFilePath, 'utf8')).toBe('ADMIN_PASSWORD=old\n');
+      expect(fs.existsSync(`${envFilePath}.pre-restore-2026-04-24T20-30-00.000Z`)).toBe(false);
+      expect(JSON.parse(stdout.read())).toEqual(summary);
+    } finally {
+      cleanupTestDatabasePath(testDatabase.rootDir);
+    }
+  });
+
   it('records missing backup items without touching existing restore targets', async () => {
     const runtimeRestore = await loadRuntimeRestoreModule();
     const testDatabase = createTestDatabasePath();

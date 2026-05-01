@@ -168,9 +168,16 @@ export async function runRuntimeRestoreCli(
     backupsCreated: [],
   };
 
-  if (manifest.ok === false || (Array.isArray(manifest.missing) && manifest.missing.length > 0)) {
+  const incompleteManifestMissingItems = (manifest.missing ?? []).filter(
+    (missingItem) => !(parsed.skipEnv && missingItem.kind === 'envFile'),
+  );
+  const shouldRefuseIncompleteManifest =
+    incompleteManifestMissingItems.length > 0 ||
+    (manifest.ok === false && (manifest.missing?.length ?? 0) === 0);
+
+  if (shouldRefuseIncompleteManifest) {
     summary.ok = false;
-    for (const missingItem of manifest.missing ?? []) {
+    for (const missingItem of incompleteManifestMissingItems) {
       summary.missing.push({
         kind: missingItem.kind,
         type: missingItem.type,
