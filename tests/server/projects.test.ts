@@ -192,7 +192,7 @@ describe('projects api', () => {
     }
   });
 
-  it('archives a project and hides it from the default projects list', async () => {
+  it('rejects archive mutations through PATCH and keeps the project visible until the archive route is used', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
       const created = await requestApp('POST', '/api/projects', {
@@ -209,19 +209,21 @@ describe('projects api', () => {
         archived: true,
       });
 
-      expect(archived.status).toBe(200);
+      expect(archived.status).toBe(400);
       expect(JSON.parse(archived.body)).toEqual({
-        project: expect.objectContaining({
-          id: 1,
-          archived: true,
-        }),
+        error: 'project archive must use POST /api/projects/:id/archive',
       });
 
       const listed = await requestApp('GET', '/api/projects');
 
       expect(listed.status).toBe(200);
       expect(JSON.parse(listed.body)).toEqual({
-        projects: [],
+        projects: [
+          expect.objectContaining({
+            id: 1,
+            archived: false,
+          }),
+        ],
       });
     } finally {
       cleanupTestDatabasePath(rootDir);

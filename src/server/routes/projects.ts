@@ -106,6 +106,11 @@ projectsRouter.patch('/:id', (request, response) => {
   }
 
   const input = request.body ?? {};
+  if (input !== null && typeof input === 'object' && 'archived' in input) {
+    response.status(400).json({ error: 'project archive must use POST /api/projects/:id/archive' });
+    return;
+  }
+
   const project = projectStore.update(id, {
     name: typeof input.name === 'string' ? input.name : undefined,
     siteName: typeof input.siteName === 'string' ? input.siteName : undefined,
@@ -118,7 +123,6 @@ projectsRouter.patch('/:id', (request, response) => {
     ctas: Array.isArray(input.ctas)
       ? input.ctas.filter((value: unknown): value is string => typeof value === 'string')
       : undefined,
-    archived: typeof input.archived === 'boolean' ? input.archived : undefined,
   });
 
   if (!project) {

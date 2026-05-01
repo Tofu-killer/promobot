@@ -33,7 +33,6 @@ export interface UpdateProjectInput {
   sellingPoints?: string[];
   brandVoice?: string;
   ctas?: string[];
-  archived?: boolean;
 }
 
 export interface ProjectStore {
@@ -206,8 +205,7 @@ function updateProject(
             site_description = @site_description,
             selling_points = @selling_points,
             brand_voice = @brand_voice,
-            ctas = @ctas,
-            archived = @archived
+            ctas = @ctas
         WHERE id = @id
       `,
     )
@@ -220,21 +218,22 @@ function updateProject(
       selling_points: JSON.stringify(input.sellingPoints ?? current.sellingPoints),
       brand_voice: input.brandVoice ?? current.brandVoice,
       ctas: JSON.stringify(input.ctas ?? current.ctas),
-      archived: input.archived ?? current.archived ? 1 : 0,
     });
 
-  return normalizeProjectRow({
-    ...current,
-    name: input.name ?? current.name,
-    siteName: input.siteName ?? current.siteName,
-    siteUrl: input.siteUrl ?? current.siteUrl,
-    siteDescription: input.siteDescription ?? current.siteDescription,
-    sellingPoints: JSON.stringify(input.sellingPoints ?? current.sellingPoints),
-    brandVoice: input.brandVoice ?? current.brandVoice,
-    ctas: JSON.stringify(input.ctas ?? current.ctas),
-    archived: input.archived ?? current.archived ? 1 : 0,
-    archivedAt: current.archivedAt,
-  });
+  const row = database
+    .prepare(
+      `
+        SELECT id, name, site_name AS siteName, site_url AS siteUrl,
+               site_description AS siteDescription, selling_points AS sellingPoints,
+               brand_voice AS brandVoice, ctas AS ctas,
+               archived AS archived, archived_at AS archivedAt, created_at AS createdAt
+        FROM projects
+        WHERE id = ?
+      `,
+    )
+    .get([id]);
+
+  return row ? normalizeProjectRow(row as Record<string, unknown>) : undefined;
 }
 
 function archiveProject(database: DatabaseConnection, id: number): ProjectRecord | undefined {
