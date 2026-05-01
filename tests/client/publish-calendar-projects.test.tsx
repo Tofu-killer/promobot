@@ -1989,6 +1989,169 @@ describe('PublishCalendar and Projects pages', () => {
     });
   });
 
+  it('keeps project archive pending scoped when multiple archives overlap', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ProjectsPage } = await import('../../src/client/pages/Projects');
+
+    const firstArchiveDeferred = createDeferredPromise<{
+      project: {
+        id: number;
+        name: string;
+        siteName: string;
+        siteUrl: string;
+        siteDescription: string;
+        sellingPoints: string[];
+        createdAt: string;
+        archivedAt: string;
+      };
+    }>();
+    const secondArchiveDeferred = createDeferredPromise<{
+      project: {
+        id: number;
+        name: string;
+        siteName: string;
+        siteUrl: string;
+        siteDescription: string;
+        sellingPoints: string[];
+        createdAt: string;
+        archivedAt: string;
+      };
+    }>();
+    const loadProjectsAction = vi.fn().mockResolvedValue({
+      projects: [
+        {
+          id: 7,
+          name: 'Acme Launch',
+          siteName: 'Acme',
+          siteUrl: 'https://acme.test',
+          siteDescription: 'Launch week campaign',
+          sellingPoints: ['Cheap', 'Fast'],
+          createdAt: '2026-04-19T08:00:00.000Z',
+        },
+        {
+          id: 8,
+          name: 'Acme Expansion',
+          siteName: 'Acme Expansion',
+          siteUrl: 'https://acme.test/expansion',
+          siteDescription: 'Expansion brief',
+          sellingPoints: ['Broader'],
+          createdAt: '2026-04-19T09:00:00.000Z',
+        },
+      ],
+    });
+    const loadSourceConfigsAction = vi.fn().mockResolvedValue({
+      sourceConfigs: [],
+    });
+    const archiveProjectAction = vi.fn((projectId: number) =>
+      projectId === 7 ? firstArchiveDeferred.promise : secondArchiveDeferred.promise,
+    );
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ProjectsPage as never, {
+          loadProjectsAction,
+          loadSourceConfigsAction,
+          archiveProjectAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const firstArchiveButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-project-archive-id') === '7' &&
+        collectText(element).includes('归档项目'),
+    );
+    const secondArchiveButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-project-archive-id') === '8' &&
+        collectText(element).includes('归档项目'),
+    );
+
+    expect(firstArchiveButton).not.toBeNull();
+    expect(secondArchiveButton).not.toBeNull();
+
+    await act(async () => {
+      firstArchiveButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    const firstPendingArchiveButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-project-archive-id') === '7',
+    );
+    const secondIdleArchiveButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-project-archive-id') === '8',
+    );
+
+    expect(collectText(firstPendingArchiveButton as never)).toContain('正在归档项目...');
+    expect(firstPendingArchiveButton?.disabled).toBe(true);
+    expect(collectText(secondIdleArchiveButton as never)).toContain('归档项目');
+    expect(secondIdleArchiveButton?.disabled).toBe(false);
+
+    await act(async () => {
+      secondIdleArchiveButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    const firstStillPendingArchiveButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-project-archive-id') === '7',
+    );
+    const secondPendingArchiveButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-project-archive-id') === '8',
+    );
+
+    expect(archiveProjectAction).toHaveBeenCalledTimes(2);
+    expect(collectText(firstStillPendingArchiveButton as never)).toContain('正在归档项目...');
+    expect(firstStillPendingArchiveButton?.disabled).toBe(true);
+    expect(collectText(secondPendingArchiveButton as never)).toContain('正在归档项目...');
+    expect(secondPendingArchiveButton?.disabled).toBe(true);
+
+    await act(async () => {
+      firstArchiveDeferred.resolve({
+        project: {
+          id: 7,
+          name: 'Acme Launch',
+          siteName: 'Acme',
+          siteUrl: 'https://acme.test',
+          siteDescription: 'Launch week campaign',
+          sellingPoints: ['Cheap', 'Fast'],
+          createdAt: '2026-04-19T08:00:00.000Z',
+          archivedAt: '2026-04-23T10:00:00.000Z',
+        },
+      });
+      secondArchiveDeferred.resolve({
+        project: {
+          id: 8,
+          name: 'Acme Expansion',
+          siteName: 'Acme Expansion',
+          siteUrl: 'https://acme.test/expansion',
+          siteDescription: 'Expansion brief',
+          sellingPoints: ['Broader'],
+          createdAt: '2026-04-19T09:00:00.000Z',
+          archivedAt: '2026-04-23T10:05:00.000Z',
+        },
+      });
+      await flush();
+      await flush();
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('loads, creates, and updates project source configs through the project page', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');

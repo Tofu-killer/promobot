@@ -387,7 +387,7 @@ export function ProjectsPage({
   const [pageMessageTone, setPageMessageTone] = useState<'success' | 'error'>('success');
   const [pendingProjectSaveIds, setPendingProjectSaveIds] = useState<Record<number, boolean>>({});
   const [projectSaveMessageById, setProjectSaveMessageById] = useState<Record<number, string>>({});
-  const [pendingProjectArchiveId, setPendingProjectArchiveId] = useState<number | null>(null);
+  const [pendingProjectArchiveIds, setPendingProjectArchiveIds] = useState<Record<number, boolean>>({});
   const [pendingSourceConfigCreateProjectIds, setPendingSourceConfigCreateProjectIds] = useState<
     Record<number, boolean>
   >({});
@@ -649,6 +649,28 @@ export function ProjectsPage({
     });
   }
 
+  function setProjectArchivePending(projectId: number, pending: boolean) {
+    setPendingProjectArchiveIds((current) => {
+      if (pending) {
+        if (current[projectId]) {
+          return current;
+        }
+
+        return {
+          ...current,
+          [projectId]: true,
+        };
+      }
+
+      if (!(projectId in current)) {
+        return current;
+      }
+
+      const { [projectId]: _removed, ...rest } = current;
+      return rest;
+    });
+  }
+
   function handleSaveProject(projectId: number) {
     const form = getProjectForm(
       projects.find((project) => project.id === projectId) ?? {
@@ -701,7 +723,7 @@ export function ProjectsPage({
 
   function handleArchiveProject(projectId: number) {
     clearPageFeedback();
-    setPendingProjectArchiveId(projectId);
+    setProjectArchivePending(projectId, true);
     void archiveProjectAction(projectId)
       .then((result) => {
         setProjectForms((currentForms) => {
@@ -719,7 +741,7 @@ export function ProjectsPage({
       })
       .catch(() => undefined)
       .finally(() => {
-        setPendingProjectArchiveId((current) => (current === projectId ? null : current));
+        setProjectArchivePending(projectId, false);
       });
   }
 
@@ -1231,7 +1253,7 @@ export function ProjectsPage({
                     onClick={() => {
                       void handleArchiveProject(project.id);
                     }}
-                    disabled={pendingProjectArchiveId === project.id}
+                    disabled={Boolean(pendingProjectArchiveIds[project.id])}
                     style={{
                       borderRadius: '12px',
                       border: '1px solid #fecaca',
@@ -1242,7 +1264,7 @@ export function ProjectsPage({
                       justifySelf: 'flex-start',
                     }}
                   >
-                    {pendingProjectArchiveId === project.id ? '正在归档项目...' : '归档项目'}
+                    {pendingProjectArchiveIds[project.id] ? '正在归档项目...' : '归档项目'}
                   </button>
 
                   <SectionCard title="Source Configs" description="项目级监控源配置，驱动 monitor / inbox / reputation 抓取。">
