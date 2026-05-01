@@ -218,6 +218,17 @@ export async function runRuntimeRestoreCli(
       continue;
     }
 
+    if (!path.isAbsolute(item.sourcePath)) {
+      summary.missing.push({
+        kind: item.kind,
+        type: item.type,
+        expectedPath: item.sourcePath,
+        targetPath: item.sourcePath,
+        reason: 'backup-incomplete',
+      });
+      continue;
+    }
+
     const targetPath = path.resolve(item.sourcePath);
 
     if (!isPathInside(resolvedInputDir, backupPath)) {

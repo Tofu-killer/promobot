@@ -1193,6 +1193,72 @@ describe('runtime restore cli', () => {
     }
   });
 
+  it('refuses copied entries that still record a relative sourcePath', async () => {
+    const runtimeRestore = await loadRuntimeRestoreModule();
+    const testDatabase = createTestDatabasePath();
+
+    expect(runtimeRestore).not.toBeNull();
+
+    try {
+      const inputDir = path.join(testDatabase.rootDir, 'imports', 'runtime-backup');
+      const backupPayloadPath = path.join(inputDir, 'database', 'runtime-db.sqlite');
+      const relativeSourcePath = path.join('runtime', 'data', 'promobot.sqlite');
+      const pseudoResolvedTargetPath = path.resolve(relativeSourcePath);
+      const pseudoPreRestoreBackupPath = `${pseudoResolvedTargetPath}.pre-restore-2026-04-24T22-57-00.000Z`;
+
+      fs.mkdirSync(path.dirname(backupPayloadPath), { recursive: true });
+      fs.writeFileSync(backupPayloadPath, 'restored-db', 'utf8');
+
+      writeBackupManifest({
+        inputDir,
+        copied: [
+          {
+            kind: 'database',
+            type: 'file',
+            sourcePath: relativeSourcePath,
+            destinationPath: backupPayloadPath,
+          },
+        ],
+      });
+
+      const stdout = createStdoutBuffer();
+      const summary = (await runtimeRestore?.runRuntimeRestoreCli(['--input-dir', inputDir], {
+        now: () => new Date('2026-04-24T22:57:00.000Z'),
+        repoRootDir: testDatabase.rootDir,
+        stdout: stdout.stdout,
+      })) as {
+        backupsCreated: unknown[];
+        missing: Array<{
+          expectedPath: string;
+          kind: string;
+          reason: string;
+          targetPath: string;
+          type: string;
+        }>;
+        restored: unknown[];
+      };
+
+      expect(summary.ok).toBe(false);
+      expect(summary.restored).toEqual([]);
+      expect(summary.backupsCreated).toEqual([]);
+      expect(summary.missing).toEqual([
+        {
+          kind: 'database',
+          type: 'file',
+          expectedPath: relativeSourcePath,
+          targetPath: relativeSourcePath,
+          reason: 'backup-incomplete',
+        },
+      ]);
+      expect(fs.existsSync(pseudoResolvedTargetPath)).toBe(false);
+      expect(fs.existsSync(pseudoPreRestoreBackupPath)).toBe(false);
+      expect(JSON.parse(stdout.read())).toEqual(summary);
+    } finally {
+      fs.rmSync(path.resolve('runtime'), { force: true, recursive: true });
+      cleanupTestDatabasePath(testDatabase.rootDir);
+    }
+  });
+
   it('refuses to restore from a manifest that is already marked incomplete', async () => {
     const runtimeRestore = await loadRuntimeRestoreModule();
     const testDatabase = createTestDatabasePath();
