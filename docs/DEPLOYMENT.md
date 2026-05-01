@@ -350,7 +350,7 @@ pnpm release:deploy
 
 ## 最终交付 / 验收流程
 
-最终交付建议按同一套五段门禁收口：`preflight -> build/release bundle -> verify -> deploy -> smoke`。当前 `pnpm preflight:prod` / `pnpm preflight:local` 都会检查 `dist/server/index.js` 和 `dist/client/index.html`，所以实际执行时要先产出构建结果，再做 preflight；下面的命令按“可直接执行”的最少顺序列出来。
+最终交付建议按同一套五段门禁收口：`build -> preflight -> verify -> deploy -> smoke`。如果走 release bundle 交付，则在 `preflight` 和 `verify` 之间补一段 `release bundle`。当前 `pnpm preflight:prod` / `pnpm preflight:local` 都会检查 `dist/server/index.js` 和 `dist/client/index.html`，所以实际执行时要先产出构建结果，再做 preflight；下面的命令按“可直接执行”的最少顺序列出来。
 
 ### 路径 A：源码仓库部署
 
@@ -361,8 +361,8 @@ pnpm release:deploy
 
 阶段对应：
 
-- `preflight`：`pnpm preflight:prod -- --require-env AI_API_KEY,ADMIN_PASSWORD`
 - `build`：`pnpm build`
+- `preflight`：`pnpm preflight:prod -- --require-env AI_API_KEY,ADMIN_PASSWORD`
 - `verify`：`pnpm test`
 - `deploy`：`pnpm deploy:local -- --skip-install --skip-smoke`
 - `smoke`：`pnpm smoke:server -- --base-url http://127.0.0.1:3001`
@@ -389,6 +389,7 @@ pnpm smoke:server -- --base-url http://127.0.0.1:3001
 
 阶段对应：
 
+- `build`：`pnpm build`
 - `preflight`：`pnpm preflight:prod -- --require-env AI_API_KEY,ADMIN_PASSWORD`
 - `release bundle`：`pnpm release:bundle -- --output-dir /tmp/promobot-release`
 - `verify`：在源码仓库里执行 `pnpm verify:release -- --input-dir /tmp/promobot-release`
@@ -408,7 +409,6 @@ pnpm verify:release -- --input-dir /tmp/promobot-release
 cd /tmp/promobot-release
 pnpm release:deploy -- --skip-smoke
 node dist/server/cli/deploymentSmoke.js --base-url http://127.0.0.1:3001
-node dist/server/cli/inboxReplyHandoffComplete.js --help
 ```
 
 这条链路建议在构建机先做一次 `verify:release`，再把 bundle 目录发往目标机。目标机如果只拿到已解压 bundle，也可以直接在 bundle 根目录复跑同一个 `verify:release` wrapper；它会自动切到 bundle 自带的 compiled verifier。独立 smoke 继续沿用 bundle 自带的 compiled CLI，与 `ops/deploy-release.sh` 内部的检查方式保持一致。

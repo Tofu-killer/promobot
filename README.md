@@ -71,6 +71,7 @@ pnpm install
 pnpm dev
 pnpm dev:server
 pnpm test
+pnpm build
 pnpm preflight:prod -- --require-env AI_API_KEY,ADMIN_PASSWORD
 pnpm release:bundle -- --output-dir /tmp/promobot-release
 pnpm release:verify -- --input-dir /tmp/promobot-release
@@ -154,7 +155,7 @@ pnpm release:deploy
 
 ## 最终交付 / 验收流程
 
-最终交付建议把记录统一按 `preflight -> build/release bundle -> verify -> deploy -> smoke` 五段收口。要注意：当前 `pnpm preflight:prod` / `pnpm preflight:local` 都会检查 `dist/server/index.js` 和 `dist/client/index.html`，所以实际执行时需要先拿到构建产物；下面的命令清单按“可直接执行”的最少顺序给出。
+最终交付建议把记录统一按 `build -> preflight -> verify -> deploy -> smoke` 五段收口。如果走 release bundle 交付，则在 `preflight` 和 `verify` 之间补一段 `release bundle`。要注意：当前 `pnpm preflight:prod` / `pnpm preflight:local` 都会检查 `dist/server/index.js` 和 `dist/client/index.html`，所以实际执行时需要先拿到构建产物；下面的命令清单按“可直接执行”的最少顺序给出。
 
 ### 1. 源码仓库部署
 
