@@ -278,6 +278,22 @@ describe('release shell wrappers', () => {
     expect(result.stdout).toContain('Verification succeeded; extracted bundle will be cleaned up');
     expect(fs.existsSync(path.join(extractRoot, 'promobot-release-bundle'))).toBe(false);
   });
+
+  it('fails verify-downloaded-release when metadata bundle_dir_name does not match the archive root', () => {
+    const fixture = createDownloadedReleaseFixture();
+    const metadata = JSON.parse(fs.readFileSync(fixture.metadataPath, 'utf8')) as {
+      bundle_dir_name: string;
+    };
+    metadata.bundle_dir_name = 'unexpected-release-root';
+    fs.writeFileSync(fixture.metadataPath, JSON.stringify(metadata, null, 2) + '\n', 'utf8');
+
+    const result = runScript(fixture.scriptPath, ['--archive-file', fixture.archivePath], {
+      cwd: fixture.rootDir,
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('Archive entry escaped metadata bundle_dir_name');
+  });
 });
 
 function runRepoScript(relativePath: string, args: string[], options: SpawnSyncOptions = {}) {
