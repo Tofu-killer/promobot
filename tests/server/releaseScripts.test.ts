@@ -76,6 +76,13 @@ describe('release shell wrappers', () => {
     }
   });
 
+  it('rejects legacy verify-release passthrough arguments', () => {
+    const result = runRepoScript('ops/verify-release.sh', ['--input-dir', '/tmp/release', '--', '--json']);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('Unknown argument: --');
+  });
+
   it('shows deploy-release help for direct and leading dash-dash help paths', () => {
     for (const args of [['--help'], ['--', '--help']]) {
       const result = runRepoScript('ops/deploy-release.sh', args);
