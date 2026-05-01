@@ -191,7 +191,7 @@ node dist/server/cli/deploymentSmoke.js --base-url http://127.0.0.1:3001
 - `pm2.config.js` 现在会把日志落到仓库下的 `logs/`，并带基本重启/退避配置。
 - `ops/release-promobot.sh` 现在提供一条本地 release 打包脚本；它会先按需构建，再调用 `release:bundle` 生成可交付目录。
 - `ops/deploy-release.sh` 现在提供 bundle 内直接部署入口；进入 release bundle 根目录后可直接运行 `pnpm release:deploy`。
-- `ops/verify-release.sh` 现在提供 release 校验脚本；它会先跑 `release:verify`，只在显式开启时才追加 smoke。
+- `ops/verify-release.sh` 现在提供 release 校验脚本；在源码仓库里会先跑 `release:verify`，在已解压 bundle 根目录里会改用 bundled `releaseVerify.js`，并且只会在校验成功后、且显式开启时才追加 smoke。
 - `ops/preflight-promobot.sh` 现在提供上线前预检脚本；它会先跑 `preflight:prod`，再按需追加 smoke check。
 - `ops/deploy-promobot.sh` 现在提供一条可重复的本机部署脚本；默认会执行 install/build/PM2 切换，并默认启用 smoke check。脚本会优先读取 `--admin-password`，否则回退到 shell 里的 `PROMOBOT_ADMIN_PASSWORD` / `ADMIN_PASSWORD`，以及仓库根 `.env` 里的 `PROMOBOT_ADMIN_PASSWORD` / `ADMIN_PASSWORD`；如不想跑 smoke，可显式传 `--skip-smoke`。
 - `ops/rollback-promobot.sh` 现在提供对应的本机回滚脚本；它会先停 PM2，再调用 `runtime:restore` 恢复运行时数据，最后重启服务并可选追加 smoke check。需要保留当前 `.env` 时，可给 rollback 传 `--skip-env`。
