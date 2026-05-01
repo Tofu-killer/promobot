@@ -2268,7 +2268,7 @@ describe('channel accounts api', () => {
           id: 1,
           latestBrowserLaneArtifact: expect.objectContaining({
             action: 'request_session',
-            jobStatus: 'pending',
+            jobStatus: 'done',
             requestedAt: firstBody.job.runAt,
             artifactPath:
               'artifacts/browser-lane-requests/instagram/-promobot.official/request-session-job-1.json',
@@ -2386,6 +2386,16 @@ describe('channel accounts api', () => {
           artifactPath: string;
           reused: boolean;
         };
+        channelAccount: {
+          id: number;
+          latestBrowserLaneArtifact: {
+            action: string;
+            jobStatus: string;
+            requestedAt: string;
+            artifactPath: string;
+            resolvedAt: string | null;
+          };
+        };
       };
 
       expect(repeatedRequestSessionBody.job).toEqual({
@@ -2416,6 +2426,18 @@ describe('channel accounts api', () => {
           'browser-sessions/managed/instagram/-promobot.official.json',
         reused: true,
       });
+      expect(repeatedRequestSessionBody.channelAccount).toEqual(
+        expect.objectContaining({
+          id: 1,
+          latestBrowserLaneArtifact: expect.objectContaining({
+            action: 'request_session',
+            jobStatus: 'pending',
+            requestedAt: requestSessionBody.job.runAt,
+            artifactPath: requestSessionBody.sessionAction.artifactPath,
+            resolvedAt: null,
+          }),
+        }),
+      );
       expect(browserLaneDispatchSpy).not.toHaveBeenCalled();
       expect(jobQueueStore.list({ limit: 10 })).toEqual([
         expect.objectContaining({
@@ -2962,6 +2984,7 @@ describe('channel accounts api', () => {
       ]);
       expect(JSON.parse(jobQueueStore.list({ limit: 10 })[0]?.payload ?? '{}')).toEqual({
         artifactPath,
+        handoffAttempt: 1,
         attempt: 0,
         maxAttempts: 60,
         pollDelayMs: 60_000,
@@ -3210,6 +3233,7 @@ describe('channel accounts api', () => {
               status: 'obsolete',
               readiness: 'ready',
               sessionAction: null,
+              handoffAttempt: 1,
               artifactPath:
                 'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-22.json',
               createdAt: '2026-04-21T09:10:00.000Z',

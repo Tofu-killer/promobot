@@ -171,6 +171,10 @@ channelAccountsRouter.post('/:id/session/request', (request, response) => {
     }
 
     const existingJob = jobQueueStore.get(latestSessionRequestArtifact.jobId);
+    const channelAccountWithSessionSummary = attachSessionSummary(
+      channelAccount,
+      createSessionStore(),
+    );
     response.json({
       ok: true,
       ...(existingJob
@@ -198,7 +202,14 @@ channelAccountsRouter.post('/:id/session/request', (request, response) => {
         managedStorageStatePath,
         reused: true,
       },
-      channelAccount: attachSessionSummary(channelAccount, createSessionStore()),
+      channelAccount: {
+        ...channelAccountWithSessionSummary,
+        latestBrowserLaneArtifact: {
+          ...latestSessionRequestArtifact,
+          jobStatus: latestSessionRequestJobStatus,
+          managedStorageStatePath,
+        },
+      },
     });
     return;
   }
