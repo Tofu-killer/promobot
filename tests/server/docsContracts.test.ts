@@ -121,4 +121,24 @@ describe('deployment document contracts', () => {
       expect(doc).not.toContain('查看 `.metadata.json` 中的 `schema_version` / `checksum_algorithm` / `archive_format` / ref / commit / `generated_at` / `run_url` / `release_url` / `tests_summary`');
     }
   });
+
+  it('documents the release bundle ops allowlist explicitly instead of implying arbitrary ops scripts can ship', () => {
+    const readme = fs.readFileSync(path.resolve('README.md'), 'utf8');
+    const deploymentDoc = fs.readFileSync(path.resolve('docs/DEPLOYMENT.md'), 'utf8');
+
+    expect(readme).toContain(
+      'bundle-safe 的 ops 脚本（`deploy-promobot.sh`、`deploy-release.sh`、`preflight-promobot.sh`、`rollback-promobot.sh`、`verify-downloaded-release.sh`、`verify-release.sh`）',
+    );
+    expect(readme).toContain('仓库侧的 `ops/release-promobot.sh` 不会随 bundle 分发');
+
+    expect(deploymentDoc).toContain('release bundle 当前会包含以下 bundle-safe 文件：');
+    expect(deploymentDoc).toContain('- `ops/deploy-promobot.sh`');
+    expect(deploymentDoc).toContain('- `ops/deploy-release.sh`');
+    expect(deploymentDoc).toContain('- `ops/preflight-promobot.sh`');
+    expect(deploymentDoc).toContain('- `ops/rollback-promobot.sh`');
+    expect(deploymentDoc).toContain('- `ops/verify-downloaded-release.sh`');
+    expect(deploymentDoc).toContain('- `ops/verify-release.sh`');
+    expect(deploymentDoc).toContain('仓库侧的 `ops/release-promobot.sh` 只用于源码目录本地打包，不会随 release bundle 分发。');
+    expect(deploymentDoc).not.toContain('release bundle 当前至少会包含：');
+  });
 });

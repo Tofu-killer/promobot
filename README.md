@@ -95,7 +95,7 @@ pnpm browser:artifacts:archive -- --older-than-hours 72
 - `pnpm build`：分别构建到 `dist/client` 和 `dist/server`
 - `pnpm start`：启动 `dist/server/index.js`，并在 `dist/client` 存在时直接提供构建后的前端
 - `pnpm preflight:prod -- [options]`：做静态上线前检查，输出 JSON summary，不启动服务
-- `pnpm release:bundle -- --output-dir <path>`：把构建产物、PM2 配置、必要 ops 脚本和部署文档复制到目录型 release bundle，并生成带文件 checksum 信息的 manifest JSON
+- `pnpm release:bundle -- --output-dir <path>`：把构建产物、PM2 配置、部署文档，以及 bundle-safe 的 ops 脚本（`deploy-promobot.sh`、`deploy-release.sh`、`preflight-promobot.sh`、`rollback-promobot.sh`、`verify-downloaded-release.sh`、`verify-release.sh`）复制到目录型 release bundle，并生成带文件 checksum 信息的 manifest JSON；仓库侧的 `ops/release-promobot.sh` 不会随 bundle 分发
 - `pnpm release:verify -- --input-dir <path>`：源码仓库里的目录型 release bundle 校验入口，校验 manifest、关键文件是否完整，并在 manifest 带 checksum 时重算 bundle 内现有文件内容做完整性校验；它不负责 tar.gz 下载文件本身的校验
 - `pnpm runtime:backup`：把当前可定位的 SQLite 文件来源、真实运行时 `browser-sessions/` 根目录和仓库根 `.env` 复制到时间戳备份目录，并生成 manifest JSON；若有缺失项，会在 manifest 里标记并以非零退出码返回。自定义 `--output-dir` 时，目标目录必须不存在或为空
 - `pnpm runtime:restore -- --input-dir <backupDir>`：按 backup manifest 恢复运行时数据，并在覆盖前为已有目标创建 `.pre-restore-<timestamp>` 备份

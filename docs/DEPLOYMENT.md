@@ -252,7 +252,7 @@ pnpm release:bundle -- --output-dir /tmp/promobot-release
 pnpm release:local -- --skip-build --output-dir /tmp/promobot-release
 ```
 
-release bundle 当前至少会包含：
+release bundle 当前会包含以下 bundle-safe 文件：
 
 - `dist/server/**`
 - `dist/client/**`
@@ -267,6 +267,8 @@ release bundle 当前至少会包含：
 - `ops/verify-release.sh`
 - `docs/DEPLOYMENT.md`
 - `.env.example`
+
+仓库侧的 `ops/release-promobot.sh` 只用于源码目录本地打包，不会随 release bundle 分发。
 
 输出目录下会同时生成 `manifest.json`，其中会记录 bundle 文件列表和可用的 checksum，便于交付前核对缺失项和完整性。这份 manifest 只描述解压后的目录型 release bundle 内容，不负责 GitHub Release 上 `.tar.gz` 下载文件本身的完整性校验。
 
