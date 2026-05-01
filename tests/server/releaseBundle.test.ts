@@ -406,6 +406,67 @@ describe('release bundle cli', () => {
       }),
     );
   });
+
+  it('removes stale undeclared files from an existing output directory before writing a new bundle', async () => {
+    const releaseBundle = await loadReleaseBundleModule();
+    const releaseVerify = await loadReleaseVerifyModule();
+
+    expect(releaseBundle).toBeTruthy();
+    expect(releaseVerify).toBeTruthy();
+    if (!releaseBundle || !releaseVerify) {
+      return;
+    }
+
+    const repoRoot = createTempRepoRoot();
+    writeFile(repoRoot, 'package.json', '{ "name": "promobot" }\n');
+    writeFile(repoRoot, 'pnpm-lock.yaml', 'lockfile\n');
+    writeFile(repoRoot, 'pm2.config.js', 'export default {};\n');
+    writeFile(repoRoot, '.env.example', 'ADMIN_PASSWORD=change-me\n');
+    writeFile(repoRoot, 'database/schema.sql', 'create table drafts (id integer primary key);\n');
+    writeFile(repoRoot, 'docs/DEPLOYMENT.md', '# Deploy\n');
+    writeFile(repoRoot, 'dist/server/index.js', 'console.log("server");\n');
+    writeFile(repoRoot, 'dist/server/cli/deploymentSmoke.js', 'console.log("smoke");\n');
+    writeFile(
+      repoRoot,
+      'dist/server/cli/browserHandoffComplete.js',
+      'console.log("browser handoff complete");\n',
+    );
+    writeFile(
+      repoRoot,
+      'dist/server/cli/inboxReplyHandoffComplete.js',
+      'console.log("handoff complete");\n',
+    );
+    writeFile(repoRoot, 'dist/server/cli/releaseVerify.js', 'console.log("verify");\n');
+    writeFile(repoRoot, 'dist/client/index.html', '<!doctype html>\n');
+    writeFile(repoRoot, 'ops/deploy-release.sh', '#!/usr/bin/env bash\n');
+    writeFile(repoRoot, 'ops/deploy-promobot.sh', '#!/usr/bin/env bash\n');
+    writeFile(repoRoot, 'ops/verify-release.sh', '#!/usr/bin/env bash\n');
+    writeFile(repoRoot, 'ops/verify-downloaded-release.sh', '#!/usr/bin/env bash\n');
+
+    const outputDir = path.join(repoRoot, 'artifacts', 'release-bundle');
+    writeFile(outputDir, 'notes.txt', 'stale notes\n');
+    writeFile(outputDir, 'database/old.sql', '-- stale schema\n');
+    writeFile(outputDir, 'dist/client/stale.js', 'console.log("stale client");\n');
+    writeFile(outputDir, 'ops/legacy-helper.sh', '#!/usr/bin/env bash\n');
+
+    const summary = releaseBundle.runReleaseBundle({
+      repoRoot,
+      outputDir,
+    });
+
+    expect(summary.ok).toBe(true);
+    expect(fs.existsSync(path.join(outputDir, 'notes.txt'))).toBe(false);
+    expect(fs.existsSync(path.join(outputDir, 'database/old.sql'))).toBe(false);
+    expect(fs.existsSync(path.join(outputDir, 'dist/client/stale.js'))).toBe(false);
+    expect(fs.existsSync(path.join(outputDir, 'ops/legacy-helper.sh'))).toBe(false);
+    expect(releaseVerify.runReleaseVerify({ inputDir: outputDir })).toEqual(
+      expect.objectContaining({
+        ok: true,
+        missing: [],
+        warnings: [],
+      }),
+    );
+  });
 });
 
 async function loadReleaseBundleModule(): Promise<ReleaseBundleModule | null> {

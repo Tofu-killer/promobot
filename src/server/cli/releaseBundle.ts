@@ -302,21 +302,8 @@ function listFilesRecursively(targetPath: string): string[] {
 }
 
 function prepareOutputDir(outputDir: string) {
+  fs.rmSync(outputDir, { force: true, recursive: true });
   fs.mkdirSync(outputDir, { recursive: true });
-
-  removeOutputTarget(path.join(outputDir, 'dist', 'server'));
-  removeOutputTarget(path.join(outputDir, 'dist', 'client'));
-  removeOutputTarget(path.join(outputDir, '.env.example'));
-  removeOutputTarget(path.join(outputDir, 'docs', 'DEPLOYMENT.md'));
-  removeOutputTarget(path.join(outputDir, 'ops'));
-  removeOutputTarget(path.join(outputDir, 'package.json'));
-  removeOutputTarget(path.join(outputDir, 'pm2.config.js'));
-  removeOutputTarget(path.join(outputDir, 'pnpm-lock.yaml'));
-  removeOutputTarget(path.join(outputDir, 'manifest.json'));
-}
-
-function removeOutputTarget(targetPath: string) {
-  fs.rmSync(targetPath, { force: true, recursive: true });
 }
 
 function isDirectory(targetPath: string) {
