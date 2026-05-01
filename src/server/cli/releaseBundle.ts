@@ -53,9 +53,13 @@ const REQUIRED_FILES = [
   path.join('database', 'schema.sql'),
   path.join('docs', 'DEPLOYMENT.md'),
   '.env.example',
+  path.join('dist', 'server', 'index.js'),
   path.join('dist', 'server', 'cli', 'deploymentSmoke.js'),
   path.join('dist', 'server', 'cli', 'inboxReplyHandoffComplete.js'),
   path.join('dist', 'server', 'cli', 'releaseVerify.js'),
+  path.join('dist', 'client', 'index.html'),
+  path.join('ops', 'deploy-promobot.sh'),
+  path.join('ops', 'deploy-release.sh'),
   path.join('ops', 'verify-release.sh'),
 ] as const;
 

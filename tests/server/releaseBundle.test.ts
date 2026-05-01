@@ -169,6 +169,7 @@ describe('release bundle cli', () => {
         'dist/server/cli/deploymentSmoke.js',
         'dist/server/cli/inboxReplyHandoffComplete.js',
         'dist/server/cli/releaseVerify.js',
+        'dist/client/index.html',
         'ops/verify-release.sh',
       ],
     });
@@ -217,6 +218,47 @@ describe('release bundle cli', () => {
         'dist/server/cli/inboxReplyHandoffComplete.js',
         'dist/server/cli/releaseVerify.js',
         'ops/verify-release.sh',
+      ]),
+    );
+  });
+
+  it('fails when a bundle is missing required release entrypoints and deploy scripts', async () => {
+    const releaseBundle = await loadReleaseBundleModule();
+
+    expect(releaseBundle).toBeTruthy();
+    if (!releaseBundle) {
+      return;
+    }
+
+    const repoRoot = createTempRepoRoot();
+    writeFile(repoRoot, 'package.json', '{ "name": "promobot" }\n');
+    writeFile(repoRoot, 'pnpm-lock.yaml', 'lockfile\n');
+    writeFile(repoRoot, 'pm2.config.js', 'export default {};\n');
+    writeFile(repoRoot, '.env.example', 'ADMIN_PASSWORD=change-me\n');
+    writeFile(repoRoot, 'database/schema.sql', 'create table drafts (id integer primary key);\n');
+    writeFile(repoRoot, 'docs/DEPLOYMENT.md', '# Deploy\n');
+    writeFile(repoRoot, 'dist/server/cli/deploymentSmoke.js', 'console.log("smoke");\n');
+    writeFile(
+      repoRoot,
+      'dist/server/cli/inboxReplyHandoffComplete.js',
+      'console.log("handoff complete");\n',
+    );
+    writeFile(repoRoot, 'dist/server/cli/releaseVerify.js', 'console.log("verify");\n');
+    writeFile(repoRoot, 'ops/verify-release.sh', '#!/usr/bin/env bash\n');
+
+    const outputDir = path.join(repoRoot, 'artifacts', 'release-bundle');
+    const summary = releaseBundle.runReleaseBundle({
+      repoRoot,
+      outputDir,
+    });
+
+    expect(summary.ok).toBe(false);
+    expect(summary.missing).toEqual(
+      expect.arrayContaining([
+        'dist/server/index.js',
+        'dist/client/index.html',
+        'ops/deploy-promobot.sh',
+        'ops/deploy-release.sh',
       ]),
     );
   });
