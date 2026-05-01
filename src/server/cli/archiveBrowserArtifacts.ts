@@ -26,6 +26,10 @@ export function parseArchiveBrowserArtifactsArgs(argv: string[]): ArchiveBrowser
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
 
+    if (token === '--') {
+      continue;
+    }
+
     if (token === '--help' || token === '-h') {
       parsed.showHelp = true;
       continue;
@@ -43,6 +47,9 @@ export function parseArchiveBrowserArtifactsArgs(argv: string[]): ArchiveBrowser
 
     if (token === '--older-than-hours') {
       const nextValue = argv[index + 1];
+      if (!nextValue || nextValue.startsWith('--')) {
+        throw new Error('--older-than-hours requires a value');
+      }
       const parsedValue = Number(nextValue);
       if (!Number.isFinite(parsedValue) || parsedValue <= 0) {
         throw new Error('older-than-hours must be a positive number');

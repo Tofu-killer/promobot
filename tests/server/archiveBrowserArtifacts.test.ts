@@ -586,6 +586,18 @@ describe('browser artifact archiver', () => {
       olderThanHours: 24,
       showHelp: true,
     });
+    expect(parseArchiveBrowserArtifactsArgs(['--', '--help'])).toEqual({
+      apply: false,
+      includeResults: false,
+      olderThanHours: 24,
+      showHelp: true,
+    });
+    expect(() => parseArchiveBrowserArtifactsArgs(['--older-than-hours'])).toThrow(
+      '--older-than-hours requires a value',
+    );
+    expect(() =>
+      parseArchiveBrowserArtifactsArgs(['--older-than-hours', '--apply']),
+    ).toThrow('--older-than-hours requires a value');
     expect(getArchiveBrowserArtifactsHelpText()).toContain('Defaults to dry-run');
   });
 
