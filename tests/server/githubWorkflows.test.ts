@@ -28,6 +28,8 @@ describe('GitHub workflow contracts', () => {
     expect(ciWorkflow).toContain("      - '**'");
     expect(ciWorkflow).toContain('    tags-ignore:');
     expect(ciWorkflow).toContain("      - 'v*'");
+    expect(ciWorkflow).toContain('  pull_request:');
+    expect(ciWorkflow).toContain('    branches: [main]');
     expect(ciWorkflow).toContain('  workflow_dispatch:');
     expect(ciWorkflow).toContain('concurrency:');
     expect(ciWorkflow).toContain('  cancel-in-progress: true');
