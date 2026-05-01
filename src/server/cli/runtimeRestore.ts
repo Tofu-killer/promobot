@@ -206,6 +206,18 @@ export async function runRuntimeRestoreCli(
       inputDir: resolvedInputDir,
       recordedOutputDir,
     });
+
+    if (isRawFileUriPath(item.sourcePath)) {
+      summary.missing.push({
+        kind: item.kind,
+        type: item.type,
+        expectedPath: item.sourcePath,
+        targetPath: item.sourcePath,
+        reason: 'backup-incomplete',
+      });
+      continue;
+    }
+
     const targetPath = path.resolve(item.sourcePath);
 
     if (!isPathInside(resolvedInputDir, backupPath)) {
@@ -377,6 +389,14 @@ function isRuntimeItemType(value: unknown): value is RuntimeItemType {
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
+}
+
+function isRawFileUriPath(value: string) {
+  try {
+    return new URL(value).protocol === 'file:';
+  } catch {
+    return false;
+  }
 }
 
 function resolveRecordedOutputDir(manifest: RuntimeBackupManifest, inputDir: string) {
