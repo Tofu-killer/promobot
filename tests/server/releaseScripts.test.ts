@@ -655,11 +655,17 @@ describe('release shell wrappers', () => {
       const result = runRepoScript('ops/verify-downloaded-release.sh', args);
 
       expect(result.status).toBe(0);
-      expect(result.stdout).toContain('Usage: ops/verify-downloaded-release.sh --archive <path> [options]');
-      expect(result.stdout).toContain('--archive <path>');
+      expect(result.stdout).toContain(
+        'Usage: ops/verify-downloaded-release.sh --archive-file <path> [options]',
+      );
       expect(result.stdout).toContain('--archive-file <path>');
+      expect(result.stdout).toContain('Alias for --archive-file');
+      expect(result.stdout).toContain('--archive <path>');
       expect(result.stdout).toContain('--extract-root <path>');
       expect(result.stdout).toContain('--keep-extracted');
+      expect(result.stdout).toContain(
+        'bash ops/verify-downloaded-release.sh --archive-file /tmp/promobot-v1.2.3.tar.gz',
+      );
     }
 
     const packageJson = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8')) as {

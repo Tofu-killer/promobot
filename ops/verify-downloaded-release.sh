@@ -14,15 +14,15 @@ fail() {
 
 usage() {
   cat <<'EOF'
-Usage: ops/verify-downloaded-release.sh --archive <path> [options]
+Usage: ops/verify-downloaded-release.sh --archive-file <path> [options]
 
 Verify a downloaded release archive together with its .sha256 and .metadata.json
 sidecars, extract the bundle into a temporary directory, then hand the extracted
 bundle directory to the bundled releaseVerify CLI.
 
 Options:
-  --archive <path>            Downloaded release archive to verify (required)
-  --archive-file <path>       Alias for --archive
+  --archive-file <path>       Downloaded release archive to verify (required)
+  --archive <path>            Alias for --archive-file
   --checksum-file <path>      Checksum sidecar path (default: <archive>.sha256)
   --metadata-file <path>      Metadata sidecar path (default: <archive>.metadata.json)
   --extract-root <path>       Parent directory for temporary extraction
@@ -36,8 +36,8 @@ checks local files and then reuses the extracted bundle's releaseVerify CLI
 for directory validation.
 
 Examples:
-  bash ops/verify-downloaded-release.sh --archive /tmp/promobot-v1.2.3.tar.gz
-  bash ops/verify-downloaded-release.sh --archive /tmp/promobot-preview.demo.tar.gz --keep-extracted
+  bash ops/verify-downloaded-release.sh --archive-file /tmp/promobot-v1.2.3.tar.gz
+  bash ops/verify-downloaded-release.sh --archive-file /tmp/promobot-preview.demo.tar.gz --keep-extracted
 EOF
 }
 

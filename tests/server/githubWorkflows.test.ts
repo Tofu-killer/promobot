@@ -105,11 +105,18 @@ describe('GitHub workflow contracts', () => {
       path.resolve('.github/workflows/release-bundle.yml'),
       'utf8',
     );
+    const downloadedHelperScript = fs.readFileSync(
+      path.resolve('ops/verify-downloaded-release.sh'),
+      'utf8',
+    );
     const releaseBodyStep = releaseBundleWorkflow.slice(
       releaseBundleWorkflow.indexOf('      - name: Generate GitHub Release body'),
       releaseBundleWorkflow.indexOf('      - name: Publish release bundle assets to GitHub Release'),
     );
 
+    expect(downloadedHelperScript).toContain(
+      'Usage: ops/verify-downloaded-release.sh --archive-file <path> [options]',
+    );
     expect(releaseBodyStep).toContain('Release status:');
     expect(releaseBodyStep).toContain('Published release asset set:');
     expect(releaseBodyStep).toContain(
@@ -120,10 +127,33 @@ describe('GitHub workflow contracts', () => {
     expect(releaseBodyStep).toContain('Recommended verification flow:');
     expect(releaseBodyStep).toContain('bash -n ./${helperFile}');
     expect(releaseBodyStep).toContain(
-      'bash ./${helperFile} --archive ./${assetsByKind.archive}',
+      'bash ./${helperFile} --archive-file ./${assetsByKind.archive}',
     );
     expect(releaseBodyStep).toContain('The extracted directory name should match');
     expect(releaseBodyStep).toContain('bundle_dir_name: ${bundleDirName}');
     expect(releaseBodyStep).toContain('assetsByKind.metadata');
+  });
+
+  it('keeps the workflow run summary guidance aligned with the downloaded helper contract', () => {
+    const releaseBundleWorkflow = fs.readFileSync(
+      path.resolve('.github/workflows/release-bundle.yml'),
+      'utf8',
+    );
+    const downloadedHelperScript = fs.readFileSync(
+      path.resolve('ops/verify-downloaded-release.sh'),
+      'utf8',
+    );
+    const summaryStep = releaseBundleWorkflow.slice(
+      releaseBundleWorkflow.indexOf('      - name: Write workflow run summary'),
+    );
+
+    expect(downloadedHelperScript).toContain(
+      'Usage: ops/verify-downloaded-release.sh --archive-file <path> [options]',
+    );
+    expect(summaryStep).toContain('Recommended verification order:');
+    expect(summaryStep).toContain('bash -n ./${metadata.helper_file}');
+    expect(summaryStep).toContain(
+      'bash ./${metadata.helper_file} --archive-file ./${assetsByKind.archive}',
+    );
   });
 });
