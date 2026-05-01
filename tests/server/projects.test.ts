@@ -358,7 +358,13 @@ describe('projects api', () => {
       });
 
       expect(created.status).toBe(201);
-      expect(JSON.parse(created.body)).toEqual({
+      const createdPayload = JSON.parse(created.body) as {
+        sourceConfig: {
+          createdAt: string;
+          updatedAt: string;
+        };
+      };
+      expect(createdPayload).toEqual({
         sourceConfig: expect.objectContaining({
           id: 1,
           projectId: 1,
@@ -375,6 +381,8 @@ describe('projects api', () => {
           updatedAt: expect.any(String),
         }),
       });
+      const initialCreatedAt = createdPayload.sourceConfig.createdAt;
+      const initialUpdatedAt = createdPayload.sourceConfig.updatedAt;
 
       const listed = await requestApp('GET', '/api/projects/1/source-configs');
 
@@ -408,7 +416,13 @@ describe('projects api', () => {
       });
 
       expect(updated.status).toBe(200);
-      expect(JSON.parse(updated.body)).toEqual({
+      const updatedPayload = JSON.parse(updated.body) as {
+        sourceConfig: {
+          createdAt: string;
+          updatedAt: string;
+        };
+      };
+      expect(updatedPayload).toEqual({
         sourceConfig: expect.objectContaining({
           id: 1,
           projectId: 1,
@@ -424,6 +438,33 @@ describe('projects api', () => {
           createdAt: expect.any(String),
           updatedAt: expect.any(String),
         }),
+      });
+      expect(updatedPayload.sourceConfig.createdAt).toBe(initialCreatedAt);
+      expect(Date.parse(updatedPayload.sourceConfig.updatedAt)).toBeGreaterThanOrEqual(
+        Date.parse(initialUpdatedAt),
+      );
+
+      const persisted = await requestApp('GET', '/api/projects/1/source-configs');
+
+      expect(persisted.status).toBe(200);
+      expect(JSON.parse(persisted.body)).toEqual({
+        sourceConfigs: [
+          expect.objectContaining({
+            id: 1,
+            projectId: 1,
+            sourceType: 'keyword',
+            platform: 'reddit',
+            label: 'Brand mentions',
+            configJson: {
+              keywords: ['promobot'],
+              subreddit: 'r/LocalLLaMA',
+            },
+            enabled: false,
+            pollIntervalMinutes: 60,
+            createdAt: initialCreatedAt,
+            updatedAt: updatedPayload.sourceConfig.updatedAt,
+          }),
+        ],
       });
     } finally {
       cleanupTestDatabasePath(rootDir);
