@@ -129,6 +129,7 @@ describe('release verify cli', () => {
         'pnpm-lock.yaml',
         'dist/server/index.js',
         'dist/server/cli/deploymentSmoke.js',
+        'dist/server/cli/browserHandoffComplete.js',
         'dist/server/cli/inboxReplyHandoffComplete.js',
         'dist/server/cli/releaseVerify.js',
         'dist/client/index.html',
@@ -194,6 +195,7 @@ describe('release verify cli', () => {
         'pnpm-lock.yaml',
         'dist/server/index.js',
         'dist/server/cli/deploymentSmoke.js',
+        'dist/server/cli/browserHandoffComplete.js',
         'dist/server/cli/inboxReplyHandoffComplete.js',
         'dist/server/cli/releaseVerify.js',
         'dist/client/index.html',
@@ -242,6 +244,12 @@ describe('release verify cli', () => {
           name: 'dist/server/cli/deploymentSmoke.js',
           ok: true,
           target: path.join(inputDir, 'dist/server/cli/deploymentSmoke.js'),
+        },
+        {
+          kind: 'manifest-item',
+          name: 'dist/server/cli/browserHandoffComplete.js',
+          ok: true,
+          target: path.join(inputDir, 'dist/server/cli/browserHandoffComplete.js'),
         },
         {
           kind: 'manifest-item',
@@ -316,6 +324,7 @@ describe('release verify cli', () => {
         'pnpm-lock.yaml',
         'dist/server/index.js',
         'dist/server/cli/deploymentSmoke.js',
+        'dist/server/cli/browserHandoffComplete.js',
         'dist/server/cli/inboxReplyHandoffComplete.js',
         'dist/server/cli/releaseVerify.js',
         'dist/client/index.html',
@@ -416,6 +425,7 @@ describe('release verify cli', () => {
         { relativePath: 'pnpm-lock.yaml' },
         { path: 'dist/server/index.js' },
         { relativePath: 'dist/server/cli/deploymentSmoke.js' },
+        { path: 'dist/server/cli/browserHandoffComplete.js' },
         { path: 'dist/server/cli/inboxReplyHandoffComplete.js' },
         { name: 'dist/server/cli/releaseVerify.js' },
         { path: 'dist/client/index.html' },
@@ -510,6 +520,7 @@ function writeRequiredBundleCore(
   rootDir: string,
   content: {
     clientContent?: string;
+    browserHandoffCompleteCliContent?: string;
     deployScript?: string;
     deploymentSmokeContent?: string;
     inboxReplyHandoffCompleteCliContent?: string;
@@ -527,6 +538,11 @@ function writeRequiredBundleCore(
     rootDir,
     'dist/server/cli/deploymentSmoke.js',
     content.deploymentSmokeContent ?? 'console.log("smoke");\n',
+  );
+  writeFile(
+    rootDir,
+    'dist/server/cli/browserHandoffComplete.js',
+    content.browserHandoffCompleteCliContent ?? 'console.log("browser-handoff-complete");\n',
   );
   writeFile(
     rootDir,

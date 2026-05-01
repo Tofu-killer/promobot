@@ -55,6 +55,7 @@ const REQUIRED_FILES = [
   '.env.example',
   path.join('dist', 'server', 'index.js'),
   path.join('dist', 'server', 'cli', 'deploymentSmoke.js'),
+  path.join('dist', 'server', 'cli', 'browserHandoffComplete.js'),
   path.join('dist', 'server', 'cli', 'inboxReplyHandoffComplete.js'),
   path.join('dist', 'server', 'cli', 'releaseVerify.js'),
   path.join('dist', 'client', 'index.html'),

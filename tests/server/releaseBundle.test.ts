@@ -167,6 +167,7 @@ describe('release bundle cli', () => {
         'pnpm-lock.yaml',
         'pm2.config.js',
         'dist/server/cli/deploymentSmoke.js',
+        'dist/server/cli/browserHandoffComplete.js',
         'dist/server/cli/inboxReplyHandoffComplete.js',
         'dist/server/cli/releaseVerify.js',
         'dist/client/index.html',
@@ -215,6 +216,7 @@ describe('release bundle cli', () => {
     expect(summary.missing).toEqual(
       expect.arrayContaining([
         'dist/server/cli/deploymentSmoke.js',
+        'dist/server/cli/browserHandoffComplete.js',
         'dist/server/cli/inboxReplyHandoffComplete.js',
         'dist/server/cli/releaseVerify.js',
         'ops/verify-release.sh',
@@ -238,6 +240,11 @@ describe('release bundle cli', () => {
     writeFile(repoRoot, 'database/schema.sql', 'create table drafts (id integer primary key);\n');
     writeFile(repoRoot, 'docs/DEPLOYMENT.md', '# Deploy\n');
     writeFile(repoRoot, 'dist/server/cli/deploymentSmoke.js', 'console.log("smoke");\n');
+    writeFile(
+      repoRoot,
+      'dist/server/cli/browserHandoffComplete.js',
+      'console.log("browser handoff complete");\n',
+    );
     writeFile(
       repoRoot,
       'dist/server/cli/inboxReplyHandoffComplete.js',
@@ -285,6 +292,11 @@ describe('release bundle cli', () => {
     writeFile(repoRoot, 'dist/server/cli/deploymentSmoke.js', 'console.log("smoke");\n');
     writeFile(
       repoRoot,
+      'dist/server/cli/browserHandoffComplete.js',
+      'console.log("browser handoff complete");\n',
+    );
+    writeFile(
+      repoRoot,
       'dist/server/cli/inboxReplyHandoffComplete.js',
       'console.log("handoff complete");\n',
     );
@@ -318,6 +330,7 @@ describe('release bundle cli', () => {
         'dist/client/assets/app.js',
         'dist/client/index.html',
         'dist/server/chunks/app.js',
+        'dist/server/cli/browserHandoffComplete.js',
         'dist/server/cli/deploymentSmoke.js',
         'dist/server/cli/inboxReplyHandoffComplete.js',
         'dist/server/cli/releaseVerify.js',
@@ -351,6 +364,9 @@ describe('release bundle cli', () => {
     );
     expect(summary.checksums['dist/server/cli/deploymentSmoke.js']).toBe(
       sha256Hex('console.log("smoke");\n'),
+    );
+    expect(summary.checksums['dist/server/cli/browserHandoffComplete.js']).toBe(
+      sha256Hex('console.log("browser handoff complete");\n'),
     );
     expect(summary.checksums['dist/server/cli/inboxReplyHandoffComplete.js']).toBe(
       sha256Hex('console.log("handoff complete");\n'),
