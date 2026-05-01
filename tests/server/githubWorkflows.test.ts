@@ -66,5 +66,16 @@ describe('GitHub workflow contracts', () => {
     );
     expect(publishReleaseJob).toContain('Publish release bundle assets to GitHub Release');
     expect(publishReleaseJob).toContain('uses: softprops/action-gh-release@v2');
+    expect(publishReleaseJob).toContain('name: Generate GitHub Release body');
+    expect(publishReleaseJob).toContain('echo "body_path=$RELEASE_BODY_PATH" >> "$GITHUB_OUTPUT"');
+    expect(publishReleaseJob).toContain('body_path: ${{ steps.release_body.outputs.body_path }}');
+    expect(publishReleaseJob).toContain('${{ steps.archive.outputs.helper_path }}');
+    expect(publishReleaseJob).toContain('${{ steps.archive.outputs.archive_path }}');
+    expect(publishReleaseJob).toContain('${{ steps.archive.outputs.checksum_path }}');
+    expect(publishReleaseJob).toContain('${{ steps.archive.outputs.metadata_path }}');
+    expect(publishReleaseJob).toContain('Expected standalone $HELPER_FILE in the downloaded release bundle artifact');
+    expect(publishReleaseJob).toContain('Expected $ARCHIVE_FILE in the downloaded release bundle artifact');
+    expect(publishReleaseJob).toContain('Expected $CHECKSUM_FILE in the downloaded release bundle artifact');
+    expect(publishReleaseJob).toContain('Expected $METADATA_FILE in the downloaded release bundle artifact');
   });
 });
