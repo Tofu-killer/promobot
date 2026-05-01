@@ -224,14 +224,14 @@ describe('runtime backup cli', () => {
     }
   });
 
-  it('falls back to cwd/data/browser-sessions and marks the database missing for file-like PROMOBOT_DB_PATH', async () => {
+  it('backs up the real SQLite file for file-like PROMOBOT_DB_PATH and keeps the cwd browser-sessions fallback', async () => {
     const runtimeBackup = await loadRuntimeBackupModule();
     const testDatabase = createTestDatabasePath();
 
     expect(runtimeBackup).not.toBeNull();
 
     try {
-      const databasePath = path.join(testDatabase.rootDir, 'sqlite', 'promobot.sqlite');
+      const databasePath = path.join(testDatabase.rootDir, 'sqlite', 'runtime-db.sqlite');
       setDatabasePath(pathToFileURL(databasePath).href);
       const previousCwd = process.cwd();
       process.chdir(testDatabase.rootDir);
@@ -239,6 +239,7 @@ describe('runtime backup cli', () => {
       try {
         fs.mkdirSync(path.dirname(databasePath), { recursive: true });
         fs.writeFileSync(databasePath, 'sqlite-data', 'utf8');
+        fs.writeFileSync(path.join(testDatabase.rootDir, '.env'), 'ADMIN_PASSWORD=secret\n', 'utf8');
 
         const browserSessionsDir = path.join(testDatabase.rootDir, 'data', 'browser-sessions');
         fs.mkdirSync(path.join(browserSessionsDir, 'managed'), { recursive: true });
@@ -261,9 +262,26 @@ describe('runtime backup cli', () => {
             type: string;
           }>;
           ok: boolean;
+          missing: Array<{
+            expectedPath: string;
+            kind: string;
+            type: string;
+          }>;
         };
 
-        expect(summary.ok).toBe(false);
+        expect(summary.ok).toBe(true);
+        expect(summary.copied).toContainEqual({
+          kind: 'database',
+          type: 'file',
+          sourcePath: databasePath,
+          destinationPath: path.join(
+            testDatabase.rootDir,
+            'backups',
+            '2026-04-24T17-00-00.000Z',
+            'database',
+            'runtime-db.sqlite',
+          ),
+        });
         expect(summary.copied).toContainEqual({
           kind: 'browserSessions',
           type: 'directory',
@@ -275,11 +293,18 @@ describe('runtime backup cli', () => {
             'browser-sessions',
           ),
         });
-        expect(summary.missing).toContainEqual({
-          kind: 'database',
+        expect(summary.copied).toContainEqual({
+          kind: 'envFile',
           type: 'file',
-          expectedPath: pathToFileURL(databasePath).href,
+          sourcePath: path.join(testDatabase.rootDir, '.env'),
+          destinationPath: path.join(
+            testDatabase.rootDir,
+            'backups',
+            '2026-04-24T17-00-00.000Z',
+            '.env',
+          ),
         });
+        expect(summary.missing).toEqual([]);
         expect(JSON.parse(stdout.read())).toEqual(summary);
       } finally {
         process.chdir(previousCwd);

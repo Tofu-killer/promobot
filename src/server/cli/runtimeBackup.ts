@@ -209,9 +209,10 @@ function resolveRuntimePaths(repoRootDir: string): RuntimeBackupPaths {
   }
 
   if (databasePath.startsWith('file:')) {
+    const resolvedDatabasePath = fileURLToPath(databasePath);
     return {
-      databasePath,
-      databaseDestinationName: 'promobot.sqlite',
+      databasePath: resolvedDatabasePath,
+      databaseDestinationName: path.basename(resolvedDatabasePath),
       browserSessionsPath: path.resolve(process.cwd(), 'data', 'browser-sessions'),
     };
   }
