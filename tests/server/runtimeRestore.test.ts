@@ -127,6 +127,31 @@ describe('runtime restore cli', () => {
     ).rejects.toThrow('--input-dir is required');
   });
 
+  it('rejects invalid top-level manifest shapes', async () => {
+    const runtimeRestore = await loadRuntimeRestoreModule();
+    const testDatabase = createTestDatabasePath();
+
+    expect(runtimeRestore).not.toBeNull();
+
+    try {
+      const inputDir = path.join(testDatabase.rootDir, 'imports', 'runtime-backup');
+      const manifestPath = path.join(inputDir, 'manifest.json');
+      const stdout = createStdoutBuffer();
+
+      fs.mkdirSync(inputDir, { recursive: true });
+      fs.writeFileSync(manifestPath, '[]', 'utf8');
+
+      await expect(
+        runtimeRestore?.runRuntimeRestoreCli(['--input-dir', inputDir], {
+          repoRootDir: testDatabase.rootDir,
+          stdout: stdout.stdout,
+        }),
+      ).rejects.toThrow(`invalid manifest: ${manifestPath}`);
+    } finally {
+      cleanupTestDatabasePath(testDatabase.rootDir);
+    }
+  });
+
   it('restores runtime files into their original source paths and creates pre-restore backups', async () => {
     const runtimeRestore = await loadRuntimeRestoreModule();
     const testDatabase = createTestDatabasePath();

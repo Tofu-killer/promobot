@@ -281,7 +281,7 @@ function readRuntimeBackupManifest(manifestPath: string) {
   const raw = fs.readFileSync(manifestPath, 'utf8');
   const parsed = JSON.parse(raw) as RuntimeBackupManifest;
 
-  if (!parsed || typeof parsed !== 'object') {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new Error(`invalid manifest: ${manifestPath}`);
   }
 
