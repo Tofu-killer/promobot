@@ -12,7 +12,7 @@ fail() {
 
 usage() {
   cat <<'EOF'
-Usage: ops/verify-release.sh --input-dir <path> [options] [-- <release:verify args>]
+Usage: ops/verify-release.sh --input-dir <path> [options]
 
 Runs pnpm release:verify from the repo root.
 By default this only runs release verification. It does not start services
@@ -31,13 +31,11 @@ Environment:
   ADMIN_PASSWORD               Also accepted for the smoke-check password
   PORT                         Used to build the default local base URL
 
-Everything after -- is passed through to pnpm release:verify.
 The script also reads shell/.env and repo-root .env for PORT,
 PROMOBOT_ADMIN_PASSWORD, and ADMIN_PASSWORD when present.
 
 Examples:
   bash ops/verify-release.sh --input-dir release/candidate
-  bash ops/verify-release.sh --input-dir /tmp/promobot-release -- --json
   bash ops/verify-release.sh --input-dir /tmp/promobot-release --smoke --base-url http://127.0.0.1:3001
 EOF
 }
@@ -110,7 +108,6 @@ main() {
   local root_env_file
   local resolved_port
   local -a env_candidates=()
-  local -a passthrough_args=()
   local -a verify_cmd=()
 
   while [ "$#" -gt 0 ]; do
@@ -124,8 +121,7 @@ main() {
         if [ -z "$input_dir" ]; then
           continue
         fi
-        passthrough_args=("$@")
-        break
+        fail "Unknown argument: --"
         ;;
       --input-dir)
         [ "$#" -ge 2 ] || fail "--input-dir requires a value"
@@ -235,13 +231,8 @@ main() {
 
   [ -f "dist/server/cli/releaseVerify.js" ] || fail "dist/server/cli/releaseVerify.js not found; run pnpm build first"
 
-  if [ "${#passthrough_args[@]}" -gt 0 ]; then
-    log "Running node dist/server/cli/releaseVerify.js with --input-dir ${input_dir} and ${#passthrough_args[@]} passthrough arg(s)"
-    node dist/server/cli/releaseVerify.js --input-dir "${input_dir}" "${passthrough_args[@]}"
-  else
-    log "Running node dist/server/cli/releaseVerify.js with --input-dir ${input_dir}"
-    node dist/server/cli/releaseVerify.js --input-dir "${input_dir}"
-  fi
+  log "Running node dist/server/cli/releaseVerify.js with --input-dir ${input_dir}"
+  node dist/server/cli/releaseVerify.js --input-dir "${input_dir}"
 }
 
 main "$@"

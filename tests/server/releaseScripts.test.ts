@@ -42,11 +42,12 @@ describe('release shell wrappers', () => {
       const result = runRepoScript('ops/verify-release.sh', args);
 
       expect(result.status).toBe(0);
-      expect(result.stdout).toContain(
-        'Usage: ops/verify-release.sh --input-dir <path> [options] [-- <release:verify args>]',
-      );
+      expect(result.stdout).toContain('Usage: ops/verify-release.sh --input-dir <path> [options]');
+      expect(result.stdout).not.toContain('[-- <release:verify args>]');
       expect(result.stdout).toContain('--input-dir <path>');
       expect(result.stdout).toContain('--smoke');
+      expect(result.stdout).not.toContain('Everything after -- is passed through');
+      expect(result.stdout).not.toContain('-- --json');
     }
   });
 
