@@ -280,6 +280,48 @@ describe('release shell wrappers', () => {
     expect(fs.existsSync(path.join(extractRoot, 'promobot-release-bundle'))).toBe(false);
   });
 
+  it('fails verify-downloaded-release when archive checksum verification fails', () => {
+    const fixture = createDownloadedReleaseFixture();
+
+    fs.writeFileSync(fixture.checksumPath, `0000000000000000000000000000000000000000000000000000000000000000  ${path.basename(fixture.archivePath)}\n`, 'utf8');
+
+    const result = runScript(fixture.scriptPath, ['--archive-file', fixture.archivePath], {
+      cwd: fixture.rootDir,
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('Archive checksum verification failed');
+  });
+
+  it('fails verify-downloaded-release when archive entries contain unsafe paths', () => {
+    const fixture = createDownloadedReleaseFixture();
+    const binDir = path.join(fixture.rootDir, 'bin');
+
+    writeExecutable(
+      binDir,
+      'tar',
+      `#!/usr/bin/env bash
+if [ "\${1:-}" = "-tzf" ]; then
+  printf 'promobot-release-bundle/../escape.txt\n'
+  exit 0
+fi
+printf 'unexpected tar invocation: %s\n' "$*" >&2
+exit 99
+`,
+    );
+
+    const result = runScript(fixture.scriptPath, ['--archive-file', fixture.archivePath], {
+      cwd: fixture.rootDir,
+      env: {
+        ...process.env,
+        PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+      },
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('Archive entry contains an unsafe path');
+  });
+
   it('fails verify-downloaded-release when metadata bundle_dir_name does not match the archive root', () => {
     const fixture = createDownloadedReleaseFixture();
     const metadata = JSON.parse(fs.readFileSync(fixture.metadataPath, 'utf8')) as {
