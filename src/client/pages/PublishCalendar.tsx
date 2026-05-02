@@ -162,6 +162,15 @@ function parseProjectId(value: string) {
   return Number.isInteger(projectId) && projectId > 0 ? projectId : undefined;
 }
 
+function getProjectIdValidationError(value: string) {
+  const normalizedValue = value.trim();
+  if (normalizedValue.length === 0) {
+    return null;
+  }
+
+  return parseProjectId(value) === undefined ? '项目 ID 必须是大于 0 的整数' : null;
+}
+
 function buildPublishCalendarPath(projectId?: number) {
   return projectId === undefined ? '/api/drafts' : `/api/drafts?projectId=${projectId}`;
 }
@@ -630,10 +639,22 @@ export function PublishCalendarPage({
   const [localProjectIdDraft, setLocalProjectIdDraft] = useState('');
   const activeProjectIdDraft = projectIdDraft ?? localProjectIdDraft;
   const projectId = parseProjectId(activeProjectIdDraft);
+  const projectIdValidationError = getProjectIdValidationError(activeProjectIdDraft);
+  const projectScopeKey = projectIdValidationError
+    ? `invalid:${activeProjectIdDraft.trim()}`
+    : projectId === undefined
+      ? ''
+      : String(projectId);
   const shouldLoadBrowserHandoffsLive = browserHandoffsStateOverride === undefined;
   const { state, reload } = useAsyncQuery(
-    () => (projectId === undefined ? loadDraftsAction() : loadDraftsAction(projectId)),
-    [loadDraftsAction, projectId],
+    () => {
+      if (projectIdValidationError) {
+        return Promise.reject(new Error(projectIdValidationError));
+      }
+
+      return projectId === undefined ? loadDraftsAction() : loadDraftsAction(projectId);
+    },
+    [loadDraftsAction, projectId, projectIdValidationError],
   );
   const { state: browserHandoffsState, reload: reloadBrowserHandoffs } = useAsyncQuery(
     () =>
@@ -665,7 +686,9 @@ export function PublishCalendarPage({
   const retryFollowUpAttemptByIdRef = useRef<Record<number, number>>({});
   const displayState = stateOverride ?? state;
   const displayBrowserHandoffsState = browserHandoffsStateOverride ?? browserHandoffsState;
+  const showLoadError = displayState.status === 'error' && displayState.error !== projectIdValidationError;
   const hasLiveDrafts =
+    !projectIdValidationError &&
     typeof displayState.data === 'object' &&
     displayState.data !== null &&
     Array.isArray((displayState.data as DraftsResponse).drafts);
@@ -702,7 +725,7 @@ export function PublishCalendarPage({
     setSessionActionStateById({});
     setBrowserHandoffDraftByArtifactPath({});
     setBrowserHandoffCompletionStateById({});
-  }, [projectId]);
+  }, [projectScopeKey]);
 
   function getScheduledAtValue(draft: DraftRecord) {
     return scheduledAtById[draft.id] ?? draft.scheduledAt ?? '';
@@ -1245,12 +1268,15 @@ export function PublishCalendarPage({
           placeholder="例如 12"
           style={projectInputStyle}
         />
+        {projectIdValidationError ? (
+          <span style={{ color: '#b91c1c', fontWeight: 700 }}>{projectIdValidationError}</span>
+        ) : null}
       </label>
 
       <SectionCard title="发布状态" description="日历视图当前先用真实草稿数据落地排程与已发信息。">
         {displayState.status === 'loading' ? <p style={{ margin: 0, color: '#334155' }}>正在加载发布日历...</p> : null}
 
-        {displayState.status === 'error' ? (
+        {showLoadError ? (
           <p style={{ margin: 0, color: '#b91c1c' }}>发布日历加载失败：{displayState.error}</p>
         ) : null}
 

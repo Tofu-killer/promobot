@@ -41,6 +41,15 @@ function parseProjectId(value: string) {
   return Number.isInteger(projectId) && projectId > 0 ? projectId : undefined;
 }
 
+function getProjectIdValidationError(value: string) {
+  const normalizedValue = value.trim();
+  if (normalizedValue.length === 0) {
+    return null;
+  }
+
+  return parseProjectId(value) === undefined ? '项目 ID 必须是大于 0 的整数' : null;
+}
+
 function buildDraftsPath(projectId?: number) {
   return projectId === undefined ? '/api/drafts' : `/api/drafts?projectId=${projectId}`;
 }
@@ -471,11 +480,22 @@ export function DraftsPage({
   const [batchFeedback, setBatchFeedback] = useState<BatchFeedback | null>(null);
   const activeProjectIdDraft = projectIdDraft ?? localProjectIdDraft;
   const projectId = parseProjectId(activeProjectIdDraft);
-  const currentScopeKey = projectId === undefined ? '' : String(projectId);
+  const projectIdValidationError = getProjectIdValidationError(activeProjectIdDraft);
+  const currentScopeKey = projectIdValidationError
+    ? `invalid:${activeProjectIdDraft.trim()}`
+    : projectId === undefined
+      ? ''
+      : String(projectId);
   const shouldLoadBrowserHandoffsLive = browserHandoffsStateOverride === undefined;
   const { state, reload } = useAsyncQuery(
-    () => (projectId === undefined ? loadDraftsAction() : loadDraftsAction(projectId)),
-    [loadDraftsAction, projectId],
+    () => {
+      if (projectIdValidationError) {
+        return Promise.reject(new Error(projectIdValidationError));
+      }
+
+      return projectId === undefined ? loadDraftsAction() : loadDraftsAction(projectId);
+    },
+    [loadDraftsAction, projectId, projectIdValidationError],
   );
   const { state: browserHandoffsState, reload: reloadBrowserHandoffs } = useAsyncQuery(
     () =>
@@ -509,7 +529,9 @@ export function DraftsPage({
   publishStateByIdRef.current = publishStateById;
   const displayState = stateOverride ?? state;
   const displayBrowserHandoffsState = browserHandoffsStateOverride ?? browserHandoffsState;
+  const showLoadError = displayState.status === 'error' && displayState.error !== projectIdValidationError;
   const hasLiveDrafts =
+    !projectIdValidationError &&
     typeof displayState.data === 'object' &&
     displayState.data !== null &&
     Array.isArray((displayState.data as DraftsResponse).drafts);
@@ -545,7 +567,7 @@ export function DraftsPage({
     setBrowserHandoffCompletionStateById({});
     setBrowserHandoffDraftByArtifactPath({});
     publishFollowUpAttemptByIdRef.current = {};
-  }, [projectId]);
+  }, [currentScopeKey]);
 
   useEffect(() => {
     if (displayState.status !== 'success' || !displayState.data) {
@@ -1364,12 +1386,15 @@ export function DraftsPage({
           placeholder="例如 12"
           style={projectInputStyle}
         />
+        {projectIdValidationError ? (
+          <span style={{ color: '#b91c1c', fontWeight: 700 }}>{projectIdValidationError}</span>
+        ) : null}
       </label>
 
       <SectionCard title="草稿列表" description="页面加载时直接请求 `/api/drafts`。">
         {displayState.status === 'loading' ? <p style={{ margin: 0, color: '#334155' }}>正在加载草稿...</p> : null}
 
-        {displayState.status === 'error' ? (
+        {showLoadError ? (
           <p style={{ margin: 0, color: '#b91c1c' }}>草稿加载失败：{displayState.error}</p>
         ) : null}
 

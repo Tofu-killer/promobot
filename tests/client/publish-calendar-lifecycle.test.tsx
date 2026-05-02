@@ -632,6 +632,51 @@ describe('Publish Calendar lifecycle', () => {
     });
   });
 
+  it('does not fall back to an unscoped publish calendar load when a controlled projectId draft is invalid', async () => {
+    const { container } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { PublishCalendarPage } = await import('../../src/client/pages/PublishCalendar');
+
+    const loadDraftsAction = vi.fn().mockResolvedValue({
+      drafts: [],
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(PublishCalendarPage as never, {
+          loadDraftsAction,
+          browserHandoffsStateOverride: {
+            status: 'success',
+            data: {
+              handoffs: [],
+              total: 0,
+            },
+          },
+          projectIdDraft: 'invalid-project-id',
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const projectIdInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    ) as FakeElement & { value?: string };
+
+    expect(projectIdInput).not.toBeNull();
+    expect(projectIdInput.value).toBe('invalid-project-id');
+    expect(loadDraftsAction).not.toHaveBeenCalled();
+    expect(collectText(container)).toContain('项目 ID 必须是大于 0 的整数');
+    expect(collectText(container)).not.toContain('日历加载失败');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('shows publishedAt details for published drafts', async () => {
     const { PublishCalendarPage } = await import('../../src/client/pages/PublishCalendar');
 

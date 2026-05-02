@@ -110,6 +110,15 @@ function parseProjectId(value: string) {
   return Number.isInteger(projectId) && projectId > 0 ? projectId : undefined;
 }
 
+function getProjectIdValidationError(value: string) {
+  const normalizedValue = value.trim();
+  if (normalizedValue.length === 0) {
+    return null;
+  }
+
+  return parseProjectId(value) === undefined ? '项目 ID 必须是大于 0 的整数' : null;
+}
+
 function buildReviewQueuePath(projectId?: number) {
   return projectId === undefined ? '/api/drafts?status=review' : `/api/drafts?status=review&projectId=${projectId}`;
 }
@@ -571,10 +580,22 @@ export function ReviewQueuePage({
   const [localProjectIdDraft, setLocalProjectIdDraft] = useState('');
   const activeProjectIdDraft = projectIdDraft ?? localProjectIdDraft;
   const projectId = parseProjectId(activeProjectIdDraft);
+  const projectIdValidationError = getProjectIdValidationError(activeProjectIdDraft);
+  const projectScopeKey = projectIdValidationError
+    ? `invalid:${activeProjectIdDraft.trim()}`
+    : projectId === undefined
+      ? ''
+      : String(projectId);
   const shouldLoadBrowserHandoffsLive = browserHandoffsStateOverride === undefined;
   const { state, reload } = useAsyncQuery(
-    () => (projectId === undefined ? loadReviewQueueAction() : loadReviewQueueAction(projectId)),
-    [loadReviewQueueAction, projectId],
+    () => {
+      if (projectIdValidationError) {
+        return Promise.reject(new Error(projectIdValidationError));
+      }
+
+      return projectId === undefined ? loadReviewQueueAction() : loadReviewQueueAction(projectId);
+    },
+    [loadReviewQueueAction, projectId, projectIdValidationError],
   );
   const { state: browserHandoffsState, reload: reloadBrowserHandoffs } = useAsyncQuery(
     () =>
@@ -601,7 +622,9 @@ export function ReviewQueuePage({
   const publishFollowUpAttemptByIdRef = useRef<Record<number, number>>({});
   const displayState = stateOverride ?? state;
   const displayBrowserHandoffsState = browserHandoffsStateOverride ?? browserHandoffsState;
+  const showLoadError = displayState.status === 'error' && displayState.error !== projectIdValidationError;
   const hasLiveReviewDrafts =
+    !projectIdValidationError &&
     typeof displayState.data === 'object' &&
     displayState.data !== null &&
     Array.isArray((displayState.data as DraftsResponse).drafts);
@@ -622,7 +645,7 @@ export function ReviewQueuePage({
     setSessionActionStateById({});
     setBrowserHandoffDraftByArtifactPath({});
     setBrowserHandoffCompletionStateById({});
-  }, [projectId]);
+  }, [projectScopeKey]);
 
   useEffect(() => {
     if (displayState.status !== 'success' || !displayState.data) {
@@ -1195,12 +1218,15 @@ export function ReviewQueuePage({
           placeholder="例如 12"
           style={projectInputStyle}
         />
+        {projectIdValidationError ? (
+          <span style={{ color: '#b91c1c', fontWeight: 700 }}>{projectIdValidationError}</span>
+        ) : null}
       </label>
 
       <SectionCard title="待审核草稿" description="默认只展示 status=review 的草稿。">
         {displayState.status === 'loading' ? <p style={{ margin: 0, color: '#334155' }}>正在加载审核队列...</p> : null}
 
-        {displayState.status === 'error' ? (
+        {showLoadError ? (
           <p style={{ margin: 0, color: '#b91c1c' }}>审核队列加载失败：{displayState.error}</p>
         ) : null}
 
