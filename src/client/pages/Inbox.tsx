@@ -18,6 +18,12 @@ export interface InboxItem {
   title: string;
   excerpt: string;
   createdAt: string;
+  metadata?: InboxItemMetadata | null;
+}
+
+interface InboxItemMetadata {
+  sourceUrl?: string | null;
+  [key: string]: unknown;
 }
 
 export interface InboxResponse {
@@ -472,6 +478,10 @@ function readPositiveIntegerLikeString(value: unknown) {
   }
 
   return readPositiveInteger(value);
+}
+
+function resolveOriginalPostUrl(item: InboxItem) {
+  return readString(item.metadata?.sourceUrl) ?? extractOriginalPostUrl(item.excerpt);
 }
 
 function readBrowserReplyHandoff(details: SendInboxReplyDetails | undefined) {
@@ -1602,7 +1612,7 @@ export function InboxPage({
                 ) : (
                   filteredItems.map((item) => (
                     (() => {
-                      const originalPostUrl = extractOriginalPostUrl(item.excerpt);
+                      const originalPostUrl = resolveOriginalPostUrl(item);
 
                       return (
                         <article

@@ -1107,6 +1107,38 @@ describe('Inbox action wiring', () => {
     expect(html).not.toContain('原帖跳转暂未接入，请在源站手动打开。');
   });
 
+  it('prefers a structured original-post sourceUrl when the excerpt does not include a link', async () => {
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    const html = renderPage(InboxPage, {
+      stateOverride: {
+        status: 'success',
+        data: {
+          items: [
+            {
+              id: 8,
+              source: 'v2ex',
+              status: 'needs_reply',
+              author: 'user456',
+              title: 'Need a multi-region webhook retry queue',
+              excerpt: 'The post body was imported without an inline source link.',
+              createdAt: '2026-04-19T10:05:00.000Z',
+              metadata: {
+                sourceUrl: 'https://www.v2ex.com/t/888888',
+              },
+            },
+          ],
+          total: 1,
+          unread: 1,
+        },
+      } satisfies ApiState<unknown>,
+    });
+
+    expect(html).toContain('href="https://www.v2ex.com/t/888888"');
+    expect(html).toContain('打开原帖');
+    expect(html).not.toContain('原帖跳转暂未接入，请在源站手动打开。');
+  });
+
   it('filters inbox items by platform and status and keeps list metrics aligned with the current filter', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
