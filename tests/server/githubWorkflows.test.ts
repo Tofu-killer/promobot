@@ -196,6 +196,48 @@ describe('GitHub workflow contracts', () => {
     expect(verifyHelperStep).toContain('--metadata-file "$METADATA_PATH"');
   });
 
+  it('re-verifies the downloaded release helper and sidecars before publishing GitHub Release assets', () => {
+    const releaseBundleWorkflow = fs.readFileSync(
+      path.resolve('.github/workflows/release-bundle.yml'),
+      'utf8',
+    );
+    const publishReleaseJob = releaseBundleWorkflow.slice(
+      releaseBundleWorkflow.indexOf('  publish-release-asset:'),
+    );
+    const verifyDownloadedAssetsStep = publishReleaseJob.slice(
+      publishReleaseJob.indexOf(
+        '      - name: Verify downloaded release helper and sidecars before publishing',
+      ),
+      publishReleaseJob.indexOf('      - name: Generate GitHub Release body'),
+    );
+
+    expect(verifyDownloadedAssetsStep).toContain(
+      'HELPER_PATH: ${{ steps.archive.outputs.helper_path }}',
+    );
+    expect(verifyDownloadedAssetsStep).toContain(
+      'ARCHIVE_PATH: ${{ steps.archive.outputs.archive_path }}',
+    );
+    expect(verifyDownloadedAssetsStep).toContain(
+      'CHECKSUM_PATH: ${{ steps.archive.outputs.checksum_path }}',
+    );
+    expect(verifyDownloadedAssetsStep).toContain(
+      'METADATA_PATH: ${{ steps.archive.outputs.metadata_path }}',
+    );
+    expect(verifyDownloadedAssetsStep).toContain('bash -n "$HELPER_PATH"');
+    expect(verifyDownloadedAssetsStep).toContain('bash "$HELPER_PATH" \\');
+    expect(verifyDownloadedAssetsStep).toContain('--archive-file "$ARCHIVE_PATH" \\');
+    expect(verifyDownloadedAssetsStep).toContain('--checksum-file "$CHECKSUM_PATH" \\');
+    expect(verifyDownloadedAssetsStep).toContain('--metadata-file "$METADATA_PATH"');
+
+    expectOrdered(publishReleaseJob, [
+      '      - name: Download release bundle artifact',
+      '      - name: Locate release bundle assets',
+      '      - name: Verify downloaded release helper and sidecars before publishing',
+      '      - name: Generate GitHub Release body',
+      '      - name: Publish release bundle assets to GitHub Release',
+    ]);
+  });
+
   it('keeps the GitHub Release body guidance aligned with the downloaded helper contract', () => {
     const releaseBundleWorkflow = fs.readFileSync(
       path.resolve('.github/workflows/release-bundle.yml'),

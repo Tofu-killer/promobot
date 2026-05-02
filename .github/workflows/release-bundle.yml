@@ -702,6 +702,19 @@ jobs:
             echo "helper_path=$HELPER_PATH"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Verify downloaded release helper and sidecars before publishing
+        env:
+          HELPER_PATH: ${{ steps.archive.outputs.helper_path }}
+          ARCHIVE_PATH: ${{ steps.archive.outputs.archive_path }}
+          CHECKSUM_PATH: ${{ steps.archive.outputs.checksum_path }}
+          METADATA_PATH: ${{ steps.archive.outputs.metadata_path }}
+        run: |
+          bash -n "$HELPER_PATH"
+          bash "$HELPER_PATH" \
+            --archive-file "$ARCHIVE_PATH" \
+            --checksum-file "$CHECKSUM_PATH" \
+            --metadata-file "$METADATA_PATH"
+
       - name: Generate GitHub Release body
         id: release_body
         env:
