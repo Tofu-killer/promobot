@@ -1204,6 +1204,64 @@ describe('Inbox action wiring', () => {
     });
   });
 
+  it('keeps facebook-group inbox sources on the single supported Generate Center platform', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    const openGenerateCenter = vi.fn();
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(InboxPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              items: [
+                {
+                  id: 17,
+                  source: 'facebook-group',
+                  status: 'needs_review',
+                  author: 'community-manager',
+                  title: 'Group thread needs a direct follow-up',
+                  excerpt: 'Keep this reply on the same community channel.',
+                  createdAt: '2026-04-19T10:02:00.000Z',
+                },
+              ],
+              total: 1,
+              unread: 1,
+            },
+          } satisfies ApiState<unknown>,
+          onOpenGenerateCenter: openGenerateCenter,
+        }),
+      );
+      await flush();
+    });
+
+    const handoffButton = findElement(
+      container,
+      (element) => element.getAttribute('data-inbox-generate-center-id') === '17',
+    );
+
+    expect(handoffButton).not.toBeNull();
+
+    await act(async () => {
+      handoffButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(openGenerateCenter).toHaveBeenCalledWith({
+      topic: 'Group thread needs a direct follow-up\n\nKeep this reply on the same community channel.',
+      preferredPlatforms: ['facebook-group'],
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('opens Generate Center with manual fallback platforms for unsupported inbox sources', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');

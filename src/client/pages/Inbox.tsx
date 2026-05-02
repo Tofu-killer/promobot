@@ -352,7 +352,15 @@ const placeholderActionNoteStyle = {
   lineHeight: 1.5,
 } as const;
 const manualInboxGeneratePlatforms = ['facebook-group', 'instagram', 'tiktok', 'xiaohongshu', 'weibo'];
-const supportedInboxGeneratePlatforms = new Set(['x', 'reddit', 'instagram', 'tiktok', 'xiaohongshu', 'weibo']);
+const supportedInboxGeneratePlatforms = new Set([
+  'x',
+  'reddit',
+  'facebook-group',
+  'instagram',
+  'tiktok',
+  'xiaohongshu',
+  'weibo',
+]);
 
 function PlaceholderActionButton({ label, hint, tone = 'secondary' }: PlaceholderActionButtonProps) {
   const isPrimary = tone === 'primary';
