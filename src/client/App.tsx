@@ -143,6 +143,7 @@ function renderRoute(
         <MonitorPage
           projectIdDraft={sharedProjectIdDraft}
           onProjectIdDraftChange={onProjectIdDraftChange}
+          onOpenGenerateCenter={onOpenGenerateCenter}
         />
       );
     case 'reputation':

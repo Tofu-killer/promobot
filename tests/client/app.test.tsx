@@ -596,6 +596,118 @@ describe('App shell', () => {
     });
   });
 
+  it('prefills Generate Center from a monitor handoff and keeps the shared projectId draft', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    installAuthStorage(window, {
+      localStorage: createStorageArea(),
+      sessionStorage: createStorageArea('secret'),
+    });
+    installBrowserHistory(window as never, '/monitor');
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+
+        if (url === '/api/auth/probe') {
+          return Promise.resolve(
+            new Response(null, {
+              status: 204,
+            }),
+          );
+        }
+
+        if (url === '/api/monitor/feed') {
+          return Promise.resolve(
+            jsonResponse({
+              items: [
+                {
+                  id: 901,
+                  source: 'Product Hunt',
+                  title: 'Launch note worth expanding',
+                  detail: 'Turn this competitive launch into a broader outbound explainer.',
+                  status: 'new',
+                  createdAt: '2026-04-19T12:00:00.000Z',
+                },
+              ],
+              total: 1,
+            }),
+          );
+        }
+
+        throw new Error(`unexpected fetch request: ${url}`);
+      }),
+    );
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(createElement(App as never, { initialAdminPassword: 'secret' }));
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    const monitorProjectInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    );
+    expect(monitorProjectInput).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(monitorProjectInput as never, '12', window as never);
+      await flush();
+      await flush();
+    });
+
+    const monitorItem = findElement(
+      container,
+      (element) => element.getAttribute('data-monitor-item-id') === '901',
+    );
+    expect(monitorItem).not.toBeNull();
+
+    await act(async () => {
+      monitorItem?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    const handoffButton = findElement(
+      container,
+      (element) => element.getAttribute('data-monitor-generate-center') === 'true',
+    );
+    expect(handoffButton).not.toBeNull();
+
+    await act(async () => {
+      handoffButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect((window.location as { pathname?: string }).pathname).toBe('/generate');
+    expect(collectText(container)).toContain('Generate Center');
+
+    const topicField = findElement(container, (element) => element.tagName === 'TEXTAREA');
+    expect((topicField as { value?: string } | null)?.value).toBe(
+      'Launch note worth expanding\n\nTurn this competitive launch into a broader outbound explainer.',
+    );
+    expect((findGeneratePlatformCheckbox(container, 'facebook-group') as { checked?: boolean } | null)?.checked).toBe(
+      true,
+    );
+    expect((findGeneratePlatformCheckbox(container, 'instagram') as { checked?: boolean } | null)?.checked).toBe(true);
+    expect((findGeneratePlatformCheckbox(container, 'x') as { checked?: boolean } | null)?.checked).toBe(false);
+
+    const generateProjectInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    );
+    expect((generateProjectInput as { value?: string } | null)?.value).toBe('12');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('keeps the login page when the current admin session probe fails', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');

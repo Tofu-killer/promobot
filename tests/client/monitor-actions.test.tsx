@@ -610,6 +610,141 @@ describe('Monitor follow-up actions', () => {
     });
   });
 
+  it('opens Generate Center with the selected supported monitor source as the preferred target', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { MonitorPage } = await import('../../src/client/pages/Monitor');
+
+    const openGenerateCenter = vi.fn();
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(MonitorPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              items: [
+                {
+                  id: 7,
+                  source: 'X / Twitter',
+                  title: 'Competitor tier cut deserves a public response',
+                  detail: 'Turn this pricing move into a launch-ready thread.',
+                  status: 'new',
+                  createdAt: '2026-04-19T10:00:00.000Z',
+                },
+              ],
+              total: 1,
+            },
+          } satisfies ApiState<unknown>,
+          onOpenGenerateCenter: openGenerateCenter,
+        }),
+      );
+      await flush();
+    });
+
+    const selectedItem = findElement(
+      container,
+      (element) => element.getAttribute('data-monitor-item-id') === '7',
+    );
+    const handoffButton = findElement(
+      container,
+      (element) => element.getAttribute('data-monitor-generate-center') === 'true',
+    );
+
+    expect(selectedItem).not.toBeNull();
+    expect(handoffButton).not.toBeNull();
+    expect(handoffButton?.getAttribute('disabled')).toBe('');
+
+    await act(async () => {
+      selectedItem?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(handoffButton?.getAttribute('disabled')).toBeNull();
+
+    await act(async () => {
+      handoffButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(openGenerateCenter).toHaveBeenCalledWith({
+      topic: 'Competitor tier cut deserves a public response\n\nTurn this pricing move into a launch-ready thread.',
+      preferredPlatforms: ['x'],
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('opens Generate Center with manual fallback platforms for unsupported monitor sources', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { MonitorPage } = await import('../../src/client/pages/Monitor');
+
+    const openGenerateCenter = vi.fn();
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(MonitorPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              items: [
+                {
+                  id: 8,
+                  source: 'Product Hunt',
+                  title: 'Founder launch thread needs a broader repurpose',
+                  detail: 'Route this launch recap into a multi-platform explainer.',
+                  status: 'new',
+                  createdAt: '2026-04-19T10:05:00.000Z',
+                },
+              ],
+              total: 1,
+            },
+          } satisfies ApiState<unknown>,
+          onOpenGenerateCenter: openGenerateCenter,
+        }),
+      );
+      await flush();
+    });
+
+    const selectedItem = findElement(
+      container,
+      (element) => element.getAttribute('data-monitor-item-id') === '8',
+    );
+    const handoffButton = findElement(
+      container,
+      (element) => element.getAttribute('data-monitor-generate-center') === 'true',
+    );
+
+    expect(selectedItem).not.toBeNull();
+    expect(handoffButton).not.toBeNull();
+
+    await act(async () => {
+      selectedItem?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    await act(async () => {
+      handoffButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(openGenerateCenter).toHaveBeenCalledWith({
+      topic: 'Founder launch thread needs a broader repurpose\n\nRoute this launch recap into a multi-platform explainer.',
+      preferredPlatforms: ['facebook-group', 'instagram', 'tiktok', 'xiaohongshu', 'weibo'],
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('posts monitor fetch enqueue through the shared API helper', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({

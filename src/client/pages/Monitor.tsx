@@ -51,6 +51,7 @@ export interface EnqueueMonitorFetchJobResponse {
 }
 
 const launchReadyFollowUpPlatforms = new Set(['x', 'reddit', 'instagram', 'tiktok', 'xiaohongshu', 'weibo']);
+const manualMonitorGeneratePlatforms = ['facebook-group', 'instagram', 'tiktok', 'xiaohongshu', 'weibo'];
 
 function parseProjectId(value: string) {
   const normalizedValue = value.trim();
@@ -73,6 +74,10 @@ function createProjectIdBody(projectId?: number) {
 
 function createProjectPayload(projectId?: number) {
   return projectId === undefined ? {} : { projectId };
+}
+
+function buildMonitorGenerateTopic(item: MonitorItem) {
+  return [item.title, item.detail].filter((value) => value.trim().length > 0).join('\n\n');
 }
 
 export async function loadMonitorFeedRequest(projectId?: number): Promise<MonitorFeedResponse> {
@@ -135,6 +140,7 @@ interface MonitorPageProps {
   enqueueStateOverride?: AsyncState<EnqueueMonitorFetchJobResponse>;
   projectIdDraft?: string;
   onProjectIdDraftChange?: (value: string) => void;
+  onOpenGenerateCenter?: (input: { topic: string; preferredPlatforms: string[] }) => void;
 }
 
 type FollowUpAttemptState =
@@ -193,6 +199,7 @@ export function MonitorPage({
   enqueueStateOverride,
   projectIdDraft,
   onProjectIdDraftChange,
+  onOpenGenerateCenter,
 }: MonitorPageProps) {
   const resolvedEnqueueAction = enqueueMonitorAction ?? enqueueFetchJobAction ?? enqueueMonitorFetchJobRequest;
   const [localProjectIdDraft, setLocalProjectIdDraft] = useState('');
@@ -333,6 +340,26 @@ export function MonitorPage({
     setFollowUpSelectionMessage(null);
   }
 
+  function canOpenGenerateCenter() {
+    return typeof onOpenGenerateCenter === 'function';
+  }
+
+  function resolveMonitorGeneratePreferredPlatforms(source: string) {
+    const followUpPlatform = resolveFollowUpPlatform(source);
+    return followUpPlatform ? [followUpPlatform] : manualMonitorGeneratePlatforms;
+  }
+
+  function handleOpenGenerateCenter() {
+    if (!selectedItem || !canOpenGenerateCenter()) {
+      return;
+    }
+
+    onOpenGenerateCenter?.({
+      topic: buildMonitorGenerateTopic(selectedItem),
+      preferredPlatforms: resolveMonitorGeneratePreferredPlatforms(selectedItem.source),
+    });
+  }
+
   return (
     <section>
       <PageHeader
@@ -356,6 +383,14 @@ export function MonitorPage({
               disabled={isPreview || showFollowUpLoadingForSelectedItem}
               onClick={handleGenerateFollowUp}
             />
+            {canOpenGenerateCenter() ? (
+              <ActionButton
+                label="发送到 Generate Center"
+                disabled={isPreview || selectedItem === null}
+                buttonAttributes={{ 'data-monitor-generate-center': 'true' }}
+                onClick={handleOpenGenerateCenter}
+              />
+            ) : null}
           </>
         }
       />
