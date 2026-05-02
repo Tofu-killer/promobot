@@ -1,5 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { loadDiscoveryRequest, type DiscoveryItem, type DiscoveryResponse } from '../lib/discovery';
+import {
+  loadDiscoveryRequest,
+  normalizeDiscoveryItemId,
+  normalizeDiscoveryResponse,
+  resolveDiscoveryItemType,
+  resolveDiscoveryMonitorActionId,
+  type DiscoveryItem,
+  type DiscoveryResponse,
+} from '../lib/discovery';
 import { apiRequest, getErrorMessage } from '../lib/api';
 import type { AsyncState } from '../hooks/useAsyncRequest';
 import { useAsyncAction, useAsyncQuery } from '../hooks/useAsyncRequest';
@@ -250,7 +258,8 @@ export async function loadDiscoveryPageRequest(projectId?: number): Promise<Disc
     return loadDiscoveryRequest();
   }
 
-  return apiRequest<DiscoveryResponse>(buildProjectScopedPath('/api/discovery', projectId));
+  const payload = await apiRequest<unknown>(buildProjectScopedPath('/api/discovery', projectId));
+  return normalizeDiscoveryResponse(payload);
 }
 
 export async function fetchDiscoverySignalsRequest(projectId?: number): Promise<FetchDiscoverySignalsResponse> {
@@ -342,6 +351,7 @@ export function DiscoveryPage({
       {
         id: 'preview-1',
         source: 'Reddit',
+        type: 'monitor',
         title: 'AI 短视频脚本切题',
         summary: '近 24 小时讨论增长明显，适合做教程向内容。',
         status: 'new',
@@ -359,8 +369,8 @@ export function DiscoveryPage({
     typeof displayState.data === 'object' &&
     displayState.data !== null &&
     Array.isArray((displayState.data as DiscoveryResponse).items);
+  const viewData = normalizeDiscoveryResponse(hasLiveData ? (displayState.data as DiscoveryResponse) : fallbackData);
   const isPreview = !hasLiveData;
-  const viewData = hasLiveData ? (displayState.data as DiscoveryResponse) : fallbackData;
   const mergedItems = viewData.items.map((item) => {
     const updatedDiscoveryItem = discoveryItemOverrideById[String(item.id)];
 
@@ -372,6 +382,11 @@ export function DiscoveryPage({
           summary: updatedDiscoveryItem.detail,
           status: updatedDiscoveryItem.status,
           createdAt: updatedDiscoveryItem.createdAt,
+          id: normalizeDiscoveryItemId(
+            updatedDiscoveryItem.id,
+            resolveDiscoveryItemType(updatedDiscoveryItem),
+            0,
+          ),
         }
       : item;
   });
@@ -575,7 +590,7 @@ export function DiscoveryPage({
   }
 
   function canMutateDiscoveryItem(item: DiscoveryItem) {
-    return String(item.id).startsWith('monitor-');
+    return !isPreview && resolveDiscoveryMonitorActionId(item) !== null;
   }
 
   function canOpenGenerateCenter() {
@@ -594,11 +609,12 @@ export function DiscoveryPage({
   }
 
   async function handleDiscoveryItemAction(item: DiscoveryItem, action: 'save' | 'ignore') {
-    if (!canMutateDiscoveryItem(item)) {
+    const actionableId = resolveDiscoveryMonitorActionId(item);
+    if (isPreview || actionableId === null) {
       return;
     }
 
-    const itemId = String(item.id);
+    const itemId = actionableId;
     setDiscoveryItemActionStateById((currentState) => ({
       ...currentState,
       [itemId]: {
@@ -862,7 +878,9 @@ export function DiscoveryPage({
               const discoveryItemActionState = getDiscoveryItemActionState(item.id);
               const draftPlatform = resolveDraftPlatform(item.source);
               const canGenerateDraft = draftPlatform !== null;
+              const actionableDiscoveryItemId = resolveDiscoveryMonitorActionId(item);
               const canMutateItem = canMutateDiscoveryItem(item);
+              const isInboxDerivedItem = resolveDiscoveryItemType(item) === 'inbox';
               const isMutatingItem = discoveryItemActionState.status === 'loading';
 
               return (
@@ -884,8 +902,8 @@ export function DiscoveryPage({
                       <div style={{ display: 'flex', justifyContent: 'flex-start', gap: '10px', flexWrap: 'wrap' }}>
                         <button
                           type="button"
-                          data-discovery-save-id={canMutateItem ? String(item.id) : undefined}
-                          data-discovery-item-action={`save-${String(item.id)}`}
+                          data-discovery-save-id={actionableDiscoveryItemId ?? undefined}
+                          data-discovery-item-action={`save-${actionableDiscoveryItemId ?? String(item.id)}`}
                           disabled={!canMutateItem || isMutatingItem}
                           onClick={() => {
                             void handleDiscoveryItemAction(item, 'save');
@@ -905,8 +923,8 @@ export function DiscoveryPage({
                         </button>
                         <button
                           type="button"
-                          data-discovery-ignore-id={canMutateItem ? String(item.id) : undefined}
-                          data-discovery-item-action={`ignore-${String(item.id)}`}
+                          data-discovery-ignore-id={actionableDiscoveryItemId ?? undefined}
+                          data-discovery-item-action={`ignore-${actionableDiscoveryItemId ?? String(item.id)}`}
                           disabled={!canMutateItem || isMutatingItem}
                           onClick={() => {
                             void handleDiscoveryItemAction(item, 'ignore');
@@ -1005,7 +1023,7 @@ export function DiscoveryPage({
                           发现条目动作失败：{discoveryItemActionState.error}
                         </p>
                       ) : null}
-                      {!canMutateItem ? (
+                      {isInboxDerivedItem ? (
                         <p style={{ margin: 0, color: '#92400e', fontWeight: 700 }}>
                           来源于 inbox 的聚合项暂不支持保存 / 忽略动作
                         </p>

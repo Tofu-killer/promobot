@@ -7,6 +7,7 @@ export interface DiscoveryItem {
   title: string;
   summary: string;
   source: string;
+  type: 'monitor' | 'inbox';
   status: string;
   score: number | null;
   createdAt: string | null;
@@ -23,6 +24,11 @@ export interface DiscoveryResponse {
   stats: DiscoveryStats;
 }
 
+type DiscoveryItemLike = {
+  id: string | number;
+  type?: DiscoveryItem['type'] | null;
+};
+
 function asRecord(value: unknown): UnknownRecord | null {
   return typeof value === 'object' && value !== null ? (value as UnknownRecord) : null;
 }
@@ -35,10 +41,76 @@ function asString(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }
 
+function asPositiveInteger(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isInteger(value) && value > 0) {
+    return value;
+  }
+
+  const normalized = asString(value);
+  if (!normalized || !/^\d+$/.test(normalized)) {
+    return null;
+  }
+
+  const numericValue = Number(normalized);
+  return Number.isSafeInteger(numericValue) && numericValue > 0 ? numericValue : null;
+}
+
+function asDiscoveryItemType(value: unknown): DiscoveryItem['type'] | null {
+  return value === 'monitor' || value === 'inbox' ? value : null;
+}
+
+function parseDiscoveryItemId(value: unknown) {
+  const normalized = asString(value);
+  const match = normalized?.match(/^(monitor|inbox)-(\d+)$/);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    type: match[1] as DiscoveryItem['type'],
+    numericId: Number(match[2]),
+  };
+}
+
+function coerceDiscoveryItemId(id: unknown, type: DiscoveryItem['type']): string | null {
+  const parsedId = parseDiscoveryItemId(id);
+  if (parsedId) {
+    return `${parsedId.type}-${parsedId.numericId}`;
+  }
+
+  const numericId = asPositiveInteger(id);
+  return numericId === null ? null : `${type}-${numericId}`;
+}
+
+export function resolveDiscoveryItemType(item: DiscoveryItemLike): DiscoveryItem['type'] {
+  return parseDiscoveryItemId(item.id)?.type ?? asDiscoveryItemType(item.type) ?? 'monitor';
+}
+
+export function normalizeDiscoveryItemId(
+  id: unknown,
+  type: DiscoveryItem['type'],
+  fallbackIndex: number,
+): string {
+  return coerceDiscoveryItemId(id, type) ?? asString(id) ?? `${type}-${fallbackIndex + 1}`;
+}
+
+export function resolveDiscoveryMonitorActionId(item: DiscoveryItemLike): string | null {
+  const type = resolveDiscoveryItemType(item);
+  if (type !== 'monitor') {
+    return null;
+  }
+
+  return coerceDiscoveryItemId(item.id, type);
+}
+
 function normalizeDiscoveryItem(value: unknown, index: number): DiscoveryItem {
   const record = asRecord(value);
   const id = record?.id;
-  const numericId = asNumber(id);
+  const normalizedType = resolveDiscoveryItemType({
+    id: asPositiveInteger(id) ?? asString(id) ?? index + 1,
+    type: asDiscoveryItemType(record?.type),
+  });
+  const normalizedId = normalizeDiscoveryItemId(id, normalizedType, index);
   const title =
     asString(record?.title) ??
     asString(record?.headline) ??
@@ -66,17 +138,18 @@ function normalizeDiscoveryItem(value: unknown, index: number): DiscoveryItem {
     null;
 
   return {
-    id: numericId ?? asString(id) ?? index + 1,
+    id: normalizedId,
     title,
     summary,
     source,
+    type: normalizedType,
     status,
     score,
     createdAt,
   };
 }
 
-function normalizeDiscoveryResponse(payload: unknown): DiscoveryResponse {
+export function normalizeDiscoveryResponse(payload: unknown): DiscoveryResponse {
   const record = asRecord(payload);
   const statsRecord = asRecord(record?.stats) ?? asRecord(record?.summary);
   const itemsValue = Array.isArray(record?.items)

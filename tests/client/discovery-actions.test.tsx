@@ -1059,7 +1059,7 @@ describe('Discovery draft actions', () => {
 
     const handoffButton = findElement(
       container,
-      (element) => element.getAttribute('data-discovery-manual-generate-id') === '102',
+      (element) => element.getAttribute('data-discovery-manual-generate-id') === 'monitor-102',
     );
 
     expect(handoffButton).not.toBeNull();
@@ -1682,11 +1682,11 @@ describe('Discovery draft actions', () => {
 
     const firstSelectButton = findElement(
       container,
-      (element) => element.getAttribute('data-discovery-select-item') === '301',
+      (element) => element.getAttribute('data-discovery-select-item') === 'monitor-301',
     );
     const secondSelectButton = findElement(
       container,
-      (element) => element.getAttribute('data-discovery-select-item') === '302',
+      (element) => element.getAttribute('data-discovery-select-item') === 'monitor-302',
     );
     const batchGenerateButton = findElement(
       container,
@@ -1932,6 +1932,7 @@ describe('Discovery draft actions', () => {
               {
                 id: 'inbox-9',
                 source: 'Reddit',
+                type: 'inbox',
                 title: 'Inbox-derived discovery item',
                 summary: '来源于 inbox 的聚合项。',
                 status: 'needs_review',
@@ -1952,5 +1953,160 @@ describe('Discovery draft actions', () => {
     expect(html).toContain('来源于 inbox 的聚合项暂不支持保存 / 忽略动作');
     expect(html).toMatch(/data-discovery-item-action=\"save-inbox-9\"[^>]*disabled=\"\"/);
     expect(html).toMatch(/data-discovery-item-action=\"ignore-inbox-9\"[^>]*disabled=\"\"/);
+  });
+
+  it('normalizes numeric monitor ids before dispatching discovery save actions', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { DiscoveryPage } = await import('../../src/client/pages/Discovery');
+
+    const updateDiscoveryAction = vi.fn().mockResolvedValue({
+      item: {
+        id: 'monitor-7',
+        source: 'Reddit',
+        type: 'monitor',
+        title: 'Type-driven monitor item',
+        detail: '数字 id 的 monitor 条目应该归一到可 PATCH 的 monitor-7。',
+        status: 'saved',
+        createdAt: '2026-04-19T09:00:00.000Z',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(DiscoveryPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              items: [
+                {
+                  id: 7,
+                  source: 'Reddit',
+                  type: 'monitor',
+                  title: 'Type-driven monitor item',
+                  summary: '数字 id 的 monitor 条目应该可保存。',
+                  status: 'new',
+                  score: 81,
+                  createdAt: '2026-04-19T09:00:00.000Z',
+                },
+              ],
+              total: 1,
+              stats: {
+                sources: 1,
+                averageScore: 81,
+              },
+            },
+          },
+          updateDiscoveryAction,
+        }),
+      );
+      await flush();
+    });
+
+    const saveButton = findElement(
+      container,
+      (element) => element.getAttribute('data-discovery-save-id') === 'monitor-7',
+    );
+
+    expect(saveButton).not.toBeNull();
+
+    await act(async () => {
+      saveButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(updateDiscoveryAction).toHaveBeenCalledWith('monitor-7', 'save');
+    expect(collectText(container)).toContain('条目已保存');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('keeps discovery save and ignore disabled for monitor items with non-actionable ids', async () => {
+    const { DiscoveryPage } = await import('../../src/client/pages/Discovery');
+
+    const html = renderToStaticMarkup(
+      createElement(DiscoveryPage as never, {
+        stateOverride: {
+          status: 'success',
+          data: {
+            items: [
+              {
+                id: 'lead-7',
+                source: 'Reddit',
+                type: 'monitor',
+                title: 'Type-driven monitor item',
+                summary: '这条 monitor 项虽然类型正确，但 id 不可 PATCH，动作应该保持禁用。',
+                status: 'new',
+                score: 81,
+                createdAt: '2026-04-19T09:00:00.000Z',
+              },
+              {
+                id: 'lead-8',
+                source: 'Reddit',
+                type: 'inbox',
+                title: 'Type-driven inbox item',
+                summary: '这条 inbox 项应该保持禁用。',
+                status: 'needs_review',
+                score: 74,
+                createdAt: '2026-04-19T09:05:00.000Z',
+              },
+            ],
+            total: 2,
+            stats: {
+              sources: 1,
+              averageScore: 78,
+            },
+          },
+        },
+      }),
+    );
+
+    expect(html).not.toContain('data-discovery-save-id="lead-7"');
+    expect(html).not.toContain('data-discovery-ignore-id="lead-7"');
+    expect(html).toMatch(/data-discovery-item-action=\"save-lead-7\"[^>]*disabled=\"\"/);
+    expect(html).toMatch(/data-discovery-item-action=\"ignore-lead-7\"[^>]*disabled=\"\"/);
+    expect(html).toMatch(/data-discovery-item-action=\"save-lead-8\"[^>]*disabled=\"\"/);
+    expect(html).toMatch(/data-discovery-item-action=\"ignore-lead-8\"[^>]*disabled=\"\"/);
+  });
+
+  it('keeps discovery save and ignore disabled when a prefixed inbox id conflicts with monitor type', async () => {
+    const { DiscoveryPage } = await import('../../src/client/pages/Discovery');
+
+    const html = renderToStaticMarkup(
+      createElement(DiscoveryPage as never, {
+        stateOverride: {
+          status: 'success',
+          data: {
+            items: [
+              {
+                id: 'inbox-9',
+                source: 'Reddit',
+                type: 'monitor',
+                title: 'Conflicting discovery item',
+                summary: '前缀化 inbox id 必须压过错误的 monitor type，不能放开 save/ignore。',
+                status: 'needs_review',
+                score: 74,
+                createdAt: '2026-04-19T09:05:00.000Z',
+              },
+            ],
+            total: 1,
+            stats: {
+              sources: 1,
+              averageScore: 74,
+            },
+          },
+        },
+      }),
+    );
+
+    expect(html).not.toContain('data-discovery-save-id="inbox-9"');
+    expect(html).not.toContain('data-discovery-ignore-id="inbox-9"');
+    expect(html).toMatch(/data-discovery-item-action=\"save-inbox-9\"[^>]*disabled=\"\"/);
+    expect(html).toMatch(/data-discovery-item-action=\"ignore-inbox-9\"[^>]*disabled=\"\"/);
+    expect(html).toContain('来源于 inbox 的聚合项暂不支持保存 / 忽略动作');
   });
 });

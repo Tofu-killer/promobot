@@ -449,7 +449,7 @@ describe('App shell', () => {
 
     const manualHandoffButton = findElement(
       container,
-      (element) => element.getAttribute('data-discovery-manual-generate-id') === '701',
+      (element) => element.getAttribute('data-discovery-manual-generate-id') === 'monitor-701',
     );
     expect(manualHandoffButton).not.toBeNull();
 
