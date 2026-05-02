@@ -465,6 +465,24 @@ function readString(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value : null;
 }
 
+function readHttpUrl(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const normalizedValue = value.trim();
+  if (normalizedValue.length === 0) {
+    return null;
+  }
+
+  try {
+    const parsedUrl = new URL(normalizedValue);
+    return parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'https:' ? normalizedValue : null;
+  } catch {
+    return null;
+  }
+}
+
 function readPositiveInteger(value: unknown) {
   return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined;
 }
@@ -481,7 +499,7 @@ function readPositiveIntegerLikeString(value: unknown) {
 }
 
 function resolveOriginalPostUrl(item: InboxItem) {
-  return readString(item.metadata?.sourceUrl) ?? extractOriginalPostUrl(item.excerpt);
+  return readHttpUrl(item.metadata?.sourceUrl) ?? extractOriginalPostUrl(item.excerpt);
 }
 
 function readBrowserReplyHandoff(details: SendInboxReplyDetails | undefined) {
@@ -534,8 +552,8 @@ function readManualReplyAssistant(details: SendInboxReplyDetails | undefined) {
 
   const label = readString(assistant.label);
   const copyText = readString(assistant.copyText);
-  const sourceUrl = readString(assistant.sourceUrl);
-  const openUrl = readString(assistant.openUrl) ?? sourceUrl;
+  const sourceUrl = readHttpUrl(assistant.sourceUrl);
+  const openUrl = readHttpUrl(assistant.openUrl) ?? sourceUrl;
   const title = readString(assistant.title);
   const platform = readString(assistant.platform);
 

@@ -1139,6 +1139,70 @@ describe('Inbox action wiring', () => {
     expect(html).not.toContain('原帖跳转暂未接入，请在源站手动打开。');
   });
 
+  it('ignores a structured original-post sourceUrl when it is not an absolute http(s) URL', async () => {
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    const html = renderPage(InboxPage, {
+      stateOverride: {
+        status: 'success',
+        data: {
+          items: [
+            {
+              id: 9,
+              source: 'v2ex',
+              status: 'needs_reply',
+              author: 'user789',
+              title: 'Unsafe source URL should stay inert',
+              excerpt: 'The post body was imported without an inline source link.',
+              createdAt: '2026-04-19T10:06:00.000Z',
+              metadata: {
+                sourceUrl: 'javascript:alert(1)',
+              },
+            },
+          ],
+          total: 1,
+          unread: 1,
+        },
+      } satisfies ApiState<unknown>,
+    });
+
+    expect(html).not.toContain('href="javascript:alert(1)"');
+    expect(html).toContain('原帖跳转暂未接入，请在源站手动打开。');
+  });
+
+  it('falls back to the excerpt link when a structured original-post sourceUrl is unsafe', async () => {
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    const html = renderPage(InboxPage, {
+      stateOverride: {
+        status: 'success',
+        data: {
+          items: [
+            {
+              id: 10,
+              source: 'v2ex',
+              status: 'needs_reply',
+              author: 'user999',
+              title: 'Unsafe source URL should not hide the excerpt link',
+              excerpt: 'Please keep the original topic link.\n\nhttps://www.v2ex.com/t/999999',
+              createdAt: '2026-04-19T10:07:00.000Z',
+              metadata: {
+                sourceUrl: 'javascript:alert(1)',
+              },
+            },
+          ],
+          total: 1,
+          unread: 1,
+        },
+      } satisfies ApiState<unknown>,
+    });
+
+    expect(html).not.toContain('href="javascript:alert(1)"');
+    expect(html).toContain('href="https://www.v2ex.com/t/999999"');
+    expect(html).toContain('打开原帖');
+    expect(html).not.toContain('原帖跳转暂未接入，请在源站手动打开。');
+  });
+
   it('filters inbox items by platform and status and keeps list metrics aligned with the current filter', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
@@ -4732,6 +4796,203 @@ describe('Inbox action wiring', () => {
     });
 
     expect(openWindow).toHaveBeenCalledWith('https://www.v2ex.com/t/888888', '_blank', 'noopener,noreferrer');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('drops unsafe manual reply assistant open URLs from send-reply feedback', async () => {
+    const { container, window } = installMinimalDom();
+    const openWindow = vi.fn();
+    window.open = openWindow as never;
+    const { createRoot } = await import('react-dom/client');
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    const sendReplyAction = vi.fn().mockResolvedValue({
+      item: {
+        id: 7,
+        source: 'v2ex',
+        status: 'needs_reply',
+        author: 'alice',
+        title: 'Cursor API follow-up',
+        excerpt: 'Can you share current response times?\n\nhttps://www.v2ex.com/t/888888',
+        createdAt: '2026-04-19T10:00:00.000Z',
+      },
+      delivery: {
+        success: false,
+        status: 'manual_required',
+        mode: 'manual',
+        message: 'V2EX reply is ready for assisted manual delivery. Copy the reply and open the topic.',
+        reply: 'Manual follow-up reply.',
+        details: {
+          manualReplyAssistant: {
+            platform: 'v2ex',
+            label: 'V2EX',
+            copyText: 'Manual follow-up reply.',
+            openUrl: 'javascript:alert(1)',
+          },
+        },
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(InboxPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              items: [
+                {
+                  id: 7,
+                  source: 'v2ex',
+                  status: 'needs_reply',
+                  author: 'alice',
+                  title: 'Cursor API follow-up',
+                  excerpt: 'Can you share current response times?\n\nhttps://www.v2ex.com/t/888888',
+                  createdAt: '2026-04-19T10:00:00.000Z',
+                },
+              ],
+              total: 1,
+              unread: 1,
+            },
+          } satisfies ApiState<unknown>,
+          sendReplyAction,
+        }),
+      );
+      await flush();
+    });
+
+    const replyDraftField = findElement(container, (element) => element.tagName === 'TEXTAREA');
+    expect(replyDraftField).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(replyDraftField, 'Manual follow-up reply.', window);
+      await flush();
+    });
+
+    const sendReplyButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('发送回复'),
+    );
+    expect(sendReplyButton).not.toBeNull();
+
+    await act(async () => {
+      sendReplyButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('手工回复辅助：V2EX');
+    expect(collectText(container)).toContain('复制回复');
+    expect(container.innerHTML ?? '').not.toContain('javascript:alert(1)');
+    expect(
+      findAllElements(container, (element) => element.tagName === 'BUTTON' && collectText(element).includes('打开原帖')),
+    ).toHaveLength(0);
+    expect(openWindow).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('falls back to a safe manual reply assistant sourceUrl when openUrl is unsafe', async () => {
+    const { container, window } = installMinimalDom();
+    const openWindow = vi.fn();
+    window.open = openWindow as never;
+    const { createRoot } = await import('react-dom/client');
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    const sendReplyAction = vi.fn().mockResolvedValue({
+      item: {
+        id: 8,
+        source: 'v2ex',
+        status: 'needs_reply',
+        author: 'bob',
+        title: 'Fallback source URL should stay usable',
+        excerpt: 'Please share the updated API latency numbers.',
+        createdAt: '2026-04-19T10:01:00.000Z',
+      },
+      delivery: {
+        success: false,
+        status: 'manual_required',
+        mode: 'manual',
+        message: 'V2EX reply is ready for assisted manual delivery. Copy the reply and open the topic.',
+        reply: 'Manual follow-up reply.',
+        details: {
+          manualReplyAssistant: {
+            platform: 'v2ex',
+            label: 'V2EX',
+            copyText: 'Manual follow-up reply.',
+            sourceUrl: 'https://www.v2ex.com/t/999999',
+            openUrl: 'javascript:alert(1)',
+          },
+        },
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(InboxPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              items: [
+                {
+                  id: 8,
+                  source: 'v2ex',
+                  status: 'needs_reply',
+                  author: 'bob',
+                  title: 'Fallback source URL should stay usable',
+                  excerpt: 'Please share the updated API latency numbers.',
+                  createdAt: '2026-04-19T10:01:00.000Z',
+                },
+              ],
+              total: 1,
+              unread: 1,
+            },
+          } satisfies ApiState<unknown>,
+          sendReplyAction,
+        }),
+      );
+      await flush();
+    });
+
+    const replyDraftField = findElement(container, (element) => element.tagName === 'TEXTAREA');
+    expect(replyDraftField).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(replyDraftField, 'Manual follow-up reply.', window);
+      await flush();
+    });
+
+    const sendReplyButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('发送回复'),
+    );
+    expect(sendReplyButton).not.toBeNull();
+
+    await act(async () => {
+      sendReplyButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    const openPostButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('打开原帖'),
+    );
+    expect(openPostButton).not.toBeNull();
+    expect(container.innerHTML ?? '').not.toContain('javascript:alert(1)');
+
+    await act(async () => {
+      openPostButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(openWindow).toHaveBeenCalledWith('https://www.v2ex.com/t/999999', '_blank', 'noopener,noreferrer');
 
     await act(async () => {
       root.unmount();
