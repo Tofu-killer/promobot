@@ -252,6 +252,16 @@ pnpm release:bundle -- --output-dir /tmp/promobot-release
 pnpm release:local -- --skip-build --output-dir /tmp/promobot-release
 ```
 
+`release:local` 会保留 `--output-dir` 作为目录型 bundle 的输出路径，同时在同级额外产出下载包相关文件：
+
+- `/tmp/promobot-release/`
+- `/tmp/promobot-release.tar.gz`
+- `/tmp/promobot-release.tar.gz.sha256`
+- `/tmp/promobot-release.tar.gz.metadata.json`
+- `/tmp/verify-downloaded-release.sh`
+
+脚本结束前会立即执行这份 standalone helper，对刚生成的 `archive + .sha256 + .metadata.json` 做一次本地自检，然后再把解压目录交给 bundle 自带的 `releaseVerify` CLI。因此 `release:local` 不只是“打一个目录出来”，而是会把本地可分发下载包的 producer 合同一并走通。
+
 release bundle 当前会包含以下 bundle-safe 文件：
 
 - `dist/server/**`
@@ -272,7 +282,7 @@ release bundle 当前会包含以下 bundle-safe 文件：
 
 其中 `ops/preflight-promobot.sh` 和 `ops/rollback-promobot.sh` 虽然也是 shell wrapper，但它们在已解压的 bundle 根目录里不再回退到源码仓库专用的 `pnpm preflight:prod` / `pnpm runtime:restore`。为了保证这两条链路在 bundle-only 场景下仍然可执行，bundle manifest 现在会强制锁定 `dist/server/cli/preflightPromobot.js`、`dist/server/cli/runtimeRestore.js`，并与 `dist/server/cli/deploymentSmoke.js` 一起作为 wrapper 的 bundle-local compiled 入口。
 
-输出目录下会同时生成 `manifest.json`，其中会记录 bundle 文件列表和可用的 checksum，便于交付前核对缺失项和完整性。这份 manifest 只描述解压后的目录型 release bundle 内容，不负责 GitHub Release 上 `.tar.gz` 下载文件本身的完整性校验。
+输出目录下会同时生成 `manifest.json`，其中会记录 bundle 文件列表和可用的 checksum，便于交付前核对缺失项和完整性。这份 manifest 只描述解压后的目录型 release bundle 内容，不负责 `.tar.gz` 下载文件本身的完整性校验；下载包这一层由同级生成的 `.sha256` 和 `.metadata.json` sidecar 负责。
 
 交付前可以再做一次 release 目录校验：
 
@@ -316,9 +326,10 @@ pnpm release:deploy
 建议流程：
 
 1. 在构建机的源码仓库里运行 `pnpm release:bundle` 或 `pnpm release:local`
-2. 在源码仓库里用 `pnpm release:verify` 或 `pnpm verify:release` 校验 bundle
-3. 把 bundle 目录复制到目标机
-4. 在目标机进入 bundle 根目录，执行 `pnpm release:deploy`
+2. 如果走 `release:local`，脚本本身已经完成一轮 `archive + sidecars + bundled verifier` 自检；如果只走 `release:bundle`，则在源码仓库里用 `pnpm release:verify` 或 `pnpm verify:release` 校验 bundle
+3. 需要按“下载包”形态交付时，再运行 `pnpm verify:downloaded-release -- --archive-file <archive>`，或者直接复用同级产出的 standalone `verify-downloaded-release.sh` helper
+4. 把 bundle 目录或已校验过的 archive 复制到目标机；如果复制的是 archive，先在目标机解压出 bundle 目录
+5. 在目标机进入 bundle 根目录，执行 `pnpm release:deploy`
 
 如果你不想自己在构建机跑这几步，也可以直接使用仓库里的 GitHub Actions `Release Bundle` workflow：
 

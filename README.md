@@ -99,7 +99,7 @@ pnpm browser:artifacts:archive -- --older-than-hours 72
 - `pnpm release:verify -- --input-dir <path>`：源码仓库里的目录型 release bundle 校验入口，校验 manifest、关键文件是否完整，并在 manifest 带 checksum 时重算 bundle 内现有文件内容做完整性校验；它不负责 tar.gz 下载文件本身的校验
 - `pnpm runtime:backup`：把当前可定位的 SQLite 文件来源、真实运行时 `browser-sessions/` 根目录和仓库根 `.env` 复制到时间戳备份目录，并生成 manifest JSON；若有缺失项，会在 manifest 里标记并以非零退出码返回。自定义 `--output-dir` 时，目标目录必须不存在或为空
 - `pnpm runtime:restore -- --input-dir <backupDir>`：按 backup manifest 恢复运行时数据，并在覆盖前为已有目标创建 `.pre-restore-<timestamp>` 备份
-- `pnpm release:local -- [options]`：先按需执行 `pnpm build`，再调用 `release:bundle` 生成目录型可交付发布物
+- `pnpm release:local -- [options]`：先按需执行 `pnpm build`，再调用 `release:bundle` 生成目录型 release bundle；随后在同级额外产出 `tar.gz` archive、`.sha256` sidecar、`.metadata.json` metadata sidecar，以及 standalone `verify-downloaded-release.sh` helper，并在脚本结束前用这份 helper 对刚打出的下载包做一次本地自检
 - `pnpm release:deploy -- [options]`：调用 `ops/deploy-release.sh`，用于从已打好的 release bundle 根目录直接部署；这和 `deploy:local` 的源码仓库部署不是同一条链路
 - `pnpm verify:release -- --input-dir <path>`：调用 shell wrapper 校验目录型 release bundle；在源码仓库里会转到 `release:verify`，在已解压的 bundle 根目录里会改用 bundle 自带的 compiled verifier；若显式加 `--smoke`，当前 checkout 还必须提供对应的 `deploymentSmoke` CLI，否则 wrapper 会直接失败
 - `pnpm verify:downloaded-release -- --archive-file <path>`：调用仓库内的 `ops/verify-downloaded-release.sh`；正式 GitHub Release 页面现在会额外挂出同内容的 standalone `verify-downloaded-release.sh` helper，下载方即使不 checkout 仓库，也可以只拿 `archive + .sha256 + .metadata.json + helper` 在本机跑同一条校验链。两者都会先校验已下载的 archive、`.sha256` sidecar、`.metadata.json` metadata sidecar，再把解压目录交给 bundle 自带的 `releaseVerify` CLI
@@ -146,7 +146,10 @@ bash ./verify-downloaded-release.sh --archive-file /tmp/promobot-release-bundle-
 
 ```bash
 pnpm release:local -- --output-dir /tmp/promobot-release
-pnpm verify:release -- --input-dir /tmp/promobot-release
+pnpm verify:downloaded-release -- --archive-file /tmp/promobot-release.tar.gz
+
+# 或直接复用同级产出的 standalone helper
+bash /tmp/verify-downloaded-release.sh --archive-file /tmp/promobot-release.tar.gz
 
 # 先把 /tmp/promobot-release 复制到目标机
 cd /tmp/promobot-release
@@ -190,7 +193,7 @@ node dist/server/cli/deploymentSmoke.js --base-url http://127.0.0.1:3001
 ## 生产运维补充
 
 - `pm2.config.js` 现在会把日志落到仓库下的 `logs/`，并带基本重启/退避配置。
-- `ops/release-promobot.sh` 现在提供一条本地 release 打包脚本；它会先按需构建，再调用 `release:bundle` 生成可交付目录。
+- `ops/release-promobot.sh` 现在提供一条本地 release 打包脚本；它会先按需构建，再调用 `release:bundle` 生成目录型 release bundle，并在同级额外产出 `tar.gz`、`.sha256`、`.metadata.json` 和 standalone `verify-downloaded-release.sh` helper；脚本结束前还会用这份 helper 对刚打出的 archive 做一次本地自检。
 - `ops/deploy-release.sh` 现在提供 bundle 内直接部署入口；进入 release bundle 根目录后可直接运行 `pnpm release:deploy`。
 - `ops/verify-release.sh` 现在提供 release 校验脚本；在源码仓库里会先跑 `release:verify`，在已解压 bundle 根目录里会改用 bundled `releaseVerify.js`，并且只会在校验成功后、且显式开启时才追加 smoke。若显式开启 `--smoke`，源码仓库还必须有 `src/server/cli/deploymentSmoke.ts`，bundle 根目录还必须有 `dist/server/cli/deploymentSmoke.js`；缺少对应入口时 wrapper 会直接失败。
 - `ops/preflight-promobot.sh` 现在提供上线前预检脚本；它会先跑 `preflight:prod`，再按需追加 smoke check。在源码仓库里会走 `pnpm preflight:prod` / `pnpm smoke:server`，在已解压的 bundle 根目录里则会自动切到 bundle 自带的 `dist/server/cli/preflightPromobot.js` / `dist/server/cli/deploymentSmoke.js`。

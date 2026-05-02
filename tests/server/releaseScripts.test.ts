@@ -59,6 +59,98 @@ describe('release shell wrappers', () => {
     expect(emptyValue.stderr).toContain('--output-dir requires a value');
   });
 
+  it('packages local downloaded release assets and self-verifies the archived bundle contract', () => {
+    const fixture = createReleasePromobotFixture();
+    const result = runScript(
+      fixture.scriptPath,
+      ['--skip-build', '--output-dir', fixture.bundleDir],
+      {
+        cwd: fixture.rootDir,
+        env: {
+          ...process.env,
+          PATH: `${fixture.binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+        },
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Skipping pnpm build');
+    expect(result.stdout).toContain(
+      `Running node dist/server/cli/releaseBundle.js --output-dir ${fixture.bundleDir}`,
+    );
+    expect(result.stdout).toContain(`Creating release archive ${fixture.archivePath}`);
+    expect(result.stdout).toContain(`Writing release checksum sidecar ${fixture.checksumPath}`);
+    expect(result.stdout).toContain(`Writing release metadata sidecar ${fixture.metadataPath}`);
+    expect(result.stdout).toContain(`Staging standalone downloaded release helper ${fixture.helperPath}`);
+    expect(result.stdout).toContain(`Self-verifying downloaded release archive ${fixture.archivePath}`);
+    expect(fs.existsSync(fixture.pnpmMarkerPath)).toBe(false);
+    expect(fs.existsSync(path.join(fixture.bundleDir, 'manifest.json'))).toBe(true);
+    expect(fs.existsSync(fixture.archivePath)).toBe(true);
+    expect(fs.existsSync(fixture.checksumPath)).toBe(true);
+    expect(fs.existsSync(fixture.metadataPath)).toBe(true);
+    expect(fs.existsSync(fixture.helperPath)).toBe(true);
+    expect(fs.statSync(fixture.helperPath).mode & 0o111).not.toBe(0);
+    expect(fs.readFileSync(fixture.verifyMarkerPath, 'utf8')).toContain(
+      `--archive-file ${fixture.archivePath}`,
+    );
+    expect(fs.readFileSync(fixture.verifyMarkerPath, 'utf8')).toContain(
+      `--checksum-file ${fixture.checksumPath}`,
+    );
+    expect(fs.readFileSync(fixture.verifyMarkerPath, 'utf8')).toContain(
+      `--metadata-file ${fixture.metadataPath}`,
+    );
+
+    const metadata = JSON.parse(fs.readFileSync(fixture.metadataPath, 'utf8')) as {
+      archive_file: string;
+      archive_format: string;
+      artifact_name: string;
+      asset_basename: string;
+      assets: Array<{ kind: string; name: string }>;
+      bundle_dir_name: string;
+      checksum_algorithm: string;
+      checksum_file: string;
+      event_name: string;
+      helper_file: string;
+      metadata_file: string;
+      prerelease: boolean;
+      ref_type: string;
+      schema_version: number;
+      tag: string | null;
+      test_execution: {
+        mode: string;
+        state: string;
+        summary: string;
+      };
+    };
+
+    expect(metadata).toMatchObject({
+      schema_version: 1,
+      artifact_name: 'promobot-release-bundle-artifact',
+      asset_basename: 'promobot-release-bundle',
+      helper_file: path.basename(fixture.helperPath),
+      event_name: 'local_release',
+      ref_type: 'local',
+      tag: null,
+      prerelease: false,
+      archive_file: path.basename(fixture.archivePath),
+      archive_format: 'tar.gz',
+      checksum_file: path.basename(fixture.checksumPath),
+      checksum_algorithm: 'sha256',
+      metadata_file: path.basename(fixture.metadataPath),
+      bundle_dir_name: path.basename(fixture.bundleDir),
+      test_execution: {
+        state: 'not_run',
+        mode: 'local_release',
+        summary: 'not run by ops/release-promobot.sh',
+      },
+      assets: [
+        { kind: 'archive', name: path.basename(fixture.archivePath) },
+        { kind: 'checksum', name: path.basename(fixture.checksumPath) },
+        { kind: 'metadata', name: path.basename(fixture.metadataPath) },
+      ],
+    });
+  });
+
   it('shows verify-release help for direct and leading dash-dash help paths', () => {
     for (const args of [['--help'], ['--', '--help']]) {
       const result = runRepoScript('ops/verify-release.sh', args);
@@ -1685,6 +1777,55 @@ async function createDownloadedReleaseFixture(
   };
 }
 
+function createReleasePromobotFixture() {
+  const rootDir = createTempDir('promobot-release-local-script-');
+  const binDir = path.join(rootDir, 'bin');
+  const pnpmMarkerPath = path.join(rootDir, 'pnpm-invocations.log');
+  const verifyMarkerPath = path.join(rootDir, 'verify-downloaded-release-invocations.log');
+  const scriptPath = path.join(rootDir, 'ops/release-promobot.sh');
+  const bundleDir = path.join(rootDir, 'release-artifacts/promobot-release-bundle');
+  const archivePath = path.join(path.dirname(bundleDir), 'promobot-release-bundle.tar.gz');
+  const checksumPath = `${archivePath}.sha256`;
+  const metadataPath = `${archivePath}.metadata.json`;
+  const helperPath = path.join(path.dirname(bundleDir), 'verify-downloaded-release.sh');
+
+  fs.mkdirSync(path.dirname(scriptPath), { recursive: true });
+  fs.copyFileSync(path.resolve(repoRoot, 'ops/release-promobot.sh'), scriptPath);
+
+  seedValidReleaseBundleRepoRoot(rootDir);
+  writeFile(rootDir, 'dist/server/cli/releaseBundle.js', compileReleaseBundleCliSource());
+  writeFile(
+    rootDir,
+    'ops/verify-downloaded-release.sh',
+    `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> ${JSON.stringify(verifyMarkerPath)}
+exec ${JSON.stringify(path.resolve(repoRoot, 'ops/verify-downloaded-release.sh'))} "$@"
+`,
+  );
+
+  writeExecutable(
+    binDir,
+    'pnpm',
+    `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${pnpmMarkerPath}"
+exit 0
+`,
+  );
+
+  return {
+    rootDir,
+    binDir,
+    bundleDir,
+    archivePath,
+    checksumPath,
+    metadataPath,
+    helperPath,
+    pnpmMarkerPath,
+    scriptPath,
+    verifyMarkerPath,
+  };
+}
+
 async function loadReleaseBundleModule(): Promise<ReleaseBundleModule | null> {
   try {
     return (await import('../../src/server/cli/releaseBundle')) as ReleaseBundleModule;
@@ -1755,5 +1896,16 @@ function compileReleaseVerifyCliSource() {
       target: ts.ScriptTarget.ES2022,
     },
     fileName: 'releaseVerify.ts',
+  }).outputText;
+}
+
+function compileReleaseBundleCliSource() {
+  const source = fs.readFileSync(path.resolve(repoRoot, 'src/server/cli/releaseBundle.ts'), 'utf8');
+  return ts.transpileModule(source, {
+    compilerOptions: {
+      module: ts.ModuleKind.ESNext,
+      target: ts.ScriptTarget.ES2022,
+    },
+    fileName: 'releaseBundle.ts',
   }).outputText;
 }
