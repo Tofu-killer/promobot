@@ -17,11 +17,14 @@ usage() {
 Usage: ops/release-promobot.sh [options]
 
 Runs pnpm build by default, then packages a local release bundle from the repository root.
-Also writes a tar.gz archive, .sha256 checksum sidecar, .metadata.json sidecar, and verify-downloaded-release.sh helper next to the bundle output.
-Self-verifies the generated archive with the staged helper before exiting.
+--output-dir is the bundle directory path. The script also writes a matching .tar.gz archive,
+.sha256 checksum sidecar, .metadata.json sidecar, and a standalone
+verify-downloaded-release.sh helper in the parent directory next to that bundle.
+Before exiting, it self-verifies the generated archive locally by invoking the staged helper
+with the generated archive, checksum, and metadata files.
 
 Options:
-  --output-dir <path>          Release output directory (default: release)
+  --output-dir <path>          Bundle directory path (default: release); archive/checksum/metadata/helper are written next to it
   --skip-build                 Skip pnpm build
   --help, -h                   Show this help
 

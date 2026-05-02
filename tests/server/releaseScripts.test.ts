@@ -41,19 +41,23 @@ describe('release shell wrappers', () => {
   it('shows release-promobot help for direct and leading dash-dash help paths', () => {
     for (const args of [['--help'], ['--', '--help']]) {
       const result = runRepoScript('ops/release-promobot.sh', args);
+      const normalizedStdout = result.stdout.replace(/\s+/g, ' ').trim();
 
       expect(result.status).toBe(0);
       expect(result.stdout).toContain('Usage: ops/release-promobot.sh [options]');
-      expect(result.stdout).toContain(
+      expect(normalizedStdout).toContain(
         'Runs pnpm build by default, then packages a local release bundle from the repository root.',
       );
-      expect(result.stdout).toContain(
-        'Also writes a tar.gz archive, .sha256 checksum sidecar, .metadata.json sidecar, and verify-downloaded-release.sh helper next to the bundle output.',
+      expect(normalizedStdout).toContain(
+        '--output-dir is the bundle directory path. The script also writes a matching .tar.gz archive, .sha256 checksum sidecar, .metadata.json sidecar, and a standalone verify-downloaded-release.sh helper in the parent directory next to that bundle.',
       );
-      expect(result.stdout).toContain(
-        'Self-verifies the generated archive with the staged helper before exiting.',
+      expect(normalizedStdout).toContain(
+        'Before exiting, it self-verifies the generated archive locally by invoking the staged helper with the generated archive, checksum, and metadata files.',
       );
       expect(result.stdout).toContain('--output-dir <path>');
+      expect(result.stdout).toContain(
+        'Bundle directory path (default: release); archive/checksum/metadata/helper are written next to it',
+      );
       expect(result.stdout).toContain('--skip-build');
     }
   });
