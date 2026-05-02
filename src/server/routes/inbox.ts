@@ -9,11 +9,15 @@ const inboxStore = createInboxStore();
 const inboxFetchService = createInboxFetchService();
 const inboxReplyService = createInboxReplyService();
 
-const allowedStatuses = new Set(['handled', 'snoozed', 'needs_reply', 'needs_review']);
+const allowedStatuses = new Set(['handled', 'snoozed', 'ignored', 'needs_reply', 'needs_review']);
 const sendableStatuses = new Set(['needs_reply', 'needs_review']);
 
 function isAllowedStatus(value: string): boolean {
   return allowedStatuses.has(value);
+}
+
+function isInboxUnreadStatus(status: string): boolean {
+  return status !== 'handled' && status !== 'ignored';
 }
 
 inboxRouter.get('/', (request, response) => {
@@ -28,7 +32,7 @@ inboxRouter.get('/', (request, response) => {
   response.json({
     items,
     total: items.length,
-    unread: items.filter((item) => item.status !== 'handled').length,
+    unread: items.filter((item) => isInboxUnreadStatus(item.status)).length,
   });
 });
 
@@ -48,7 +52,7 @@ inboxRouter.post('/fetch', async (request, response, next) => {
       items: result.items,
       inserted: result.inserted,
       total: items.length,
-      unread: items.filter((item) => item.status !== 'handled').length,
+      unread: items.filter((item) => isInboxUnreadStatus(item.status)).length,
     });
   } catch (error) {
     next(error);

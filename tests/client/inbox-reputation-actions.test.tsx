@@ -274,6 +274,7 @@ describe('Inbox action wiring', () => {
   it.each([
     ['handled', '/api/inbox/7'],
     ['snoozed', '/api/inbox/7'],
+    ['ignored', '/api/inbox/7'],
   ] as const)('patches inbox item status as %s through the shared API helper', async (status, endpoint) => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({
@@ -700,6 +701,115 @@ describe('Inbox action wiring', () => {
     });
   });
 
+  it('marks inbox items ignored from the queue and keeps the live context during reload', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    const pendingReload = createDeferredPromise<{
+      items: Array<{
+        id: number;
+        source: string;
+        status: string;
+        author: string;
+        title: string;
+        excerpt: string;
+        createdAt: string;
+      }>;
+      total: number;
+      unread: number;
+    }>();
+    const loadInboxAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: 7,
+            source: 'reddit',
+            status: 'needs_reply',
+            author: 'user123',
+            title: 'Need lower latency in APAC',
+            excerpt: 'Can you share current response times?',
+            createdAt: '2026-04-19T10:00:00.000Z',
+          },
+        ],
+        total: 1,
+        unread: 1,
+      })
+      .mockImplementationOnce(() => pendingReload.promise);
+    const updateInboxAction = vi.fn().mockResolvedValue({
+      item: {
+        id: 7,
+        source: 'reddit',
+        status: 'ignored',
+        author: 'user123',
+        title: 'Need lower latency in APAC',
+        excerpt: 'Can you share current response times?',
+        createdAt: '2026-04-19T10:00:00.000Z',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(InboxPage as never, {
+          loadInboxAction,
+          updateInboxAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const article = findElement(
+      container,
+      (element) => element.tagName === 'ARTICLE' && collectText(element).includes('Need lower latency in APAC'),
+    );
+    const ignoreButton = findElement(
+      article as never,
+      (element) => element.tagName === 'BUTTON' && collectText(element) === '忽略',
+    );
+
+    expect(article).not.toBeNull();
+    expect(ignoreButton).not.toBeNull();
+    expect(collectText(container)).toContain('Need lower latency in APAC');
+
+    await act(async () => {
+      ignoreButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(updateInboxAction).toHaveBeenCalledWith(7, 'ignored');
+    expect(loadInboxAction).toHaveBeenCalledTimes(2);
+    expect(collectText(container)).toContain('Need lower latency in APAC');
+    expect(collectText(container)).toContain('已将“Need lower latency in APAC”回写为 ignored');
+    expect(collectText(container)).not.toContain('预览数据不可回写状态或生成回复。');
+
+    await act(async () => {
+      pendingReload.resolve({
+        items: [
+          {
+            id: 7,
+            source: 'reddit',
+            status: 'ignored',
+            author: 'user123',
+            title: 'Need lower latency in APAC',
+            excerpt: 'Can you share current response times?',
+            createdAt: '2026-04-19T10:00:00.000Z',
+          },
+        ],
+        total: 1,
+        unread: 0,
+      });
+      await flush();
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('keeps inbox loading feedback bound to the original item when another item is selected', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
@@ -1048,6 +1158,7 @@ describe('Inbox action wiring', () => {
     expectDisabledButton(html, 'AI 生成回复');
     expectDisabledButton(html, '标记已处理');
     expectDisabledButton(html, '稍后处理');
+    expectDisabledButton(html, '忽略');
     expect(html).toContain('预览数据不可回写状态或生成回复。');
     expect(html).toContain('暂无可生成回复的会话');
     expect(html).not.toContain('当前会话：Reddit · preview-user');
@@ -1243,8 +1354,17 @@ describe('Inbox action wiring', () => {
                   excerpt: 'Manual reply delivered.',
                   createdAt: '2026-04-19T10:10:00.000Z',
                 },
+                {
+                  id: 10,
+                  source: 'reddit',
+                  status: 'ignored',
+                  author: 'triage-bot',
+                  title: 'Ignored duplicate thread',
+                  excerpt: 'No follow-up required.',
+                  createdAt: '2026-04-19T10:15:00.000Z',
+                },
               ],
-              total: 3,
+              total: 4,
               unread: 2,
             },
           } satisfies ApiState<unknown>,
@@ -1261,9 +1381,14 @@ describe('Inbox action wiring', () => {
       container,
       (element) => element.getAttribute('data-inbox-filter-status') === 'handled',
     );
+    const ignoredStatusFilter = findElement(
+      container,
+      (element) => element.getAttribute('data-inbox-filter-status') === 'ignored',
+    );
 
     expect(redditPlatformFilter).not.toBeNull();
     expect(handledStatusFilter).not.toBeNull();
+    expect(ignoredStatusFilter).not.toBeNull();
 
     await act(async () => {
       redditPlatformFilter?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
@@ -1282,12 +1407,23 @@ describe('Inbox action wiring', () => {
 
     expect(handledStatusFilter?.getAttribute('aria-pressed')).toBe('true');
     expect(collectText(container)).toContain('Reddit follow-up already sent');
+    expect(collectText(container)).not.toContain('Ignored duplicate thread');
     expect(collectText(container)).not.toContain('Need lower latency in APAC');
     expect(collectText(container)).not.toContain('Billing caps answered');
-    expect(collectText(container)).toContain('当前筛选下 1 条 / 总计 3 条收件箱记录');
+    expect(collectText(container)).toContain('当前筛选下 1 条 / 总计 4 条收件箱记录');
     expect(collectText(container)).toContain('待处理会话1跨渠道统一排队视图');
     expect(collectText(container)).toContain('未读命中0等待人工回复或分流的记录');
     expect(collectText(container)).toContain('需人工接管0高价值或需要人工确认的会话');
+
+    await act(async () => {
+      ignoredStatusFilter?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(ignoredStatusFilter?.getAttribute('aria-pressed')).toBe('true');
+    expect(collectText(container)).toContain('Ignored duplicate thread');
+    expect(collectText(container)).not.toContain('Reddit follow-up already sent');
+    expect(collectText(container)).toContain('未读命中0等待人工回复或分流的记录');
 
     const needsReviewStatusFilter = findElement(
       container,
@@ -1301,7 +1437,7 @@ describe('Inbox action wiring', () => {
       await flush();
     });
 
-    expect(collectText(container)).toContain('当前筛选下 0 条 / 总计 3 条收件箱记录');
+    expect(collectText(container)).toContain('当前筛选下 0 条 / 总计 4 条收件箱记录');
     expect(collectText(container)).toContain('当前筛选下暂无命中内容');
 
     await act(async () => {

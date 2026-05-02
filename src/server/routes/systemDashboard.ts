@@ -22,6 +22,10 @@ const sourceConfigStore = createSourceConfigStore();
 
 export const systemDashboardRouter = Router();
 
+function isInboxUnreadStatus(status: string): boolean {
+  return status !== 'handled' && status !== 'ignored';
+}
+
 systemDashboardRouter.get('/dashboard', (request, response) => {
   const projectId = parseProjectIdQuery(request.query.projectId);
 
@@ -36,7 +40,7 @@ systemDashboardRouter.get('/dashboard', (request, response) => {
   const allChannelAccounts = channelAccountStore.list();
   const channelAccounts = filterProjectAwareRecords(allChannelAccounts, projectId);
   const followUpDrafts = drafts.filter((draft) => draft.title?.toLowerCase().includes('follow-up'));
-  const unreadInboxItems = inboxItems.filter((item) => item.status !== 'handled');
+  const unreadInboxItems = inboxItems.filter((item) => isInboxUnreadStatus(item.status));
   let healthyChannelAccountCount = 0;
   let needsSessionChannelAccountCount = 0;
   let needsReloginChannelAccountCount = 0;

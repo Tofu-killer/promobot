@@ -101,7 +101,7 @@ describe('dashboard enhanced metrics page', () => {
       },
     });
 
-    expect(html).toContain('未 handled 会话');
+    expect(html).toContain('待处理会话');
     expect(html).toContain('今日重点待办');
     expect(html).toContain('待处理登录工单');
     expect(html).toContain('待完成发布接管');

@@ -354,7 +354,7 @@ export function DashboardPage({
               detail="直配源、查询词和项目 source configs 合并后的总输入数"
             />
             <StatCard label="收件箱总会话" value={formatOptionalMetricValue(inboxMetrics?.total)} detail="当前 inbox 已收录的总会话数" />
-            <StatCard label="未 handled 会话" value={formatOptionalMetricValue(inboxMetrics?.unread)} detail="收件箱中 status != handled 的会话数" />
+            <StatCard label="待处理会话" value={formatOptionalMetricValue(inboxMetrics?.unread)} detail="收件箱中仍需跟进的会话数" />
             <StatCard
               label="账号总数"
               value={formatOptionalMetricValue(channelAccountMetrics?.total)}

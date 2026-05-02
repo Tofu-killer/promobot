@@ -547,7 +547,7 @@ describe('client API page wiring', () => {
     expect(html).toContain('累计线索');
     expect(html).toContain('累计 Follow-up');
     expect(html).toContain('监控总输入');
-    expect(html).toContain('未 handled 会话');
+    expect(html).toContain('待处理会话');
     expect(html).toContain('收件箱总会话');
     expect(html).toContain('账号总数');
     expect(html).toContain('status=healthy 账号');

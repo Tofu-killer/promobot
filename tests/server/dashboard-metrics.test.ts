@@ -322,6 +322,13 @@ describe('dashboard metrics api', () => {
         title: 'Thanks for the fix',
         excerpt: 'The issue is resolved now.',
       });
+      inboxStore.create({
+        source: 'reddit',
+        status: 'ignored',
+        author: 'Ignored',
+        title: 'No action needed',
+        excerpt: 'Closed on arrival.',
+      });
 
       channelAccountStore.create({
         platform: 'x',
@@ -380,7 +387,7 @@ describe('dashboard metrics api', () => {
       expect(response.status).toBe(200);
       expect(JSON.parse(response.body)).toMatchObject({
         inbox: {
-          total: 2,
+          total: 3,
           unread: 1,
         },
         browserLaneRequests: {
@@ -479,6 +486,14 @@ describe('dashboard metrics api', () => {
         title: 'Thanks for the fix',
         excerpt: 'The issue is resolved now.',
       });
+      inboxStore.create({
+        projectId: 11,
+        source: 'reddit',
+        status: 'ignored',
+        author: 'Ignored',
+        title: 'Project 11 ignored thread',
+        excerpt: 'Closed intentionally.',
+      });
 
       channelAccountStore.create({
         projectId: 11,
@@ -529,6 +544,10 @@ describe('dashboard metrics api', () => {
 
       expect(response.status).toBe(200);
       expect(JSON.parse(response.body)).toMatchObject({
+        inbox: {
+          total: 1,
+          unread: 0,
+        },
         monitorConfig: {
           directFeeds: 0,
           directQueries: 0,
@@ -553,7 +572,6 @@ describe('dashboard metrics api', () => {
           duePending: 0,
         },
       });
-      expect(JSON.parse(response.body)).not.toHaveProperty('inbox');
     } finally {
       cleanupTestDatabasePath(rootDir);
     }

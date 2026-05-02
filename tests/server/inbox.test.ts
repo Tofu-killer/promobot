@@ -1282,6 +1282,14 @@ describe('inbox api', () => {
         title: 'Project 2 existing inbox item',
         excerpt: 'Project 2 inbox detail.',
       });
+      inboxStore.create({
+        projectId: 1,
+        source: 'reddit',
+        status: 'ignored',
+        author: 'project-one-ignored',
+        title: 'Project 1 ignored inbox item',
+        excerpt: 'Already intentionally ignored.',
+      });
 
       const projectPayload = {
         siteName: 'PromoBot',
@@ -1341,10 +1349,15 @@ describe('inbox api', () => {
           }),
         ],
         inserted: 1,
-        total: 1,
+        total: 2,
         unread: 1,
       });
       expect(inboxStore.list(1)).toEqual([
+        expect.objectContaining({
+          projectId: 1,
+          title: 'Project 1 ignored inbox item',
+          status: 'ignored',
+        }),
         expect.objectContaining({
           projectId: 1,
           title: 'Project one reddit result',
@@ -1372,6 +1385,13 @@ describe('inbox api', () => {
         title: 'Need lower latency in APAC',
         excerpt: 'Can you share current response times?',
       });
+      inboxStore.create({
+        source: 'reddit',
+        status: 'ignored',
+        author: 'ignore-bot',
+        title: 'Already ignored thread',
+        excerpt: 'No follow-up needed.',
+      });
 
       const response = await requestApp('GET', '/api/inbox');
 
@@ -1385,8 +1405,15 @@ describe('inbox api', () => {
             author: 'user123',
             title: 'Need lower latency in APAC',
           }),
+          expect.objectContaining({
+            id: 2,
+            source: 'reddit',
+            status: 'ignored',
+            author: 'ignore-bot',
+            title: 'Already ignored thread',
+          }),
         ],
-        total: 1,
+        total: 2,
         unread: 1,
       });
     } finally {
@@ -1394,7 +1421,7 @@ describe('inbox api', () => {
     }
   });
 
-  it('updates inbox item status', async () => {
+  it('updates inbox item status to ignored', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
       const inboxStore = createInboxStore();
@@ -1407,14 +1434,14 @@ describe('inbox api', () => {
       });
 
       const response = await requestApp('PATCH', '/api/inbox/1', {
-        status: 'handled',
+        status: 'ignored',
       });
 
       expect(response.status).toBe(200);
       expect(JSON.parse(response.body)).toEqual({
         item: expect.objectContaining({
           id: 1,
-          status: 'handled',
+          status: 'ignored',
         }),
       });
     } finally {
@@ -3664,7 +3691,7 @@ describe('inbox api', () => {
     }
   });
 
-  it.each(['handled', 'snoozed'] as const)(
+  it.each(['handled', 'snoozed', 'ignored'] as const)(
     'rejects send-reply requests for %s inbox items',
     async (status) => {
       const { rootDir } = createTestDatabasePath();

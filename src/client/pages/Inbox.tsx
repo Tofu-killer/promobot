@@ -452,7 +452,15 @@ function formatInboxStatusFilterLabel(filter: string) {
     return '稍后处理';
   }
 
+  if (filter === 'ignored') {
+    return '已忽略';
+  }
+
   return filter;
+}
+
+function isInboxUnreadStatus(status: string) {
+  return status !== 'handled' && status !== 'ignored';
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -860,7 +868,7 @@ export function InboxPage({
       label: formatInboxPlatformFilterLabel(filter),
     })),
   ];
-  const statusFilters = ['all', 'needs_reply', 'needs_review', 'handled', 'snoozed'].map((filter) => ({
+  const statusFilters = ['all', 'needs_reply', 'needs_review', 'handled', 'snoozed', 'ignored'].map((filter) => ({
     id: filter,
     label: formatInboxStatusFilterLabel(filter),
   }));
@@ -1038,7 +1046,7 @@ export function InboxPage({
     void reloadReplyHandoffs();
   }
 
-  async function handleInboxStatus(item: InboxItem, status: 'handled' | 'snoozed') {
+  async function handleInboxStatus(item: InboxItem, status: 'handled' | 'snoozed' | 'ignored') {
     setSelectedItemId(item.id);
     setInboxMutationItemId(item.id);
 
@@ -1557,7 +1565,7 @@ export function InboxPage({
             <StatCard label="待处理会话" value={String(filteredItems.length)} detail="跨渠道统一排队视图" />
             <StatCard
               label="未读命中"
-              value={String(filteredItems.filter((item) => item.status !== 'handled').length)}
+              value={String(filteredItems.filter((item) => isInboxUnreadStatus(item.status)).length)}
               detail="等待人工回复或分流的记录"
             />
             <StatCard
@@ -1702,6 +1710,17 @@ export function InboxPage({
                               disabled={isPreview}
                               onClick={() => {
                                 void handleInboxStatus(item, 'snoozed');
+                              }}
+                            />
+                            <ActionButton
+                              label={
+                                displayInboxUpdateState.status === 'loading' && item.id === activeInboxMutationItemId
+                                  ? '处理中...'
+                                  : '忽略'
+                              }
+                              disabled={isPreview}
+                              onClick={() => {
+                                void handleInboxStatus(item, 'ignored');
                               }}
                             />
                           </div>
