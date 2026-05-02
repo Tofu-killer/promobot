@@ -94,6 +94,7 @@ describe('browser lane local runner cli', () => {
         PROMOBOT_BROWSER_DISPATCH_KIND: 'publish_handoff',
         PROMOBOT_BROWSER_ARTIFACT_PATH:
           'artifacts/browser-handoffs/instagram/main/instagram-draft-9.json',
+        PROMOBOT_BROWSER_HANDOFF_ATTEMPT: '1',
         PROMOBOT_BROWSER_PUBLISH_STATUS: 'published',
       },
       {
@@ -104,6 +105,7 @@ describe('browser lane local runner cli', () => {
 
     expect(submitBrowserHandoffCompletion).toHaveBeenCalledWith({
       artifactPath: 'artifacts/browser-handoffs/instagram/main/instagram-draft-9.json',
+      handoffAttempt: 1,
       publishStatus: 'published',
       message: 'browser handoff completed by the local runner',
       publishedAt: '2026-04-30T13:05:00.000Z',
@@ -118,6 +120,7 @@ describe('browser lane local runner cli', () => {
         PROMOBOT_BROWSER_DISPATCH_KIND: 'inbox_reply_handoff',
         PROMOBOT_BROWSER_ARTIFACT_PATH:
           'artifacts/inbox-reply-handoffs/weibo/main/weibo-inbox-item-8.json',
+        PROMOBOT_BROWSER_HANDOFF_ATTEMPT: '1',
         PROMOBOT_BROWSER_REPLY_STATUS: 'sent',
       },
       {
@@ -128,6 +131,7 @@ describe('browser lane local runner cli', () => {
 
     expect(submitInboxReplyHandoffCompletion).toHaveBeenCalledWith({
       artifactPath: 'artifacts/inbox-reply-handoffs/weibo/main/weibo-inbox-item-8.json',
+      handoffAttempt: 1,
       replyStatus: 'sent',
       message: 'inbox reply handoff completed by the local runner',
       deliveredAt: '2026-04-30T13:10:00.000Z',
@@ -140,6 +144,7 @@ describe('browser lane local runner cli', () => {
         PROMOBOT_BROWSER_DISPATCH_KIND: 'publish_handoff',
         PROMOBOT_BROWSER_ARTIFACT_PATH:
           'artifacts/browser-handoffs/instagram/main/instagram-draft-10.json',
+        PROMOBOT_BROWSER_HANDOFF_ATTEMPT: '1',
       }),
     ).rejects.toThrow(
       'PROMOBOT_BROWSER_PUBLISH_STATUS is required for publish_handoff dispatches',
@@ -150,6 +155,7 @@ describe('browser lane local runner cli', () => {
         PROMOBOT_BROWSER_DISPATCH_KIND: 'inbox_reply_handoff',
         PROMOBOT_BROWSER_ARTIFACT_PATH:
           'artifacts/inbox-reply-handoffs/weibo/main/weibo-inbox-item-9.json',
+        PROMOBOT_BROWSER_HANDOFF_ATTEMPT: '1',
       }),
     ).rejects.toThrow(
       'PROMOBOT_BROWSER_REPLY_STATUS is required for inbox_reply_handoff dispatches',

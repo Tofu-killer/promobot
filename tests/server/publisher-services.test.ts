@@ -211,6 +211,7 @@ describe('publishers', () => {
       ),
     ).toEqual({
       type: 'browser_manual_handoff',
+      handoffAttempt: 1,
       status: 'pending',
       platform: 'xiaohongshu',
       draftId: '12',
@@ -244,6 +245,7 @@ describe('publishers', () => {
         target: 'brand-account',
         accountKey: 'launch-campaign',
         browserHandoff: {
+          handoffAttempt: 1,
           readiness: 'blocked',
           session: {
             hasSession: false,
@@ -302,6 +304,7 @@ describe('publishers', () => {
       ),
     ).toEqual({
       type: 'browser_manual_handoff',
+      handoffAttempt: 1,
       status: 'pending',
       platform: 'xiaohongshu',
       draftId: '18',
@@ -337,6 +340,7 @@ describe('publishers', () => {
         target: 'brand-account',
         accountKey: 'launch-campaign',
         browserHandoff: {
+          handoffAttempt: 1,
           readiness: 'ready',
           session: {
             hasSession: true,
@@ -395,6 +399,7 @@ describe('publishers', () => {
       ),
     ).toEqual({
       type: 'browser_manual_handoff',
+      handoffAttempt: 1,
       status: 'pending',
       platform: 'xiaohongshu',
       draftId: '19',
@@ -429,6 +434,7 @@ describe('publishers', () => {
         target: 'brand-account',
         accountKey: 'launch-campaign',
         browserHandoff: {
+          handoffAttempt: 1,
           readiness: 'blocked',
           session: {
             hasSession: true,
@@ -471,6 +477,7 @@ describe('publishers', () => {
         target: 'brand-account',
         accountKey: 'launch-campaign',
         browserHandoff: {
+          handoffAttempt: expect.any(Number),
           readiness: 'blocked',
           session: {
             hasSession: false,
@@ -511,6 +518,7 @@ describe('publishers', () => {
         target: '@brand-account',
         accountKey: 'launch-campaign',
         browserHandoff: {
+          handoffAttempt: expect.any(Number),
           readiness: 'blocked',
           session: {
             hasSession: false,
@@ -568,6 +576,7 @@ describe('publishers', () => {
       ),
     ).toEqual({
       type: 'browser_manual_handoff',
+      handoffAttempt: 1,
       status: 'pending',
       platform: 'instagram',
       draftId: '26',
@@ -603,6 +612,7 @@ describe('publishers', () => {
         target: '@brand-account',
         accountKey: 'launch-campaign',
         browserHandoff: {
+          handoffAttempt: 1,
           readiness: 'ready',
           session: {
             hasSession: true,
@@ -651,6 +661,7 @@ describe('publishers', () => {
     expect(browserLaneDispatch).toHaveBeenCalledWith({
       kind: 'publish_handoff',
       artifactPath: 'artifacts/browser-handoffs/instagram/launch-campaign/instagram-draft-27.json',
+      handoffAttempt: 1,
       platform: 'instagram',
       accountKey: 'launch-campaign',
       draftId: '27',
@@ -719,6 +730,7 @@ describe('publishers', () => {
       ),
     ).toEqual({
       type: 'browser_manual_handoff',
+      handoffAttempt: 1,
       status: 'pending',
       platform: 'weibo',
       draftId: '28',
@@ -754,6 +766,7 @@ describe('publishers', () => {
         target: 'brand-account',
         accountKey: 'launch-campaign',
         browserHandoff: {
+          handoffAttempt: 1,
           readiness: 'ready',
           session: {
             hasSession: true,
@@ -805,6 +818,7 @@ describe('publishers', () => {
         target: '@brand-account',
         accountKey: 'launch-campaign',
         browserHandoff: {
+          handoffAttempt: expect.any(Number),
           readiness: 'blocked',
           session: {
             hasSession: true,

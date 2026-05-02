@@ -89,6 +89,7 @@ interface BrowserReplyHandoffDetails {
   session: SessionSummary;
   sessionAction: BrowserSessionAction | null;
   artifactPath?: string;
+  handoffAttempt: number;
 }
 
 interface ManualReplyAssistantDetails {
@@ -213,6 +214,7 @@ export function createInboxReplyService(
               ? { channelAccountId: browserReplyHandoff.details.channelAccountId }
               : {}),
             itemId: String(item.id),
+            handoffAttempt: browserReplyHandoff.details.handoffAttempt,
           });
         }
 
@@ -1083,6 +1085,7 @@ function buildBrowserReplyHandoff(input: {
     platform: handoffPlatform,
     accountKey,
     itemId: String(input.item.id),
+    handoffAttempt: handoffArtifact.handoffAttempt,
   });
 
   return {
@@ -1097,6 +1100,7 @@ function buildBrowserReplyHandoff(input: {
       session: sessionResolution.session,
       sessionAction: sessionResolution.sessionAction,
       artifactPath: handoffArtifact.artifactPath,
+      handoffAttempt: handoffArtifact.handoffAttempt,
     },
   };
 }
@@ -1137,6 +1141,7 @@ function maybeEnqueueInboxReplyHandoffPollJob(
   if (
     hasOutstandingInboxReplyHandoffPollJob(jobQueueStore, {
       artifactPath: details.artifactPath,
+      handoffAttempt: details.handoffAttempt,
       currentJobId: undefined,
     })
   ) {
@@ -1147,6 +1152,7 @@ function maybeEnqueueInboxReplyHandoffPollJob(
     type: inboxReplyHandoffPollJobType,
     payload: {
       artifactPath: details.artifactPath,
+      handoffAttempt: details.handoffAttempt,
       attempt: 0,
       maxAttempts: defaultInboxReplyHandoffPollMaxAttempts,
       pollDelayMs: defaultInboxReplyHandoffPollDelayMs,

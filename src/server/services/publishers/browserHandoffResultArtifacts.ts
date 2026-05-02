@@ -12,6 +12,7 @@ type BrowserHandoffPlatform = Extract<
 interface BrowserHandoffResultArtifactRecord {
   type: 'browser_manual_handoff_result';
   handoffArtifactPath: string;
+  handoffAttempt: number;
   channelAccountId?: number;
   platform: BrowserHandoffPlatform;
   accountKey: string;
@@ -28,6 +29,7 @@ interface BrowserHandoffResultArtifactRecord {
 
 export interface BrowserHandoffResultArtifactInput {
   handoffArtifactPath: string;
+  handoffAttempt?: number;
   channelAccountId?: number;
   platform: BrowserHandoffPlatform;
   accountKey: string;
@@ -42,6 +44,7 @@ export interface BrowserHandoffResultArtifactInput {
 
 export interface BrowserHandoffResultArtifactSummary {
   handoffArtifactPath: string;
+  handoffAttempt: number;
   channelAccountId?: number;
   platform: BrowserHandoffPlatform;
   accountKey: string;
@@ -58,7 +61,13 @@ export interface BrowserHandoffResultArtifactSummary {
 }
 
 export function createBrowserHandoffResultArtifact(input: BrowserHandoffResultArtifactInput) {
-  const artifactPath = buildArtifactPath(input.platform, input.accountKey, input.draftId);
+  const handoffAttempt = normalizeHandoffAttempt(input.handoffAttempt);
+  const artifactPath = buildAttemptArtifactPath(
+    input.platform,
+    input.accountKey,
+    input.draftId,
+    handoffAttempt,
+  );
   const absolutePath = path.join(resolveArtifactRootDir(), artifactPath);
 
   fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
@@ -68,6 +77,7 @@ export function createBrowserHandoffResultArtifact(input: BrowserHandoffResultAr
       {
         type: 'browser_manual_handoff_result',
         handoffArtifactPath: input.handoffArtifactPath,
+        handoffAttempt,
         ...(typeof input.channelAccountId === 'number' ? { channelAccountId: input.channelAccountId } : {}),
         platform: input.platform,
         accountKey: input.accountKey,
@@ -92,14 +102,26 @@ export function getBrowserHandoffResultArtifact(input: {
   platform: string;
   accountKey: string;
   draftId: string;
+  handoffAttempt?: number;
 }): BrowserHandoffResultArtifactSummary | null {
   const normalizedPlatform = normalizePlatform(input.platform);
-  const absolutePath = path.join(
-    resolveArtifactRootDir(),
-    buildArtifactPath(normalizedPlatform, input.accountKey, input.draftId),
-  );
+  const artifactRootDir = resolveArtifactRootDir();
 
-  return getBrowserHandoffResultArtifactByAbsolutePath(absolutePath);
+  for (const artifactPath of buildLookupArtifactPaths({
+    platform: normalizedPlatform,
+    accountKey: input.accountKey,
+    draftId: input.draftId,
+    handoffAttempt: input.handoffAttempt,
+  })) {
+    const artifact = getBrowserHandoffResultArtifactByAbsolutePath(
+      path.join(artifactRootDir, artifactPath),
+    );
+    if (artifact) {
+      return artifact;
+    }
+  }
+
+  return null;
 }
 
 export function getBrowserHandoffResultArtifactByPath(
@@ -147,17 +169,28 @@ export function clearBrowserHandoffResultArtifact(input: {
   platform: string;
   accountKey: string;
   draftId: string;
+  handoffAttempt?: number;
 }) {
   const normalizedPlatform = normalizePlatform(input.platform);
-  const artifactPath = buildArtifactPath(normalizedPlatform, input.accountKey, input.draftId);
-  const absolutePath = path.join(resolveArtifactRootDir(), artifactPath);
+  const artifactRootDir = resolveArtifactRootDir();
+  let clearedArtifactPath: string | null = null;
 
-  if (!fs.existsSync(absolutePath)) {
-    return null;
+  for (const artifactPath of buildClearArtifactPaths({
+    platform: normalizedPlatform,
+    accountKey: input.accountKey,
+    draftId: input.draftId,
+    handoffAttempt: input.handoffAttempt,
+  })) {
+    const absolutePath = path.join(artifactRootDir, artifactPath);
+    if (!fs.existsSync(absolutePath)) {
+      continue;
+    }
+
+    fs.rmSync(absolutePath, { force: true });
+    clearedArtifactPath ??= artifactPath;
   }
 
-  fs.rmSync(absolutePath, { force: true });
-  return artifactPath;
+  return clearedArtifactPath;
 }
 
 function getBrowserHandoffResultArtifactByAbsolutePath(
@@ -171,6 +204,7 @@ function getBrowserHandoffResultArtifactByAbsolutePath(
 
   return {
     handoffArtifactPath: artifact.handoffArtifactPath,
+    handoffAttempt: artifact.handoffAttempt,
     ...(typeof artifact.channelAccountId === 'number'
       ? { channelAccountId: artifact.channelAccountId }
       : {}),
@@ -200,13 +234,37 @@ function readBrowserHandoffResultArtifact(
     const artifact = JSON.parse(
       fs.readFileSync(absolutePath, 'utf8'),
     ) as BrowserHandoffResultArtifactRecord;
-    return artifact.type === 'browser_manual_handoff_result' ? artifact : null;
+    return artifact.type === 'browser_manual_handoff_result'
+      ? {
+          ...artifact,
+          handoffAttempt: normalizeHandoffAttempt(artifact.handoffAttempt),
+        }
+      : null;
   } catch {
     return null;
   }
 }
 
-function buildArtifactPath(platform: BrowserHandoffPlatform, accountKey: string, draftId: string) {
+function buildAttemptArtifactPath(
+  platform: BrowserHandoffPlatform,
+  accountKey: string,
+  draftId: string,
+  handoffAttempt: number,
+) {
+  return path.join(
+    'artifacts',
+    'browser-handoff-results',
+    sanitizeSegment(platform),
+    sanitizeSegment(accountKey),
+    `${sanitizeSegment(platform)}-draft-${draftId}-attempt-${handoffAttempt}.json`,
+  );
+}
+
+function buildLegacyArtifactPath(
+  platform: BrowserHandoffPlatform,
+  accountKey: string,
+  draftId: string,
+) {
   return path.join(
     'artifacts',
     'browser-handoff-results',
@@ -214,6 +272,47 @@ function buildArtifactPath(platform: BrowserHandoffPlatform, accountKey: string,
     sanitizeSegment(accountKey),
     `${sanitizeSegment(platform)}-draft-${draftId}.json`,
   );
+}
+
+function buildLookupArtifactPaths(input: {
+  platform: BrowserHandoffPlatform;
+  accountKey: string;
+  draftId: string;
+  handoffAttempt?: number;
+}) {
+  const candidatePaths: string[] = [];
+  const handoffAttempt = normalizeOptionalHandoffAttempt(input.handoffAttempt);
+
+  if (handoffAttempt !== null) {
+    candidatePaths.push(
+      buildAttemptArtifactPath(input.platform, input.accountKey, input.draftId, handoffAttempt),
+    );
+  }
+
+  if (handoffAttempt === null || handoffAttempt === 1) {
+    candidatePaths.push(buildLegacyArtifactPath(input.platform, input.accountKey, input.draftId));
+  }
+
+  return candidatePaths;
+}
+
+function buildClearArtifactPaths(input: {
+  platform: BrowserHandoffPlatform;
+  accountKey: string;
+  draftId: string;
+  handoffAttempt?: number;
+}) {
+  const candidatePaths = new Set<string>();
+  const handoffAttempt = normalizeOptionalHandoffAttempt(input.handoffAttempt);
+
+  if (handoffAttempt !== null) {
+    candidatePaths.add(
+      buildAttemptArtifactPath(input.platform, input.accountKey, input.draftId, handoffAttempt),
+    );
+  }
+
+  candidatePaths.add(buildLegacyArtifactPath(input.platform, input.accountKey, input.draftId));
+  return [...candidatePaths];
 }
 
 function sanitizeSegment(value: string) {
@@ -238,4 +337,16 @@ function resolveArtifactRootDir() {
 
 function normalizePlatform(platform: string): BrowserHandoffPlatform {
   return (platform === 'facebook-group' ? 'facebookGroup' : platform) as BrowserHandoffPlatform;
+}
+
+function normalizeHandoffAttempt(value: unknown) {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : 1;
+}
+
+function normalizeOptionalHandoffAttempt(value: unknown) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  return normalizeHandoffAttempt(value);
 }

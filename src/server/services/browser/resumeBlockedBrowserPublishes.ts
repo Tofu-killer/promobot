@@ -57,17 +57,24 @@ export function resumeBlockedBrowserPublishesForChannelAccount(
     if (blockedHandoff) {
       const hasPollJob = hasOutstandingBrowserHandoffPollJob(jobQueueStore, {
         artifactPath: blockedHandoff.artifactPath,
+        handoffAttempt: blockedHandoff.handoffAttempt,
         currentJobId: undefined,
       });
       const resultArtifact = getBrowserHandoffResultArtifact({
         platform: blockedHandoff.platform,
         accountKey: blockedHandoff.accountKey,
         draftId: blockedHandoff.draftId,
+        handoffAttempt: blockedHandoff.handoffAttempt,
       });
       if (resultArtifact?.consumedAt === null) {
         if (!hasPollJob) {
           resumedJobs.push(
-            enqueueBrowserHandoffPollJob(jobQueueStore, blockedHandoff.artifactPath, now),
+            enqueueBrowserHandoffPollJob(
+              jobQueueStore,
+              blockedHandoff.artifactPath,
+              blockedHandoff.handoffAttempt,
+              now,
+            ),
           );
         }
         continue;
@@ -130,12 +137,14 @@ function findPendingBlockedBrowserHandoffArtifact(
 function enqueueBrowserHandoffPollJob(
   jobQueueStore: Pick<JobQueueStore, 'enqueue'>,
   artifactPath: string,
+  handoffAttempt: number,
   now: () => Date,
 ) {
   return jobQueueStore.enqueue({
     type: browserHandoffPollJobType,
     payload: {
       artifactPath,
+      handoffAttempt,
       attempt: 0,
       maxAttempts: defaultBrowserHandoffPollMaxAttempts,
       pollDelayMs: defaultBrowserHandoffPollDelayMs,

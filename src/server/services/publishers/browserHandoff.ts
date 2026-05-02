@@ -69,6 +69,7 @@ export function createBrowserHandoffPublisher(
         platform,
         accountKey,
         draftId,
+        handoffAttempt: artifact.handoffAttempt,
       });
       browserLaneDispatch({
         kind: 'publish_handoff',
@@ -77,6 +78,7 @@ export function createBrowserHandoffPublisher(
         accountKey,
         ...(typeof channelAccountId === 'number' ? { channelAccountId } : {}),
         draftId,
+        handoffAttempt: artifact.handoffAttempt,
       });
     }
 
@@ -98,6 +100,7 @@ export function createBrowserHandoffPublisher(
           session: resolution.session,
           sessionAction: resolution.sessionAction,
           artifactPath: artifact.artifactPath,
+          handoffAttempt: artifact.handoffAttempt,
         },
       },
     };

@@ -27,6 +27,7 @@ export function maybeEnqueueBrowserHandoffPollJob(
   if (
     hasOutstandingBrowserHandoffPollJob(jobQueueStore, {
       artifactPath: browserHandoff.artifactPath,
+      handoffAttempt: browserHandoff.handoffAttempt,
       currentJobId: undefined,
     })
   ) {
@@ -37,6 +38,7 @@ export function maybeEnqueueBrowserHandoffPollJob(
     type: browserHandoffPollJobType,
     payload: {
       artifactPath: browserHandoff.artifactPath,
+      handoffAttempt: browserHandoff.handoffAttempt,
       attempt: 0,
       maxAttempts: defaultBrowserHandoffPollMaxAttempts,
       pollDelayMs: defaultBrowserHandoffPollDelayMs,
@@ -56,10 +58,22 @@ function readReadyBrowserHandoffDetails(details: Record<string, unknown> | undef
     typeof details.browserHandoff.artifactPath === 'string'
       ? details.browserHandoff.artifactPath.trim()
       : '';
+  const handoffAttempt =
+    typeof details.browserHandoff.handoffAttempt === 'number' &&
+    Number.isInteger(details.browserHandoff.handoffAttempt) &&
+    details.browserHandoff.handoffAttempt > 0
+      ? details.browserHandoff.handoffAttempt
+      : Number.NaN;
 
-  return details.browserHandoff.readiness === 'ready' && artifactPath
+  return (
+    details.browserHandoff.readiness === 'ready' &&
+    artifactPath &&
+    Number.isInteger(handoffAttempt) &&
+    handoffAttempt > 0
+  )
     ? {
         artifactPath,
+        handoffAttempt,
       }
     : null;
 }

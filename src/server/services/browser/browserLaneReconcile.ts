@@ -257,6 +257,7 @@ function reconcileBrowserHandoffArtifact(
 
   const hasPollJob = hasOutstandingBrowserHandoffPollJob(jobQueueStore, {
     artifactPath: artifact.artifactPath,
+    handoffAttempt: artifact.handoffAttempt,
     currentJobId: undefined,
   });
 
@@ -264,6 +265,7 @@ function reconcileBrowserHandoffArtifact(
     platform: artifact.platform,
     accountKey: artifact.accountKey,
     draftId: artifact.draftId,
+    handoffAttempt: artifact.handoffAttempt,
   });
 
   if (resultArtifact?.consumedAt === null) {
@@ -308,6 +310,7 @@ function reconcileBrowserHandoffArtifact(
     platform: artifact.platform,
     accountKey: artifact.accountKey,
     draftId: artifact.draftId,
+    handoffAttempt: artifact.handoffAttempt,
   });
 
   if (!dispatched) {
@@ -349,6 +352,7 @@ function reconcileInboxReplyHandoffArtifact(
 
   const hasPollJob = hasOutstandingInboxReplyHandoffPollJob(jobQueueStore, {
     artifactPath: artifact.artifactPath,
+    handoffAttempt: artifact.handoffAttempt,
     currentJobId: undefined,
   });
 
@@ -356,6 +360,7 @@ function reconcileInboxReplyHandoffArtifact(
     platform: artifact.platform,
     accountKey: artifact.accountKey,
     itemId: artifact.itemId,
+    handoffAttempt: artifact.handoffAttempt,
   });
 
   if (resultArtifact?.consumedAt === null) {
@@ -400,6 +405,7 @@ function reconcileInboxReplyHandoffArtifact(
     platform: artifact.platform,
     accountKey: artifact.accountKey,
     itemId: artifact.itemId,
+    handoffAttempt: artifact.handoffAttempt,
   });
 
   if (!dispatched) {
@@ -464,6 +470,7 @@ function ensureBrowserHandoffPollJob(
     type: browserHandoffPollJobType,
     payload: {
       artifactPath: artifact.artifactPath,
+      handoffAttempt: artifact.handoffAttempt,
       attempt: 0,
       maxAttempts: defaultBrowserHandoffPollMaxAttempts,
       pollDelayMs: defaultBrowserHandoffPollDelayMs,
@@ -488,6 +495,7 @@ function ensureInboxReplyHandoffPollJob(
     type: inboxReplyHandoffPollJobType,
     payload: {
       artifactPath: artifact.artifactPath,
+      handoffAttempt: artifact.handoffAttempt,
       attempt: 0,
       maxAttempts: defaultInboxReplyHandoffPollMaxAttempts,
       pollDelayMs: defaultInboxReplyHandoffPollDelayMs,

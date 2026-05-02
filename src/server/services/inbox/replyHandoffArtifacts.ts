@@ -26,6 +26,7 @@ interface InboxReplyHandoffArtifactRecord {
   channelAccountId?: number;
   ownership?: InboxReplyHandoffOwnership;
   projectId?: number;
+  handoffAttempt: number;
   status: InboxReplyHandoffArtifactStatus;
   readiness: InboxReplyHandoffArtifactReadiness;
   platform: InboxReplyHandoffPlatform;
@@ -49,6 +50,7 @@ export interface InboxReplyHandoffArtifactSummary {
   channelAccountId?: number;
   ownership: InboxReplyHandoffOwnership;
   projectId?: number;
+  handoffAttempt: number;
   platform: InboxReplyHandoffPlatform;
   itemId: string;
   source: string;
@@ -79,6 +81,7 @@ export function writeInboxReplyHandoffArtifact(input: {
   const absolutePath = path.join(resolveArtifactRootDir(), artifactPath);
   const now = new Date().toISOString();
   const existingArtifact = readInboxReplyHandoffArtifact(absolutePath);
+  const handoffAttempt = existingArtifact ? existingArtifact.handoffAttempt + 1 : 1;
   const ownership: InboxReplyHandoffOwnership =
     typeof input.channelAccountId === 'number'
       ? 'direct'
@@ -90,6 +93,7 @@ export function writeInboxReplyHandoffArtifact(input: {
     ...(typeof input.channelAccountId === 'number' ? { channelAccountId: input.channelAccountId } : {}),
     ownership,
     ...(typeof input.item.projectId === 'number' ? { projectId: input.item.projectId } : {}),
+    handoffAttempt,
     status: 'pending',
     readiness: input.sessionAction ? 'blocked' : 'ready',
     platform: input.platform,
@@ -114,6 +118,7 @@ export function writeInboxReplyHandoffArtifact(input: {
 
   return {
     artifactPath,
+    handoffAttempt: artifactRecord.handoffAttempt,
     createdAt: artifactRecord.createdAt,
     updatedAt: artifactRecord.updatedAt,
     absolutePath,
@@ -280,6 +285,7 @@ export function listInboxReplyHandoffArtifacts(limit?: number): InboxReplyHandof
             : {}),
           ownership: ownership.ownership,
           ...(typeof ownership.projectId === 'number' ? { projectId: ownership.projectId } : {}),
+          handoffAttempt: artifact.handoffAttempt,
           platform: artifact.platform,
           itemId: artifact.itemId,
           source: artifact.source,
@@ -341,6 +347,7 @@ export function getInboxReplyHandoffArtifactByPath(artifactPath: string) {
       : {}),
     ownership: ownership.ownership,
     ...(typeof ownership.projectId === 'number' ? { projectId: ownership.projectId } : {}),
+    handoffAttempt: artifact.handoffAttempt,
     status: artifact.status,
     platform: artifact.platform,
     itemId: artifact.itemId,
@@ -556,6 +563,7 @@ function readInboxReplyHandoffArtifact(absolutePath: string): InboxReplyHandoffA
 
     return {
       ...parsed,
+      handoffAttempt: normalizeHandoffAttempt(parsed.handoffAttempt),
       readiness: parsed.readiness === 'blocked' ? 'blocked' : 'ready',
       sessionAction:
         parsed.sessionAction === 'request_session' || parsed.sessionAction === 'relogin'
@@ -565,6 +573,10 @@ function readInboxReplyHandoffArtifact(absolutePath: string): InboxReplyHandoffA
   } catch {
     return null;
   }
+}
+
+function normalizeHandoffAttempt(value: unknown) {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : 1;
 }
 
 function readInboxReplyHandoffProjectId(

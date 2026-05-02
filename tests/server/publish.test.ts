@@ -1335,6 +1335,7 @@ describe('publish api', () => {
             storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
           },
           sessionAction: null,
+          handoffAttempt: 1,
           artifactPath:
             'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-1.json',
         },
@@ -1510,6 +1511,7 @@ describe('publish api', () => {
             storageStatePath: 'artifacts/browser-sessions/xiaohongshu.json',
           },
           sessionAction: null,
+          handoffAttempt: 1,
           artifactPath:
             'artifacts/browser-handoffs/xiaohongshu/launch-campaign/xiaohongshu-draft-1.json',
         },
@@ -1601,6 +1603,7 @@ describe('publish api', () => {
             storageStatePath: 'artifacts/browser-sessions/weibo.json',
           },
           sessionAction: 'relogin',
+          handoffAttempt: 1,
           artifactPath: 'artifacts/browser-handoffs/weibo/launch-campaign/weibo-draft-1.json',
         },
       },
@@ -1691,6 +1694,7 @@ describe('publish api', () => {
             storageStatePath: 'artifacts/browser-sessions/instagram.json',
           },
           sessionAction: null,
+          handoffAttempt: 1,
           artifactPath: 'artifacts/browser-handoffs/instagram/launch-campaign/instagram-draft-1.json',
         },
       },
@@ -1711,6 +1715,7 @@ describe('publish api', () => {
     ]);
     expect(JSON.parse(readJobQueue()[0]?.payload ?? '{}')).toEqual({
       artifactPath: 'artifacts/browser-handoffs/instagram/launch-campaign/instagram-draft-1.json',
+      handoffAttempt: 1,
       attempt: 0,
       maxAttempts: 60,
       pollDelayMs: 60_000,
@@ -1802,6 +1807,7 @@ describe('publish api', () => {
             storageStatePath: 'browser-sessions/managed/instagram/launch-campaign.json',
           },
           sessionAction: null,
+          handoffAttempt: 2,
           artifactPath: 'artifacts/browser-handoffs/instagram/launch-campaign/instagram-draft-1.json',
         },
       },
@@ -1916,6 +1922,7 @@ describe('publish api', () => {
             storageStatePath: 'browser-sessions/managed/instagram/launch-campaign.json',
           },
           sessionAction: 'relogin',
+          handoffAttempt: 3,
           artifactPath: 'artifacts/browser-handoffs/instagram/launch-campaign/instagram-draft-1.json',
         },
       },

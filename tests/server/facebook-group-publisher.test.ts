@@ -57,6 +57,7 @@ describe('publishToFacebookGroup', () => {
     );
     expect(JSON.parse(readFileSync(artifactPath, 'utf8'))).toEqual({
       type: 'browser_manual_handoff',
+      handoffAttempt: 1,
       status: 'pending',
       platform: 'facebookGroup',
       draftId: '12',
@@ -90,6 +91,7 @@ describe('publishToFacebookGroup', () => {
         target: 'group-123',
         accountKey: 'launch-campaign',
         browserHandoff: {
+          handoffAttempt: 1,
           readiness: 'blocked',
           session: {
             hasSession: false,
@@ -138,6 +140,7 @@ describe('publishToFacebookGroup', () => {
     );
     expect(JSON.parse(readFileSync(artifactPath, 'utf8'))).toEqual({
       type: 'browser_manual_handoff',
+      handoffAttempt: 1,
       status: 'pending',
       platform: 'facebookGroup',
       draftId: '18',
@@ -173,6 +176,7 @@ describe('publishToFacebookGroup', () => {
         target: 'group-123',
         accountKey: 'launch-campaign',
         browserHandoff: {
+          handoffAttempt: 1,
           readiness: 'ready',
           session: {
             hasSession: true,
@@ -371,6 +375,7 @@ describe('publishToFacebookGroup', () => {
     );
     expect(JSON.parse(readFileSync(artifactPath, 'utf8'))).toEqual({
       type: 'browser_manual_handoff',
+      handoffAttempt: 1,
       status: 'pending',
       platform: 'facebookGroup',
       draftId: '19',
@@ -405,6 +410,7 @@ describe('publishToFacebookGroup', () => {
         target: 'group-123',
         accountKey: 'launch-campaign',
         browserHandoff: {
+          handoffAttempt: 1,
           readiness: 'blocked',
           session: {
             hasSession: true,

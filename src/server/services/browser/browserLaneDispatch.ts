@@ -12,6 +12,7 @@ export interface BrowserLaneDispatchInput {
   artifactPath: string;
   platform: string;
   accountKey: string;
+  handoffAttempt?: number;
   managedStorageStatePath?: string;
   sessionAction?: BrowserSessionAction | null;
   channelAccountId?: number;
@@ -157,6 +158,9 @@ function buildBrowserLaneDispatchEnv(
       : {}),
     ...(typeof input.requestJobId === 'number'
       ? { PROMOBOT_BROWSER_REQUEST_JOB_ID: String(input.requestJobId) }
+      : {}),
+    ...(typeof input.handoffAttempt === 'number' && Number.isInteger(input.handoffAttempt)
+      ? { PROMOBOT_BROWSER_HANDOFF_ATTEMPT: String(input.handoffAttempt) }
       : {}),
     ...(typeof input.draftId === 'string' && input.draftId.trim()
       ? { PROMOBOT_BROWSER_DRAFT_ID: input.draftId }

@@ -7,6 +7,7 @@ import type { InboxReplyHandoffPlatform } from './replyHandoffArtifacts.js';
 interface InboxReplyHandoffResultArtifactRecord {
   type: 'browser_inbox_reply_handoff_result';
   handoffArtifactPath: string;
+  handoffAttempt: number;
   channelAccountId?: number;
   platform: InboxReplyHandoffPlatform;
   accountKey: string;
@@ -23,6 +24,7 @@ interface InboxReplyHandoffResultArtifactRecord {
 
 export interface InboxReplyHandoffResultArtifactInput {
   handoffArtifactPath: string;
+  handoffAttempt?: number;
   channelAccountId?: number;
   platform: InboxReplyHandoffPlatform;
   accountKey: string;
@@ -38,6 +40,7 @@ export interface InboxReplyHandoffResultArtifactInput {
 export interface InboxReplyHandoffResultArtifactSummary {
   type: 'browser_inbox_reply_handoff_result';
   handoffArtifactPath: string;
+  handoffAttempt: number;
   channelAccountId?: number;
   platform: InboxReplyHandoffPlatform;
   accountKey: string;
@@ -56,7 +59,13 @@ export interface InboxReplyHandoffResultArtifactSummary {
 export function createInboxReplyHandoffResultArtifact(
   input: InboxReplyHandoffResultArtifactInput,
 ) {
-  const artifactPath = buildArtifactPath(input.platform, input.accountKey, input.itemId);
+  const handoffAttempt = normalizeHandoffAttempt(input.handoffAttempt);
+  const artifactPath = buildAttemptArtifactPath(
+    input.platform,
+    input.accountKey,
+    input.itemId,
+    handoffAttempt,
+  );
   const absolutePath = path.join(resolveArtifactRootDir(), artifactPath);
 
   fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
@@ -66,6 +75,7 @@ export function createInboxReplyHandoffResultArtifact(
       {
         type: 'browser_inbox_reply_handoff_result',
         handoffArtifactPath: input.handoffArtifactPath,
+        handoffAttempt,
         ...(typeof input.channelAccountId === 'number' ? { channelAccountId: input.channelAccountId } : {}),
         platform: input.platform,
         accountKey: input.accountKey,
@@ -90,14 +100,26 @@ export function getInboxReplyHandoffResultArtifact(input: {
   platform: string;
   accountKey: string;
   itemId: string;
+  handoffAttempt?: number;
 }): InboxReplyHandoffResultArtifactSummary | null {
   const normalizedPlatform = normalizePlatform(input.platform);
-  const absolutePath = path.join(
-    resolveArtifactRootDir(),
-    buildArtifactPath(normalizedPlatform, input.accountKey, input.itemId),
-  );
+  const artifactRootDir = resolveArtifactRootDir();
 
-  return getInboxReplyHandoffResultArtifactByAbsolutePath(absolutePath);
+  for (const artifactPath of buildLookupArtifactPaths({
+    platform: normalizedPlatform,
+    accountKey: input.accountKey,
+    itemId: input.itemId,
+    handoffAttempt: input.handoffAttempt,
+  })) {
+    const artifact = getInboxReplyHandoffResultArtifactByAbsolutePath(
+      path.join(artifactRootDir, artifactPath),
+    );
+    if (artifact) {
+      return artifact;
+    }
+  }
+
+  return null;
 }
 
 export function getInboxReplyHandoffResultArtifactByPath(
@@ -145,17 +167,28 @@ export function clearInboxReplyHandoffResultArtifact(input: {
   platform: string;
   accountKey: string;
   itemId: string;
+  handoffAttempt?: number;
 }) {
   const normalizedPlatform = normalizePlatform(input.platform);
-  const artifactPath = buildArtifactPath(normalizedPlatform, input.accountKey, input.itemId);
-  const absolutePath = path.join(resolveArtifactRootDir(), artifactPath);
+  const artifactRootDir = resolveArtifactRootDir();
+  let clearedArtifactPath: string | null = null;
 
-  if (!fs.existsSync(absolutePath)) {
-    return null;
+  for (const artifactPath of buildClearArtifactPaths({
+    platform: normalizedPlatform,
+    accountKey: input.accountKey,
+    itemId: input.itemId,
+    handoffAttempt: input.handoffAttempt,
+  })) {
+    const absolutePath = path.join(artifactRootDir, artifactPath);
+    if (!fs.existsSync(absolutePath)) {
+      continue;
+    }
+
+    fs.rmSync(absolutePath, { force: true });
+    clearedArtifactPath ??= artifactPath;
   }
 
-  fs.rmSync(absolutePath, { force: true });
-  return artifactPath;
+  return clearedArtifactPath;
 }
 
 function getInboxReplyHandoffResultArtifactByAbsolutePath(
@@ -170,6 +203,7 @@ function getInboxReplyHandoffResultArtifactByAbsolutePath(
   return {
     type: artifact.type,
     handoffArtifactPath: artifact.handoffArtifactPath,
+    handoffAttempt: artifact.handoffAttempt,
     ...(typeof artifact.channelAccountId === 'number'
       ? { channelAccountId: artifact.channelAccountId }
       : {}),
@@ -199,13 +233,37 @@ function readInboxReplyHandoffResultArtifact(
     const artifact = JSON.parse(
       fs.readFileSync(absolutePath, 'utf8'),
     ) as InboxReplyHandoffResultArtifactRecord;
-    return artifact.type === 'browser_inbox_reply_handoff_result' ? artifact : null;
+    return artifact.type === 'browser_inbox_reply_handoff_result'
+      ? {
+          ...artifact,
+          handoffAttempt: normalizeHandoffAttempt(artifact.handoffAttempt),
+        }
+      : null;
   } catch {
     return null;
   }
 }
 
-function buildArtifactPath(platform: InboxReplyHandoffPlatform, accountKey: string, itemId: string) {
+function buildAttemptArtifactPath(
+  platform: InboxReplyHandoffPlatform,
+  accountKey: string,
+  itemId: string,
+  handoffAttempt: number,
+) {
+  return path.join(
+    'artifacts',
+    'inbox-reply-handoff-results',
+    sanitizeSegment(platform),
+    sanitizeSegment(accountKey),
+    `${sanitizeSegment(platform)}-inbox-item-${sanitizeSegment(itemId)}-attempt-${handoffAttempt}.json`,
+  );
+}
+
+function buildLegacyArtifactPath(
+  platform: InboxReplyHandoffPlatform,
+  accountKey: string,
+  itemId: string,
+) {
   return path.join(
     'artifacts',
     'inbox-reply-handoff-results',
@@ -213,6 +271,47 @@ function buildArtifactPath(platform: InboxReplyHandoffPlatform, accountKey: stri
     sanitizeSegment(accountKey),
     `${sanitizeSegment(platform)}-inbox-item-${sanitizeSegment(itemId)}.json`,
   );
+}
+
+function buildLookupArtifactPaths(input: {
+  platform: InboxReplyHandoffPlatform;
+  accountKey: string;
+  itemId: string;
+  handoffAttempt?: number;
+}) {
+  const candidatePaths: string[] = [];
+  const handoffAttempt = normalizeOptionalHandoffAttempt(input.handoffAttempt);
+
+  if (handoffAttempt !== null) {
+    candidatePaths.push(
+      buildAttemptArtifactPath(input.platform, input.accountKey, input.itemId, handoffAttempt),
+    );
+  }
+
+  if (handoffAttempt === null || handoffAttempt === 1) {
+    candidatePaths.push(buildLegacyArtifactPath(input.platform, input.accountKey, input.itemId));
+  }
+
+  return candidatePaths;
+}
+
+function buildClearArtifactPaths(input: {
+  platform: InboxReplyHandoffPlatform;
+  accountKey: string;
+  itemId: string;
+  handoffAttempt?: number;
+}) {
+  const candidatePaths = new Set<string>();
+  const handoffAttempt = normalizeOptionalHandoffAttempt(input.handoffAttempt);
+
+  if (handoffAttempt !== null) {
+    candidatePaths.add(
+      buildAttemptArtifactPath(input.platform, input.accountKey, input.itemId, handoffAttempt),
+    );
+  }
+
+  candidatePaths.add(buildLegacyArtifactPath(input.platform, input.accountKey, input.itemId));
+  return [...candidatePaths];
 }
 
 function sanitizeSegment(value: string) {
@@ -237,4 +336,16 @@ function resolveArtifactRootDir() {
 
 function normalizePlatform(platform: string): InboxReplyHandoffPlatform {
   return (platform === 'facebook-group' ? 'facebookGroup' : platform) as InboxReplyHandoffPlatform;
+}
+
+function normalizeHandoffAttempt(value: unknown) {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : 1;
+}
+
+function normalizeOptionalHandoffAttempt(value: unknown) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  return normalizeHandoffAttempt(value);
 }

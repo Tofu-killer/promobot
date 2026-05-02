@@ -21,6 +21,7 @@ type BrowserHandoffPlatform = Extract<
 interface BrowserHandoffArtifactRecord {
   type: 'browser_manual_handoff';
   channelAccountId?: number;
+  handoffAttempt: number;
   status: BrowserHandoffArtifactStatus;
   readiness: BrowserHandoffArtifactReadiness;
   platform: BrowserHandoffPlatform;
@@ -41,6 +42,7 @@ export interface BrowserHandoffArtifactSummary {
   channelAccountId?: number;
   accountDisplayName?: string;
   ownership: BrowserHandoffOwnership;
+  handoffAttempt: number;
   platform: BrowserHandoffPlatform;
   draftId: string;
   title: string | null;
@@ -67,9 +69,11 @@ export function writeBrowserHandoffArtifact(input: {
   const absolutePath = path.join(resolveArtifactRootDir(), artifactPath);
   const now = new Date().toISOString();
   const existingArtifact = readBrowserHandoffArtifact(absolutePath);
+  const handoffAttempt = existingArtifact ? existingArtifact.handoffAttempt + 1 : 1;
   const artifactRecord: BrowserHandoffArtifactRecord = {
     type: 'browser_manual_handoff',
     ...(typeof input.channelAccountId === 'number' ? { channelAccountId: input.channelAccountId } : {}),
+    handoffAttempt,
     status: 'pending',
     readiness: input.sessionAction ? 'blocked' : 'ready',
     platform: input.platform,
@@ -91,6 +95,7 @@ export function writeBrowserHandoffArtifact(input: {
 
   return {
     artifactPath,
+    handoffAttempt: artifactRecord.handoffAttempt,
     createdAt: artifactRecord.createdAt,
     updatedAt: artifactRecord.updatedAt,
     absolutePath,
@@ -265,6 +270,7 @@ export function listBrowserHandoffArtifacts(limit?: number): BrowserHandoffArtif
             ? { accountDisplayName: ownership.accountDisplayName }
             : {}),
           ownership: ownership.ownership,
+          handoffAttempt: artifact.handoffAttempt,
           platform: artifact.platform,
           draftId: artifact.draftId,
           title: artifact.title,
@@ -353,6 +359,7 @@ export function getBrowserHandoffArtifactByPath(
       ? { accountDisplayName: ownership.accountDisplayName }
       : {}),
     ownership: ownership.ownership,
+    handoffAttempt: artifact.handoffAttempt,
     platform: artifact.platform,
     draftId: artifact.draftId,
     title: artifact.title,
@@ -517,6 +524,7 @@ function readBrowserHandoffArtifact(absolutePath: string): BrowserHandoffArtifac
     return artifact.type === 'browser_manual_handoff'
       ? {
           ...artifact,
+          handoffAttempt: normalizeHandoffAttempt(artifact.handoffAttempt),
           readiness: artifact.readiness === 'blocked' ? 'blocked' : 'ready',
           sessionAction:
             artifact.sessionAction === 'request_session' || artifact.sessionAction === 'relogin'
@@ -527,6 +535,10 @@ function readBrowserHandoffArtifact(absolutePath: string): BrowserHandoffArtifac
   } catch {
     return null;
   }
+}
+
+function normalizeHandoffAttempt(value: unknown) {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : 1;
 }
 
 function normalizeBrowserHandoffPlatform(platform: string) {

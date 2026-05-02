@@ -44,17 +44,24 @@ export function resumeBlockedInboxReplyHandoffsForChannelAccount(
   for (const artifact of matchingArtifacts) {
     const hasPollJob = hasOutstandingInboxReplyHandoffPollJob(jobQueueStore, {
       artifactPath: artifact.artifactPath,
+      handoffAttempt: artifact.handoffAttempt,
       currentJobId: undefined,
     });
     const resultArtifact = getInboxReplyHandoffResultArtifact({
       platform: artifact.platform,
       accountKey: artifact.accountKey,
       itemId: artifact.itemId,
+      handoffAttempt: artifact.handoffAttempt,
     });
     if (resultArtifact?.consumedAt === null) {
       if (!hasPollJob) {
         resumedJobs.push(
-          enqueueInboxReplyHandoffPollJob(jobQueueStore, artifact.artifactPath, now),
+          enqueueInboxReplyHandoffPollJob(
+            jobQueueStore,
+            artifact.artifactPath,
+            artifact.handoffAttempt,
+            now,
+          ),
         );
       }
       continue;
@@ -75,13 +82,21 @@ export function resumeBlockedInboxReplyHandoffsForChannelAccount(
       accountKey: artifact.accountKey,
       channelAccountId: channelAccount.id,
       itemId: artifact.itemId,
+      handoffAttempt: artifact.handoffAttempt,
     });
 
     if (hasPollJob) {
       continue;
     }
 
-    resumedJobs.push(enqueueInboxReplyHandoffPollJob(jobQueueStore, artifact.artifactPath, now));
+    resumedJobs.push(
+      enqueueInboxReplyHandoffPollJob(
+        jobQueueStore,
+        artifact.artifactPath,
+        artifact.handoffAttempt,
+        now,
+      ),
+    );
   }
 
   return resumedJobs;
@@ -90,12 +105,14 @@ export function resumeBlockedInboxReplyHandoffsForChannelAccount(
 function enqueueInboxReplyHandoffPollJob(
   jobQueueStore: Pick<JobQueueStore, 'enqueue'>,
   artifactPath: string,
+  handoffAttempt: number,
   now: () => Date,
 ) {
   return jobQueueStore.enqueue({
     type: inboxReplyHandoffPollJobType,
     payload: {
       artifactPath,
+      handoffAttempt,
       attempt: 0,
       maxAttempts: defaultInboxReplyHandoffPollMaxAttempts,
       pollDelayMs: defaultInboxReplyHandoffPollDelayMs,

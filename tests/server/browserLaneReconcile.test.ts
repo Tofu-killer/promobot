@@ -242,6 +242,7 @@ describe('browser lane reconcile cli', () => {
         type: inboxReplyHandoffPollJobType,
         payload: {
           artifactPath: readyReplyArtifactPath,
+          handoffAttempt: 1,
           attempt: 0,
           maxAttempts: defaultInboxReplyHandoffPollMaxAttempts,
           pollDelayMs: defaultInboxReplyHandoffPollDelayMs,
@@ -272,19 +273,21 @@ describe('browser lane reconcile cli', () => {
         channelAccountId: 1,
         requestJobId: 41,
       });
-      expect(dispatch).toHaveBeenCalledWith({
+      expect(dispatch).toHaveBeenNthCalledWith(2, {
         kind: 'publish_handoff',
         artifactPath: readyPublishArtifactPath,
         platform: 'instagram',
         accountKey: 'ig-main',
         draftId: '11',
+        handoffAttempt: 1,
       });
-      expect(dispatch).toHaveBeenCalledWith({
+      expect(dispatch).toHaveBeenNthCalledWith(3, {
         kind: 'inbox_reply_handoff',
         artifactPath: readyReplyArtifactPath,
         platform: 'weibo',
         accountKey: 'weibo-main',
         itemId: '1',
+        handoffAttempt: 1,
       });
 
       const queuedJobs = createJobQueueStore().list({ statuses: ['pending', 'running'] });
@@ -302,6 +305,7 @@ describe('browser lane reconcile cli', () => {
           expect.objectContaining({
             payload: JSON.stringify({
               artifactPath: readyPublishArtifactPath,
+              handoffAttempt: 1,
               attempt: 0,
               maxAttempts: defaultBrowserHandoffPollMaxAttempts,
               pollDelayMs: defaultBrowserHandoffPollDelayMs,
@@ -311,6 +315,7 @@ describe('browser lane reconcile cli', () => {
           expect.objectContaining({
             payload: JSON.stringify({
               artifactPath: resultReadyPublishArtifactPath,
+              handoffAttempt: 1,
               attempt: 0,
               maxAttempts: defaultBrowserHandoffPollMaxAttempts,
               pollDelayMs: defaultBrowserHandoffPollDelayMs,
@@ -321,6 +326,7 @@ describe('browser lane reconcile cli', () => {
             payload: JSON.stringify({
               artifactPath:
                 'artifacts/browser-handoffs/instagram/ig-blocked-result-ready/instagram-draft-15.json',
+              handoffAttempt: 1,
               attempt: 0,
               maxAttempts: defaultBrowserHandoffPollMaxAttempts,
               pollDelayMs: defaultBrowserHandoffPollDelayMs,
@@ -433,6 +439,7 @@ describe('browser lane reconcile cli', () => {
             type: browserHandoffPollJobType,
             payload: JSON.stringify({
               artifactPath: resultReadyPublishArtifactPath,
+              handoffAttempt: 1,
               attempt: 0,
               maxAttempts: defaultBrowserHandoffPollMaxAttempts,
               pollDelayMs: defaultBrowserHandoffPollDelayMs,
@@ -444,6 +451,7 @@ describe('browser lane reconcile cli', () => {
             payload: JSON.stringify({
               artifactPath:
                 'artifacts/browser-handoffs/instagram/ig-blocked-result-ready/instagram-draft-15.json',
+              handoffAttempt: 1,
               attempt: 0,
               maxAttempts: defaultBrowserHandoffPollMaxAttempts,
               pollDelayMs: defaultBrowserHandoffPollDelayMs,

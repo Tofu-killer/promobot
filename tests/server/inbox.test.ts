@@ -2236,6 +2236,7 @@ describe('inbox api', () => {
         accountKey: 'weibo-browser-main',
         channelAccountId: channelAccount.id,
         itemId: String(item.id),
+        handoffAttempt: 1,
       });
       expect(jobQueueStore.list({ limit: 10 })).toEqual([
         expect.objectContaining({
@@ -2319,7 +2320,7 @@ describe('inbox api', () => {
     }
   });
 
-  it('queues a single follow-up inbox reply handoff poll job when a ready browser reply handoff artifact is created', async () => {
+  it('queues one inbox reply handoff poll job per ready handoff attempt', async () => {
     const { rootDir } = createTestDatabasePath();
     process.env.BROWSER_HANDOFF_OUTPUT_DIR = rootDir;
 
@@ -2376,10 +2377,25 @@ describe('inbox api', () => {
           attempts: 0,
           runAt: '2026-04-29T08:01:00.000Z',
         }),
+        expect.objectContaining({
+          type: inboxReplyHandoffPollJobType,
+          status: 'pending',
+          attempts: 0,
+          runAt: '2026-04-29T08:01:00.000Z',
+        }),
       ]);
       expect(JSON.parse(jobQueueStore.list({ limit: 10 })[0]?.payload ?? '{}')).toEqual({
         artifactPath:
           'artifacts/inbox-reply-handoffs/weibo/weibo-browser-main/weibo-inbox-item-1.json',
+        handoffAttempt: 1,
+        attempt: 0,
+        maxAttempts: 60,
+        pollDelayMs: 60_000,
+      });
+      expect(JSON.parse(jobQueueStore.list({ limit: 10 })[1]?.payload ?? '{}')).toEqual({
+        artifactPath:
+          'artifacts/inbox-reply-handoffs/weibo/weibo-browser-main/weibo-inbox-item-1.json',
+        handoffAttempt: 2,
         attempt: 0,
         maxAttempts: 60,
         pollDelayMs: 60_000,
@@ -2455,7 +2471,29 @@ describe('inbox api', () => {
           attempts: 0,
           runAt: '2026-04-29T08:01:00.000Z',
         }),
+        expect.objectContaining({
+          type: inboxReplyHandoffPollJobType,
+          status: 'pending',
+          attempts: 0,
+          runAt: '2026-04-29T08:01:00.000Z',
+        }),
       ]);
+      expect(JSON.parse(jobQueueStore.list({ limit: 10 })[0]?.payload ?? '{}')).toEqual({
+        artifactPath:
+          'artifacts/inbox-reply-handoffs/weibo/weibo-browser-main/weibo-inbox-item-1.json',
+        handoffAttempt: 1,
+        attempt: 0,
+        maxAttempts: 60,
+        pollDelayMs: 60_000,
+      });
+      expect(JSON.parse(jobQueueStore.list({ limit: 10 })[1]?.payload ?? '{}')).toEqual({
+        artifactPath:
+          'artifacts/inbox-reply-handoffs/weibo/weibo-browser-main/weibo-inbox-item-1.json',
+        handoffAttempt: 2,
+        attempt: 0,
+        maxAttempts: 60,
+        pollDelayMs: 60_000,
+      });
       expect(browserLaneDispatch).toHaveBeenCalledTimes(2);
       expect(browserLaneDispatch).toHaveBeenNthCalledWith(1, {
         kind: 'inbox_reply_handoff',
@@ -2465,6 +2503,7 @@ describe('inbox api', () => {
         accountKey: 'weibo-browser-main',
         channelAccountId: channelAccount.id,
         itemId: String(item.id),
+        handoffAttempt: 1,
       });
       expect(browserLaneDispatch).toHaveBeenNthCalledWith(2, {
         kind: 'inbox_reply_handoff',
@@ -2474,6 +2513,7 @@ describe('inbox api', () => {
         accountKey: 'weibo-browser-main',
         channelAccountId: channelAccount.id,
         itemId: String(item.id),
+        handoffAttempt: 2,
       });
     } finally {
       vi.useRealTimers();
@@ -2825,6 +2865,7 @@ describe('inbox api', () => {
 
       const importResponse = await requestApp('POST', '/api/system/inbox-reply-handoffs/import', {
         artifactPath,
+        handoffAttempt: 1,
         replyStatus: 'failed',
         message: 'manual reply failed',
       });
@@ -2907,6 +2948,7 @@ describe('inbox api', () => {
 
       const importResponse = await requestApp('POST', '/api/system/inbox-reply-handoffs/import', {
         artifactPath,
+        handoffAttempt: 1,
         replyStatus: 'sent',
         message: 'manual browser reply sent',
         deliveryUrl: 'https://weibo.test/post/1#reply-9',
@@ -2998,6 +3040,7 @@ describe('inbox api', () => {
 
       const importResponse = await requestApp('POST', '/api/system/inbox-reply-handoffs/import', {
         artifactPath,
+        handoffAttempt: 1,
         replyStatus: 'sent',
         message: 'manual browser reply sent',
         deliveryUrl: 'https://weibo.test/post/1#reply-10',

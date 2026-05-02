@@ -183,6 +183,7 @@ describe('publish queue handler', () => {
             browserHandoff: {
               channelAccountId: 9,
               readiness: 'ready',
+              handoffAttempt: 1,
               session: {
                 hasSession: true,
                 id: 'instagram:launch-campaign',
@@ -227,6 +228,7 @@ describe('publish queue handler', () => {
       expect(JSON.parse(jobQueueStore.list({ limit: 10 })[0]?.payload ?? '{}')).toEqual({
         artifactPath:
           'artifacts/browser-handoffs/instagram/launch-campaign/instagram-draft-1.json',
+        handoffAttempt: 1,
         attempt: 0,
         maxAttempts: 60,
         pollDelayMs: 60_000,
