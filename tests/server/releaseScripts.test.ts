@@ -868,6 +868,168 @@ describe('release shell wrappers', () => {
     expect(pm2Invocations).toContain('start pm2.config.js --update-env');
   });
 
+  it('shows rollback-promobot help for direct and leading dash-dash help paths', () => {
+    for (const args of [['--help'], ['--', '--help']]) {
+      const result = runRepoScript('ops/rollback-promobot.sh', args);
+
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain('Usage: ops/rollback-promobot.sh --backup-dir <path> [options]');
+      expect(result.stdout).toContain('--backup-dir <path>');
+      expect(result.stdout).toContain('--skip-env');
+      expect(result.stdout).toContain('--admin-password <secret>');
+    }
+
+    const packageJson = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8')) as {
+      scripts?: Record<string, string>;
+    };
+    expect(packageJson.scripts?.['rollback:local']).toBe('bash ops/rollback-promobot.sh');
+  });
+
+  it('rejects missing and empty rollback-promobot option values', () => {
+    const cases: Array<{ args: string[]; error: string }> = [
+      { args: [], error: '--backup-dir is required' },
+      { args: ['--backup-dir'], error: '--backup-dir requires a value' },
+      { args: ['--backup-dir='], error: '--backup-dir requires a value' },
+      { args: ['--backup-dir', '--skip-smoke'], error: '--backup-dir requires a value' },
+      { args: ['--backup-dir', '/tmp/does-not-exist', '--base-url'], error: '--base-url requires a value' },
+      { args: ['--backup-dir', '/tmp/does-not-exist', '--base-url='], error: '--base-url requires a value' },
+      {
+        args: ['--backup-dir', '/tmp/does-not-exist', '--admin-password'],
+        error: '--admin-password requires a value',
+      },
+      {
+        args: ['--backup-dir', '/tmp/does-not-exist', '--admin-password='],
+        error: '--admin-password requires a value',
+      },
+    ];
+
+    for (const testCase of cases) {
+      const result = runRepoScript('ops/rollback-promobot.sh', testCase.args);
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain(testCase.error);
+    }
+  });
+
+  it('uses repo-root .env defaults when rollback-promobot restores and runs smoke checks', () => {
+    const fixture = createRollbackPromobotFixture({
+      existingPm2Process: true,
+      rootEnvFileContent: 'PORT=4981\nADMIN_PASSWORD=root-secret\n',
+    });
+    const result = runScript(fixture.scriptPath, ['--backup-dir', fixture.backupDir], {
+      cwd: fixture.rootDir,
+      env: {
+        ...process.env,
+        PATH: `${fixture.binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+      },
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain(`Restoring runtime data from ${fixture.backupDir}`);
+    expect(result.stdout).toContain('Restarting PM2 app from existing process definition');
+    expect(result.stdout).toContain('Running smoke check against http://127.0.0.1:4981 (attempt 1/10)');
+    expect(result.stdout).toContain('Rollback completed');
+    expect(fs.readFileSync(fixture.pm2MarkerPath, 'utf8')).toContain('stop promobot');
+    expect(fs.readFileSync(fixture.pm2MarkerPath, 'utf8')).toContain('restart promobot --update-env');
+    expect(fs.readFileSync(fixture.pnpmMarkerPath, 'utf8')).toContain(
+      `runtime:restore -- --input-dir ${fixture.backupDir}`,
+    );
+    expect(fs.readFileSync(fixture.pnpmMarkerPath, 'utf8')).toContain(
+      'smoke:server -- --base-url http://127.0.0.1:4981',
+    );
+    expect(fs.readFileSync(fixture.smokeMarkerPath, 'utf8')).toContain(
+      'PROMOBOT_ADMIN_PASSWORD=root-secret',
+    );
+  });
+
+  it('retries rollback-promobot smoke once before succeeding', () => {
+    const fixture = createRollbackPromobotFixture({ smokeFailureCount: 1 });
+    const result = runScript(
+      fixture.scriptPath,
+      ['--backup-dir', fixture.backupDir, '--admin-password', 'secret', '--base-url', 'http://127.0.0.1:6123'],
+      {
+        cwd: fixture.rootDir,
+        env: {
+          ...process.env,
+          PATH: `${fixture.binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+        },
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Running smoke check against http://127.0.0.1:6123 (attempt 1/10)');
+    expect(result.stdout).toContain('Smoke check failed; retrying in 3s');
+    expect(result.stdout).toContain('Running smoke check against http://127.0.0.1:6123 (attempt 2/10)');
+    expect(result.stdout).toContain('Rollback completed');
+    expect(
+      fs
+        .readFileSync(fixture.smokeMarkerPath, 'utf8')
+        .trim()
+        .split('\n')
+        .filter((line) => line.startsWith('PROMOBOT_ADMIN_PASSWORD=')),
+    ).toHaveLength(2);
+    expect(fs.readFileSync(fixture.sleepMarkerPath, 'utf8').trim().split('\n')).toEqual(['3']);
+  });
+
+  it('fails rollback-promobot after exhausting smoke retries', () => {
+    const fixture = createRollbackPromobotFixture({ smokeFailureCount: 10 });
+    const result = runScript(
+      fixture.scriptPath,
+      ['--backup-dir', fixture.backupDir, '--admin-password', 'secret', '--base-url', 'http://127.0.0.1:6123'],
+      {
+        cwd: fixture.rootDir,
+        env: {
+          ...process.env,
+          PATH: `${fixture.binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+        },
+      },
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain('Running smoke check against http://127.0.0.1:6123 (attempt 10/10)');
+    expect(result.stderr).toContain('Smoke check failed after 10 attempts');
+    expect(
+      fs
+        .readFileSync(fixture.smokeMarkerPath, 'utf8')
+        .trim()
+        .split('\n')
+        .filter((line) => line.startsWith('PROMOBOT_ADMIN_PASSWORD=')),
+    ).toHaveLength(10);
+    expect(fs.readFileSync(fixture.sleepMarkerPath, 'utf8').trim().split('\n')).toHaveLength(9);
+  });
+
+  it('uses bundled compiled CLIs when rollback-promobot runs from a release bundle root', () => {
+    const fixture = createRollbackPromobotFixture({
+      mode: 'bundle',
+      rootEnvFileContent: 'PORT=5123\nADMIN_PASSWORD=bundle-secret\n',
+    });
+    const result = runScript(
+      fixture.scriptPath,
+      ['--backup-dir', fixture.backupDir, '--skip-env'],
+      {
+        cwd: fixture.rootDir,
+        env: {
+          ...process.env,
+          PATH: `${fixture.binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+        },
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Starting PM2 app from pm2.config.js');
+    expect(result.stdout).toContain('Running smoke check against http://127.0.0.1:5123 (attempt 1/10)');
+    expect(fs.readFileSync(fixture.nodeMarkerPath, 'utf8')).toContain(
+      `dist/server/cli/runtimeRestore.js --input-dir ${fixture.backupDir} --skip-env`,
+    );
+    expect(fs.readFileSync(fixture.nodeMarkerPath, 'utf8')).toContain(
+      'dist/server/cli/deploymentSmoke.js --base-url http://127.0.0.1:5123',
+    );
+    expect(fs.readFileSync(fixture.smokeMarkerPath, 'utf8')).toContain(
+      'PROMOBOT_ADMIN_PASSWORD=bundle-secret',
+    );
+    expect(fs.existsSync(fixture.pnpmMarkerPath)).toBe(false);
+  });
+
   it('shows preflight-promobot help for direct and leading dash-dash help paths', () => {
     for (const args of [['--help'], ['--', '--help']]) {
       const result = runRepoScript('ops/preflight-promobot.sh', args);
@@ -1790,6 +1952,141 @@ exit 0
   return {
     rootDir,
     binDir,
+    pm2MarkerPath,
+    pnpmMarkerPath,
+    scriptPath,
+    sleepMarkerPath,
+    smokeMarkerPath,
+  };
+}
+
+function createRollbackPromobotFixture(
+  options: {
+    mode?: 'source' | 'bundle';
+    existingPm2Process?: boolean;
+    rootEnvFileContent?: string;
+    shellEnvFileContent?: string;
+    smokeFailureCount?: number;
+    smokeFailureMessage?: string;
+  } = {},
+) {
+  const mode = options.mode ?? 'source';
+  const rootDir = createTempDir('promobot-rollback-local-script-');
+  const binDir = path.join(rootDir, 'bin');
+  const backupDir = path.join(rootDir, 'runtime-backup');
+  const nodeMarkerPath = path.join(rootDir, 'node-invocations.log');
+  const pm2MarkerPath = path.join(rootDir, 'pm2-invocations.log');
+  const pnpmMarkerPath = path.join(rootDir, 'pnpm-invocations.log');
+  const smokeAttemptPath = path.join(rootDir, 'smoke-attempt.txt');
+  const smokeMarkerPath = path.join(rootDir, 'smoke-invocations.log');
+  const sleepMarkerPath = path.join(rootDir, 'sleep-invocations.log');
+  const scriptPath = path.join(rootDir, 'ops/rollback-promobot.sh');
+
+  fs.mkdirSync(path.dirname(scriptPath), { recursive: true });
+  fs.copyFileSync(path.resolve(repoRoot, 'ops/rollback-promobot.sh'), scriptPath);
+
+  writeFile(rootDir, 'package.json', '{}\n');
+  writeFile(rootDir, 'pm2.config.js', 'export default {};\n');
+  writeFile(rootDir, 'runtime-backup/manifest.json', '{}\n');
+  writeFile(rootDir, path.relative(rootDir, smokeAttemptPath), '0\n');
+
+  if (options.rootEnvFileContent) {
+    writeFile(rootDir, '.env', options.rootEnvFileContent);
+  }
+
+  if (options.shellEnvFileContent) {
+    writeFile(rootDir, 'shell/.env', options.shellEnvFileContent);
+  }
+
+  if (mode === 'source') {
+    writeFile(rootDir, 'src/server/cli/runtimeRestore.ts', 'console.log("restore");\n');
+    writeFile(rootDir, 'src/server/cli/deploymentSmoke.ts', 'console.log("smoke");\n');
+    writeExecutable(
+      binDir,
+      'pnpm',
+      `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${pnpmMarkerPath}"
+case "\${1:-}" in
+  runtime:restore)
+    exit 0
+    ;;
+  smoke:server)
+    current_attempt="$(cat "${smokeAttemptPath}")"
+    next_attempt=$((current_attempt + 1))
+    printf '%s\\n' "\${next_attempt}" > "${smokeAttemptPath}"
+    printf 'PROMOBOT_ADMIN_PASSWORD=%s\\n' "\${PROMOBOT_ADMIN_PASSWORD:-}" >> "${smokeMarkerPath}"
+    printf 'ARGS=%s\\n' "$*" >> "${smokeMarkerPath}"
+    if [ "\${next_attempt}" -le "${options.smokeFailureCount ?? 0}" ]; then
+      printf '%s\\n' "${options.smokeFailureMessage ?? 'smoke failed'}" >&2
+      exit 1
+    fi
+    exit 0
+    ;;
+esac
+exit 0
+`,
+    );
+  } else {
+    writeFile(rootDir, 'dist/server/cli/runtimeRestore.js', 'console.log("restore");\n');
+    writeFile(rootDir, 'dist/server/cli/deploymentSmoke.js', 'console.log("smoke");\n');
+    writeExecutable(
+      binDir,
+      'node',
+      `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${nodeMarkerPath}"
+case "\${1:-}" in
+  dist/server/cli/runtimeRestore.js)
+    exit 0
+    ;;
+  dist/server/cli/deploymentSmoke.js)
+    current_attempt="$(cat "${smokeAttemptPath}")"
+    next_attempt=$((current_attempt + 1))
+    printf '%s\\n' "\${next_attempt}" > "${smokeAttemptPath}"
+    printf 'PROMOBOT_ADMIN_PASSWORD=%s\\n' "\${PROMOBOT_ADMIN_PASSWORD:-}" >> "${smokeMarkerPath}"
+    printf 'ARGS=%s\\n' "$*" >> "${smokeMarkerPath}"
+    if [ "\${next_attempt}" -le "${options.smokeFailureCount ?? 0}" ]; then
+      printf '%s\\n' "${options.smokeFailureMessage ?? 'smoke failed'}" >&2
+      exit 1
+    fi
+    exit 0
+    ;;
+esac
+exit 0
+`,
+    );
+  }
+
+  writeExecutable(
+    binDir,
+    'pm2',
+    `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${pm2MarkerPath}"
+if [ "\${1:-}" = "jlist" ]; then
+  if [ "${options.existingPm2Process ? '1' : '0'}" = "1" ]; then
+    printf '[{"name":"promobot"}]\\n'
+  else
+    printf '[]\\n'
+  fi
+  exit 0
+fi
+exit 0
+`,
+  );
+
+  writeExecutable(
+    binDir,
+    'sleep',
+    `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${sleepMarkerPath}"
+exit 0
+`,
+  );
+
+  return {
+    rootDir,
+    binDir,
+    backupDir,
+    nodeMarkerPath,
     pm2MarkerPath,
     pnpmMarkerPath,
     scriptPath,
