@@ -3002,6 +3002,260 @@ describe('PublishCalendar and Projects pages', () => {
     });
   });
 
+  it('keeps a locally created source config when an older page-wide source-config reload resolves stale data', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ProjectsPage } = await import('../../src/client/pages/Projects');
+
+    const initialPageWideReload = createDeferredPromise<{
+      sourceConfigs: Array<{
+        id: number;
+        projectId: number;
+        sourceType: string;
+        platform: string;
+        label: string;
+        configJson: Record<string, unknown>;
+        enabled: boolean;
+        pollIntervalMinutes: number;
+      }>;
+    }>();
+    const loadProjectsAction = vi.fn().mockResolvedValue({
+      projects: [
+        {
+          id: 7,
+          name: 'Acme Launch',
+          siteName: 'Acme',
+          siteUrl: 'https://acme.test',
+          siteDescription: 'Launch week campaign',
+          sellingPoints: ['Cheap', 'Fast'],
+          createdAt: '2026-04-19T08:00:00.000Z',
+        },
+      ],
+    });
+    const loadSourceConfigsAction = vi
+      .fn()
+      .mockReturnValueOnce(initialPageWideReload.promise)
+      .mockResolvedValueOnce({
+        sourceConfigs: [],
+      });
+    const createSourceConfigAction = vi.fn().mockResolvedValue({
+      sourceConfig: {
+        id: 4,
+        projectId: 7,
+        sourceType: 'rss',
+        platform: 'rss',
+        label: 'Launch feed',
+        configJson: { feedUrl: 'https://feeds.test/launch.xml' },
+        enabled: true,
+        pollIntervalMinutes: 30,
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ProjectsPage as never, {
+          loadProjectsAction,
+          loadSourceConfigsAction,
+          createSourceConfigAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('正在加载 SourceConfig');
+
+    const presetField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'new-preset-7',
+    );
+    const labelField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'new-label-7',
+    );
+    const configJsonField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'new-config-json-7',
+    );
+    const createButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-source-config-create-id') === '7',
+    );
+
+    await act(async () => {
+      updateFieldValue(presetField, 'rss', window);
+      updateFieldValue(labelField, 'Launch feed', window);
+      updateFieldValue(configJsonField, '{"feedUrl":"https://feeds.test/launch.xml"}', window);
+      await flush();
+    });
+
+    await act(async () => {
+      createButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(createSourceConfigAction).toHaveBeenCalledWith(7, {
+      projectId: 7,
+      sourceType: 'rss',
+      platform: 'rss',
+      label: 'Launch feed',
+      configJson: { feedUrl: 'https://feeds.test/launch.xml' },
+      enabled: true,
+      pollIntervalMinutes: 30,
+    });
+    expect(loadSourceConfigsAction).toHaveBeenCalledTimes(2);
+    expect(collectText(container)).toContain('Launch feed');
+    expect(collectText(container)).not.toContain('暂无 SourceConfig');
+
+    await act(async () => {
+      initialPageWideReload.resolve({
+        sourceConfigs: [],
+      });
+      await flush();
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('Launch feed');
+    expect(collectText(container)).not.toContain('暂无 SourceConfig');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('keeps a locally created source config when a later page-wide reload returns stale data', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ProjectsPage } = await import('../../src/client/pages/Projects');
+
+    const loadProjectsAction = vi.fn().mockResolvedValue({
+      projects: [
+        {
+          id: 7,
+          name: 'Acme Launch',
+          siteName: 'Acme',
+          siteUrl: 'https://acme.test',
+          siteDescription: 'Launch week campaign',
+          sellingPoints: ['Cheap', 'Fast'],
+          createdAt: '2026-04-19T08:00:00.000Z',
+        },
+      ],
+    });
+    const initialLoadSourceConfigsAction = vi.fn().mockResolvedValue({
+      sourceConfigs: [],
+    });
+    const createSourceConfigAction = vi.fn().mockResolvedValue({
+      sourceConfig: {
+        id: 4,
+        projectId: 7,
+        sourceType: 'rss',
+        platform: 'rss',
+        label: 'Launch feed',
+        configJson: { feedUrl: 'https://feeds.test/launch.xml' },
+        enabled: true,
+        pollIntervalMinutes: 30,
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ProjectsPage as never, {
+          loadProjectsAction,
+          loadSourceConfigsAction: initialLoadSourceConfigsAction,
+          createSourceConfigAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const presetField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'new-preset-7',
+    );
+    const labelField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'new-label-7',
+    );
+    const configJsonField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'new-config-json-7',
+    );
+    const createButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-source-config-create-id') === '7',
+    );
+
+    await act(async () => {
+      updateFieldValue(presetField, 'rss', window);
+      updateFieldValue(labelField, 'Launch feed', window);
+      updateFieldValue(configJsonField, '{"feedUrl":"https://feeds.test/launch.xml"}', window);
+      await flush();
+    });
+
+    await act(async () => {
+      createButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('Launch feed');
+    expect(collectText(container)).not.toContain('暂无 SourceConfig');
+
+    const laterPageWideReload = createDeferredPromise<{
+      sourceConfigs: Array<{
+        id: number;
+        projectId: number;
+        sourceType: string;
+        platform: string;
+        label: string;
+        configJson: Record<string, unknown>;
+        enabled: boolean;
+        pollIntervalMinutes: number;
+      }>;
+    }>();
+    const laterLoadSourceConfigsAction = vi.fn().mockReturnValue(laterPageWideReload.promise);
+
+    await act(async () => {
+      root.render(
+        createElement(ProjectsPage as never, {
+          loadProjectsAction,
+          loadSourceConfigsAction: laterLoadSourceConfigsAction,
+          createSourceConfigAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('正在加载 SourceConfig');
+    expect(collectText(container)).toContain('Launch feed');
+
+    await act(async () => {
+      laterPageWideReload.resolve({
+        sourceConfigs: [],
+      });
+      await flush();
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('Launch feed');
+    expect(collectText(container)).not.toContain('暂无 SourceConfig');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('syncs existing source config form fields to the saved server response', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');

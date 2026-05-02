@@ -473,7 +473,6 @@ export function ProjectsPage({
           },
           error: null,
         });
-        setSourceConfigsByProject(result.sourceConfigsByProject);
       })
       .catch((error) => {
         if (cancelled) {
@@ -491,15 +490,6 @@ export function ProjectsPage({
       cancelled = true;
     };
   }, [loadProjectsAction, loadSourceConfigsAction, loadedProjectIdsKey, loadedProjects]);
-
-  useEffect(() => {
-    if (sourceConfigsStateOverride) {
-      setSourceConfigsByProject(sourceConfigsStateOverride.data?.sourceConfigsByProject ?? {});
-      return;
-    }
-
-    setSourceConfigsByProject(displaySourceConfigsState.data?.sourceConfigsByProject ?? {});
-  }, [displaySourceConfigsState.data, sourceConfigsStateOverride]);
 
   function handleCreateProject() {
     clearPageFeedback();

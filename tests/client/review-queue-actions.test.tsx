@@ -952,7 +952,7 @@ describe('review queue wiring', () => {
     });
   });
 
-  it('releases pending draft action locks after manual reload while publish is still in flight', async () => {
+  it('keeps pending draft action locks after manual reload while publish is still in flight', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
     const { ReviewQueuePage } = await import('../../src/client/pages/ReviewQueue');
@@ -1057,17 +1057,15 @@ describe('review queue wiring', () => {
     expect(loadReviewQueueAction).toHaveBeenCalledTimes(2);
     expect(collectText(container)).toContain('Reloaded launch thread');
     expect(scheduleButton).not.toBeNull();
+    expect(scheduleButton?.getAttribute('disabled')).not.toBeNull();
 
     await act(async () => {
       scheduleButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
       await flush();
     });
 
-    expect(scheduleReviewDraftAction).toHaveBeenCalledWith(11, {
-      scheduledAt: '',
-      status: 'scheduled',
-    });
-    expect(collectText(container)).toContain('已标记待补排程：Reloaded launch thread');
+    expect(scheduleReviewDraftAction).not.toHaveBeenCalled();
+    expect(collectText(container)).not.toContain('已标记待补排程：Reloaded launch thread');
 
     await act(async () => {
       pendingPublish.resolve({
@@ -1085,7 +1083,7 @@ describe('review queue wiring', () => {
       await flush();
     });
 
-    expect(collectText(container)).not.toContain('已发布：Launch thread');
+    expect(collectText(container)).toContain('已发布：Launch thread');
 
     await act(async () => {
       root.unmount();

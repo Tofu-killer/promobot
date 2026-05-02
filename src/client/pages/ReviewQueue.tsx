@@ -1072,13 +1072,21 @@ export function ReviewQueuePage({
   }
 
   function handleReloadQueue() {
-    followUpScopeVersionRef.current += 1;
-    pendingDraftActionIdsRef.current.clear();
-    publishFollowUpAttemptByIdRef.current = {};
-    setActionStateById({});
-    setSessionActionStateById({});
-    setBrowserHandoffDraftByArtifactPath({});
-    setBrowserHandoffCompletionStateById({});
+    setActionStateById((currentState) =>
+      Object.fromEntries(
+        Object.entries(currentState).filter(([, state]) => state.status === 'loading'),
+      ) as Record<number, ReviewActionState>,
+    );
+    setSessionActionStateById((currentState) =>
+      Object.fromEntries(
+        Object.entries(currentState).filter(([, state]) => state.status === 'loading'),
+      ) as Record<number, SessionActionMutationState>,
+    );
+    setBrowserHandoffCompletionStateById((currentState) =>
+      Object.fromEntries(
+        Object.entries(currentState).filter(([, state]) => state.status === 'loading'),
+      ) as Record<number, BrowserHandoffCompletionMutationState>,
+    );
     reloadReviewQueueSurface();
   }
 
