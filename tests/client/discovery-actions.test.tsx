@@ -1015,6 +1015,7 @@ describe('Discovery draft actions', () => {
         items: [
           {
             id: 102,
+            type: 'monitor',
             source: 'Product Hunt',
             title: '竞品推出周报模板',
             summary: '竞品把周报模板打包成独立资源，适合做拆解复盘。',
@@ -1622,6 +1623,7 @@ describe('Discovery draft actions', () => {
         items: [
           {
             id: 301,
+            type: 'monitor',
             source: 'Reddit',
             title: 'Batch reddit signal',
             summary: '适合做 reddit 批量跟进稿。',
@@ -1631,6 +1633,7 @@ describe('Discovery draft actions', () => {
           },
           {
             id: 302,
+            type: 'monitor',
             source: 'X / Twitter',
             title: 'Batch x signal',
             summary: '适合做 X 批量跟进稿。',
@@ -2071,6 +2074,56 @@ describe('Discovery draft actions', () => {
     expect(html).toMatch(/data-discovery-item-action=\"ignore-lead-7\"[^>]*disabled=\"\"/);
     expect(html).toMatch(/data-discovery-item-action=\"save-lead-8\"[^>]*disabled=\"\"/);
     expect(html).toMatch(/data-discovery-item-action=\"ignore-lead-8\"[^>]*disabled=\"\"/);
+  });
+
+  it('keeps discovery save and ignore disabled for legacy items without canonical monitor ids', async () => {
+    const { DiscoveryPage } = await import('../../src/client/pages/Discovery');
+
+    const html = renderToStaticMarkup(
+      createElement(DiscoveryPage as never, {
+        stateOverride: {
+          status: 'success',
+          data: {
+            items: [
+              {
+                id: '701',
+                source: 'Product Hunt',
+                type: 'unknown',
+                title: 'Legacy discovery item without explicit type',
+                summary: '裸数字 legacy id 不能默认打开 monitor save/ignore。',
+                status: 'triaged',
+                score: 79,
+                createdAt: '2026-04-19T07:00:00.000Z',
+              },
+              {
+                id: 'discovery-2',
+                source: 'Reddit',
+                type: 'monitor',
+                title: 'Monitor item without id',
+                summary: '缺失 id 的 monitor 条目应该保持不可操作。',
+                status: 'new',
+                score: 68,
+                createdAt: '2026-04-19T07:15:00.000Z',
+              },
+            ],
+            total: 2,
+            stats: {
+              sources: 2,
+              averageScore: 74,
+            },
+          },
+        },
+      }),
+    );
+
+    expect(html).not.toContain('data-discovery-save-id="monitor-701"');
+    expect(html).not.toContain('data-discovery-ignore-id="monitor-701"');
+    expect(html).not.toContain('data-discovery-save-id="discovery-2"');
+    expect(html).not.toContain('data-discovery-ignore-id="discovery-2"');
+    expect(html).toMatch(/data-discovery-item-action=\"save-701\"[^>]*disabled=\"\"/);
+    expect(html).toMatch(/data-discovery-item-action=\"ignore-701\"[^>]*disabled=\"\"/);
+    expect(html).toMatch(/data-discovery-item-action=\"save-discovery-2\"[^>]*disabled=\"\"/);
+    expect(html).toMatch(/data-discovery-item-action=\"ignore-discovery-2\"[^>]*disabled=\"\"/);
   });
 
   it('keeps discovery save and ignore disabled when a prefixed inbox id conflicts with monitor type', async () => {

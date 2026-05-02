@@ -91,6 +91,34 @@ const sampleConflictingDiscoveryApiResponse = {
   },
 };
 
+const sampleNonCanonicalDiscoveryApiResponse = {
+  items: [
+    {
+      id: 701,
+      title: 'Legacy discovery item without explicit type',
+      detail: '旧 contract 里的裸数字 id 不应该被默认归一成 monitor-*。',
+      source: 'Product Hunt',
+      status: 'triaged',
+      score: 79,
+      createdAt: '2026-04-19T07:00:00.000Z',
+    },
+    {
+      title: 'Monitor item without id',
+      detail: '缺失 id 的 monitor 条目需要保留为不可操作 fallback id。',
+      source: 'Reddit',
+      type: 'monitor',
+      status: 'new',
+      score: 68,
+      createdAt: '2026-04-19T07:15:00.000Z',
+    },
+  ],
+  total: 2,
+  stats: {
+    sources: 2,
+    averageScore: 74,
+  },
+};
+
 const sampleDiscoveryPageResponse = {
   items: [
     {
@@ -560,6 +588,26 @@ describe('Discovery page wiring', () => {
 
     expect(result.items[0]?.id).toBe('inbox-401');
     expect(result.items[0]?.type).toBe('inbox');
+  });
+
+  it('keeps non-canonical legacy discovery ids non-actionable during normalization', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(sampleNonCanonicalDiscoveryApiResponse));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const discoveryModule = (await import('../../src/client/lib/discovery')) as Record<string, unknown>;
+
+    expect(typeof discoveryModule.loadDiscoveryRequest).toBe('function');
+
+    const loadDiscoveryRequest = discoveryModule.loadDiscoveryRequest as () => Promise<{
+      items: Array<{ id: string; type: 'monitor' | 'inbox' | 'unknown' }>;
+    }>;
+
+    const result = await loadDiscoveryRequest();
+
+    expect(result.items[0]?.id).toBe('701');
+    expect(result.items[0]?.type).toBe('unknown');
+    expect(result.items[1]?.id).toBe('discovery-2');
+    expect(result.items[1]?.type).toBe('monitor');
   });
 
   it('shows loading, error, and success states for discovery data', async () => {

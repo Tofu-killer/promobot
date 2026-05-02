@@ -406,6 +406,7 @@ describe('App shell', () => {
               items: [
                 {
                   id: 701,
+                  type: 'monitor',
                   source: 'Product Hunt',
                   title: 'Manual discovery follow-up',
                   summary: '适合走人工平台的后续内容整理。',

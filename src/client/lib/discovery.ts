@@ -1,13 +1,15 @@
 import { apiRequest } from './api';
 
 type UnknownRecord = Record<string, unknown>;
+type CanonicalDiscoveryItemType = 'monitor' | 'inbox';
+export type DiscoveryItemType = CanonicalDiscoveryItemType | 'unknown';
 
 export interface DiscoveryItem {
   id: string | number;
   title: string;
   summary: string;
   source: string;
-  type: 'monitor' | 'inbox';
+  type: DiscoveryItemType;
   status: string;
   score: number | null;
   createdAt: string | null;
@@ -25,8 +27,8 @@ export interface DiscoveryResponse {
 }
 
 type DiscoveryItemLike = {
-  id: string | number;
-  type?: DiscoveryItem['type'] | null;
+  id: unknown;
+  type?: DiscoveryItemType | null;
 };
 
 function asRecord(value: unknown): UnknownRecord | null {
@@ -55,7 +57,7 @@ function asPositiveInteger(value: unknown): number | null {
   return Number.isSafeInteger(numericValue) && numericValue > 0 ? numericValue : null;
 }
 
-function asDiscoveryItemType(value: unknown): DiscoveryItem['type'] | null {
+function asDiscoveryItemType(value: unknown): CanonicalDiscoveryItemType | null {
   return value === 'monitor' || value === 'inbox' ? value : null;
 }
 
@@ -67,12 +69,12 @@ function parseDiscoveryItemId(value: unknown) {
   }
 
   return {
-    type: match[1] as DiscoveryItem['type'],
+    type: match[1] as CanonicalDiscoveryItemType,
     numericId: Number(match[2]),
   };
 }
 
-function coerceDiscoveryItemId(id: unknown, type: DiscoveryItem['type']): string | null {
+function coerceDiscoveryItemId(id: unknown, type: CanonicalDiscoveryItemType): string | null {
   const parsedId = parseDiscoveryItemId(id);
   if (parsedId) {
     return `${parsedId.type}-${parsedId.numericId}`;
@@ -82,32 +84,40 @@ function coerceDiscoveryItemId(id: unknown, type: DiscoveryItem['type']): string
   return numericId === null ? null : `${type}-${numericId}`;
 }
 
-export function resolveDiscoveryItemType(item: DiscoveryItemLike): DiscoveryItem['type'] {
-  return parseDiscoveryItemId(item.id)?.type ?? asDiscoveryItemType(item.type) ?? 'monitor';
+function stringifyDiscoveryItemId(id: unknown): string | null {
+  return asString(id) ?? (typeof id === 'number' && Number.isSafeInteger(id) && id > 0 ? String(id) : null);
+}
+
+export function resolveDiscoveryItemType(item: DiscoveryItemLike): DiscoveryItemType {
+  return parseDiscoveryItemId(item.id)?.type ?? asDiscoveryItemType(item.type) ?? 'unknown';
 }
 
 export function normalizeDiscoveryItemId(
   id: unknown,
-  type: DiscoveryItem['type'],
+  type: DiscoveryItemType,
   fallbackIndex: number,
 ): string {
-  return coerceDiscoveryItemId(id, type) ?? asString(id) ?? `${type}-${fallbackIndex + 1}`;
+  if (type === 'unknown') {
+    return stringifyDiscoveryItemId(id) ?? `discovery-${fallbackIndex + 1}`;
+  }
+
+  return coerceDiscoveryItemId(id, type) ?? stringifyDiscoveryItemId(id) ?? `discovery-${fallbackIndex + 1}`;
 }
 
 export function resolveDiscoveryMonitorActionId(item: DiscoveryItemLike): string | null {
-  const type = resolveDiscoveryItemType(item);
-  if (type !== 'monitor') {
-    return null;
+  const parsedId = parseDiscoveryItemId(item.id);
+  if (parsedId) {
+    return parsedId.type === 'monitor' ? `monitor-${parsedId.numericId}` : null;
   }
 
-  return coerceDiscoveryItemId(item.id, type);
+  return asDiscoveryItemType(item.type) === 'monitor' ? coerceDiscoveryItemId(item.id, 'monitor') : null;
 }
 
 function normalizeDiscoveryItem(value: unknown, index: number): DiscoveryItem {
   const record = asRecord(value);
   const id = record?.id;
   const normalizedType = resolveDiscoveryItemType({
-    id: asPositiveInteger(id) ?? asString(id) ?? index + 1,
+    id,
     type: asDiscoveryItemType(record?.type),
   });
   const normalizedId = normalizeDiscoveryItemId(id, normalizedType, index);
