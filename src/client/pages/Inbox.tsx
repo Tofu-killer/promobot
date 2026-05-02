@@ -321,6 +321,9 @@ interface InboxPageProps {
   sendReplyStateOverride?: AsyncState<SendInboxReplyResponse>;
   sessionActionStateOverride?: AsyncState<RequestChannelAccountSessionActionResponse>;
   replyHandoffCompletionStateOverride?: AsyncState<InboxReplyHandoffCompletionResponse>;
+  projectIdDraft?: string;
+  onProjectIdDraftChange?: (value: string) => void;
+  onOpenGenerateCenter?: (input: { topic: string; preferredPlatforms: string[] }) => void;
 }
 
 interface PlaceholderActionButtonProps {
@@ -348,6 +351,8 @@ const placeholderActionNoteStyle = {
   fontSize: '13px',
   lineHeight: 1.5,
 } as const;
+const manualInboxGeneratePlatforms = ['facebook-group', 'instagram', 'tiktok', 'xiaohongshu', 'weibo'];
+const supportedInboxGeneratePlatforms = new Set(['x', 'reddit', 'instagram', 'tiktok', 'xiaohongshu', 'weibo']);
 
 function PlaceholderActionButton({ label, hint, tone = 'secondary' }: PlaceholderActionButtonProps) {
   const isPrimary = tone === 'primary';
@@ -461,6 +466,10 @@ function formatInboxStatusFilterLabel(filter: string) {
 
 function isInboxUnreadStatus(status: string) {
   return status !== 'handled' && status !== 'ignored';
+}
+
+function isInboxReplySendableStatus(status: string) {
+  return status === 'needs_reply' || status === 'needs_review';
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -590,6 +599,17 @@ function filterInboxItems(items: InboxItem[], activePlatformFilter: string, acti
   });
 }
 
+function buildInboxGenerateTopic(item: InboxItem) {
+  return [item.title, item.excerpt].filter((value) => value.trim().length > 0).join('\n\n');
+}
+
+function resolveInboxGeneratePreferredPlatforms(source: string) {
+  const normalizedSource = normalizeInboxPlatformFilter(source);
+  return supportedInboxGeneratePlatforms.has(normalizedSource)
+    ? [normalizedSource]
+    : manualInboxGeneratePlatforms;
+}
+
 function formatSessionActionLabel(action: BrowserSessionAction) {
   return action === 'relogin' ? '重新登录' : '请求登录';
 }
@@ -710,9 +730,13 @@ export function InboxPage({
   sendReplyStateOverride,
   sessionActionStateOverride,
   replyHandoffCompletionStateOverride,
+  projectIdDraft,
+  onProjectIdDraftChange,
+  onOpenGenerateCenter,
 }: InboxPageProps) {
-  const [projectIdDraft, setProjectIdDraft] = useState('');
-  const projectId = parseProjectId(projectIdDraft);
+  const [localProjectIdDraft, setLocalProjectIdDraft] = useState('');
+  const activeProjectIdDraft = projectIdDraft ?? localProjectIdDraft;
+  const projectId = parseProjectId(activeProjectIdDraft);
   const shouldLoadReplyHandoffsLive = replyHandoffsStateOverride === undefined;
   const { state, reload } = useAsyncQuery(
     () => (projectId === undefined ? loadInboxAction() : loadInboxAction(projectId)),
@@ -833,6 +857,7 @@ export function InboxPage({
   }
   const filteredItems = filterInboxItems(displayItems, activePlatformFilter, activeStatusFilter);
   const selectedItem = isPreview ? null : filteredItems.find((item) => item.id === selectedItemId) ?? filteredItems[0] ?? null;
+  const selectedReplyActionItem = isPreview || selectedItem === null ? null : selectedItem;
   const activeInboxMutationItemId = inboxMutationItemId;
   const canGenerateReply = !isPreview && selectedItem !== null;
   const activeReplySuggestionItemId =
@@ -840,7 +865,11 @@ export function InboxPage({
   const showReplySuggestionForSelectedItem =
     selectedItem !== null && selectedItem.id === activeReplySuggestionItemId;
   const replyDraft = selectedItem ? replyDraftByItemId[selectedItem.id] ?? '' : '';
-  const canSendReply = !isPreview && selectedItem !== null && replyDraft.trim().length > 0;
+  const canSendReply =
+    !isPreview &&
+    selectedReplyActionItem !== null &&
+    isInboxReplySendableStatus(selectedReplyActionItem.status) &&
+    replyDraft.trim().length > 0;
 
   useEffect(() => {
     setActivePlatformFilter('all');
@@ -1089,6 +1118,22 @@ export function InboxPage({
       .catch(() => undefined);
   }
 
+  function canOpenGenerateCenter() {
+    return typeof onOpenGenerateCenter === 'function';
+  }
+
+  function handleOpenGenerateCenter(item: InboxItem) {
+    if (!canOpenGenerateCenter()) {
+      return;
+    }
+
+    setSelectedItemId(item.id);
+    onOpenGenerateCenter?.({
+      topic: buildInboxGenerateTopic(item),
+      preferredPlatforms: resolveInboxGeneratePreferredPlatforms(item.source),
+    });
+  }
+
   function handleReplyDraftChange(value: string) {
     if (!selectedItem) {
       return;
@@ -1112,7 +1157,11 @@ export function InboxPage({
   }
 
   function handleSendReply() {
-    if (!selectedItem) {
+    if (!selectedItem || !selectedReplyActionItem || selectedReplyActionItem.id !== selectedItem.id) {
+      return;
+    }
+
+    if (!isInboxReplySendableStatus(selectedReplyActionItem.status)) {
       return;
     }
 
@@ -1542,8 +1591,8 @@ export function InboxPage({
               <label style={{ display: 'grid', gap: '8px' }}>
                 <span style={{ fontWeight: 700 }}>项目 ID（可选）</span>
                 <input
-                  value={projectIdDraft}
-                  onChange={(event) => setProjectIdDraft(event.target.value)}
+                  value={activeProjectIdDraft}
+                  onChange={(event) => (onProjectIdDraftChange ?? setLocalProjectIdDraft)(event.target.value)}
                   placeholder="例如 12"
                   style={queueInputStyle}
                 />
@@ -1690,6 +1739,16 @@ export function InboxPage({
                             ) : (
                               <PlaceholderActionButton label="打开原帖（人工处理）" hint="原帖跳转暂未接入，请在源站手动打开。" />
                             )}
+                            {canOpenGenerateCenter() ? (
+                              <ActionButton
+                                label="发送到 Generate Center"
+                                disabled={isPreview}
+                                buttonAttributes={{ 'data-inbox-generate-center-id': String(item.id) }}
+                                onClick={() => {
+                                  handleOpenGenerateCenter(item);
+                                }}
+                              />
+                            ) : null}
                             <ActionButton
                               label={
                                 displayInboxUpdateState.status === 'loading' && item.id === activeInboxMutationItemId

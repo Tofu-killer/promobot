@@ -131,7 +131,13 @@ function renderRoute(
     case 'calendar':
       return <PublishCalendarPage />;
     case 'inbox':
-      return <InboxPage />;
+      return (
+        <InboxPage
+          projectIdDraft={sharedProjectIdDraft}
+          onProjectIdDraftChange={onProjectIdDraftChange}
+          onOpenGenerateCenter={onOpenGenerateCenter}
+        />
+      );
     case 'monitor':
       return (
         <MonitorPage

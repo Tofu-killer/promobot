@@ -1146,6 +1146,122 @@ describe('Inbox action wiring', () => {
     });
   });
 
+  it('opens Generate Center with the supported inbox source platform as the preferred target', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    const openGenerateCenter = vi.fn();
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(InboxPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              items: [
+                {
+                  id: 7,
+                  source: 'instagram',
+                  status: 'needs_review',
+                  author: 'creator-ops',
+                  title: 'Need a carousel follow-up',
+                  excerpt: 'Turn this support thread into a public explainer.',
+                  createdAt: '2026-04-19T10:00:00.000Z',
+                },
+              ],
+              total: 1,
+              unread: 1,
+            },
+          } satisfies ApiState<unknown>,
+          onOpenGenerateCenter: openGenerateCenter,
+        }),
+      );
+      await flush();
+    });
+
+    const handoffButton = findElement(
+      container,
+      (element) => element.getAttribute('data-inbox-generate-center-id') === '7',
+    );
+
+    expect(handoffButton).not.toBeNull();
+
+    await act(async () => {
+      handoffButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(openGenerateCenter).toHaveBeenCalledWith({
+      topic: 'Need a carousel follow-up\n\nTurn this support thread into a public explainer.',
+      preferredPlatforms: ['instagram'],
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('opens Generate Center with manual fallback platforms for unsupported inbox sources', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    const openGenerateCenter = vi.fn();
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(InboxPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              items: [
+                {
+                  id: 8,
+                  source: 'V2EX',
+                  status: 'needs_reply',
+                  author: 'founder',
+                  title: 'Latency question from a founder',
+                  excerpt: 'This thread should become a broader outbound post.',
+                  createdAt: '2026-04-19T10:05:00.000Z',
+                },
+              ],
+              total: 1,
+              unread: 1,
+            },
+          } satisfies ApiState<unknown>,
+          onOpenGenerateCenter: openGenerateCenter,
+        }),
+      );
+      await flush();
+    });
+
+    const handoffButton = findElement(
+      container,
+      (element) => element.getAttribute('data-inbox-generate-center-id') === '8',
+    );
+
+    expect(handoffButton).not.toBeNull();
+
+    await act(async () => {
+      handoffButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(openGenerateCenter).toHaveBeenCalledWith({
+      topic: 'Latency question from a founder\n\nThis thread should become a broader outbound post.',
+      preferredPlatforms: ['facebook-group', 'instagram', 'tiktok', 'xiaohongshu', 'weibo'],
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('renders inbox preview data as read-only when live data has not loaded yet', async () => {
     const { InboxPage } = await import('../../src/client/pages/Inbox');
 
@@ -1566,6 +1682,209 @@ describe('Inbox action wiring', () => {
     expect(html).toContain('回复草稿');
     expect(html).toContain('textarea');
     expect(html).toMatch(/<button(?![^>]*disabled="")[^>]*>应用建议（人工复制）<\/button>/);
+  });
+
+  it('keeps send reply disabled for ignored inbox items even when a draft exists', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    const sendReplyAction = vi.fn().mockResolvedValue({
+      item: {
+        id: 7,
+        source: 'reddit',
+        status: 'ignored',
+        author: 'triage-bot',
+        title: 'Ignored duplicate thread',
+        excerpt: 'No follow-up required.',
+        createdAt: '2026-04-19T10:15:00.000Z',
+      },
+      delivery: {
+        success: true,
+        status: 'sent',
+        mode: 'manual',
+        message: 'reply queued',
+        reply: 'No action required.',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(InboxPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              items: [
+                {
+                  id: 7,
+                  source: 'reddit',
+                  status: 'ignored',
+                  author: 'triage-bot',
+                  title: 'Ignored duplicate thread',
+                  excerpt: 'No follow-up required.',
+                  createdAt: '2026-04-19T10:15:00.000Z',
+                },
+              ],
+              total: 1,
+              unread: 0,
+            },
+          } satisfies ApiState<unknown>,
+          sendReplyAction,
+        }),
+      );
+      await flush();
+    });
+
+    const replyDraftField = findElement(container, (element) => element.tagName === 'TEXTAREA');
+    expect(replyDraftField).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(replyDraftField, 'No action required.', window);
+      await flush();
+    });
+
+    const sendReplyButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('发送回复'),
+    );
+    expect(sendReplyButton).not.toBeNull();
+    expect(sendReplyButton?.getAttribute('disabled')).toBe('');
+    expect(sendReplyButton?.getAttribute('aria-disabled')).toBe('true');
+
+    await act(async () => {
+      sendReplyButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(sendReplyAction).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('keeps send reply disabled after a reply handoff is marked handled', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    const sendReplyAction = vi.fn().mockResolvedValue({
+      item: {
+        id: 7,
+        source: 'reddit',
+        status: 'needs_reply',
+        author: 'user123',
+        title: 'Need lower latency in APAC',
+        excerpt: 'Can you share current response times?',
+        createdAt: '2026-04-19T10:00:00.000Z',
+      },
+      delivery: {
+        success: false,
+        status: 'manual_required',
+        mode: 'browser',
+        message: 'Reddit reply is ready for manual browser handoff with the saved session.',
+        reply: 'Manual follow-up reply.',
+        details: {
+          browserReplyHandoff: {
+            platform: 'reddit',
+            channelAccountId: 9,
+            accountKey: 'reddit-main',
+            readiness: 'ready',
+            artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-7.json',
+            handoffAttempt: 1,
+          },
+        },
+      },
+    });
+    const completeInboxReplyHandoffAction = vi.fn().mockResolvedValue({
+      ok: true,
+      imported: true,
+      artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-7.json',
+      itemId: 7,
+      itemStatus: 'handled',
+      platform: 'reddit',
+      mode: 'browser',
+      status: 'sent',
+      success: true,
+      deliveryUrl: 'https://reddit.com/message/messages/abc123',
+      externalId: null,
+      message: 'reply sent manually',
+      deliveredAt: '2026-04-23T11:15:00.000Z',
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(InboxPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              items: [
+                {
+                  id: 7,
+                  source: 'reddit',
+                  status: 'needs_reply',
+                  author: 'user123',
+                  title: 'Need lower latency in APAC',
+                  excerpt: 'Can you share current response times?',
+                  createdAt: '2026-04-19T10:00:00.000Z',
+                },
+              ],
+              total: 1,
+              unread: 1,
+            },
+          } satisfies ApiState<unknown>,
+          sendReplyAction,
+          completeInboxReplyHandoffAction,
+        }),
+      );
+      await flush();
+    });
+
+    const replyDraftField = findElement(container, (element) => element.tagName === 'TEXTAREA');
+    const sendReplyButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('发送回复'),
+    );
+    expect(replyDraftField).not.toBeNull();
+    expect(sendReplyButton).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(replyDraftField, 'Manual follow-up reply.', window);
+      await flush();
+    });
+
+    await act(async () => {
+      sendReplyButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    const markSentButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('标记已发送'),
+    );
+    expect(markSentButton).not.toBeNull();
+
+    await act(async () => {
+      markSentButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    const handledSendReplyButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('发送回复'),
+    );
+
+    expect(handledSendReplyButton).not.toBeNull();
+    expect(handledSendReplyButton?.getAttribute('disabled')).toBe('');
+    expect(collectText(container)).toContain('已结单 inbox reply item #7 (handled)');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
   });
 
   it('shows browser handoff details and keeps the inbox item pending when browser delivery still needs manual follow-up', async () => {
@@ -3832,7 +4151,7 @@ describe('Inbox action wiring', () => {
     });
   });
 
-  it('clears stale inbox reply handoff completion feedback when a new manual-required result arrives for the same item', async () => {
+  it('blocks retrying the same inbox reply locally after a reply handoff is marked handled until a fresh sendable status returns', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
     const { InboxPage } = await import('../../src/client/pages/Inbox');
@@ -3967,32 +4286,22 @@ describe('Inbox action wiring', () => {
     expect(collectText(container)).toContain('已结单 inbox reply item #7 (handled)');
     expect(collectText(container)).toContain('reply sent manually');
 
-    await act(async () => {
-      sendReplyButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-      await flush();
-    });
-
-    const freshMarkSentButton = findElement(
+    const handledSendReplyButton = findElement(
       container,
-      (element) => element.tagName === 'BUTTON' && collectText(element).includes('标记已发送'),
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('发送回复'),
     );
-    expect(sendReplyAction).toHaveBeenCalledTimes(2);
-    expect(completeInboxReplyHandoffAction).toHaveBeenCalledTimes(1);
-    expect(freshMarkSentButton).not.toBeNull();
-    expect(collectText(container)).not.toContain('已结单 inbox reply item #7 (handled)');
-    expect(collectText(container)).not.toContain('reply sent manually');
-    expect(collectText(container)).toContain('needs_reply');
+    expect(handledSendReplyButton).not.toBeNull();
+    expect(handledSendReplyButton?.getAttribute('disabled')).toBe('');
 
     await act(async () => {
-      freshMarkSentButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      handledSendReplyButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
       await flush();
     });
 
-    expect(completeInboxReplyHandoffAction).toHaveBeenNthCalledWith(2, {
-      artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-7.json',
-      handoffAttempt: 2,
-      replyStatus: 'sent',
-    });
+    expect(sendReplyAction).toHaveBeenCalledTimes(1);
+    expect(completeInboxReplyHandoffAction).toHaveBeenCalledTimes(1);
+    expect(collectText(container)).toContain('已结单 inbox reply item #7 (handled)');
+    expect(collectText(container)).toContain('reply sent manually');
 
     await act(async () => {
       root.unmount();
@@ -4000,7 +4309,7 @@ describe('Inbox action wiring', () => {
     });
   });
 
-  it('clears stale inbox reply handoff completion feedback when a new legacy manual-required result arrives for the same item', async () => {
+  it('blocks retrying the same legacy inbox reply locally after a reply handoff is marked handled until a fresh sendable status returns', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
     const { InboxPage } = await import('../../src/client/pages/Inbox');
@@ -4110,30 +4419,22 @@ describe('Inbox action wiring', () => {
     expect(collectText(container)).toContain('已结单 inbox reply item #7 (handled)');
     expect(collectText(container)).toContain('reply sent manually');
 
-    await act(async () => {
-      sendReplyButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-      await flush();
-    });
-
-    const freshMarkSentButton = findElement(
+    const handledSendReplyButton = findElement(
       container,
-      (element) => element.tagName === 'BUTTON' && collectText(element).includes('标记已发送'),
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('发送回复'),
     );
-    expect(sendReplyAction).toHaveBeenCalledTimes(2);
-    expect(completeInboxReplyHandoffAction).toHaveBeenCalledTimes(1);
-    expect(freshMarkSentButton).not.toBeNull();
-    expect(collectText(container)).not.toContain('已结单 inbox reply item #7 (handled)');
-    expect(collectText(container)).not.toContain('reply sent manually');
+    expect(handledSendReplyButton).not.toBeNull();
+    expect(handledSendReplyButton?.getAttribute('disabled')).toBe('');
 
     await act(async () => {
-      freshMarkSentButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      handledSendReplyButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
       await flush();
     });
 
-    expect(completeInboxReplyHandoffAction).toHaveBeenNthCalledWith(2, {
-      artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-7.json',
-      replyStatus: 'sent',
-    });
+    expect(sendReplyAction).toHaveBeenCalledTimes(1);
+    expect(completeInboxReplyHandoffAction).toHaveBeenCalledTimes(1);
+    expect(collectText(container)).toContain('已结单 inbox reply item #7 (handled)');
+    expect(collectText(container)).toContain('reply sent manually');
 
     await act(async () => {
       root.unmount();

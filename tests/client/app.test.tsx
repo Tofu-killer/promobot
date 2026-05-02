@@ -484,6 +484,118 @@ describe('App shell', () => {
     });
   });
 
+  it('prefills Generate Center from an inbox handoff and keeps the shared projectId draft', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    installAuthStorage(window, {
+      localStorage: createStorageArea(),
+      sessionStorage: createStorageArea('secret'),
+    });
+    installBrowserHistory(window as never, '/inbox');
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+
+        if (url === '/api/auth/probe') {
+          return Promise.resolve(
+            new Response(null, {
+              status: 204,
+            }),
+          );
+        }
+
+        if (url === '/api/inbox') {
+          return Promise.resolve(
+            jsonResponse({
+              items: [
+                {
+                  id: 801,
+                  source: 'V2EX',
+                  status: 'needs_reply',
+                  author: 'founder',
+                  title: 'Community thread worth a broader follow-up',
+                  excerpt: 'Route this into a multi-platform content draft.',
+                  createdAt: '2026-04-19T12:00:00.000Z',
+                },
+              ],
+              total: 1,
+              unread: 1,
+            }),
+          );
+        }
+
+        if (url === '/api/system/inbox-reply-handoffs?limit=100') {
+          return Promise.resolve(
+            jsonResponse({
+              handoffs: [],
+              total: 0,
+            }),
+          );
+        }
+
+        throw new Error(`unexpected fetch request: ${url}`);
+      }),
+    );
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(createElement(App as never, { initialAdminPassword: 'secret' }));
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    const inboxProjectInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    );
+    expect(inboxProjectInput).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(inboxProjectInput as never, '12', window as never);
+      await flush();
+      await flush();
+    });
+
+    const handoffButton = findElement(
+      container,
+      (element) => element.getAttribute('data-inbox-generate-center-id') === '801',
+    );
+    expect(handoffButton).not.toBeNull();
+
+    await act(async () => {
+      handoffButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect((window.location as { pathname?: string }).pathname).toBe('/generate');
+    expect(collectText(container)).toContain('Generate Center');
+
+    const topicField = findElement(container, (element) => element.tagName === 'TEXTAREA');
+    expect((topicField as { value?: string } | null)?.value).toBe(
+      'Community thread worth a broader follow-up\n\nRoute this into a multi-platform content draft.',
+    );
+    expect((findGeneratePlatformCheckbox(container, 'facebook-group') as { checked?: boolean } | null)?.checked).toBe(
+      true,
+    );
+    expect((findGeneratePlatformCheckbox(container, 'instagram') as { checked?: boolean } | null)?.checked).toBe(true);
+    expect((findGeneratePlatformCheckbox(container, 'x') as { checked?: boolean } | null)?.checked).toBe(false);
+
+    const generateProjectInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    );
+    expect((generateProjectInput as { value?: string } | null)?.value).toBe('12');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('keeps the login page when the current admin session probe fails', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
