@@ -121,13 +121,22 @@ function normalizeCommand(value: string | undefined) {
 
 function resolveLocalBrowserLaneDispatchCommand(
   env: NodeJS.ProcessEnv,
-  _kind: BrowserLaneDispatchKind,
+  kind: BrowserLaneDispatchKind,
 ) {
   if (!parseBooleanEnv(env.PROMOBOT_BROWSER_LOCAL_AUTORUN)) {
     return null;
   }
 
-  return normalizeCommand(env.PROMOBOT_BROWSER_LOCAL_RUNNER_COMMAND) ?? 'pnpm browser:lane:local';
+  const explicitLocalRunnerCommand = normalizeCommand(env.PROMOBOT_BROWSER_LOCAL_RUNNER_COMMAND);
+  if (explicitLocalRunnerCommand) {
+    return explicitLocalRunnerCommand;
+  }
+
+  if (kind !== 'session_request') {
+    return null;
+  }
+
+  return 'pnpm browser:lane:local';
 }
 
 function parseBooleanEnv(value: string | undefined) {
