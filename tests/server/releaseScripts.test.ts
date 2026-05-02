@@ -784,6 +784,68 @@ describe('release shell wrappers', () => {
     );
   });
 
+  it('retries deploy-promobot smoke once before succeeding', () => {
+    const fixture = createDeployPromobotFixture({ smokeFailureCount: 1 });
+    const env = {
+      ...process.env,
+      PATH: `${fixture.binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+      PROMOBOT_ADMIN_PASSWORD: 'secret',
+    };
+
+    const result = runScript(
+      fixture.scriptPath,
+      ['--skip-install', '--base-url', 'http://127.0.0.1:6123'],
+      {
+        cwd: fixture.rootDir,
+        env,
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Running smoke check against http://127.0.0.1:6123 (attempt 1/10)');
+    expect(result.stdout).toContain('Smoke check failed; retrying in 3s');
+    expect(result.stdout).toContain('Running smoke check against http://127.0.0.1:6123 (attempt 2/10)');
+    expect(result.stdout).toContain('Deployment completed');
+    expect(
+      fs
+        .readFileSync(fixture.smokeMarkerPath, 'utf8')
+        .trim()
+        .split('\n')
+        .filter((line) => line.startsWith('PROMOBOT_ADMIN_PASSWORD=')),
+    ).toHaveLength(2);
+    expect(fs.readFileSync(fixture.sleepMarkerPath, 'utf8').trim().split('\n')).toEqual(['3']);
+  });
+
+  it('fails deploy-promobot after exhausting smoke retries', () => {
+    const fixture = createDeployPromobotFixture({ smokeFailureCount: 10 });
+    const env = {
+      ...process.env,
+      PATH: `${fixture.binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+      PROMOBOT_ADMIN_PASSWORD: 'secret',
+    };
+
+    const result = runScript(
+      fixture.scriptPath,
+      ['--skip-install', '--base-url', 'http://127.0.0.1:6123'],
+      {
+        cwd: fixture.rootDir,
+        env,
+      },
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain('Running smoke check against http://127.0.0.1:6123 (attempt 10/10)');
+    expect(result.stderr).toContain('Smoke check failed after 10 attempts');
+    expect(
+      fs
+        .readFileSync(fixture.smokeMarkerPath, 'utf8')
+        .trim()
+        .split('\n')
+        .filter((line) => line.startsWith('PROMOBOT_ADMIN_PASSWORD=')),
+    ).toHaveLength(10);
+    expect(fs.readFileSync(fixture.sleepMarkerPath, 'utf8').trim().split('\n')).toHaveLength(9);
+  });
+
   it('falls back to pm2 start when deploy-promobot reload fails', () => {
     const fixture = createDeployPromobotFixture({
       existingPm2Process: true,
@@ -1651,13 +1713,17 @@ function createDeployPromobotFixture(
     envFileContent?: string;
     existingPm2Process?: boolean;
     failReload?: boolean;
+    smokeFailureCount?: number;
+    smokeFailureMessage?: string;
   } = {},
 ) {
   const rootDir = createTempDir('promobot-deploy-local-script-');
   const binDir = path.join(rootDir, 'bin');
   const pm2MarkerPath = path.join(rootDir, 'pm2-invocations.log');
   const pnpmMarkerPath = path.join(rootDir, 'pnpm-invocations.log');
+  const smokeAttemptPath = path.join(rootDir, 'smoke-attempt.txt');
   const smokeMarkerPath = path.join(rootDir, 'smoke-invocations.log');
+  const sleepMarkerPath = path.join(rootDir, 'sleep-invocations.log');
   const scriptPath = path.join(rootDir, 'ops/deploy-promobot.sh');
 
   fs.mkdirSync(path.dirname(scriptPath), { recursive: true });
@@ -1666,6 +1732,7 @@ function createDeployPromobotFixture(
   writeFile(rootDir, 'package.json', '{}\n');
   writeFile(rootDir, 'pnpm-lock.yaml', 'lockfileVersion: 9\n');
   writeFile(rootDir, 'pm2.config.js', 'export default {};\n');
+  writeFile(rootDir, path.relative(rootDir, smokeAttemptPath), '0\n');
 
   if (options.envFileContent) {
     writeFile(rootDir, '.env', options.envFileContent);
@@ -1677,9 +1744,25 @@ function createDeployPromobotFixture(
     `#!/usr/bin/env bash
 printf '%s\\n' "$*" >> "${pnpmMarkerPath}"
 if [ "\${1:-}" = "smoke:server" ]; then
+  current_attempt="$(cat "${smokeAttemptPath}")"
+  next_attempt=$((current_attempt + 1))
+  printf '%s\\n' "\${next_attempt}" > "${smokeAttemptPath}"
   printf 'PROMOBOT_ADMIN_PASSWORD=%s\\n' "\${PROMOBOT_ADMIN_PASSWORD:-}" >> "${smokeMarkerPath}"
   printf 'ARGS=%s\\n' "$*" >> "${smokeMarkerPath}"
+  if [ "\${next_attempt}" -le "${options.smokeFailureCount ?? 0}" ]; then
+    printf '%s\\n' "${options.smokeFailureMessage ?? 'smoke failed'}" >&2
+    exit 1
+  fi
 fi
+exit 0
+`,
+  );
+
+  writeExecutable(
+    binDir,
+    'sleep',
+    `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${sleepMarkerPath}"
 exit 0
 `,
   );
@@ -1710,6 +1793,7 @@ exit 0
     pm2MarkerPath,
     pnpmMarkerPath,
     scriptPath,
+    sleepMarkerPath,
     smokeMarkerPath,
   };
 }
