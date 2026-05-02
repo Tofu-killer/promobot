@@ -81,6 +81,7 @@ const REQUIRED_RELEASE_PATHS = [
   'ops/deploy-release.sh',
   'ops/verify-downloaded-release.sh',
   'ops/verify-release.sh',
+  'ops/rollback-promobot.sh',
 ] as const;
 
 interface ReleaseVerifyManifestFile {

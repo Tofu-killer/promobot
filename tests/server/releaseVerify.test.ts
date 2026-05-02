@@ -230,6 +230,7 @@ describe('release verify cli', () => {
         'pm2.config.js',
         'ops/deploy-promobot.sh',
         'ops/deploy-release.sh',
+        'ops/rollback-promobot.sh',
         'ops/verify-downloaded-release.sh',
         'ops/verify-release.sh',
       ],
@@ -291,6 +292,7 @@ describe('release verify cli', () => {
         'pm2.config.js',
         'ops/deploy-promobot.sh',
         'ops/deploy-release.sh',
+        'ops/rollback-promobot.sh',
         'ops/verify-downloaded-release.sh',
         'ops/verify-release.sh',
       ],
@@ -411,6 +413,12 @@ describe('release verify cli', () => {
         },
         {
           kind: 'manifest-item',
+          name: 'ops/rollback-promobot.sh',
+          ok: true,
+          target: path.join(inputDir, 'ops/rollback-promobot.sh'),
+        },
+        {
+          kind: 'manifest-item',
           name: 'ops/verify-downloaded-release.sh',
           ok: true,
           target: path.join(inputDir, 'ops/verify-downloaded-release.sh'),
@@ -476,6 +484,12 @@ describe('release verify cli', () => {
         },
         {
           kind: 'manifest-item',
+          name: 'ops/rollback-promobot.sh',
+          ok: false,
+          target: path.join(inputDir, 'ops/rollback-promobot.sh'),
+        },
+        {
+          kind: 'manifest-item',
           name: 'ops/verify-release.sh',
           ok: false,
           target: path.join(inputDir, 'ops/verify-release.sh'),
@@ -489,6 +503,12 @@ describe('release verify cli', () => {
           message:
             'Bundle contains a regular file not declared by the release manifest: ops/verify-downloaded-release.sh',
           target: path.join(inputDir, 'ops/verify-downloaded-release.sh'),
+        },
+        {
+          code: 'unexpected-bundle-file',
+          message:
+            'Bundle contains a regular file not declared by the release manifest: ops/rollback-promobot.sh',
+          target: path.join(inputDir, 'ops/rollback-promobot.sh'),
         },
         {
           code: 'unexpected-bundle-file',
@@ -529,6 +549,7 @@ describe('release verify cli', () => {
         'pm2.config.js',
         'ops/deploy-promobot.sh',
         'ops/deploy-release.sh',
+        'ops/rollback-promobot.sh',
         'ops/verify-release.sh',
       ],
       missing: [],
@@ -600,6 +621,11 @@ describe('release verify cli', () => {
         },
         {
           kind: 'manifest-item',
+          name: 'ops/rollback-promobot.sh',
+          target: path.join(inputDir, 'ops/rollback-promobot.sh'),
+        },
+        {
+          kind: 'manifest-item',
           name: 'ops/verify-release.sh',
           target: path.join(inputDir, 'ops/verify-release.sh'),
         },
@@ -647,6 +673,7 @@ describe('release verify cli', () => {
         'pm2.config.js',
         'ops/deploy-promobot.sh',
         'ops/deploy-release.sh',
+        'ops/rollback-promobot.sh',
         'ops/verify-downloaded-release.sh',
         'ops/verify-release.sh',
       ],
@@ -698,6 +725,7 @@ describe('release verify cli', () => {
         { relativePath: 'pm2.config.js' },
         { name: 'ops/deploy-promobot.sh' },
         { path: 'ops/deploy-release.sh' },
+        { path: 'ops/rollback-promobot.sh' },
         { name: 'ops/verify-downloaded-release.sh' },
         { relativePath: 'ops/verify-release.sh' },
       ],
@@ -785,6 +813,7 @@ function writeBundleNativeEntryScripts(
   } = {},
 ) {
   writeFile(rootDir, 'ops/deploy-release.sh', '#!/usr/bin/env bash\n');
+  writeFile(rootDir, 'ops/rollback-promobot.sh', '#!/usr/bin/env bash\n');
   if (options.includeDownloadedReleaseHelper !== false) {
     writeFile(rootDir, 'ops/verify-downloaded-release.sh', '#!/usr/bin/env bash\n');
   }
