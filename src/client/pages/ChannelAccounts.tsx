@@ -1471,12 +1471,13 @@ export function ChannelAccountsPage({
                           {account.latestBrowserLaneArtifact ? (
                             <>
                               <div>
-                                最近工单：{getSessionActionLabelFromAction(account.latestBrowserLaneArtifact.action)}
+                                最近创建工单：
+                                {getSessionActionLabelFromAction(account.latestBrowserLaneArtifact.action)}
                               </div>
-                              <div>工单状态：{account.latestBrowserLaneArtifact.jobStatus}</div>
-                              <div>工单时间：{account.latestBrowserLaneArtifact.requestedAt}</div>
-                              <div>工单结单：{account.latestBrowserLaneArtifact.resolvedAt ?? '未结单'}</div>
-                              <div>工单路径：{account.latestBrowserLaneArtifact.artifactPath}</div>
+                              <div>最近工单状态：{account.latestBrowserLaneArtifact.jobStatus}</div>
+                              <div>最近工单时间：{account.latestBrowserLaneArtifact.requestedAt}</div>
+                              <div>最近工单结单：{account.latestBrowserLaneArtifact.resolvedAt ?? '未结单'}</div>
+                              <div>最近工单路径：{account.latestBrowserLaneArtifact.artifactPath}</div>
                             </>
                           ) : null}
                           {account.latestBrowserHandoffArtifact ? (
