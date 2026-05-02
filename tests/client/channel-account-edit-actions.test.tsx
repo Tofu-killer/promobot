@@ -6387,6 +6387,327 @@ describe('channel account edit actions', () => {
     });
   });
 
+  it('keeps the current action receipt aligned with active artifacts across live reloads even when the latest work order uses a different action', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ChannelAccountsPage } = await import('../../src/client/pages/ChannelAccounts');
+
+    const loadChannelAccountsAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        channelAccounts: [
+          {
+            id: 7,
+            platform: 'instagram',
+            accountKey: 'acct-instagram',
+            displayName: 'Instagram Ops',
+            authType: 'browser',
+            status: 'healthy',
+            metadata: {},
+            session: {
+              hasSession: false,
+              status: 'missing',
+              validatedAt: null,
+              storageStatePath: null,
+              id: 'instagram:acct-instagram',
+            },
+            publishReadiness: {
+              platform: 'instagram',
+              ready: false,
+              mode: 'browser',
+              status: 'needs_session',
+              message: 'Instagram 浏览器登录态缺失，请先完成登录。',
+              action: 'request_session',
+            },
+            createdAt: '2026-04-19T00:00:00.000Z',
+            updatedAt: '2026-04-19T00:00:00.000Z',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        channelAccounts: [
+          {
+            id: 7,
+            platform: 'instagram',
+            accountKey: 'acct-instagram',
+            displayName: 'Instagram Ops',
+            authType: 'browser',
+            status: 'healthy',
+            metadata: {},
+            session: {
+              hasSession: false,
+              status: 'missing',
+              validatedAt: null,
+              storageStatePath: null,
+              id: 'instagram:acct-instagram',
+            },
+            latestBrowserLaneArtifact: {
+              action: 'relogin',
+              jobStatus: 'pending',
+              requestedAt: '2026-04-19T05:00:00.000Z',
+              artifactPath:
+                'artifacts/browser-lane-requests/instagram/acct-instagram/relogin-job-27.json',
+              resolvedAt: null,
+            },
+            activeSessionActionArtifacts: {
+              request_session: {
+                action: 'request_session',
+                jobStatus: 'pending',
+                requestedAt: '2026-04-19T03:10:00.000Z',
+                artifactPath:
+                  'artifacts/browser-lane-requests/instagram/acct-instagram/request-session-job-19.json',
+                resolvedAt: null,
+              },
+            },
+            publishReadiness: {
+              platform: 'instagram',
+              ready: false,
+              mode: 'browser',
+              status: 'needs_session',
+              message: 'Instagram 浏览器登录态缺失，请先完成登录。',
+              action: 'request_session',
+            },
+            createdAt: '2026-04-19T00:00:00.000Z',
+            updatedAt: '2026-04-19T05:00:00.000Z',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        channelAccounts: [
+          {
+            id: 7,
+            platform: 'instagram',
+            accountKey: 'acct-instagram',
+            displayName: 'Instagram Ops',
+            authType: 'browser',
+            status: 'healthy',
+            metadata: {},
+            session: {
+              hasSession: false,
+              status: 'missing',
+              validatedAt: null,
+              storageStatePath: null,
+              id: 'instagram:acct-instagram',
+            },
+            latestBrowserLaneArtifact: {
+              action: 'relogin',
+              jobStatus: 'pending',
+              requestedAt: '2026-04-19T05:00:00.000Z',
+              artifactPath:
+                'artifacts/browser-lane-requests/instagram/acct-instagram/relogin-job-27.json',
+              resolvedAt: null,
+            },
+            publishReadiness: {
+              platform: 'instagram',
+              ready: false,
+              mode: 'browser',
+              status: 'needs_session',
+              message: 'Instagram 浏览器登录态缺失，请先完成登录。',
+              action: 'request_session',
+            },
+            createdAt: '2026-04-19T00:00:00.000Z',
+            updatedAt: '2026-04-19T05:10:00.000Z',
+          },
+        ],
+      });
+    const requestChannelAccountSessionAction = vi.fn().mockResolvedValue({
+      ok: true,
+      sessionAction: {
+        action: 'request_session',
+        accountId: 7,
+        status: 'pending',
+        requestedAt: '2026-04-19T03:10:00.000Z',
+        message:
+          'Browser session request queued. Complete login manually and attach session metadata after the browser lane picks up the job.',
+        nextStep: '/api/channel-accounts/7/session',
+        jobId: 19,
+        jobStatus: 'pending',
+        artifactPath:
+          'artifacts/browser-lane-requests/instagram/acct-instagram/request-session-job-19.json',
+      },
+      channelAccount: {
+        id: 7,
+        platform: 'instagram',
+        accountKey: 'acct-instagram',
+        displayName: 'Instagram Ops',
+        authType: 'browser',
+        status: 'healthy',
+        metadata: {},
+        session: {
+          hasSession: false,
+          status: 'missing',
+          validatedAt: null,
+          storageStatePath: null,
+          id: 'instagram:acct-instagram',
+        },
+        latestBrowserLaneArtifact: {
+          action: 'relogin',
+          jobStatus: 'pending',
+          requestedAt: '2026-04-19T05:00:00.000Z',
+          artifactPath:
+            'artifacts/browser-lane-requests/instagram/acct-instagram/relogin-job-27.json',
+          resolvedAt: null,
+        },
+        activeSessionActionArtifacts: {
+          request_session: {
+            action: 'request_session',
+            jobStatus: 'pending',
+            requestedAt: '2026-04-19T03:10:00.000Z',
+            artifactPath:
+              'artifacts/browser-lane-requests/instagram/acct-instagram/request-session-job-19.json',
+            resolvedAt: null,
+          },
+        },
+        publishReadiness: {
+          platform: 'instagram',
+          ready: false,
+          mode: 'browser',
+          status: 'needs_session',
+          message: 'Instagram 浏览器登录态缺失，请先完成登录。',
+          action: 'request_session',
+        },
+        createdAt: '2026-04-19T00:00:00.000Z',
+        updatedAt: '2026-04-19T05:00:00.000Z',
+      },
+    });
+    const testChannelAccountAction = vi.fn().mockResolvedValue({
+      ok: true,
+      test: {
+        checkedAt: '2026-04-19T05:20:00.000Z',
+        status: 'ready',
+        result: {
+          label: '已就绪',
+        },
+        feedback: {
+          message: '浏览器 lane 已响应。',
+        },
+        details: {
+          ready: true,
+          mode: 'browser',
+          authType: 'browser',
+          session: {
+            hasSession: true,
+            status: 'active',
+            validatedAt: '2026-04-19T05:20:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/acct-instagram.json',
+            id: 'instagram:acct-instagram',
+          },
+        },
+      },
+      channelAccount: {
+        id: 7,
+        platform: 'instagram',
+        accountKey: 'acct-instagram',
+        displayName: 'Instagram Ops',
+        authType: 'browser',
+        status: 'healthy',
+        metadata: {},
+        session: {
+          hasSession: true,
+          status: 'active',
+          validatedAt: '2026-04-19T05:20:00.000Z',
+          storageStatePath: 'artifacts/browser-sessions/acct-instagram.json',
+          id: 'instagram:acct-instagram',
+        },
+        publishReadiness: {
+          platform: 'instagram',
+          ready: true,
+          mode: 'browser',
+          status: 'ready',
+          message: 'Instagram 浏览器发布链路已具备可用 session。',
+        },
+        createdAt: '2026-04-19T00:00:00.000Z',
+        updatedAt: '2026-04-19T05:20:00.000Z',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ChannelAccountsPage as never, {
+          loadChannelAccountsAction,
+          requestChannelAccountSessionAction,
+          testChannelAccountAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const requestSessionButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-session-action-id') === '7',
+    );
+
+    expect(requestSessionButton).not.toBeNull();
+
+    await act(async () => {
+      requestSessionButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(requestChannelAccountSessionAction).toHaveBeenCalledWith(7, {
+      action: 'request_session',
+    });
+    expect(collectText(container)).toContain('请求登录工单已记录');
+    expect(collectText(container)).toContain(
+      'Artifact Path：artifacts/browser-lane-requests/instagram/acct-instagram/request-session-job-19.json',
+    );
+    expect(collectText(container)).toContain('最近创建工单：重新登录');
+    expect(collectText(container)).toContain(
+      '最近工单路径：artifacts/browser-lane-requests/instagram/acct-instagram/relogin-job-27.json',
+    );
+
+    const headerTestConnectionButton = findElement(
+      container,
+      (element) => element.getAttribute('data-header-test-connection-action') === 'true',
+    );
+
+    expect(headerTestConnectionButton).not.toBeNull();
+
+    await act(async () => {
+      headerTestConnectionButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    expect(loadChannelAccountsAction).toHaveBeenCalledTimes(2);
+    expect(collectText(container)).toContain('请求登录工单已记录');
+    expect(collectText(container)).toContain('请求时间：2026-04-19T03:10:00.000Z');
+    expect(collectText(container)).toContain('工单状态：pending');
+    expect(collectText(container)).toContain(
+      'Artifact Path：artifacts/browser-lane-requests/instagram/acct-instagram/request-session-job-19.json',
+    );
+    expect(collectText(container)).toContain('最近创建工单：重新登录');
+    expect(collectText(container)).toContain(
+      '最近工单路径：artifacts/browser-lane-requests/instagram/acct-instagram/relogin-job-27.json',
+    );
+
+    await act(async () => {
+      headerTestConnectionButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    expect(loadChannelAccountsAction).toHaveBeenCalledTimes(3);
+    expect(collectText(container)).not.toContain('请求登录工单已记录');
+    expect(collectText(container)).not.toContain('请求时间：2026-04-19T03:10:00.000Z');
+    expect(collectText(container)).not.toContain(
+      'Artifact Path：artifacts/browser-lane-requests/instagram/acct-instagram/request-session-job-19.json',
+    );
+    expect(collectText(container)).toContain('最近创建工单：重新登录');
+    expect(collectText(container)).toContain(
+      '最近工单路径：artifacts/browser-lane-requests/instagram/acct-instagram/relogin-job-27.json',
+    );
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('keeps the reused session-action receipt separate from the latest browser-lane artifact for the same account', async () => {
     const { container } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
