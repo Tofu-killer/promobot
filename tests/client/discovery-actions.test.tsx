@@ -927,6 +927,83 @@ describe('Discovery draft actions', () => {
     });
   });
 
+  it('generates a saved Instagram draft for supported multi-platform discovery sources', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { DiscoveryPage } = await import('../../src/client/pages/Discovery');
+
+    const stateOverride = {
+      status: 'success' as const,
+      data: {
+        items: [
+          {
+            id: 106,
+            source: 'Instagram',
+            title: 'Instagram reel teardown',
+            summary: '适合直接生成 Instagram 跟进草稿。',
+            status: 'new',
+            score: 89,
+            createdAt: '2026-04-19T01:10:00.000Z',
+          },
+        ],
+        total: 1,
+        stats: {
+          sources: 1,
+          averageScore: 89,
+        },
+      },
+    };
+    const generateAction = vi.fn().mockResolvedValue({
+      results: [
+        {
+          platform: 'instagram',
+          title: 'Instagram follow-up draft',
+          content: 'Draft body',
+          draftId: 1060,
+        },
+      ],
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(DiscoveryPage as never, {
+          loadDiscoveryAction: async () => stateOverride.data,
+          stateOverride,
+          generateAction,
+        }),
+      );
+      await flush();
+    });
+
+    const button = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('生成草稿'),
+    );
+
+    expect(button).not.toBeNull();
+
+    await act(async () => {
+      button?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(generateAction).toHaveBeenCalledWith({
+      topic: 'Instagram reel teardown\n\n适合直接生成 Instagram 跟进草稿。',
+      tone: 'professional',
+      platforms: ['instagram'],
+      saveAsDraft: true,
+    });
+    expect(collectText(container)).toContain('草稿已生成');
+    expect(collectText(container)).toContain('draftId: 1060');
+    expect(collectText(container)).toContain('platform: instagram');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('routes non-launch discovery sources into the manual generate handoff', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
@@ -1384,6 +1461,55 @@ describe('Discovery draft actions', () => {
     expect(manualPlatformFilter?.getAttribute('aria-pressed')).toBe('true');
     expect(collectText(container)).toContain('当前筛选下 0 条 / 总计 3 条发现条目');
     expect(collectText(container)).toContain('当前筛选下暂无发现条目');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('renders human-readable platform filter labels for supported multi-platform discovery sources', async () => {
+    const { container } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { DiscoveryPage } = await import('../../src/client/pages/Discovery');
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(DiscoveryPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              items: [
+                {
+                  id: 206,
+                  source: 'Instagram',
+                  title: 'Instagram discovery signal',
+                  summary: '用于验证平台筛选标签。',
+                  status: 'new',
+                  score: 84,
+                  createdAt: '2026-04-19T06:10:00.000Z',
+                },
+              ],
+              total: 1,
+              stats: {
+                sources: 1,
+                averageScore: 84,
+              },
+            },
+          },
+        }),
+      );
+      await flush();
+    });
+
+    const instagramPlatformFilter = findElement(
+      container,
+      (element) => element.getAttribute('data-discovery-filter-platform') === 'instagram',
+    );
+
+    expect(instagramPlatformFilter).not.toBeNull();
+    expect(collectText(instagramPlatformFilter as never)).toBe('Instagram');
 
     await act(async () => {
       root.unmount();

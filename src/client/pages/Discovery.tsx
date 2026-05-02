@@ -109,6 +109,22 @@ function resolveDraftPlatform(source: string) {
     return 'x';
   }
 
+  if (normalizedSource.includes('instagram')) {
+    return 'instagram';
+  }
+
+  if (normalizedSource.includes('tiktok')) {
+    return 'tiktok';
+  }
+
+  if (normalizedSource.includes('xiaohongshu') || normalizedSource.includes('小红书')) {
+    return 'xiaohongshu';
+  }
+
+  if (normalizedSource.includes('weibo') || normalizedSource.includes('微博')) {
+    return 'weibo';
+  }
+
   return null;
 }
 
@@ -157,6 +173,22 @@ function formatDiscoveryPlatformFilterLabel(filter: string) {
 
   if (filter === 'reddit') {
     return 'Reddit';
+  }
+
+  if (filter === 'instagram') {
+    return 'Instagram';
+  }
+
+  if (filter === 'tiktok') {
+    return 'TikTok';
+  }
+
+  if (filter === 'xiaohongshu') {
+    return '小红书';
+  }
+
+  if (filter === 'weibo') {
+    return '微博';
   }
 
   if (filter === 'manual') {
