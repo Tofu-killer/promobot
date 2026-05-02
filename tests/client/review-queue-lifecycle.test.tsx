@@ -1158,6 +1158,120 @@ describe('Review Queue lifecycle actions', () => {
     });
   });
 
+  it('ignores stale review completion after switching project scope while approval is still pending', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ReviewQueuePage } = await import('../../src/client/pages/ReviewQueue');
+
+    const pendingApproval = createDeferredPromise<{
+      draft: {
+        id: number;
+        platform: string;
+        title: string;
+        content: string;
+        hashtags: string[];
+        status: string;
+        createdAt: string;
+        updatedAt: string;
+      };
+    }>();
+    const loadReviewQueueAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        drafts: [
+          {
+            id: 11,
+            platform: 'x',
+            title: 'Launch thread',
+            content: 'Draft body',
+            hashtags: ['#launch'],
+            status: 'review',
+            createdAt: '2026-04-19T00:00:00.000Z',
+            updatedAt: '2026-04-19T00:00:00.000Z',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        drafts: [
+          {
+            id: 11,
+            platform: 'reddit',
+            title: 'Scoped launch thread',
+            content: 'Scoped draft body',
+            hashtags: ['#scope'],
+            status: 'review',
+            createdAt: '2026-04-19T02:00:00.000Z',
+            updatedAt: '2026-04-19T02:00:00.000Z',
+          },
+        ],
+      });
+    const updateReviewDraftAction = vi.fn().mockReturnValue(pendingApproval.promise);
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ReviewQueuePage as never, {
+          loadReviewQueueAction,
+          updateReviewDraftAction,
+        }),
+      );
+      await flush();
+    });
+
+    const approveButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-review-approve-id') === '11',
+    );
+    const projectIdInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    );
+
+    expect(approveButton).not.toBeNull();
+    expect(projectIdInput).not.toBeNull();
+
+    await act(async () => {
+      approveButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(updateReviewDraftAction).toHaveBeenCalledWith(11, { status: 'approved' });
+
+    await act(async () => {
+      updateFieldValue(projectIdInput, '12', window);
+      await flush();
+      await flush();
+    });
+
+    expect(loadReviewQueueAction).toHaveBeenLastCalledWith(12);
+    expect(collectText(container)).toContain('Scoped launch thread');
+
+    await act(async () => {
+      pendingApproval.resolve({
+        draft: {
+          id: 11,
+          platform: 'x',
+          title: 'Launch thread',
+          content: 'Draft body',
+          hashtags: ['#launch'],
+          status: 'approved',
+          createdAt: '2026-04-19T00:00:00.000Z',
+          updatedAt: '2026-04-19T01:10:00.000Z',
+        },
+      });
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('Scoped launch thread');
+    expect(collectText(container)).not.toContain('已通过：Launch thread');
+    expect(collectText(container)).not.toContain('Launch threadDraft body');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('keeps live review drafts visible while a reload is pending', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');

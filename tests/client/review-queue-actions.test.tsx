@@ -951,4 +951,145 @@ describe('review queue wiring', () => {
       await flush();
     });
   });
+
+  it('releases pending draft action locks after manual reload while publish is still in flight', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ReviewQueuePage } = await import('../../src/client/pages/ReviewQueue');
+
+    const pendingPublish = createDeferredPromise<{
+      draftId: number;
+      draftStatus: string;
+      platform: string;
+      mode: string;
+      status: string;
+      success: boolean;
+      publishUrl: string | null;
+      externalId: string | null;
+      message: string;
+      publishedAt: string | null;
+    }>();
+    const loadReviewQueueAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        drafts: [
+          {
+            id: 11,
+            platform: 'x',
+            title: 'Launch thread',
+            content: 'Draft body',
+            hashtags: ['#launch'],
+            status: 'review',
+            createdAt: '2026-04-19T00:00:00.000Z',
+            updatedAt: '2026-04-19T00:00:00.000Z',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        drafts: [
+          {
+            id: 11,
+            platform: 'x',
+            title: 'Reloaded launch thread',
+            content: 'Reloaded draft body',
+            hashtags: ['#launch'],
+            status: 'review',
+            createdAt: '2026-04-19T00:00:00.000Z',
+            updatedAt: '2026-04-19T01:00:00.000Z',
+          },
+        ],
+      });
+    const publishReviewDraftAction = vi.fn().mockReturnValue(pendingPublish.promise);
+    const scheduleReviewDraftAction = vi.fn().mockResolvedValue({
+      draft: {
+        id: 11,
+        platform: 'x',
+        title: 'Reloaded launch thread',
+        content: 'Reloaded draft body',
+        hashtags: ['#launch'],
+        status: 'scheduled',
+        scheduledAt: '',
+        createdAt: '2026-04-19T00:00:00.000Z',
+        updatedAt: '2026-04-19T01:10:00.000Z',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ReviewQueuePage as never, {
+          loadReviewQueueAction,
+          publishReviewDraftAction,
+          scheduleReviewDraftAction,
+        }),
+      );
+      await flush();
+    });
+
+    const publishButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-review-publish-id') === '11',
+    );
+    const reloadButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('重新加载'),
+    );
+
+    expect(publishButton).not.toBeNull();
+    expect(reloadButton).not.toBeNull();
+
+    await act(async () => {
+      publishButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    await act(async () => {
+      reloadButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    const scheduleButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-review-schedule-id') === '11',
+    );
+
+    expect(loadReviewQueueAction).toHaveBeenCalledTimes(2);
+    expect(collectText(container)).toContain('Reloaded launch thread');
+    expect(scheduleButton).not.toBeNull();
+
+    await act(async () => {
+      scheduleButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(scheduleReviewDraftAction).toHaveBeenCalledWith(11, {
+      scheduledAt: '',
+      status: 'scheduled',
+    });
+    expect(collectText(container)).toContain('已标记待补排程：Reloaded launch thread');
+
+    await act(async () => {
+      pendingPublish.resolve({
+        draftId: 11,
+        draftStatus: 'published',
+        platform: 'x',
+        mode: 'api',
+        status: 'published',
+        success: true,
+        publishUrl: 'https://x.com/i/web/status/11',
+        externalId: '11',
+        message: 'published',
+        publishedAt: '2026-04-19T02:00:00.000Z',
+      });
+      await flush();
+    });
+
+    expect(collectText(container)).not.toContain('已发布：Launch thread');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
 });

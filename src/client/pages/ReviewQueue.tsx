@@ -640,6 +640,7 @@ export function ReviewQueuePage({
 
   useEffect(() => {
     followUpScopeVersionRef.current += 1;
+    pendingDraftActionIdsRef.current.clear();
     publishFollowUpAttemptByIdRef.current = {};
     setActionStateById({});
     setSessionActionStateById({});
@@ -872,8 +873,13 @@ export function ReviewQueuePage({
       return;
     }
 
+    const scopeVersionAtStart = followUpScopeVersionRef.current;
+
     try {
       const result = await updateReviewDraftAction(draftId, { status: nextStatus });
+      if (scopeVersionAtStart !== followUpScopeVersionRef.current) {
+        return;
+      }
       setLocalDrafts((currentDrafts) =>
         upsertReviewQueueDraft(currentDrafts ?? visibleDrafts, result.draft),
       );
@@ -891,6 +897,9 @@ export function ReviewQueuePage({
         },
       }));
     } catch (error) {
+      if (scopeVersionAtStart !== followUpScopeVersionRef.current) {
+        return;
+      }
       setActionStateById((currentState) => ({
         ...currentState,
         [draftId]: {
@@ -1006,6 +1015,7 @@ export function ReviewQueuePage({
       return;
     }
 
+    const scopeVersionAtStart = followUpScopeVersionRef.current;
     const scheduledAt = scheduledAtById[draftId] ?? sourceDraft.scheduledAt ?? '';
 
     try {
@@ -1013,6 +1023,9 @@ export function ReviewQueuePage({
         scheduledAt,
         status: 'scheduled',
       });
+      if (scopeVersionAtStart !== followUpScopeVersionRef.current) {
+        return;
+      }
       setLocalDrafts((currentDrafts) =>
         upsertReviewQueueDraft(currentDrafts ?? visibleDrafts, result.draft),
       );
@@ -1036,6 +1049,9 @@ export function ReviewQueuePage({
         },
       }));
     } catch (error) {
+      if (scopeVersionAtStart !== followUpScopeVersionRef.current) {
+        return;
+      }
       setActionStateById((currentState) => ({
         ...currentState,
         [draftId]: {
@@ -1057,6 +1073,7 @@ export function ReviewQueuePage({
 
   function handleReloadQueue() {
     followUpScopeVersionRef.current += 1;
+    pendingDraftActionIdsRef.current.clear();
     publishFollowUpAttemptByIdRef.current = {};
     setActionStateById({});
     setSessionActionStateById({});
