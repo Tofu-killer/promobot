@@ -734,6 +734,16 @@ function buildDefaultBrowserPublishReadiness({
     };
   }
 
+  if (session.status === 'active') {
+    return {
+      platform,
+      ready: true,
+      mode: 'browser' as const,
+      status: 'ready',
+      message: `${platformLabel} 浏览器发布链路已具备可用 session。`,
+    };
+  }
+
   return {
     platform,
     ready: false,
@@ -1846,6 +1856,47 @@ describe('channel account edit actions', () => {
     await act(async () => {
       root.unmount();
       await flush();
+    });
+  });
+
+  it('derives browser publish readiness from the default session fixture state', () => {
+    const missingSessionAccount = buildBrowserAccountFixture({
+      session: {
+        hasSession: false,
+        status: 'missing',
+        validatedAt: null,
+        storageStatePath: null,
+        id: 'x:acct-browser',
+      },
+    });
+    const activeSessionAccount = buildBrowserAccountFixture({
+      session: {
+        hasSession: true,
+        status: 'active',
+        validatedAt: '2026-04-19T03:00:00.000Z',
+        storageStatePath: 'artifacts/browser-sessions/acct-browser.json',
+        id: 'x:acct-browser',
+      },
+    });
+    const expiredSessionAccount = buildBrowserAccountFixture();
+
+    expect(missingSessionAccount.publishReadiness).toMatchObject({
+      ready: false,
+      mode: 'browser',
+      status: 'needs_session',
+      action: 'request_session',
+    });
+    expect(activeSessionAccount.publishReadiness).toMatchObject({
+      ready: true,
+      mode: 'browser',
+      status: 'ready',
+    });
+    expect(activeSessionAccount.publishReadiness).not.toHaveProperty('action');
+    expect(expiredSessionAccount.publishReadiness).toMatchObject({
+      ready: false,
+      mode: 'browser',
+      status: 'needs_relogin',
+      action: 'relogin',
     });
   });
 
