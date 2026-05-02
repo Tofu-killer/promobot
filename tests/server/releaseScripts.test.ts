@@ -1411,6 +1411,7 @@ describe('release shell wrappers', () => {
         'dist/server/cli/browserHandoffComplete.js',
         'dist/server/cli/inboxReplyHandoffComplete.js',
         'ops/deploy-release.sh',
+        'ops/rollback-promobot.sh',
         'ops/verify-downloaded-release.sh',
         'ops/verify-release.sh',
       ]),
@@ -1457,6 +1458,7 @@ describe('release shell wrappers', () => {
         'dist/server/cli/browserHandoffComplete.js',
         'dist/server/cli/inboxReplyHandoffComplete.js',
         'ops/deploy-release.sh',
+        'ops/rollback-promobot.sh',
         'ops/verify-downloaded-release.sh',
         'ops/verify-release.sh',
       ]),
@@ -1539,6 +1541,7 @@ exit 99
   it.each([
     'dist/server/cli/preflightPromobot.js',
     'dist/server/cli/runtimeRestore.js',
+    'ops/rollback-promobot.sh',
   ])(
     'reports missing extracted bundle helper %s via the bundled release verifier',
     async (missingFile) => {
@@ -2384,6 +2387,8 @@ function seedValidReleaseBundleRepoRoot(rootDir: string) {
   writeFile(rootDir, 'dist/client/assets/app.js', 'console.log("client");\n');
   writeFile(rootDir, 'ops/deploy-promobot.sh', '#!/usr/bin/env bash\n');
   writeFile(rootDir, 'ops/deploy-release.sh', '#!/usr/bin/env bash\n');
+  writeFile(rootDir, 'ops/preflight-promobot.sh', '#!/usr/bin/env bash\n');
+  writeFile(rootDir, 'ops/rollback-promobot.sh', '#!/usr/bin/env bash\n');
   writeFile(rootDir, 'ops/verify-downloaded-release.sh', '#!/usr/bin/env bash\n');
   writeFile(rootDir, 'ops/verify-release.sh', '#!/usr/bin/env bash\n');
 }
