@@ -523,6 +523,56 @@ describe('release shell wrappers', () => {
     expect(result.stderr).not.toContain('ADMIN_PASSWORD missing');
   });
 
+  it('retries deploy-release smoke once before succeeding', () => {
+    const fixture = createDeployReleaseFixture({ smokeFailureCount: 1 });
+    const env = {
+      ...process.env,
+      PATH: `${fixture.binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+      PROMOBOT_ADMIN_PASSWORD: 'secret',
+    };
+
+    const result = runScript(
+      fixture.scriptPath,
+      ['--skip-install', '--base-url', 'http://127.0.0.1:6123'],
+      {
+        cwd: fixture.rootDir,
+        env,
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Running smoke check against http://127.0.0.1:6123 (attempt 1/10)');
+    expect(result.stdout).toContain('Smoke check failed; retrying in 3s');
+    expect(result.stdout).toContain('Running smoke check against http://127.0.0.1:6123 (attempt 2/10)');
+    expect(result.stdout).toContain('Release deployment completed');
+    expect(fs.readFileSync(fixture.smokeMarkerPath, 'utf8').trim().split('\n')).toHaveLength(2);
+    expect(fs.readFileSync(fixture.sleepMarkerPath, 'utf8').trim().split('\n')).toEqual(['3']);
+  });
+
+  it('fails deploy-release after exhausting smoke retries', () => {
+    const fixture = createDeployReleaseFixture({ smokeFailureCount: 10 });
+    const env = {
+      ...process.env,
+      PATH: `${fixture.binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+      PROMOBOT_ADMIN_PASSWORD: 'secret',
+    };
+
+    const result = runScript(
+      fixture.scriptPath,
+      ['--skip-install', '--base-url', 'http://127.0.0.1:6123'],
+      {
+        cwd: fixture.rootDir,
+        env,
+      },
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain('Running smoke check against http://127.0.0.1:6123 (attempt 10/10)');
+    expect(result.stderr).toContain('Smoke check failed after 10 attempts');
+    expect(fs.readFileSync(fixture.smokeMarkerPath, 'utf8').trim().split('\n')).toHaveLength(10);
+    expect(fs.readFileSync(fixture.sleepMarkerPath, 'utf8').trim().split('\n')).toHaveLength(9);
+  });
+
   it('uses bundle-local pm2 when no global pm2 binary is available', () => {
     const fixture = createDeployReleaseFixture({ installLocalPm2: true });
     const env = {
@@ -1420,6 +1470,8 @@ function createDeployReleaseFixture(
     releaseVerifyFailureMessage?: string;
     requireAdminPasswordForPm2?: boolean;
     requireNativeRebuild?: boolean;
+    smokeFailureCount?: number;
+    smokeFailureMessage?: string;
   } = {},
 ) {
   const rootDir = createTempDir('promobot-deploy-release-script-');
@@ -1429,6 +1481,9 @@ function createDeployReleaseFixture(
   const pnpmMarkerPath = path.join(rootDir, 'pnpm-invocations.log');
   const nativeRebuildMarkerPath = path.join(rootDir, 'native-rebuild.done');
   const sequenceMarkerPath = path.join(rootDir, 'deploy-release-sequence.log');
+  const smokeAttemptPath = path.join(rootDir, 'deploy-release-smoke-attempt.txt');
+  const smokeMarkerPath = path.join(rootDir, 'deploy-release-smoke.log');
+  const sleepMarkerPath = path.join(rootDir, 'deploy-release-sleep.log');
   const scriptPath = path.join(rootDir, 'ops/deploy-release.sh');
 
   fs.mkdirSync(path.dirname(scriptPath), { recursive: true });
@@ -1442,6 +1497,7 @@ function createDeployReleaseFixture(
   writeFile(rootDir, 'dist/client/index.html', '<!doctype html>\n');
   writeFile(rootDir, 'dist/server/cli/deploymentSmoke.js', 'console.log("smoke");\n');
   writeFile(rootDir, 'dist/server/cli/releaseVerify.js', 'console.log("verify");\n');
+  writeFile(rootDir, path.relative(rootDir, smokeAttemptPath), '0\n');
 
   const localPm2Script = options.requireAdminPasswordForPm2
     ? `#!/usr/bin/env bash
@@ -1532,6 +1588,14 @@ exit 0
   }
   writeExecutable(
     binDir,
+    'sleep',
+    `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${sleepMarkerPath}"
+exit 0
+`,
+  );
+  writeExecutable(
+    binDir,
     'node',
     `#!/usr/bin/env bash
 printf '%s\\n' "$*" >> "${nodeMarkerPath}"
@@ -1548,6 +1612,18 @@ case "\${1:-}" in
     fi
     exit 0
     ;;
+  dist/server/cli/deploymentSmoke.js)
+    current_attempt="$(cat "${smokeAttemptPath}")"
+    next_attempt=$((current_attempt + 1))
+    printf '%s\\n' "\${next_attempt}" > "${smokeAttemptPath}"
+    printf 'attempt=%s args=%s\\n' "\${next_attempt}" "$*" >> "${smokeMarkerPath}"
+    printf 'smoke:%s\\n' "\${next_attempt}" >> "${sequenceMarkerPath}"
+    if [ "\${next_attempt}" -le "${options.smokeFailureCount ?? 0}" ]; then
+      printf '%s\\n' "${options.smokeFailureMessage ?? 'smoke failed'}" >&2
+      exit 1
+    fi
+    exit 0
+    ;;
 esac
 exit 0
 `,
@@ -1560,6 +1636,8 @@ exit 0
     pm2MarkerPath,
     pnpmMarkerPath,
     sequenceMarkerPath,
+    sleepMarkerPath,
+    smokeMarkerPath,
     scriptPath,
   };
 }
