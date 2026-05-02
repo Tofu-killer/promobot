@@ -173,6 +173,7 @@ describe('release bundle cli', () => {
         'dist/server/cli/releaseVerify.js',
         'dist/server/cli/runtimeRestore.js',
         'dist/client/index.html',
+        'ops/rollback-promobot.sh',
         'ops/verify-downloaded-release.sh',
         'ops/verify-release.sh',
       ],
@@ -224,6 +225,7 @@ describe('release bundle cli', () => {
         'dist/server/cli/preflightPromobot.js',
         'dist/server/cli/releaseVerify.js',
         'dist/server/cli/runtimeRestore.js',
+        'ops/rollback-promobot.sh',
         'ops/verify-downloaded-release.sh',
         'ops/verify-release.sh',
       ]),
@@ -278,6 +280,55 @@ describe('release bundle cli', () => {
     );
     expect(summary.files).not.toContain('ops/verify-downloaded-release.sh');
     expect(summary.checksums).not.toHaveProperty('ops/verify-downloaded-release.sh');
+  });
+
+  it('fails when the rollback wrapper is absent from an otherwise valid bundle input set', async () => {
+    const releaseBundle = await loadReleaseBundleModule();
+
+    expect(releaseBundle).toBeTruthy();
+    if (!releaseBundle) {
+      return;
+    }
+
+    const repoRoot = createTempRepoRoot();
+    writeFile(repoRoot, 'package.json', '{ "name": "promobot" }\n');
+    writeFile(repoRoot, 'pnpm-lock.yaml', 'lockfile\n');
+    writeFile(repoRoot, 'pm2.config.js', 'export default {};\n');
+    writeFile(repoRoot, '.env.example', 'ADMIN_PASSWORD=change-me\n');
+    writeFile(repoRoot, 'database/schema.sql', 'create table drafts (id integer primary key);\n');
+    writeFile(repoRoot, 'docs/DEPLOYMENT.md', '# Deploy\n');
+    writeFile(repoRoot, 'dist/server/index.js', 'console.log("server");\n');
+    writeFile(repoRoot, 'dist/server/cli/deploymentSmoke.js', 'console.log("smoke");\n');
+    writeFile(
+      repoRoot,
+      'dist/server/cli/browserHandoffComplete.js',
+      'console.log("browser handoff complete");\n',
+    );
+    writeFile(
+      repoRoot,
+      'dist/server/cli/inboxReplyHandoffComplete.js',
+      'console.log("handoff complete");\n',
+    );
+    writeFile(repoRoot, 'dist/server/cli/preflightPromobot.js', 'console.log("preflight");\n');
+    writeFile(repoRoot, 'dist/server/cli/releaseVerify.js', 'console.log("verify");\n');
+    writeFile(repoRoot, 'dist/server/cli/runtimeRestore.js', 'console.log("restore");\n');
+    writeFile(repoRoot, 'dist/client/index.html', '<!doctype html>\n');
+    writeFile(repoRoot, 'ops/deploy-release.sh', '#!/usr/bin/env bash\n');
+    writeFile(repoRoot, 'ops/deploy-promobot.sh', '#!/usr/bin/env bash\n');
+    writeFile(repoRoot, 'ops/preflight-promobot.sh', '#!/usr/bin/env bash\n');
+    writeFile(repoRoot, 'ops/verify-downloaded-release.sh', '#!/usr/bin/env bash\n');
+    writeFile(repoRoot, 'ops/verify-release.sh', '#!/usr/bin/env bash\n');
+
+    const outputDir = path.join(repoRoot, 'artifacts', 'release-bundle');
+    const summary = releaseBundle.runReleaseBundle({
+      repoRoot,
+      outputDir,
+    });
+
+    expect(summary.ok).toBe(false);
+    expect(summary.missing).toEqual(expect.arrayContaining(['ops/rollback-promobot.sh']));
+    expect(summary.files).not.toContain('ops/rollback-promobot.sh');
+    expect(summary.checksums).not.toHaveProperty('ops/rollback-promobot.sh');
   });
 
   it('fails when a bundle is missing required release entrypoints and deploy scripts', async () => {
@@ -618,6 +669,7 @@ describe('release bundle cli', () => {
     writeFile(repoRoot, 'dist/client/index.html', '<!doctype html>\n');
     writeFile(repoRoot, 'ops/deploy-release.sh', '#!/usr/bin/env bash\n');
     writeFile(repoRoot, 'ops/deploy-promobot.sh', '#!/usr/bin/env bash\n');
+    writeFile(repoRoot, 'ops/rollback-promobot.sh', '#!/usr/bin/env bash\n');
     writeFile(repoRoot, 'ops/verify-release.sh', '#!/usr/bin/env bash\n');
     writeFile(repoRoot, 'ops/verify-downloaded-release.sh', '#!/usr/bin/env bash\n');
 

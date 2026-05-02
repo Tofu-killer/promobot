@@ -63,13 +63,13 @@ const REQUIRED_FILES = [
   path.join('dist', 'client', 'index.html'),
   path.join('ops', 'deploy-promobot.sh'),
   path.join('ops', 'deploy-release.sh'),
+  path.join('ops', 'rollback-promobot.sh'),
   path.join('ops', 'verify-downloaded-release.sh'),
   path.join('ops', 'verify-release.sh'),
 ] as const;
 
 const OPTIONAL_BUNDLED_OPS_FILES = [
   path.join('ops', 'preflight-promobot.sh'),
-  path.join('ops', 'rollback-promobot.sh'),
 ] as const;
 
 export function parseReleaseBundleArgs(argv: string[]): ReleaseBundleArgs {
