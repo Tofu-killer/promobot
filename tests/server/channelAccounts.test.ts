@@ -3085,6 +3085,16 @@ describe('channel accounts api', () => {
           artifactPath: string;
         };
         channelAccount: {
+          activeSessionActionArtifacts: Record<
+            string,
+            {
+              action: string;
+              jobStatus: string;
+              requestedAt: string;
+              artifactPath: string;
+              resolvedAt: string | null;
+            }
+          >;
           latestBrowserLaneArtifact: {
             action: string;
             jobStatus: string;
@@ -3107,6 +3117,18 @@ describe('channel accounts api', () => {
           resolvedAt: null,
         }),
       );
+      expect(requestSessionBody.channelAccount.activeSessionActionArtifacts).toEqual({
+        request_session: expect.objectContaining({
+          channelAccountId: 1,
+          platform: 'x',
+          accountKey: '@promobot',
+          action: 'request_session',
+          jobStatus: 'pending',
+          requestedAt: requestSessionBody.job.runAt,
+          artifactPath: requestSessionBody.sessionAction.artifactPath,
+          resolvedAt: null,
+        }),
+      });
 
       const initialStorageStatePath = 'artifacts/browser-sessions/x-promobot.json';
       writeStorageStateFile(rootDir, initialStorageStatePath);
@@ -3119,6 +3141,7 @@ describe('channel accounts api', () => {
 
       const saveBody = JSON.parse(saveResponse.body) as {
         channelAccount: {
+          activeSessionActionArtifacts: Record<string, never>;
           latestBrowserLaneArtifact: {
             action: string;
             jobStatus: string;
@@ -3150,6 +3173,7 @@ describe('channel accounts api', () => {
           },
         }),
       );
+      expect(saveBody.channelAccount.activeSessionActionArtifacts).toEqual({});
 
       const reloginResponse = await requestApp('POST', '/api/channel-accounts/1/session/request', {
         action: 'relogin',
@@ -3164,6 +3188,16 @@ describe('channel accounts api', () => {
           artifactPath: string;
         };
         channelAccount: {
+          activeSessionActionArtifacts: Record<
+            string,
+            {
+              action: string;
+              jobStatus: string;
+              requestedAt: string;
+              artifactPath: string;
+              resolvedAt: string | null;
+            }
+          >;
           latestBrowserLaneArtifact: {
             action: string;
             jobStatus: string;
@@ -3186,6 +3220,18 @@ describe('channel accounts api', () => {
           resolvedAt: null,
         }),
       );
+      expect(reloginBody.channelAccount.activeSessionActionArtifacts).toEqual({
+        relogin: expect.objectContaining({
+          channelAccountId: 1,
+          platform: 'x',
+          accountKey: '@promobot',
+          action: 'relogin',
+          jobStatus: 'pending',
+          requestedAt: reloginBody.job.runAt,
+          artifactPath: reloginBody.sessionAction.artifactPath,
+          resolvedAt: null,
+        }),
+      });
 
       const listedResponse = await requestApp('GET', '/api/channel-accounts');
       expect(listedResponse.status).toBe(200);
@@ -3193,6 +3239,18 @@ describe('channel accounts api', () => {
         channelAccounts: [
           expect.objectContaining({
             id: 1,
+            activeSessionActionArtifacts: {
+              relogin: expect.objectContaining({
+                channelAccountId: 1,
+                platform: 'x',
+                accountKey: '@promobot',
+                action: 'relogin',
+                jobStatus: 'pending',
+                requestedAt: reloginBody.job.runAt,
+                artifactPath: reloginBody.sessionAction.artifactPath,
+                resolvedAt: null,
+              }),
+            },
             latestBrowserLaneArtifact: expect.objectContaining({
               channelAccountId: 1,
               platform: 'x',
