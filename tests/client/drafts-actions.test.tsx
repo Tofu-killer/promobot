@@ -658,6 +658,59 @@ describe('Drafts publish actions', () => {
     });
   });
 
+  it('prefers a controlled projectId draft prop for drafts-scoped loads', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { DraftsPage } = await import('../../src/client/pages/Drafts');
+
+    const loadDraftsAction = vi.fn().mockResolvedValue({
+      drafts: [],
+    });
+    const onProjectIdDraftChange = vi.fn();
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(DraftsPage as never, {
+          loadDraftsAction,
+          browserHandoffsStateOverride: {
+            status: 'success',
+            data: {
+              handoffs: [],
+              total: 0,
+            },
+          },
+          projectIdDraft: ' 0012 ',
+          onProjectIdDraftChange,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const projectIdInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    ) as { value?: string } | null;
+
+    expect(projectIdInput).not.toBeNull();
+    expect(projectIdInput?.value).toBe(' 0012 ');
+    expect(loadDraftsAction).toHaveBeenLastCalledWith(12);
+
+    await act(async () => {
+      updateFieldValue(projectIdInput, ' 0042 ', window as never);
+      await flush();
+      await flush();
+    });
+
+    expect(onProjectIdDraftChange).toHaveBeenCalledWith(' 0042 ');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('refreshes draft form values from a later successful reload for the same draft id', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');

@@ -122,6 +122,8 @@ interface PublishCalendarPageProps {
   completeBrowserHandoffAction?: (input: CompleteBrowserHandoffInput) => Promise<BrowserHandoffCompletionResponse>;
   stateOverride?: AsyncState<DraftsResponse>;
   browserHandoffsStateOverride?: AsyncState<BrowserHandoffsResponse>;
+  projectIdDraft?: string;
+  onProjectIdDraftChange?: (value: string) => void;
 }
 
 interface ScheduleMutationState {
@@ -622,9 +624,12 @@ export function PublishCalendarPage({
   completeBrowserHandoffAction = completePublishCalendarBrowserHandoffRequest,
   stateOverride,
   browserHandoffsStateOverride,
+  projectIdDraft,
+  onProjectIdDraftChange,
 }: PublishCalendarPageProps) {
-  const [projectIdDraft, setProjectIdDraft] = useState('');
-  const projectId = parseProjectId(projectIdDraft);
+  const [localProjectIdDraft, setLocalProjectIdDraft] = useState('');
+  const activeProjectIdDraft = projectIdDraft ?? localProjectIdDraft;
+  const projectId = parseProjectId(activeProjectIdDraft);
   const shouldLoadBrowserHandoffsLive = browserHandoffsStateOverride === undefined;
   const { state, reload } = useAsyncQuery(
     () => (projectId === undefined ? loadDraftsAction() : loadDraftsAction(projectId)),
@@ -1230,8 +1235,13 @@ export function PublishCalendarPage({
       <label style={{ display: 'grid', gap: '8px', marginBottom: '20px' }}>
         <span style={{ fontWeight: 700 }}>项目 ID（可选）</span>
         <input
-          value={projectIdDraft}
-          onChange={(event) => setProjectIdDraft(event.target.value)}
+          value={activeProjectIdDraft}
+          onChange={(event) => {
+            if (projectIdDraft === undefined) {
+              setLocalProjectIdDraft(event.target.value);
+            }
+            onProjectIdDraftChange?.(event.target.value);
+          }}
           placeholder="例如 12"
           style={projectInputStyle}
         />

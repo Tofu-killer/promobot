@@ -579,6 +579,59 @@ describe('Publish Calendar lifecycle', () => {
     });
   });
 
+  it('prefers a controlled projectId draft prop for publish calendar loads', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { PublishCalendarPage } = await import('../../src/client/pages/PublishCalendar');
+
+    const loadDraftsAction = vi.fn().mockResolvedValue({
+      drafts: [],
+    });
+    const onProjectIdDraftChange = vi.fn();
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(PublishCalendarPage as never, {
+          loadDraftsAction,
+          browserHandoffsStateOverride: {
+            status: 'success',
+            data: {
+              handoffs: [],
+              total: 0,
+            },
+          },
+          projectIdDraft: ' 0012 ',
+          onProjectIdDraftChange,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const projectIdInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    ) as FakeElement & { value?: string };
+
+    expect(projectIdInput).not.toBeNull();
+    expect(projectIdInput.value).toBe(' 0012 ');
+    expect(loadDraftsAction).toHaveBeenLastCalledWith(12);
+
+    await act(async () => {
+      updateFieldValue(projectIdInput, ' 0042 ', window);
+      await flush();
+      await flush();
+    });
+
+    expect(onProjectIdDraftChange).toHaveBeenCalledWith(' 0042 ');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('shows publishedAt details for published drafts', async () => {
     const { PublishCalendarPage } = await import('../../src/client/pages/PublishCalendar');
 

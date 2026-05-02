@@ -143,11 +143,15 @@ function renderRoute(
         />
       );
     case 'drafts':
-      return <DraftsPage />;
+      return <DraftsPage projectIdDraft={sharedProjectIdDraft} onProjectIdDraftChange={onProjectIdDraftChange} />;
     case 'review':
-      return <ReviewQueuePage />;
+      return (
+        <ReviewQueuePage projectIdDraft={sharedProjectIdDraft} onProjectIdDraftChange={onProjectIdDraftChange} />
+      );
     case 'calendar':
-      return <PublishCalendarPage />;
+      return (
+        <PublishCalendarPage projectIdDraft={sharedProjectIdDraft} onProjectIdDraftChange={onProjectIdDraftChange} />
+      );
     case 'inbox':
       return (
         <InboxPage

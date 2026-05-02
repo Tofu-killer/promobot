@@ -194,6 +194,8 @@ interface DraftsPageProps {
   stateOverride?: AsyncState<DraftsResponse>;
   browserHandoffsStateOverride?: AsyncState<BrowserHandoffsResponse>;
   draftInteractionStateOverride?: DraftInteractionStateOverride;
+  projectIdDraft?: string;
+  onProjectIdDraftChange?: (value: string) => void;
 }
 
 function createIdleMutationState(): DraftMutationState {
@@ -460,12 +462,15 @@ export function DraftsPage({
   stateOverride,
   browserHandoffsStateOverride,
   draftInteractionStateOverride,
+  projectIdDraft,
+  onProjectIdDraftChange,
 }: DraftsPageProps) {
-  const [projectIdDraft, setProjectIdDraft] = useState('');
+  const [localProjectIdDraft, setLocalProjectIdDraft] = useState('');
   const [activeStatusFilter, setActiveStatusFilter] = useState<StatusFilter>('all');
   const [selectedDraftIds, setSelectedDraftIds] = useState<number[]>([]);
   const [batchFeedback, setBatchFeedback] = useState<BatchFeedback | null>(null);
-  const projectId = parseProjectId(projectIdDraft);
+  const activeProjectIdDraft = projectIdDraft ?? localProjectIdDraft;
+  const projectId = parseProjectId(activeProjectIdDraft);
   const currentScopeKey = projectId === undefined ? '' : String(projectId);
   const shouldLoadBrowserHandoffsLive = browserHandoffsStateOverride === undefined;
   const { state, reload } = useAsyncQuery(
@@ -1349,8 +1354,13 @@ export function DraftsPage({
       <label style={{ display: 'grid', gap: '8px', marginBottom: '20px' }}>
         <span style={{ fontWeight: 700 }}>项目 ID（可选）</span>
         <input
-          value={projectIdDraft}
-          onChange={(event) => setProjectIdDraft(event.target.value)}
+          value={activeProjectIdDraft}
+          onChange={(event) => {
+            if (projectIdDraft === undefined) {
+              setLocalProjectIdDraft(event.target.value);
+            }
+            onProjectIdDraftChange?.(event.target.value);
+          }}
           placeholder="例如 12"
           style={projectInputStyle}
         />

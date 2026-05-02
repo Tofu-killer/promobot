@@ -304,6 +304,192 @@ describe('App shell', () => {
     });
   });
 
+  it('keeps the shared raw projectId draft when switching between dashboard, drafts, review, and calendar', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    installAuthStorage(window, {
+      localStorage: createStorageArea(),
+      sessionStorage: createStorageArea('secret'),
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+
+        if (url === '/api/auth/probe') {
+          return Promise.resolve(
+            new Response(null, {
+              status: 204,
+            }),
+          );
+        }
+
+        if (url.includes('/api/monitor/dashboard')) {
+          return Promise.resolve(
+            jsonResponse({
+              monitor: {
+                total: 1,
+                new: 1,
+                followUpDrafts: 0,
+              },
+              drafts: {
+                total: 1,
+                review: 0,
+              },
+              totals: {
+                items: 1,
+                followUps: 0,
+              },
+            }),
+          );
+        }
+
+        if (url.startsWith('/api/drafts')) {
+          return Promise.resolve(
+            jsonResponse({
+              drafts: [],
+            }),
+          );
+        }
+
+        if (url.startsWith('/api/system/browser-handoffs')) {
+          return Promise.resolve(
+            jsonResponse({
+              handoffs: [],
+              total: 0,
+            }),
+          );
+        }
+
+        throw new Error(`unexpected fetch request: ${url}`);
+      }),
+    );
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(createElement(App as never, { initialAdminPassword: 'secret' }));
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    const dashboardProjectInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    );
+
+    expect(dashboardProjectInput).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(dashboardProjectInput as never, ' 0012 ', window as never);
+      await flush();
+      await flush();
+    });
+
+    const draftsNavButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('Drafts'),
+    );
+
+    expect(draftsNavButton).not.toBeNull();
+
+    await act(async () => {
+      draftsNavButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('草稿列表');
+
+    const draftsProjectInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    );
+
+    expect((draftsProjectInput as { value?: string } | null)?.value).toBe(' 0012 ');
+
+    await act(async () => {
+      updateFieldValue(draftsProjectInput as never, ' 0042 ', window as never);
+      await flush();
+      await flush();
+    });
+
+    const reviewNavButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('Review Queue'),
+    );
+
+    expect(reviewNavButton).not.toBeNull();
+
+    await act(async () => {
+      reviewNavButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('待审核草稿');
+
+    const reviewProjectInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    );
+
+    expect((reviewProjectInput as { value?: string } | null)?.value).toBe(' 0042 ');
+
+    await act(async () => {
+      updateFieldValue(reviewProjectInput as never, ' 0099 ', window as never);
+      await flush();
+      await flush();
+    });
+
+    const calendarNavButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('Publish Calendar'),
+    );
+
+    expect(calendarNavButton).not.toBeNull();
+
+    await act(async () => {
+      calendarNavButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('发布状态');
+
+    const calendarProjectInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    );
+
+    expect((calendarProjectInput as { value?: string } | null)?.value).toBe(' 0099 ');
+
+    const dashboardNavButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('Dashboard'),
+    );
+
+    expect(dashboardNavButton).not.toBeNull();
+
+    await act(async () => {
+      dashboardNavButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    const rerenderedDashboardProjectInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    );
+
+    expect((rerenderedDashboardProjectInput as { value?: string } | null)?.value).toBe(' 0099 ');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('renders the route from window.location.pathname on first client render', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
