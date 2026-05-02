@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { apiRequest } from '../lib/api';
+import { apiRequest, getErrorMessage } from '../lib/api';
 import {
   getRequestedSessionAction,
   getSessionActionArtifactForAction,
@@ -282,6 +282,57 @@ interface SessionActionFeedback {
   action: BrowserSessionAction;
   sessionAction?: RequestChannelAccountSessionResponse['sessionAction'];
   message?: string;
+}
+
+function createIdleAsyncState<T>(): AsyncState<T> {
+  return {
+    status: 'idle',
+    error: null,
+  };
+}
+
+function getScopedAsyncState<T>(
+  stateById: Record<number, AsyncState<T>>,
+  accountId: number | null,
+): AsyncState<T> {
+  if (accountId === null) {
+    return createIdleAsyncState<T>();
+  }
+
+  return stateById[accountId] ?? createIdleAsyncState<T>();
+}
+
+function collectScopedChannelAccounts<T extends { channelAccount: ChannelAccountRecord }>(
+  stateById: Record<number, AsyncState<T>>,
+) {
+  const accounts: ChannelAccountRecord[] = [];
+
+  for (const state of Object.values(stateById)) {
+    if (!state.data?.channelAccount) {
+      continue;
+    }
+
+    accounts.push(normalizeChannelAccountRecord(state.data.channelAccount));
+  }
+
+  return accounts;
+}
+
+function createScopedRequestToken(
+  requestTokenByIdRef: { current: Record<number, number> },
+  accountId: number,
+) {
+  const nextToken = (requestTokenByIdRef.current[accountId] ?? 0) + 1;
+  requestTokenByIdRef.current[accountId] = nextToken;
+  return nextToken;
+}
+
+function isLatestScopedRequest(
+  requestTokenByIdRef: { current: Record<number, number> },
+  accountId: number,
+  requestToken: number,
+) {
+  return requestTokenByIdRef.current[accountId] === requestToken;
 }
 
 interface ChannelAccountsPageProps {
@@ -580,6 +631,12 @@ export function ChannelAccountsPage({
   const [editFormById, setEditFormById] = useState<Record<number, EditFormValue>>({});
   const [accountFormErrorById, setAccountFormErrorById] = useState<Record<number, string>>({});
   const [sessionFormErrorById, setSessionFormErrorById] = useState<Record<number, string>>({});
+  const [accountUpdateStateById, setAccountUpdateStateById] = useState<
+    Record<number, AsyncState<UpdateChannelAccountResponse>>
+  >({});
+  const [connectionTestStateById, setConnectionTestStateById] = useState<
+    Record<number, AsyncState<TestChannelAccountConnectionResponse>>
+  >({});
   const [sessionSavePendingById, setSessionSavePendingById] = useState<Record<number, boolean>>({});
   const [sessionSaveFeedbackById, setSessionSaveFeedbackById] = useState<Record<number, SessionSaveFeedback>>({});
   const [sessionSavedAccountById, setSessionSavedAccountById] = useState<Record<number, ChannelAccountRecord>>({});
@@ -591,29 +648,19 @@ export function ChannelAccountsPage({
   );
   const [sessionActionAccountById, setSessionActionAccountById] = useState<Record<number, ChannelAccountRecord>>({});
   const [latestSessionMutation, setLatestSessionMutation] = useState<LatestSessionMutation>(null);
-  const [latestAccountMutationId, setLatestAccountMutationId] = useState<number | null>(null);
-  const [latestBlockedAccountSaveId, setLatestBlockedAccountSaveId] = useState<number | null>(null);
   const [latestBlockedSessionSaveId, setLatestBlockedSessionSaveId] = useState<number | null>(null);
   const [createFormError, setCreateFormError] = useState<string | null>(null);
+  const accountUpdateRequestTokenByIdRef = useRef<Record<number, number>>({});
+  const connectionTestRequestTokenByIdRef = useRef<Record<number, number>>({});
   const sessionSaveRequestTokenByIdRef = useRef<Record<number, number>>({});
   const sessionActionRequestTokenByIdRef = useRef<Record<number, number>>({});
   const { state: createState, run: createChannelAccount } = useAsyncAction(createChannelAccountAction);
-  const { state: updateState, run: updateAccount } = useAsyncAction(
-    ({ accountId, input }: { accountId: number; input: UpdateChannelAccountPayload }) =>
-      updateChannelAccountAction(accountId, input),
-  );
-  const { state: testConnectionState, run: requestConnectionTest } = useAsyncAction(
-    ({ accountId }: { accountId: number }) =>
-      runChannelAccountConnectionTest(accountId, testChannelAccountAction, reload),
-  );
   const { run: saveSession } = useAsyncAction(
     ({ accountId, input }: { accountId: number; input: SaveChannelAccountSessionPayload }) =>
       saveChannelAccountSessionAction(accountId, input),
   );
   const displayState = stateOverride ?? state;
   const displayCreateState = createStateOverride ?? createState;
-  const displayUpdateState = updateStateOverride ?? updateState;
-  const displayTestConnectionState = testConnectionStateOverride ?? testConnectionState;
   const hasLiveAccounts =
     typeof displayState.data === 'object' &&
     displayState.data !== null &&
@@ -625,9 +672,9 @@ export function ChannelAccountsPage({
   const createdAccount = displayCreateState.data?.channelAccount
     ? normalizeChannelAccountRecord(displayCreateState.data.channelAccount)
     : null;
-  const updatedAccount = displayUpdateState.data?.channelAccount
-    ? normalizeChannelAccountRecord(displayUpdateState.data.channelAccount)
-    : null;
+  const updatedAccounts = updateStateOverride?.data?.channelAccount
+    ? [normalizeChannelAccountRecord(updateStateOverride.data.channelAccount)]
+    : collectScopedChannelAccounts(accountUpdateStateById);
   const sessionActionOverrideAccount = sessionActionStateOverride?.data?.channelAccount
     ? normalizeChannelAccountRecord(sessionActionStateOverride.data.channelAccount)
     : null;
@@ -652,15 +699,6 @@ export function ChannelAccountsPage({
     latestSessionMutation.accountId === accountId &&
     (accountId in sessionSavedAccountById || latestBlockedSessionSaveId === accountId);
   const showSessionActionFeedback = (accountId: number) => !hideSessionActionForAccount(accountId);
-  const showAccountUpdateSuccess =
-    displayUpdateState.status === 'success' &&
-    updatedAccount !== null &&
-    editingAccountId === updatedAccount.id &&
-    updatedAccount.id !== latestBlockedAccountSaveId;
-  const showAccountUpdateError =
-    displayUpdateState.status === 'error' &&
-    editingAccountId !== null &&
-    latestAccountMutationId === editingAccountId;
   const sessionSavedAccounts = Object.values(sessionSavedAccountById);
   const editingSessionSaveFeedback =
     editingAccountId !== null ? sessionSaveFeedbackById[editingAccountId] ?? null : null;
@@ -677,7 +715,7 @@ export function ChannelAccountsPage({
       accounts = [...accounts, createdAccount];
     }
 
-    if (updatedAccount) {
+    for (const updatedAccount of updatedAccounts) {
       accounts = accounts.map((account) =>
         account.id === updatedAccount.id ? mergeChannelAccountRecord(account, updatedAccount) : account,
       );
@@ -707,7 +745,7 @@ export function ChannelAccountsPage({
   }, [
     loadedAccounts,
     createdAccount,
-    updatedAccount,
+    updatedAccounts,
     sessionSavedAccounts,
     sessionActionAccounts,
     latestSessionMutation,
@@ -793,6 +831,12 @@ export function ChannelAccountsPage({
     actionTargetAccountId,
     latestCreatedAccount,
   );
+  const editingAccountUpdateState =
+    updateStateOverride ?? getScopedAsyncState(accountUpdateStateById, editingAccountId);
+  const showAccountUpdateSuccess =
+    editingAccountId !== null && editingAccountUpdateState.status === 'success';
+  const showAccountUpdateError =
+    editingAccountId !== null && editingAccountUpdateState.status === 'error';
   const headerSessionAction = actionTargetAccount ? getSupportedSessionAction(actionTargetAccount) : null;
   const headerSessionActionPending = actionTargetAccount ? sessionActionPendingById[actionTargetAccount.id] ?? null : null;
   const headerSessionActionDisabled =
@@ -809,18 +853,23 @@ export function ChannelAccountsPage({
     sessionActionOverrideFeedback !== null &&
     !visibleAccounts.some((account) => account.id === sessionActionOverrideAccount.id) &&
     showSessionActionFeedback(sessionActionOverrideAccount.id);
+  const actionTargetConnectionTestState =
+    testConnectionStateOverride ?? getScopedAsyncState(connectionTestStateById, actionTargetAccount?.id ?? null);
+  const latestCreatedConnectionTestState =
+    testConnectionStateOverride ?? getScopedAsyncState(connectionTestStateById, latestCreatedAccount?.id ?? null);
+  const connectionTestSummaryAccount = latestCreatedAccount ?? actionTargetAccount;
+  const connectionTestSummaryState =
+    testConnectionStateOverride ??
+    getScopedAsyncState(connectionTestStateById, connectionTestSummaryAccount?.id ?? null);
   const testConnectionActionDisabled = !actionTargetAccount;
   const testConnectionActionLabel = testConnectionActionDisabled
     ? '暂无测试目标'
-    : displayTestConnectionState.status === 'loading'
+    : actionTargetConnectionTestState.status === 'loading'
       ? '正在测试连接...'
       : '测试连接';
-  const testedAccount = displayTestConnectionState.data?.channelAccount
-    ? normalizeChannelAccountRecord(displayTestConnectionState.data.channelAccount)
-    : actionTargetAccount;
   const connectionTestFeedback =
-    displayTestConnectionState.status === 'success' && displayTestConnectionState.data
-      ? describeConnectionTestFeedback(displayTestConnectionState.data, testedAccount)
+    connectionTestSummaryState.status === 'success' && connectionTestSummaryState.data
+      ? describeConnectionTestFeedback(connectionTestSummaryState.data, connectionTestSummaryAccount)
       : null;
   const editingSessionFormError =
     editingAccountId !== null ? sessionFormErrorById[editingAccountId] ?? null : null;
@@ -1062,7 +1111,14 @@ export function ChannelAccountsPage({
     const formValue = getEditFormValue(account);
     const projectIdValidationError = getProjectIdValidationError(formValue.projectId);
     if (projectIdValidationError) {
-      setLatestBlockedAccountSaveId(accountId);
+      setAccountUpdateStateById((current) => ({
+        ...current,
+        [accountId]: {
+          status: 'idle',
+          data: current[accountId]?.data,
+          error: null,
+        },
+      }));
       setAccountFormErrorById((current) => ({
         ...current,
         [accountId]: projectIdValidationError,
@@ -1070,31 +1126,72 @@ export function ChannelAccountsPage({
       return;
     }
 
-    setLatestBlockedAccountSaveId(null);
-    setLatestAccountMutationId(accountId);
     const parsedMetadata = parseMetadataInput(formValue.metadata);
     const parsedProjectId = parseOptionalProjectIdInput(formValue.projectId, 'edit');
+    const requestToken = createScopedRequestToken(accountUpdateRequestTokenByIdRef, accountId);
+    setAccountFormErrorById((current) => {
+      if (!(accountId in current)) {
+        return current;
+      }
 
-    void updateAccount({
-      accountId,
-      input: {
-        projectId: parsedProjectId,
-        platform: account.platform,
-        accountKey: account.accountKey,
-        displayName: formValue.displayName,
-        authType: account.authType,
-        status: formValue.status,
-        metadata: mergeMetadataWithSession(parsedMetadata, account),
+      const { [accountId]: _removed, ...rest } = current;
+      return rest;
+    });
+    setAccountUpdateStateById((current) => ({
+      ...current,
+      [accountId]: {
+        status: 'loading',
+        data: current[accountId]?.data,
+        error: null,
       },
+    }));
+
+    void updateChannelAccountAction(accountId, {
+      projectId: parsedProjectId,
+      platform: account.platform,
+      accountKey: account.accountKey,
+      displayName: formValue.displayName,
+      authType: account.authType,
+      status: formValue.status,
+      metadata: mergeMetadataWithSession(parsedMetadata, account),
     })
       .then((result) => {
+        if (!isLatestScopedRequest(accountUpdateRequestTokenByIdRef, accountId, requestToken)) {
+          return;
+        }
+
         const normalizedAccount = normalizeChannelAccountRecord(result.channelAccount);
+        const normalizedResult = {
+          ...result,
+          channelAccount: normalizedAccount,
+        };
+        setAccountUpdateStateById((current) => ({
+          ...current,
+          [accountId]: {
+            status: 'success',
+            data: normalizedResult,
+            error: null,
+          },
+        }));
         setEditFormById((current) => ({
           ...current,
           [accountId]: buildEditFormValue(normalizedAccount),
         }));
       })
-      .catch(() => undefined);
+      .catch((error) => {
+        if (!isLatestScopedRequest(accountUpdateRequestTokenByIdRef, accountId, requestToken)) {
+          return;
+        }
+
+        setAccountUpdateStateById((current) => ({
+          ...current,
+          [accountId]: {
+            status: 'error',
+            data: current[accountId]?.data,
+            error: getErrorMessage(error),
+          },
+        }));
+      });
   }
 
   function handleSaveSession(accountId: number) {
@@ -1236,7 +1333,49 @@ export function ChannelAccountsPage({
       return;
     }
 
-    void requestConnectionTest({ accountId: targetAccount.id }).catch(() => undefined);
+    const requestToken = createScopedRequestToken(connectionTestRequestTokenByIdRef, targetAccount.id);
+    setConnectionTestStateById((current) => ({
+      ...current,
+      [targetAccount.id]: {
+        status: 'loading',
+        data: current[targetAccount.id]?.data,
+        error: null,
+      },
+    }));
+
+    void runChannelAccountConnectionTest(targetAccount.id, testChannelAccountAction, reload)
+      .then((result) => {
+        if (!isLatestScopedRequest(connectionTestRequestTokenByIdRef, targetAccount.id, requestToken)) {
+          return;
+        }
+
+        const normalizedResult = {
+          ...result,
+          channelAccount: normalizeChannelAccountRecord(result.channelAccount),
+        };
+        setConnectionTestStateById((current) => ({
+          ...current,
+          [targetAccount.id]: {
+            status: 'success',
+            data: normalizedResult,
+            error: null,
+          },
+        }));
+      })
+      .catch((error) => {
+        if (!isLatestScopedRequest(connectionTestRequestTokenByIdRef, targetAccount.id, requestToken)) {
+          return;
+        }
+
+        setConnectionTestStateById((current) => ({
+          ...current,
+          [targetAccount.id]: {
+            status: 'error',
+            data: current[targetAccount.id]?.data,
+            error: getErrorMessage(error),
+          },
+        }));
+      });
   }
 
   return (
@@ -1417,7 +1556,7 @@ export function ChannelAccountsPage({
               <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                 <ActionButton
                   label={
-                    displayTestConnectionState.status === 'loading'
+                    latestCreatedConnectionTestState.status === 'loading'
                       ? '正在测试连接...'
                       : latestCreatedAccount.authType === 'browser'
                         ? '继续准备人工接管'
@@ -1430,12 +1569,12 @@ export function ChannelAccountsPage({
             </div>
           ) : null}
 
-          {displayTestConnectionState.status === 'loading' ? (
+          {connectionTestSummaryState.status === 'loading' ? (
             <p style={{ margin: 0, color: '#334155' }}>正在测试连接...</p>
           ) : null}
 
-          {displayTestConnectionState.status === 'error' ? (
-            <p style={{ margin: 0, color: '#b91c1c' }}>连接测试失败：{displayTestConnectionState.error}</p>
+          {connectionTestSummaryState.status === 'error' ? (
+            <p style={{ margin: 0, color: '#b91c1c' }}>连接测试失败：{connectionTestSummaryState.error}</p>
           ) : null}
 
           {connectionTestFeedback ? (
@@ -1476,7 +1615,7 @@ export function ChannelAccountsPage({
             </div>
           ) : null}
 
-          {displayCreateState.status === 'idle' && displayTestConnectionState.status === 'idle' ? (
+          {displayCreateState.status === 'idle' && connectionTestSummaryState.status === 'idle' ? (
             <p style={{ margin: 0, color: '#475569' }}>提交表单后，这里会显示新账号和下一步测试连接动作。</p>
           ) : null}
         </SectionCard>
@@ -1497,6 +1636,8 @@ export function ChannelAccountsPage({
                 <div style={{ display: 'grid', gap: '10px' }}>
                   {visibleAccounts.map((account) => {
                     const editForm = getEditFormValue(account);
+                    const accountUpdateState =
+                      updateStateOverride ?? getScopedAsyncState(accountUpdateStateById, account.id);
                     const session = getSessionSummary(account);
                     const supportsSessionMetadata = supportsBrowserSessionMetadata(account);
                     const sessionAction = getSupportedSessionAction(account);
@@ -1826,7 +1967,7 @@ export function ChannelAccountsPage({
                                 justifySelf: 'flex-start',
                               }}
                             >
-                              {displayUpdateState.status === 'loading' && latestAccountMutationId === account.id
+                              {accountUpdateState.status === 'loading'
                                 ? '正在保存账号...'
                                 : '保存账号'}
                             </button>
@@ -1895,7 +2036,7 @@ export function ChannelAccountsPage({
             <p style={{ marginTop: '12px', color: '#166534' }}>账号已更新</p>
           ) : null}
           {showAccountUpdateError ? (
-            <p style={{ marginTop: '12px', color: '#b91c1c' }}>更新失败：{displayUpdateState.error}</p>
+            <p style={{ marginTop: '12px', color: '#b91c1c' }}>更新失败：{editingAccountUpdateState.error}</p>
           ) : null}
           {editingAccountFormError ? (
             <p style={{ marginTop: '12px', color: '#b91c1c' }}>更新失败：{editingAccountFormError}</p>

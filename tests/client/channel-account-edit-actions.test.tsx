@@ -1607,6 +1607,272 @@ describe('channel account edit actions', () => {
     });
   });
 
+  it('keeps concurrent connection tests scoped to the active target account', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ChannelAccountsPage } = await import('../../src/client/pages/ChannelAccounts');
+
+    const firstDeferred = createDeferredPromise<{
+      ok: boolean;
+      test: {
+        checkedAt: string;
+        status: string;
+        result: {
+          label: string;
+        };
+        feedback: {
+          message: string;
+        };
+        details: {
+          ready: boolean;
+          mode: string;
+          authType: string;
+        };
+      };
+      channelAccount: {
+        id: number;
+        platform: string;
+        accountKey: string;
+        displayName: string;
+        authType: string;
+        status: string;
+        metadata: Record<string, unknown>;
+        publishReadiness: {
+          platform: string;
+          ready: boolean;
+          mode: string;
+          status: string;
+          message: string;
+        };
+        createdAt: string;
+        updatedAt: string;
+      };
+    }>();
+    const secondDeferred = createDeferredPromise<{
+      ok: boolean;
+      test: {
+        checkedAt: string;
+        status: string;
+        result: {
+          label: string;
+        };
+        feedback: {
+          message: string;
+        };
+        details: {
+          ready: boolean;
+          mode: string;
+          authType: string;
+        };
+      };
+      channelAccount: {
+        id: number;
+        platform: string;
+        accountKey: string;
+        displayName: string;
+        authType: string;
+        status: string;
+        metadata: Record<string, unknown>;
+        publishReadiness: {
+          platform: string;
+          ready: boolean;
+          mode: string;
+          status: string;
+          message: string;
+        };
+        createdAt: string;
+        updatedAt: string;
+      };
+    }>();
+    const loadChannelAccountsAction = vi.fn().mockResolvedValue({
+      channelAccounts: [
+        {
+          id: 7,
+          platform: 'x',
+          accountKey: 'acct-browser-x',
+          displayName: 'Browser X',
+          authType: 'browser',
+          status: 'healthy',
+          metadata: {},
+          createdAt: '2026-04-19T00:00:00.000Z',
+          updatedAt: '2026-04-19T00:00:00.000Z',
+        },
+        {
+          id: 8,
+          platform: 'instagram',
+          accountKey: 'acct-instagram-ops',
+          displayName: 'Instagram Ops',
+          authType: 'oauth',
+          status: 'healthy',
+          metadata: {},
+          createdAt: '2026-04-19T00:00:00.000Z',
+          updatedAt: '2026-04-19T00:00:00.000Z',
+        },
+      ],
+    });
+    const testChannelAccountAction = vi.fn().mockImplementation((accountId: number) => {
+      if (accountId === 7) {
+        return firstDeferred.promise;
+      }
+
+      if (accountId === 8) {
+        return secondDeferred.promise;
+      }
+
+      throw new Error(`Unexpected account id: ${accountId}`);
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ChannelAccountsPage as never, {
+          loadChannelAccountsAction,
+          testChannelAccountAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const headerTestConnectionButton = findElement(
+      container,
+      (element) => element.getAttribute('data-header-test-connection-action') === 'true',
+    );
+    const browserTargetButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-action-target-account') === '7',
+    );
+    const instagramTargetButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-action-target-account') === '8',
+    );
+
+    expect(headerTestConnectionButton).not.toBeNull();
+    expect(browserTargetButton).not.toBeNull();
+    expect(instagramTargetButton).not.toBeNull();
+
+    await act(async () => {
+      headerTestConnectionButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(testChannelAccountAction).toHaveBeenCalledWith(7);
+    expect(collectText(headerTestConnectionButton as never)).toBe('正在测试连接...');
+
+    await act(async () => {
+      instagramTargetButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('当前目标账号：Instagram Ops');
+    expect(collectText(headerTestConnectionButton as never)).toBe('测试连接');
+
+    await act(async () => {
+      headerTestConnectionButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(testChannelAccountAction).toHaveBeenCalledWith(8);
+    expect(collectText(headerTestConnectionButton as never)).toBe('正在测试连接...');
+
+    await act(async () => {
+      firstDeferred.resolve({
+        ok: true,
+        test: {
+          checkedAt: '2026-04-19T03:05:00.000Z',
+          status: 'ready',
+          result: {
+            label: '已就绪',
+          },
+          feedback: {
+            message: 'Browser X 登录态有效。',
+          },
+          details: {
+            ready: true,
+            mode: 'browser',
+            authType: 'browser',
+          },
+        },
+        channelAccount: {
+          id: 7,
+          platform: 'x',
+          accountKey: 'acct-browser-x',
+          displayName: 'Browser X',
+          authType: 'browser',
+          status: 'healthy',
+          metadata: {},
+          publishReadiness: {
+            platform: 'x',
+            ready: true,
+            mode: 'browser',
+            status: 'ready',
+            message: 'Browser X 登录态可用。',
+          },
+          createdAt: '2026-04-19T00:00:00.000Z',
+          updatedAt: '2026-04-19T03:05:00.000Z',
+        },
+      });
+      await flush();
+    });
+
+    expect(collectText(container)).not.toContain('Browser X 登录态有效。');
+
+    await act(async () => {
+      browserTargetButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('当前目标账号：Browser X');
+    expect(collectText(headerTestConnectionButton as never)).toBe('测试连接');
+    expect(collectText(container)).toContain('最近一次连接测试');
+    expect(collectText(container)).toContain('Browser X 登录态有效。');
+
+    await act(async () => {
+      secondDeferred.resolve({
+        ok: true,
+        test: {
+          checkedAt: '2026-04-19T03:08:00.000Z',
+          status: 'ready',
+          result: {
+            label: '已就绪',
+          },
+          feedback: {
+            message: 'Instagram OAuth 登录态可用。',
+          },
+          details: {
+            ready: true,
+            mode: 'oauth',
+            authType: 'oauth',
+          },
+        },
+        channelAccount: {
+          id: 8,
+          platform: 'instagram',
+          accountKey: 'acct-instagram-ops',
+          displayName: 'Instagram Ops',
+          authType: 'oauth',
+          status: 'healthy',
+          metadata: {},
+          publishReadiness: {
+            platform: 'instagram',
+            ready: true,
+            mode: 'oauth',
+            status: 'ready',
+            message: 'Instagram OAuth 登录态可用。',
+          },
+          createdAt: '2026-04-19T00:00:00.000Z',
+          updatedAt: '2026-04-19T03:08:00.000Z',
+        },
+      });
+      await flush();
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('uses the selected target account default session action for the header session CTA', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
@@ -3070,6 +3336,217 @@ describe('channel account edit actions', () => {
     );
     expect(collectText(container)).toContain('更新失败：permission denied');
     expect(collectText(container)).toContain('reddit · oauth · healthy');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('keeps concurrent account saves scoped per account when multiple saves overlap', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ChannelAccountsPage } = await import('../../src/client/pages/ChannelAccounts');
+
+    const firstDeferred = createDeferredPromise<{
+      channelAccount: {
+        id: number;
+        projectId?: number | null;
+        platform: string;
+        accountKey: string;
+        displayName: string;
+        authType: string;
+        status: string;
+        metadata: Record<string, unknown>;
+        createdAt: string;
+        updatedAt: string;
+      };
+    }>();
+    const secondDeferred = createDeferredPromise<{
+      channelAccount: {
+        id: number;
+        projectId?: number | null;
+        platform: string;
+        accountKey: string;
+        displayName: string;
+        authType: string;
+        status: string;
+        metadata: Record<string, unknown>;
+        createdAt: string;
+        updatedAt: string;
+      };
+    }>();
+    const updateChannelAccountAction = vi.fn().mockImplementation((accountId: number) => {
+      if (accountId === 3) {
+        return firstDeferred.promise;
+      }
+
+      if (accountId === 4) {
+        return secondDeferred.promise;
+      }
+
+      throw new Error(`Unexpected account id: ${accountId}`);
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ChannelAccountsPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              channelAccounts: [
+                {
+                  id: 3,
+                  projectId: 7,
+                  platform: 'x',
+                  accountKey: 'acct-x-2',
+                  displayName: 'X Secondary',
+                  authType: 'api-key',
+                  status: 'healthy',
+                  metadata: {
+                    team: 'growth',
+                  },
+                  createdAt: '2026-04-19T00:00:00.000Z',
+                  updatedAt: '2026-04-19T00:00:00.000Z',
+                },
+                {
+                  id: 4,
+                  projectId: 8,
+                  platform: 'reddit',
+                  accountKey: 'acct-reddit',
+                  displayName: 'Reddit Ops',
+                  authType: 'oauth',
+                  status: 'healthy',
+                  metadata: {},
+                  createdAt: '2026-04-19T00:00:00.000Z',
+                  updatedAt: '2026-04-19T00:00:00.000Z',
+                },
+              ],
+            },
+          },
+          updateChannelAccountAction,
+        }),
+      );
+      await flush();
+    });
+
+    const firstEditButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-edit-account-id') === '3',
+    );
+
+    expect(firstEditButton).not.toBeNull();
+
+    await act(async () => {
+      firstEditButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    const firstSaveButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-save-account-id') === '3',
+    );
+
+    expect(firstSaveButton).not.toBeNull();
+
+    await act(async () => {
+      firstSaveButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(updateChannelAccountAction).toHaveBeenCalledWith(
+      3,
+      expect.objectContaining({
+        displayName: 'X Secondary',
+      }),
+    );
+    expect(collectText(firstSaveButton as never)).toContain('正在保存账号...');
+
+    const secondEditButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-edit-account-id') === '4',
+    );
+
+    expect(secondEditButton).not.toBeNull();
+
+    await act(async () => {
+      secondEditButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    const secondSaveButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-save-account-id') === '4',
+    );
+
+    expect(secondSaveButton).not.toBeNull();
+
+    await act(async () => {
+      secondSaveButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(updateChannelAccountAction).toHaveBeenCalledWith(
+      4,
+      expect.objectContaining({
+        displayName: 'Reddit Ops',
+      }),
+    );
+    expect(collectText(secondSaveButton as never)).toContain('正在保存账号...');
+
+    await act(async () => {
+      firstEditButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    const firstSaveButtonWhileSecondPending = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-save-account-id') === '3',
+    );
+
+    expect(firstSaveButtonWhileSecondPending).not.toBeNull();
+    expect(collectText(firstSaveButtonWhileSecondPending as never)).toContain('正在保存账号...');
+
+    await act(async () => {
+      firstDeferred.resolve({
+        channelAccount: {
+          id: 3,
+          projectId: 7,
+          platform: 'x',
+          accountKey: 'acct-x-2',
+          displayName: 'X Growth',
+          authType: 'api-key',
+          status: 'healthy',
+          metadata: {
+            team: 'growth',
+          },
+          createdAt: '2026-04-19T00:00:00.000Z',
+          updatedAt: '2026-04-19T01:00:00.000Z',
+        },
+      });
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('账号已更新');
+
+    await act(async () => {
+      secondDeferred.resolve({
+        channelAccount: {
+          id: 4,
+          projectId: 8,
+          platform: 'reddit',
+          accountKey: 'acct-reddit',
+          displayName: 'Reddit Ops',
+          authType: 'oauth',
+          status: 'healthy',
+          metadata: {},
+          createdAt: '2026-04-19T00:00:00.000Z',
+          updatedAt: '2026-04-19T01:00:00.000Z',
+        },
+      });
+      await flush();
+    });
 
     await act(async () => {
       root.unmount();
