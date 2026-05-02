@@ -116,6 +116,43 @@ describe('rollback-promobot.sh', () => {
     expect(fs.readFileSync(fixture.pnpmMarkerPath, 'utf8')).not.toContain('smoke:server');
     expect(result.stdout).not.toContain('Starting PM2 app from pm2.config.js');
   });
+
+  it('uses bundled compiled CLIs when rollback-promobot runs from a release bundle root', () => {
+    const fixture = createRollbackFixture({ bundleOnlyCli: true });
+    const result = runScript(
+      fixture.scriptPath,
+      [
+        '--backup-dir',
+        fixture.backupDir,
+        '--base-url',
+        'http://127.0.0.1:6123',
+        '--admin-password',
+        'cli-secret',
+      ],
+      {
+        cwd: fixture.rootDir,
+        env: {
+          ...process.env,
+          PATH: `${fixture.binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+        },
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain(`Restoring runtime data from ${fixture.backupDir}`);
+    expect(result.stdout).toContain('Starting PM2 app from pm2.config.js');
+    expect(result.stdout).toContain('Rollback completed');
+    expect(fs.readFileSync(fixture.nodeMarkerPath, 'utf8')).toContain(
+      `dist/server/cli/runtimeRestore.js --input-dir ${fixture.backupDir}`,
+    );
+    expect(fs.readFileSync(fixture.nodeMarkerPath, 'utf8')).toContain(
+      'dist/server/cli/deploymentSmoke.js --base-url http://127.0.0.1:6123',
+    );
+    expect(fs.readFileSync(fixture.pm2MarkerPath, 'utf8')).toContain(
+      'start pm2.config.js --update-env',
+    );
+    expect(fs.existsSync(fixture.pnpmMarkerPath)).toBe(false);
+  });
 });
 
 function runRollbackScript(args: string[], options: SpawnSyncOptions = {}) {
@@ -130,10 +167,13 @@ function runScript(scriptPathToRun: string, args: string[], options: SpawnSyncOp
   });
 }
 
-function createRollbackFixture(options: { existingPm2Process?: boolean } = {}) {
+function createRollbackFixture(
+  options: { bundleOnlyCli?: boolean; existingPm2Process?: boolean } = {},
+) {
   const rootDir = createTempDir('promobot-rollback-script-');
   const binDir = path.join(rootDir, 'bin');
   const backupDir = path.join(rootDir, 'runtime-backup');
+  const nodeMarkerPath = path.join(rootDir, 'node-invocations.log');
   const scriptCopyPath = path.join(rootDir, 'ops/rollback-promobot.sh');
   const pm2MarkerPath = path.join(rootDir, 'pm2-invocations.log');
   const pnpmMarkerPath = path.join(rootDir, 'pnpm-invocations.log');
@@ -144,15 +184,24 @@ function createRollbackFixture(options: { existingPm2Process?: boolean } = {}) {
   writeFile(rootDir, 'package.json', '{}\n');
   writeFile(rootDir, 'pm2.config.js', 'export default {};\n');
   writeFile(backupDir, 'manifest.json', '{}\n');
+  if (options.bundleOnlyCli) {
+    writeFile(rootDir, 'dist/server/cli/runtimeRestore.js', 'console.log("restore");\n');
+    writeFile(rootDir, 'dist/server/cli/deploymentSmoke.js', 'console.log("smoke");\n');
+  } else {
+    writeFile(rootDir, 'src/server/cli/runtimeRestore.ts', 'console.log("restore");\n');
+    writeFile(rootDir, 'src/server/cli/deploymentSmoke.ts', 'console.log("smoke");\n');
+  }
 
-  writeExecutable(
-    binDir,
-    'pnpm',
-    `#!/usr/bin/env bash
+  if (!options.bundleOnlyCli) {
+    writeExecutable(
+      binDir,
+      'pnpm',
+      `#!/usr/bin/env bash
 printf '%s\\n' "$*" >> "${pnpmMarkerPath}"
 exit 0
 `,
-  );
+    );
+  }
 
   writeExecutable(
     binDir,
@@ -171,9 +220,21 @@ exit 0
 `,
   );
 
+  if (options.bundleOnlyCli) {
+    writeExecutable(
+      binDir,
+      'node',
+      `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${nodeMarkerPath}"
+exit 0
+`,
+    );
+  }
+
   return {
     backupDir,
     binDir,
+    nodeMarkerPath,
     pm2MarkerPath,
     pnpmMarkerPath,
     rootDir,

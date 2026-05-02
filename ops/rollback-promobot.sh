@@ -112,6 +112,10 @@ main() {
   local root_env_file
   local resolved_port
   local attempt
+  local use_source_restore=0
+  local use_source_smoke=0
+  local use_compiled_restore=0
+  local use_compiled_smoke=0
   local env_candidates=()
 
   while [ "$#" -gt 0 ]; do
@@ -193,7 +197,28 @@ main() {
   [ -f "package.json" ] || fail "package.json not found in ${repo_root}"
   [ -f "pm2.config.js" ] || fail "pm2.config.js not found in ${repo_root}"
 
-  require_command pnpm
+  if [ -f "src/server/cli/runtimeRestore.ts" ]; then
+    use_source_restore=1
+  elif [ -f "dist/server/cli/runtimeRestore.js" ]; then
+    use_compiled_restore=1
+  else
+    fail "Could not find src/server/cli/runtimeRestore.ts or dist/server/cli/runtimeRestore.js in ${repo_root}"
+  fi
+
+  if [ -f "src/server/cli/deploymentSmoke.ts" ]; then
+    use_source_smoke=1
+  elif [ -f "dist/server/cli/deploymentSmoke.js" ]; then
+    use_compiled_smoke=1
+  fi
+
+  if [ "${use_source_restore}" -eq 1 ] || [ "${use_source_smoke}" -eq 1 ]; then
+    require_command pnpm
+  fi
+
+  if [ "${use_compiled_restore}" -eq 1 ] || [ "${use_compiled_smoke}" -eq 1 ]; then
+    require_command node
+  fi
+
   require_command pm2
 
   if [ ! -f "${backup_dir}/manifest.json" ]; then
@@ -206,10 +231,18 @@ main() {
   fi
 
   log "Restoring runtime data from ${backup_dir}"
-  if [ "$skip_env" -eq 1 ]; then
-    pnpm runtime:restore -- --input-dir "${backup_dir}" --skip-env
+  if [ "${use_source_restore}" -eq 1 ]; then
+    if [ "$skip_env" -eq 1 ]; then
+      pnpm runtime:restore -- --input-dir "${backup_dir}" --skip-env
+    else
+      pnpm runtime:restore -- --input-dir "${backup_dir}"
+    fi
   else
-    pnpm runtime:restore -- --input-dir "${backup_dir}"
+    if [ "$skip_env" -eq 1 ]; then
+      node dist/server/cli/runtimeRestore.js --input-dir "${backup_dir}" --skip-env
+    else
+      node dist/server/cli/runtimeRestore.js --input-dir "${backup_dir}"
+    fi
   fi
 
   if [ "$skip_smoke" -eq 1 ]; then
@@ -263,8 +296,16 @@ main() {
   attempt=1
   while true; do
     log "Running smoke check against ${base_url} (attempt ${attempt}/${SMOKE_RETRY_ATTEMPTS})"
-    if PROMOBOT_ADMIN_PASSWORD="${admin_password}" pnpm smoke:server -- --base-url "${base_url}"; then
-      break
+    if [ "${use_source_smoke}" -eq 1 ]; then
+      if PROMOBOT_ADMIN_PASSWORD="${admin_password}" pnpm smoke:server -- --base-url "${base_url}"; then
+        break
+      fi
+    elif [ "${use_compiled_smoke}" -eq 1 ]; then
+      if PROMOBOT_ADMIN_PASSWORD="${admin_password}" node dist/server/cli/deploymentSmoke.js --base-url "${base_url}"; then
+        break
+      fi
+    else
+      fail "Could not find src/server/cli/deploymentSmoke.ts or dist/server/cli/deploymentSmoke.js in ${repo_root}"
     fi
 
     if [ "${attempt}" -ge "${SMOKE_RETRY_ATTEMPTS}" ]; then

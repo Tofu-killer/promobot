@@ -112,6 +112,16 @@ describe('release verify cli', () => {
         },
         {
           kind: 'manifest-item',
+          name: 'dist/server/cli/preflightPromobot.js',
+          target: path.join(inputDir, 'dist/server/cli/preflightPromobot.js'),
+        },
+        {
+          kind: 'manifest-item',
+          name: 'dist/server/cli/runtimeRestore.js',
+          target: path.join(inputDir, 'dist/server/cli/runtimeRestore.js'),
+        },
+        {
+          kind: 'manifest-item',
           name: 'pm2.config.js',
           target: path.join(inputDir, 'pm2.config.js'),
         },
@@ -141,7 +151,9 @@ describe('release verify cli', () => {
         'dist/server/cli/deploymentSmoke.js',
         'dist/server/cli/browserHandoffComplete.js',
         'dist/server/cli/inboxReplyHandoffComplete.js',
+        'dist/server/cli/preflightPromobot.js',
         'dist/server/cli/releaseVerify.js',
+        'dist/server/cli/runtimeRestore.js',
         'dist/client/index.html',
         'pm2.config.js',
         'ops/deploy-promobot.sh',
@@ -211,7 +223,9 @@ describe('release verify cli', () => {
         'dist/server/cli/deploymentSmoke.js',
         'dist/server/cli/browserHandoffComplete.js',
         'dist/server/cli/inboxReplyHandoffComplete.js',
+        'dist/server/cli/preflightPromobot.js',
         'dist/server/cli/releaseVerify.js',
+        'dist/server/cli/runtimeRestore.js',
         'dist/client/index.html',
         'pm2.config.js',
         'ops/deploy-promobot.sh',
@@ -270,7 +284,9 @@ describe('release verify cli', () => {
         'dist/server/cli/deploymentSmoke.js',
         'dist/server/cli/browserHandoffComplete.js',
         'dist/server/cli/inboxReplyHandoffComplete.js',
+        'dist/server/cli/preflightPromobot.js',
         'dist/server/cli/releaseVerify.js',
+        'dist/server/cli/runtimeRestore.js',
         'dist/client/index.html',
         'pm2.config.js',
         'ops/deploy-promobot.sh',
@@ -353,9 +369,21 @@ describe('release verify cli', () => {
         },
         {
           kind: 'manifest-item',
+          name: 'dist/server/cli/preflightPromobot.js',
+          ok: true,
+          target: path.join(inputDir, 'dist/server/cli/preflightPromobot.js'),
+        },
+        {
+          kind: 'manifest-item',
           name: 'dist/server/cli/releaseVerify.js',
           ok: true,
           target: path.join(inputDir, 'dist/server/cli/releaseVerify.js'),
+        },
+        {
+          kind: 'manifest-item',
+          name: 'dist/server/cli/runtimeRestore.js',
+          ok: true,
+          target: path.join(inputDir, 'dist/server/cli/runtimeRestore.js'),
         },
         {
           kind: 'manifest-item',
@@ -423,7 +451,9 @@ describe('release verify cli', () => {
         'dist/server/cli/deploymentSmoke.js',
         'dist/server/cli/browserHandoffComplete.js',
         'dist/server/cli/inboxReplyHandoffComplete.js',
+        'dist/server/cli/preflightPromobot.js',
         'dist/server/cli/releaseVerify.js',
+        'dist/server/cli/runtimeRestore.js',
         'dist/client/index.html',
         'pm2.config.js',
         'ops/deploy-promobot.sh',
@@ -492,7 +522,9 @@ describe('release verify cli', () => {
         'dist/server/cli/deploymentSmoke.js',
         'dist/server/cli/browserHandoffComplete.js',
         'dist/server/cli/inboxReplyHandoffComplete.js',
+        'dist/server/cli/preflightPromobot.js',
         'dist/server/cli/releaseVerify.js',
+        'dist/server/cli/runtimeRestore.js',
         'dist/client/index.html',
         'pm2.config.js',
         'ops/deploy-promobot.sh',
@@ -546,7 +578,9 @@ describe('release verify cli', () => {
         'dist/server/cli/deploymentSmoke.js',
         'dist/server/cli/browserHandoffComplete.js',
         'dist/server/cli/inboxReplyHandoffComplete.js',
+        'dist/server/cli/preflightPromobot.js',
         'dist/server/cli/releaseVerify.js',
+        'dist/server/cli/runtimeRestore.js',
         'dist/client/index.html',
         'pm2.config.js',
         'ops/deploy-promobot.sh',
@@ -606,7 +640,9 @@ describe('release verify cli', () => {
         'dist/server/cli/deploymentSmoke.js',
         'dist/server/cli/browserHandoffComplete.js',
         'dist/server/cli/inboxReplyHandoffComplete.js',
+        'dist/server/cli/preflightPromobot.js',
         'dist/server/cli/releaseVerify.js',
+        'dist/server/cli/runtimeRestore.js',
         'dist/client/index.html',
         'pm2.config.js',
         'ops/deploy-promobot.sh',
@@ -655,7 +691,9 @@ describe('release verify cli', () => {
         { relativePath: 'dist/server/cli/deploymentSmoke.js' },
         { path: 'dist/server/cli/browserHandoffComplete.js' },
         { path: 'dist/server/cli/inboxReplyHandoffComplete.js' },
+        { relativePath: 'dist/server/cli/preflightPromobot.js' },
         { name: 'dist/server/cli/releaseVerify.js' },
+        { path: 'dist/server/cli/runtimeRestore.js' },
         { path: 'dist/client/index.html' },
         { relativePath: 'pm2.config.js' },
         { name: 'ops/deploy-promobot.sh' },
@@ -765,7 +803,9 @@ function writeRequiredBundleCore(
     inboxReplyHandoffCompleteCliContent?: string;
     packageJsonContent?: string;
     pm2Content?: string;
+    preflightPromobotCliContent?: string;
     releaseVerifyCliContent?: string;
+    runtimeRestoreCliContent?: string;
     serverContent?: string;
   } = {},
 ) {
@@ -792,8 +832,18 @@ function writeRequiredBundleCore(
   );
   writeFile(
     rootDir,
+    'dist/server/cli/preflightPromobot.js',
+    content.preflightPromobotCliContent ?? 'console.log("preflight");\n',
+  );
+  writeFile(
+    rootDir,
     'dist/server/cli/releaseVerify.js',
     content.releaseVerifyCliContent ?? 'console.log("verify");\n',
+  );
+  writeFile(
+    rootDir,
+    'dist/server/cli/runtimeRestore.js',
+    content.runtimeRestoreCliContent ?? 'console.log("restore");\n',
   );
   writeFile(rootDir, 'dist/client/index.html', content.clientContent ?? '<!doctype html>\n');
   writeFile(rootDir, 'pm2.config.js', content.pm2Content ?? 'export default {};\n');

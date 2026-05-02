@@ -169,7 +169,9 @@ describe('release bundle cli', () => {
         'dist/server/cli/deploymentSmoke.js',
         'dist/server/cli/browserHandoffComplete.js',
         'dist/server/cli/inboxReplyHandoffComplete.js',
+        'dist/server/cli/preflightPromobot.js',
         'dist/server/cli/releaseVerify.js',
+        'dist/server/cli/runtimeRestore.js',
         'dist/client/index.html',
         'ops/verify-downloaded-release.sh',
         'ops/verify-release.sh',
@@ -219,7 +221,9 @@ describe('release bundle cli', () => {
         'dist/server/cli/deploymentSmoke.js',
         'dist/server/cli/browserHandoffComplete.js',
         'dist/server/cli/inboxReplyHandoffComplete.js',
+        'dist/server/cli/preflightPromobot.js',
         'dist/server/cli/releaseVerify.js',
+        'dist/server/cli/runtimeRestore.js',
         'ops/verify-downloaded-release.sh',
         'ops/verify-release.sh',
       ]),
@@ -253,7 +257,9 @@ describe('release bundle cli', () => {
       'dist/server/cli/inboxReplyHandoffComplete.js',
       'console.log("handoff complete");\n',
     );
+    writeFile(repoRoot, 'dist/server/cli/preflightPromobot.js', 'console.log("preflight");\n');
     writeFile(repoRoot, 'dist/server/cli/releaseVerify.js', 'console.log("verify");\n');
+    writeFile(repoRoot, 'dist/server/cli/runtimeRestore.js', 'console.log("restore");\n');
     writeFile(repoRoot, 'dist/client/index.html', '<!doctype html>\n');
     writeFile(repoRoot, 'ops/deploy-release.sh', '#!/usr/bin/env bash\n');
     writeFile(repoRoot, 'ops/deploy-promobot.sh', '#!/usr/bin/env bash\n');
@@ -300,7 +306,9 @@ describe('release bundle cli', () => {
       'dist/server/cli/inboxReplyHandoffComplete.js',
       'console.log("handoff complete");\n',
     );
+    writeFile(repoRoot, 'dist/server/cli/preflightPromobot.js', 'console.log("preflight");\n');
     writeFile(repoRoot, 'dist/server/cli/releaseVerify.js', 'console.log("verify");\n');
+    writeFile(repoRoot, 'dist/server/cli/runtimeRestore.js', 'console.log("restore");\n');
     writeFile(repoRoot, 'ops/verify-release.sh', '#!/usr/bin/env bash\n');
 
     const outputDir = path.join(repoRoot, 'artifacts', 'release-bundle');
@@ -350,7 +358,9 @@ describe('release bundle cli', () => {
       'dist/server/cli/inboxReplyHandoffComplete.js',
       'console.log("handoff complete");\n',
     );
+    writeFile(repoRoot, 'dist/server/cli/preflightPromobot.js', 'console.log("preflight");\n');
     writeFile(repoRoot, 'dist/server/cli/releaseVerify.js', 'console.log("verify");\n');
+    writeFile(repoRoot, 'dist/server/cli/runtimeRestore.js', 'console.log("restore");\n');
     writeFile(repoRoot, 'dist/client/index.html', '<!doctype html>\n');
     writeFile(repoRoot, 'dist/client/assets/app.js', 'console.log("client");\n');
     writeFile(repoRoot, 'ops/deploy-release.sh', '#!/usr/bin/env bash\n');
@@ -384,7 +394,9 @@ describe('release bundle cli', () => {
         'dist/server/cli/browserHandoffComplete.js',
         'dist/server/cli/deploymentSmoke.js',
         'dist/server/cli/inboxReplyHandoffComplete.js',
+        'dist/server/cli/preflightPromobot.js',
         'dist/server/cli/releaseVerify.js',
+        'dist/server/cli/runtimeRestore.js',
         'dist/server/index.js',
         'docs/DEPLOYMENT.md',
         'manifest.json',
@@ -423,8 +435,14 @@ describe('release bundle cli', () => {
     expect(summary.checksums['dist/server/cli/inboxReplyHandoffComplete.js']).toBe(
       sha256Hex('console.log("handoff complete");\n'),
     );
+    expect(summary.checksums['dist/server/cli/preflightPromobot.js']).toBe(
+      sha256Hex('console.log("preflight");\n'),
+    );
     expect(summary.checksums['dist/server/cli/releaseVerify.js']).toBe(
       sha256Hex('console.log("verify");\n'),
+    );
+    expect(summary.checksums['dist/server/cli/runtimeRestore.js']).toBe(
+      sha256Hex('console.log("restore");\n'),
     );
     expect(summary.checksums['dist/client/index.html']).toBe(sha256Hex('<!doctype html>\n'));
     expect(summary.checksums['docs/DEPLOYMENT.md']).toBe(sha256Hex('# Deploy\n'));
@@ -484,7 +502,9 @@ describe('release bundle cli', () => {
       'dist/server/cli/inboxReplyHandoffComplete.js',
       'console.log("handoff complete");\n',
     );
+    writeFile(repoRoot, 'dist/server/cli/preflightPromobot.js', 'console.log("preflight");\n');
     writeFile(repoRoot, 'dist/server/cli/releaseVerify.js', 'console.log("verify");\n');
+    writeFile(repoRoot, 'dist/server/cli/runtimeRestore.js', 'console.log("restore");\n');
     writeFile(repoRoot, 'dist/client/index.html', '<!doctype html>\n');
     writeFile(repoRoot, 'ops/deploy-release.sh', '#!/usr/bin/env bash\n');
     writeFile(repoRoot, 'ops/deploy-promobot.sh', '#!/usr/bin/env bash\n');
@@ -536,7 +556,9 @@ describe('release bundle cli', () => {
       'dist/server/cli/inboxReplyHandoffComplete.js',
       'console.log("handoff complete");\n',
     );
+    writeFile(repoRoot, 'dist/server/cli/preflightPromobot.js', 'console.log("preflight");\n');
     writeFile(repoRoot, 'dist/server/cli/releaseVerify.js', 'console.log("verify");\n');
+    writeFile(repoRoot, 'dist/server/cli/runtimeRestore.js', 'console.log("restore");\n');
     writeFile(repoRoot, 'dist/client/index.html', '<!doctype html>\n');
     writeFile(repoRoot, 'ops/deploy-release.sh', '#!/usr/bin/env bash\n');
     writeFile(repoRoot, 'ops/deploy-promobot.sh', '#!/usr/bin/env bash\n');
@@ -590,7 +612,9 @@ describe('release bundle cli', () => {
       'dist/server/cli/inboxReplyHandoffComplete.js',
       'console.log("handoff complete");\n',
     );
+    writeFile(repoRoot, 'dist/server/cli/preflightPromobot.js', 'console.log("preflight");\n');
     writeFile(repoRoot, 'dist/server/cli/releaseVerify.js', 'console.log("verify");\n');
+    writeFile(repoRoot, 'dist/server/cli/runtimeRestore.js', 'console.log("restore");\n');
     writeFile(repoRoot, 'dist/client/index.html', '<!doctype html>\n');
     writeFile(repoRoot, 'ops/deploy-release.sh', '#!/usr/bin/env bash\n');
     writeFile(repoRoot, 'ops/deploy-promobot.sh', '#!/usr/bin/env bash\n');

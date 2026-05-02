@@ -815,6 +815,35 @@ describe('release shell wrappers', () => {
     expect(fs.existsSync(fixture.smokeMarkerPath)).toBe(false);
   });
 
+  it('uses bundled compiled CLIs when preflight-promobot runs from a release bundle root', () => {
+    const fixture = createPreflightPromobotFixture({
+      bundleOnlyCli: true,
+      shellEnvFileContent: 'PORT=5123\nPROMOBOT_ADMIN_PASSWORD=shell-secret\n',
+    });
+    const result = runScript(fixture.scriptPath, ['--require-env', 'AI_API_KEY'], {
+      cwd: fixture.rootDir,
+      env: {
+        ...process.env,
+        AI_API_KEY: 'test-key',
+        PATH: `${fixture.binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+      },
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Running smoke check against http://127.0.0.1:5123');
+    expect(result.stdout).toContain('Preflight completed');
+    expect(fs.readFileSync(fixture.nodeMarkerPath, 'utf8')).toContain(
+      'dist/server/cli/preflightPromobot.js --require-env AI_API_KEY',
+    );
+    expect(fs.readFileSync(fixture.nodeMarkerPath, 'utf8')).toContain(
+      'dist/server/cli/deploymentSmoke.js --base-url http://127.0.0.1:5123',
+    );
+    expect(fs.readFileSync(fixture.smokeMarkerPath, 'utf8')).toContain(
+      'PROMOBOT_ADMIN_PASSWORD=shell-secret',
+    );
+    expect(fs.existsSync(fixture.pnpmMarkerPath)).toBe(false);
+  });
+
   it('shows verify-downloaded-release help for direct and leading dash-dash help paths', () => {
     for (const args of [['--help'], ['--', '--help']]) {
       const result = runRepoScript('ops/verify-downloaded-release.sh', args);
@@ -1453,6 +1482,7 @@ exit 0
 
 function createPreflightPromobotFixture(
   options: {
+    bundleOnlyCli?: boolean;
     rootEnvFileContent?: string;
     shellEnvFileContent?: string;
     preflightExitCode?: number;
@@ -1461,6 +1491,7 @@ function createPreflightPromobotFixture(
 ) {
   const rootDir = createTempDir('promobot-preflight-local-script-');
   const binDir = path.join(rootDir, 'bin');
+  const nodeMarkerPath = path.join(rootDir, 'node-invocations.log');
   const pnpmMarkerPath = path.join(rootDir, 'pnpm-invocations.log');
   const smokeMarkerPath = path.join(rootDir, 'smoke-invocations.log');
   const scriptPath = path.join(rootDir, 'ops/preflight-promobot.sh');
@@ -1469,6 +1500,13 @@ function createPreflightPromobotFixture(
   fs.copyFileSync(path.resolve(repoRoot, 'ops/preflight-promobot.sh'), scriptPath);
 
   writeFile(rootDir, 'package.json', '{}\n');
+  if (options.bundleOnlyCli) {
+    writeFile(rootDir, 'dist/server/cli/preflightPromobot.js', 'console.log("preflight");\n');
+    writeFile(rootDir, 'dist/server/cli/deploymentSmoke.js', 'console.log("smoke");\n');
+  } else {
+    writeFile(rootDir, 'src/server/cli/preflightPromobot.ts', 'console.log("preflight");\n');
+    writeFile(rootDir, 'src/server/cli/deploymentSmoke.ts', 'console.log("smoke");\n');
+  }
 
   if (options.rootEnvFileContent) {
     writeFile(rootDir, '.env', options.rootEnvFileContent);
@@ -1478,10 +1516,11 @@ function createPreflightPromobotFixture(
     writeFile(rootDir, 'shell/.env', options.shellEnvFileContent);
   }
 
-  writeExecutable(
-    binDir,
-    'pnpm',
-    `#!/usr/bin/env bash
+  if (!options.bundleOnlyCli) {
+    writeExecutable(
+      binDir,
+      'pnpm',
+      `#!/usr/bin/env bash
 printf '%s\\n' "$*" >> "${pnpmMarkerPath}"
 if [ "\${1:-}" = "preflight:prod" ] && [ "${options.preflightExitCode ?? 0}" -ne 0 ]; then
   printf '%s\\n' "${options.preflightFailureMessage ?? 'preflight failed'}" >&2
@@ -1493,11 +1532,28 @@ if [ "\${1:-}" = "smoke:server" ]; then
 fi
 exit 0
 `,
-  );
+    );
+  }
+
+  if (options.bundleOnlyCli) {
+    writeExecutable(
+      binDir,
+      'node',
+      `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${nodeMarkerPath}"
+if [ "\${1:-}" = "dist/server/cli/deploymentSmoke.js" ]; then
+  printf 'PROMOBOT_ADMIN_PASSWORD=%s\\n' "\${PROMOBOT_ADMIN_PASSWORD:-}" >> "${smokeMarkerPath}"
+  printf 'ARGS=%s\\n' "$*" >> "${smokeMarkerPath}"
+fi
+exit 0
+`,
+    );
+  }
 
   return {
     rootDir,
     binDir,
+    nodeMarkerPath,
     pnpmMarkerPath,
     scriptPath,
     smokeMarkerPath,
@@ -1653,11 +1709,13 @@ function seedValidReleaseBundleRepoRoot(rootDir: string) {
     'dist/server/cli/inboxReplyHandoffComplete.js',
     'console.log("inbox reply handoff complete");\n',
   );
+  writeFile(rootDir, 'dist/server/cli/preflightPromobot.js', 'console.log("preflight");\n');
   writeFile(
     rootDir,
     'dist/server/cli/releaseVerify.js',
     compileReleaseVerifyCliSource(),
   );
+  writeFile(rootDir, 'dist/server/cli/runtimeRestore.js', 'console.log("restore");\n');
   writeFile(rootDir, 'dist/client/index.html', '<!doctype html>\n');
   writeFile(rootDir, 'dist/client/assets/app.js', 'console.log("client");\n');
   writeFile(rootDir, 'ops/deploy-promobot.sh', '#!/usr/bin/env bash\n');

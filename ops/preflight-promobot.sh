@@ -102,6 +102,10 @@ main() {
   local shell_env_file
   local root_env_file
   local resolved_port
+  local use_source_preflight=0
+  local use_source_smoke=0
+  local use_compiled_preflight=0
+  local use_compiled_smoke=0
   local env_candidates=()
 
   while [ "$#" -gt 0 ]; do
@@ -202,13 +206,42 @@ main() {
 
   [ -f "package.json" ] || fail "package.json not found in ${repo_root}"
 
-  require_command pnpm
-
-  log "Running pnpm preflight:prod"
-  if [ -n "$require_env" ]; then
-    pnpm preflight:prod -- --require-env "$require_env"
+  if [ -f "src/server/cli/preflightPromobot.ts" ]; then
+    use_source_preflight=1
+  elif [ -f "dist/server/cli/preflightPromobot.js" ]; then
+    use_compiled_preflight=1
   else
-    pnpm preflight:prod
+    fail "Could not find src/server/cli/preflightPromobot.ts or dist/server/cli/preflightPromobot.js in ${repo_root}"
+  fi
+
+  if [ -f "src/server/cli/deploymentSmoke.ts" ]; then
+    use_source_smoke=1
+  elif [ -f "dist/server/cli/deploymentSmoke.js" ]; then
+    use_compiled_smoke=1
+  fi
+
+  if [ "${use_source_preflight}" -eq 1 ] || [ "${use_source_smoke}" -eq 1 ]; then
+    require_command pnpm
+  fi
+
+  if [ "${use_compiled_preflight}" -eq 1 ] || [ "${use_compiled_smoke}" -eq 1 ]; then
+    require_command node
+  fi
+
+  if [ "${use_source_preflight}" -eq 1 ]; then
+    log "Running pnpm preflight:prod"
+    if [ -n "$require_env" ]; then
+      pnpm preflight:prod -- --require-env "$require_env"
+    else
+      pnpm preflight:prod
+    fi
+  else
+    log "Running node dist/server/cli/preflightPromobot.js"
+    if [ -n "$require_env" ]; then
+      node dist/server/cli/preflightPromobot.js --require-env "$require_env"
+    else
+      node dist/server/cli/preflightPromobot.js
+    fi
   fi
 
   if [ "$skip_smoke" -eq 1 ]; then
@@ -217,7 +250,13 @@ main() {
   fi
 
   log "Running smoke check against ${base_url}"
-  PROMOBOT_ADMIN_PASSWORD="${admin_password}" pnpm smoke:server -- --base-url "${base_url}"
+  if [ "${use_source_smoke}" -eq 1 ]; then
+    PROMOBOT_ADMIN_PASSWORD="${admin_password}" pnpm smoke:server -- --base-url "${base_url}"
+  elif [ "${use_compiled_smoke}" -eq 1 ]; then
+    PROMOBOT_ADMIN_PASSWORD="${admin_password}" node dist/server/cli/deploymentSmoke.js --base-url "${base_url}"
+  else
+    fail "Could not find src/server/cli/deploymentSmoke.ts or dist/server/cli/deploymentSmoke.js in ${repo_root}"
+  fi
   log "Preflight completed"
 }
 
