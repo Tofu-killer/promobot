@@ -354,8 +354,6 @@ main() {
   extracted_bundle_dir="${EXTRACTED_ROOT}/${bundle_dir_name}"
   [ -d "$extracted_bundle_dir" ] || fail "Expected extracted bundle directory not found: ${extracted_bundle_dir}"
   require_extracted_bundle_file "$extracted_bundle_dir" 'dist/server/cli/releaseVerify.js'
-  require_extracted_bundle_file "$extracted_bundle_dir" 'dist/server/cli/preflightPromobot.js'
-  require_extracted_bundle_file "$extracted_bundle_dir" 'dist/server/cli/runtimeRestore.js'
 
   log "Running extracted bundle release verifier"
   node "${extracted_bundle_dir}/dist/server/cli/releaseVerify.js" --input-dir "$extracted_bundle_dir"

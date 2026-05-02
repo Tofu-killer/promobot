@@ -1114,14 +1114,10 @@ exit 99
     expect(result.stderr).toContain('Archive entry escaped metadata bundle_dir_name');
   });
 
-  it.each([
-    'dist/server/cli/releaseVerify.js',
-    'dist/server/cli/preflightPromobot.js',
-    'dist/server/cli/runtimeRestore.js',
-  ])('fails verify-downloaded-release when the extracted bundle is missing %s', async (missingFile) => {
+  it('fails verify-downloaded-release when the extracted bundle is missing releaseVerify.js', async () => {
     const fixture = await createDownloadedReleaseFixture({
       mutateBundleSourceDir: (bundleSourceDir) => {
-        fs.rmSync(path.join(bundleSourceDir, missingFile));
+        fs.rmSync(path.join(bundleSourceDir, 'dist/server/cli/releaseVerify.js'));
       },
     });
 
@@ -1130,8 +1126,31 @@ exit 99
     });
 
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain(`Extracted bundle is missing ${missingFile}`);
+    expect(result.stderr).toContain('Extracted bundle is missing dist/server/cli/releaseVerify.js');
   });
+
+  it.each([
+    'dist/server/cli/preflightPromobot.js',
+    'dist/server/cli/runtimeRestore.js',
+  ])(
+    'reports missing extracted bundle helper %s via the bundled release verifier',
+    async (missingFile) => {
+      const fixture = await createDownloadedReleaseFixture({
+        mutateBundleSourceDir: (bundleSourceDir) => {
+          fs.rmSync(path.join(bundleSourceDir, missingFile));
+        },
+      });
+
+      const result = runScript(fixture.scriptPath, ['--archive-file', fixture.archivePath], {
+        cwd: fixture.rootDir,
+      });
+
+      expect(result.status).toBe(1);
+      expect(result.stdout).toContain('"ok": false');
+      expect(result.stdout).toContain(`"name": "${missingFile}"`);
+      expect(result.stderr).not.toContain(`Extracted bundle is missing ${missingFile}`);
+    },
+  );
 });
 
 function runRepoScript(relativePath: string, args: string[], options: SpawnSyncOptions = {}) {
