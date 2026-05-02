@@ -1,13 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { apiRequest } from '../lib/api';
+import {
+  getRequestedSessionAction,
+  getSessionActionArtifactForAction,
+  getSupportedSessionAction,
+  getUnresolvedRequestedSessionArtifact,
+  normalizeReadinessRecord,
+  resolveCurrentSessionAction,
+  resolvePublishReadiness,
+  supportsBrowserSessionMetadata,
+  type BrowserSessionAction,
+} from '../lib/channelAccountSession';
 import type { AsyncState } from '../hooks/useAsyncRequest';
 import { useAsyncAction, useAsyncQuery } from '../hooks/useAsyncRequest';
 import { ActionButton } from '../components/ActionButton';
 import { JsonPreview } from '../components/JsonPreview';
 import { PageHeader } from '../components/PageHeader';
 import { SectionCard } from '../components/SectionCard';
-
-type BrowserSessionAction = 'request_session' | 'relogin';
 
 interface SessionActionArtifactSummary {
   action: BrowserSessionAction;
@@ -535,21 +544,6 @@ function formatReadinessAction(value: unknown) {
   return formatReadinessValue(value);
 }
 
-function normalizeReadinessRecord(value: unknown): Record<string, unknown> | undefined {
-  return isPlainObject(value) ? value : undefined;
-}
-
-function resolvePublishReadiness(account: ChannelAccountRecord): Record<string, unknown> | undefined {
-  const metadata = isPlainObject(account.metadata) ? account.metadata : {};
-
-  return (
-    normalizeReadinessRecord(account.publishReadiness) ??
-    normalizeReadinessRecord(account.readiness) ??
-    normalizeReadinessRecord(metadata.publishReadiness) ??
-    normalizeReadinessRecord(metadata.readiness)
-  );
-}
-
 interface ConnectionTestFeedback {
   accountLabel?: string;
   result: string;
@@ -741,16 +735,13 @@ export function ChannelAccountsPage({
 
       const localFeedback = sessionActionFeedbackById[accountId];
       const localAccount = sessionActionAccountById[accountId];
-      const localAction =
-        localFeedback?.action ??
-        localAccount?.latestBrowserLaneArtifact?.action ??
-        getRequestedSessionAction(localAccount ?? loadedAccount);
+      const localAction = resolveCurrentSessionAction(localFeedback, localAccount ?? loadedAccount);
 
       if (!localAction) {
         continue;
       }
 
-      const liveReadiness = normalizeReadinessRecord(resolvePublishReadiness(loadedAccount));
+      const liveReadiness = resolvePublishReadiness(loadedAccount);
       if (
         getSessionActionArtifactForAction(loadedAccount, localAction) ||
         !supportsBrowserSessionMetadata(loadedAccount) ||
@@ -2064,25 +2055,6 @@ function resolveActionTargetAccount(
   );
 }
 
-function getSupportedSessionAction(account: ChannelAccountRecord): 'request_session' | 'relogin' | null {
-  if (!supportsBrowserSessionMetadata(account)) {
-    return null;
-  }
-
-  return getSessionSummary(account).hasSession ? 'relogin' : 'request_session';
-}
-
-function supportsBrowserSessionMetadata(account: ChannelAccountRecord) {
-  const readinessMode = normalizeReadinessRecord(resolvePublishReadiness(account))?.mode;
-  if (readinessMode === 'browser') {
-    return true;
-  }
-  if (readinessMode === 'api' || readinessMode === 'oauth') {
-    return false;
-  }
-  return account.authType === 'browser';
-}
-
 function getSessionActionLabel(action: 'request_session' | 'relogin'): '请求登录' | '重新登录' {
   return action === 'relogin' ? '重新登录' : '请求登录';
 }
@@ -2103,29 +2075,9 @@ function getSessionActionMessage(action: 'request_session' | 'relogin') {
   return 'Browser session request queued. Complete login manually and attach session metadata after the browser lane picks up the job.';
 }
 
-function getRequestedSessionAction(account: ChannelAccountRecord): BrowserSessionAction | null {
-  const readiness = normalizeReadinessRecord(resolvePublishReadiness(account));
-  return readiness?.action === 'request_session' || readiness?.action === 'relogin' ? readiness.action : null;
-}
-
-function getSessionActionArtifactForAction(
-  account: ChannelAccountRecord,
-  action: BrowserSessionAction,
-): SessionActionArtifactSummary | undefined {
-  return (
-    account.activeSessionActionArtifacts?.[action] ??
-    (account.latestBrowserLaneArtifact?.action === action ? account.latestBrowserLaneArtifact : undefined)
-  );
-}
-
 function getPersistedSessionActionFeedback(account: ChannelAccountRecord): SessionActionFeedback | null {
-  const readinessAction = getRequestedSessionAction(account);
-  if (!readinessAction) {
-    return null;
-  }
-
-  const latestArtifact = getSessionActionArtifactForAction(account, readinessAction);
-  if (!latestArtifact || latestArtifact.resolvedAt !== null) {
+  const latestArtifact = getUnresolvedRequestedSessionArtifact(account);
+  if (!latestArtifact) {
     return null;
   }
 

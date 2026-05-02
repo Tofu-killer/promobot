@@ -10,3 +10,4 @@ release/
 data/
 playwright-report/
 test-results/
+artifacts/
