@@ -49,10 +49,10 @@ describe('GitHub workflow contracts', () => {
     const ciJob = ciWorkflow.slice(ciWorkflow.indexOf('  ci:'));
 
     expect(readme).toContain(
-      'GitHub Actions `CI`：所有 branch push（忽略 `v*` tag）和指向 `main` 的 pull request 现在都会先跑 `lint` job，通过 `rhysd/actionlint@v1.7.12` 校验 workflow，并用 `bash -n ops/*.sh` 检查 ops shell wrapper 语法；`lint` 和 `ci` 两个 job 都显式收敛到 `permissions: contents: read`；随后 `ci` job 继续运行 `pnpm test`、`pnpm build`，并追加一轮目录型 release bundle smoke：基于已构建的 `dist/server/cli/releaseBundle.js` 产出 bundle，再调用 bundle 自带的 `ops/verify-release.sh` 校验，用于提前拦截 workflow / shell wrapper 语法、测试、构建以及 release bundle 交付链回归',
+      'GitHub Actions `CI`：所有 branch push（忽略 `v*` tag）和指向 `main` 的 pull request 现在都会先跑 `lint` job，通过 `rhysd/actionlint@v1.7.12` 校验 workflow，并用 `bash -n ops/*.sh` 检查 ops shell wrapper 语法；`lint` 和 `ci` 两个 job 都显式收敛到 `permissions: contents: read`；随后 `ci` job 继续运行 `pnpm test`、`pnpm build`，并追加一轮 local release wrapper smoke：通过 `pnpm release:local -- --skip-build --output-dir ...` 产出目录型 bundle、archive sidecar 和 standalone helper，并要求这组本地 release 交付件全部存在，用于提前拦截 workflow / shell wrapper 语法、测试、构建以及本地 release 交付链回归',
     );
     expect(deploymentDoc).toContain(
-      '与之分开的主 GitHub Actions `CI` workflow 会在所有 branch push（忽略 `v*` tag）和指向 `main` 的 pull request 上先跑 `lint` job：通过 `rhysd/actionlint@v1.7.12` 校验 workflow，并用 `bash -n ops/*.sh` 检查 ops shell wrapper 语法；`lint` 和 `ci` 两个 job 都显式收敛到 `permissions: contents: read`；随后 `ci` job 再执行 `pnpm test`、`pnpm build`，并追加一轮目录型 release bundle smoke：基于已构建的 `dist/server/cli/releaseBundle.js` 产出 bundle，再调用 bundle 自带的 `ops/verify-release.sh` 校验',
+      '与之分开的主 GitHub Actions `CI` workflow 会在所有 branch push（忽略 `v*` tag）和指向 `main` 的 pull request 上先跑 `lint` job：通过 `rhysd/actionlint@v1.7.12` 校验 workflow，并用 `bash -n ops/*.sh` 检查 ops shell wrapper 语法；`lint` 和 `ci` 两个 job 都显式收敛到 `permissions: contents: read`；随后 `ci` job 再执行 `pnpm test`、`pnpm build`，并追加一轮 local release wrapper smoke：通过 `pnpm release:local -- --skip-build --output-dir ...` 产出目录型 bundle、archive sidecar 和 standalone helper，并要求这组本地 release 交付件全部存在',
     );
 
     expect(lintJob).toContain('    permissions:');
@@ -68,20 +68,28 @@ describe('GitHub workflow contracts', () => {
     expect(ciJob).toContain('          node-version: 22');
     expect(ciJob).toContain('run: pnpm test');
     expect(ciJob).toContain('run: pnpm build');
-    expect(ciJob).toContain('      - name: Smoke release bundle flow');
+    expect(ciJob).toContain('      - name: Smoke local release wrapper flow');
     expect(ciJob).toContain('RELEASE_BUNDLE_DIR: ${{ runner.temp }}/promobot-release');
+    expect(ciJob).toContain('RELEASE_ARCHIVE_PATH: ${{ runner.temp }}/promobot-release.tar.gz');
+    expect(ciJob).toContain('RELEASE_CHECKSUM_PATH: ${{ runner.temp }}/promobot-release.tar.gz.sha256');
     expect(ciJob).toContain(
-      'node dist/server/cli/releaseBundle.js --output-dir "$RELEASE_BUNDLE_DIR"',
+      'RELEASE_METADATA_PATH: ${{ runner.temp }}/promobot-release.tar.gz.metadata.json',
     );
+    expect(ciJob).toContain('RELEASE_HELPER_PATH: ${{ runner.temp }}/verify-downloaded-release.sh');
     expect(ciJob).toContain(
-      'bash "$RELEASE_BUNDLE_DIR/ops/verify-release.sh" --input-dir "$RELEASE_BUNDLE_DIR"',
+      'pnpm release:local -- --skip-build --output-dir "$RELEASE_BUNDLE_DIR"',
     );
+    expect(ciJob).toContain('test -f "$RELEASE_BUNDLE_DIR/manifest.json"');
+    expect(ciJob).toContain('test -f "$RELEASE_ARCHIVE_PATH"');
+    expect(ciJob).toContain('test -f "$RELEASE_CHECKSUM_PATH"');
+    expect(ciJob).toContain('test -f "$RELEASE_METADATA_PATH"');
+    expect(ciJob).toContain('test -x "$RELEASE_HELPER_PATH"');
     expectOrdered(ciJob, [
       '      - name: Install dependencies',
       '      - name: Rebuild native dependencies',
       '      - name: Run tests',
       '      - name: Build',
-      '      - name: Smoke release bundle flow',
+      '      - name: Smoke local release wrapper flow',
     ]);
   });
 

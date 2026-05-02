@@ -63,10 +63,19 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Smoke release bundle flow
+      - name: Smoke local release wrapper flow
         env:
           RELEASE_BUNDLE_DIR: ${{ runner.temp }}/promobot-release
+          RELEASE_ARCHIVE_PATH: ${{ runner.temp }}/promobot-release.tar.gz
+          RELEASE_CHECKSUM_PATH: ${{ runner.temp }}/promobot-release.tar.gz.sha256
+          RELEASE_METADATA_PATH: ${{ runner.temp }}/promobot-release.tar.gz.metadata.json
+          RELEASE_HELPER_PATH: ${{ runner.temp }}/verify-downloaded-release.sh
         run: |
           rm -rf "$RELEASE_BUNDLE_DIR"
-          node dist/server/cli/releaseBundle.js --output-dir "$RELEASE_BUNDLE_DIR"
-          bash "$RELEASE_BUNDLE_DIR/ops/verify-release.sh" --input-dir "$RELEASE_BUNDLE_DIR"
+          rm -f "$RELEASE_ARCHIVE_PATH" "$RELEASE_CHECKSUM_PATH" "$RELEASE_METADATA_PATH" "$RELEASE_HELPER_PATH"
+          pnpm release:local -- --skip-build --output-dir "$RELEASE_BUNDLE_DIR"
+          test -f "$RELEASE_BUNDLE_DIR/manifest.json"
+          test -f "$RELEASE_ARCHIVE_PATH"
+          test -f "$RELEASE_CHECKSUM_PATH"
+          test -f "$RELEASE_METADATA_PATH"
+          test -x "$RELEASE_HELPER_PATH"
