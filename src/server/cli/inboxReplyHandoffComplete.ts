@@ -4,12 +4,16 @@ import {
   type SubmitInboxReplyHandoffCompletionInput,
 } from '../services/inbox/replyHandoffCompletionSubmitter.js';
 
+interface ParsedInboxReplyHandoffCompleteArgs
+  extends Omit<SubmitInboxReplyHandoffCompletionInput, 'handoffAttempt'> {
+  handoffAttempt?: number;
+  showHelp?: boolean;
+}
+
 export function parseInboxReplyHandoffCompleteArgs(
   argv: string[],
-): SubmitInboxReplyHandoffCompletionInput & {
-  showHelp?: boolean;
-} {
-  const parsed: SubmitInboxReplyHandoffCompletionInput & { showHelp?: boolean } = {
+): ParsedInboxReplyHandoffCompleteArgs {
+  const parsed: ParsedInboxReplyHandoffCompleteArgs = {
     artifactPath: '',
     replyStatus: 'sent',
   };
@@ -59,6 +63,13 @@ export function parseInboxReplyHandoffCompleteArgs(
       continue;
     }
 
+    if (token === '--handoff-attempt') {
+      parsed.handoffAttempt =
+        typeof nextValue === 'string' ? Number(nextValue) : Number.NaN;
+      index += 1;
+      continue;
+    }
+
     if (token === '--queue-result') {
       parsed.queueResult = true;
       continue;
@@ -90,6 +101,7 @@ export function getInboxReplyHandoffCompleteHelpText() {
     '  --artifact-path <path>       Existing inbox reply handoff artifact path',
     '',
     'Optional:',
+    '  --handoff-attempt <n>        Positive integer identifying the current handoff version',
     '  --status <sent|failed>       Defaults to sent',
     '  --message <text>',
     '  --delivery-url <url>',

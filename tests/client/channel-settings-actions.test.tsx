@@ -808,6 +808,7 @@ describe('settings save validation and feedback', () => {
               status: 'resolved',
               artifactPath:
                 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88.json',
+              handoffAttempt: 1,
               createdAt: '2026-04-23T09:10:00.000Z',
               updatedAt: '2026-04-23T11:15:00.000Z',
               resolvedAt: '2026-04-23T11:15:00.000Z',
@@ -1430,6 +1431,7 @@ describe('settings save validation and feedback', () => {
             ownership: 'direct',
             status: 'resolved',
             artifactPath: 'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-13.json',
+            handoffAttempt: 1,
             createdAt: '2026-04-21T09:10:00.000Z',
             updatedAt: '2026-04-21T09:20:00.000Z',
             resolvedAt: '2026-04-21T09:20:00.000Z',
@@ -1456,6 +1458,7 @@ describe('settings save validation and feedback', () => {
             status: 'resolved',
             artifactPath:
               'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88.json',
+            handoffAttempt: 1,
             createdAt: '2026-04-23T09:10:00.000Z',
             updatedAt: '2026-04-23T11:15:00.000Z',
             resolvedAt: '2026-04-23T11:15:00.000Z',
@@ -2200,6 +2203,7 @@ describe('settings save validation and feedback', () => {
             accountKey: 'launch-campaign',
             status: 'pending',
             artifactPath: 'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-13.json',
+            handoffAttempt: 1,
             createdAt: '2026-04-28T09:10:00.000Z',
             updatedAt: '2026-04-28T09:10:00.000Z',
             resolvedAt: null,
@@ -2282,6 +2286,7 @@ describe('settings save validation and feedback', () => {
 
     expect(completeBrowserHandoffAction).toHaveBeenCalledWith({
       artifactPath: 'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-13.json',
+      handoffAttempt: 1,
       publishStatus: 'published',
       message: 'Published from settings',
       publishUrl: 'https://facebook.com/groups/launch/posts/13',
@@ -2292,6 +2297,168 @@ describe('settings save validation and feedback', () => {
     expect(collectText(container)).toContain('facebookGroup · draft #13 · resolved');
     expect(collectText(container)).toContain('publishUrl: https://facebook.com/groups/launch/posts/13');
     expect(collectText(container)).toContain('message: Published from settings');
+
+    await act(async () => {
+      pendingBrowserHandoffReload.resolve({
+        handoffs: [],
+        total: 0,
+      });
+      await flush();
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('completes a pending browser handoff inline from settings without a handoff attempt', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { SettingsPage } = await import('../../src/client/pages/Settings');
+
+    const pendingBrowserHandoffReload = createDeferredPromise<{
+      handoffs: Array<{
+        channelAccountId?: number;
+        accountDisplayName?: string;
+        ownership?: string;
+        platform: string;
+        draftId: string;
+        title: string | null;
+        accountKey: string;
+        status: string;
+        artifactPath: string;
+        createdAt: string;
+        updatedAt: string;
+        resolvedAt: string | null;
+        resolution?: unknown;
+      }>;
+      total: number;
+    }>();
+    const loadSettingsAction = vi.fn().mockResolvedValue({
+      settings: {
+        allowlist: ['10.0.0.1'],
+        schedulerIntervalMinutes: 45,
+        rssDefaults: ['OpenAI blog'],
+        monitorRssFeeds: ['https://openai.com/blog/rss.xml'],
+        monitorXQueries: ['openrouter failover'],
+        monitorRedditQueries: ['claude api latency'],
+        monitorV2exQueries: ['llm api'],
+      },
+    });
+    const loadSystemJobsAction = vi.fn().mockResolvedValue({
+      jobs: [],
+      queue: {
+        pending: 0,
+        failed: 0,
+      },
+      recentJobs: [],
+    });
+    const loadBrowserLaneRequestsAction = vi.fn().mockResolvedValue({
+      requests: [],
+      total: 0,
+    });
+    const loadBrowserHandoffsAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        handoffs: [
+          {
+            channelAccountId: 7,
+            accountDisplayName: 'FB Group Manual',
+            ownership: 'direct',
+            platform: 'facebookGroup',
+            draftId: '13',
+            title: 'Community update',
+            accountKey: 'launch-campaign',
+            status: 'pending',
+            artifactPath: 'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-13-legacy.json',
+            createdAt: '2026-04-28T09:10:00.000Z',
+            updatedAt: '2026-04-28T09:10:00.000Z',
+            resolvedAt: null,
+          },
+        ],
+        total: 1,
+      })
+      .mockImplementationOnce(() => pendingBrowserHandoffReload.promise);
+    const loadInboxReplyHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+    const completeBrowserHandoffAction = vi.fn().mockResolvedValue({
+      ok: true,
+      imported: true,
+      artifactPath: 'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-13-legacy.json',
+      draftId: 13,
+      draftStatus: 'published',
+      platform: 'facebookGroup',
+      mode: 'browser',
+      status: 'resolved',
+      publishStatus: 'published',
+      success: true,
+      publishUrl: 'https://facebook.com/groups/launch/posts/13-legacy',
+      externalId: '13',
+      message: 'Published from settings without attempt',
+      publishedAt: '2026-04-28T09:15:00.000Z',
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(SettingsPage as never, {
+          loadSettingsAction,
+          loadSystemJobsAction,
+          loadBrowserLaneRequestsAction,
+          loadBrowserHandoffsAction,
+          loadInboxReplyHandoffsAction,
+          completeBrowserHandoffAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const publishUrlField = findElement(
+      container,
+      (element) => element.getAttribute('data-settings-browser-handoff-field') === 'publishUrl',
+    );
+    const messageField = findElement(
+      container,
+      (element) => element.getAttribute('data-settings-browser-handoff-field') === 'message',
+    );
+    const completeButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('标记已发布'),
+    );
+
+    expect(publishUrlField).not.toBeNull();
+    expect(messageField).not.toBeNull();
+    expect(completeButton).not.toBeNull();
+
+    await act(async () => {
+      if (publishUrlField) {
+        publishUrlField.value = 'https://facebook.com/groups/launch/posts/13-legacy';
+        publishUrlField.dispatchEvent(new window.Event('input', { bubbles: true }));
+      }
+      if (messageField) {
+        messageField.value = 'Published from settings without attempt';
+        messageField.dispatchEvent(new window.Event('input', { bubbles: true }));
+      }
+      await flush();
+    });
+
+    await act(async () => {
+      completeButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(completeBrowserHandoffAction).toHaveBeenCalledWith({
+      artifactPath: 'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-13-legacy.json',
+      publishStatus: 'published',
+      message: 'Published from settings without attempt',
+      publishUrl: 'https://facebook.com/groups/launch/posts/13-legacy',
+    });
+    expect(loadBrowserHandoffsAction).toHaveBeenCalledTimes(2);
 
     await act(async () => {
       pendingBrowserHandoffReload.resolve({
@@ -2379,6 +2546,7 @@ describe('settings save validation and feedback', () => {
             accountKey: 'launch-campaign-a',
             status: 'pending',
             artifactPath: 'artifacts/browser-handoffs/facebookGroup/launch-campaign-a/facebookGroup-draft-13.json',
+            handoffAttempt: 1,
             createdAt: '2026-04-28T09:10:00.000Z',
             updatedAt: '2026-04-28T09:10:00.000Z',
             resolvedAt: null,
@@ -2393,6 +2561,7 @@ describe('settings save validation and feedback', () => {
             accountKey: 'launch-campaign-b',
             status: 'pending',
             artifactPath: 'artifacts/browser-handoffs/facebookGroup/launch-campaign-b/facebookGroup-draft-14.json',
+            handoffAttempt: 1,
             createdAt: '2026-04-28T09:11:00.000Z',
             updatedAt: '2026-04-28T09:11:00.000Z',
             resolvedAt: null,
@@ -2476,11 +2645,13 @@ describe('settings save validation and feedback', () => {
     expect(completeBrowserHandoffAction).toHaveBeenCalledTimes(2);
     expect(completeBrowserHandoffAction).toHaveBeenNthCalledWith(1, {
       artifactPath: 'artifacts/browser-handoffs/facebookGroup/launch-campaign-a/facebookGroup-draft-13.json',
+      handoffAttempt: 1,
       publishStatus: 'published',
       publishUrl: 'https://facebook.com/groups/a/posts/13',
     });
     expect(completeBrowserHandoffAction).toHaveBeenNthCalledWith(2, {
       artifactPath: 'artifacts/browser-handoffs/facebookGroup/launch-campaign-b/facebookGroup-draft-14.json',
+      handoffAttempt: 1,
       publishStatus: 'published',
       publishUrl: 'https://facebook.com/groups/b/posts/14',
     });
@@ -2590,6 +2761,7 @@ describe('settings save validation and feedback', () => {
             accountKey: 'reddit-main',
             status: 'pending',
             artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88.json',
+            handoffAttempt: 1,
             createdAt: '2026-04-28T09:10:00.000Z',
             updatedAt: '2026-04-28T09:10:00.000Z',
             resolvedAt: null,
@@ -2668,6 +2840,7 @@ describe('settings save validation and feedback', () => {
 
     expect(completeInboxReplyHandoffAction).toHaveBeenCalledWith({
       artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88.json',
+      handoffAttempt: 1,
       replyStatus: 'sent',
       message: 'Reply sent from settings',
       deliveryUrl: 'https://reddit.com/message/messages/88',
@@ -2678,6 +2851,168 @@ describe('settings save validation and feedback', () => {
     expect(collectText(container)).toContain('reddit · item #88 · resolved');
     expect(collectText(container)).toContain('deliveryUrl: https://reddit.com/message/messages/88');
     expect(collectText(container)).toContain('message: Reply sent from settings');
+
+    await act(async () => {
+      pendingInboxReplyHandoffReload.resolve({
+        handoffs: [],
+        total: 0,
+      });
+      await flush();
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('completes a pending inbox reply handoff inline from settings without a handoff attempt', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { SettingsPage } = await import('../../src/client/pages/Settings');
+
+    const pendingInboxReplyHandoffReload = createDeferredPromise<{
+      handoffs: Array<{
+        channelAccountId?: number;
+        platform: string;
+        itemId: string;
+        source: string;
+        title: string | null;
+        author: string | null;
+        accountKey: string;
+        status: string;
+        artifactPath: string;
+        createdAt: string;
+        updatedAt: string;
+        resolvedAt: string | null;
+        resolution?: unknown;
+      }>;
+      total: number;
+    }>();
+    const loadSettingsAction = vi.fn().mockResolvedValue({
+      settings: {
+        allowlist: ['10.0.0.1'],
+        schedulerIntervalMinutes: 45,
+        rssDefaults: ['OpenAI blog'],
+        monitorRssFeeds: ['https://openai.com/blog/rss.xml'],
+        monitorXQueries: ['openrouter failover'],
+        monitorRedditQueries: ['claude api latency'],
+        monitorV2exQueries: ['llm api'],
+      },
+    });
+    const loadSystemJobsAction = vi.fn().mockResolvedValue({
+      jobs: [],
+      queue: {
+        pending: 0,
+        failed: 0,
+      },
+      recentJobs: [],
+    });
+    const loadBrowserLaneRequestsAction = vi.fn().mockResolvedValue({
+      requests: [],
+      total: 0,
+    });
+    const loadBrowserHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+    const loadInboxReplyHandoffsAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        handoffs: [
+          {
+            channelAccountId: 12,
+            platform: 'reddit',
+            itemId: '88',
+            source: 'reddit',
+            title: 'Need lower latency in APAC',
+            author: 'user123',
+            accountKey: 'reddit-main',
+            status: 'pending',
+            artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88-legacy.json',
+            createdAt: '2026-04-28T09:10:00.000Z',
+            updatedAt: '2026-04-28T09:10:00.000Z',
+            resolvedAt: null,
+          },
+        ],
+        total: 1,
+      })
+      .mockImplementationOnce(() => pendingInboxReplyHandoffReload.promise);
+    const completeInboxReplyHandoffAction = vi.fn().mockResolvedValue({
+      ok: true,
+      imported: true,
+      artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88-legacy.json',
+      itemId: 88,
+      itemStatus: 'handled',
+      platform: 'reddit',
+      mode: 'manual',
+      status: 'resolved',
+      replyStatus: 'sent',
+      success: true,
+      deliveryUrl: 'https://reddit.com/message/messages/88-legacy',
+      externalId: '88',
+      message: 'Reply sent from settings without attempt',
+      deliveredAt: '2026-04-28T09:18:00.000Z',
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(SettingsPage as never, {
+          loadSettingsAction,
+          loadSystemJobsAction,
+          loadBrowserLaneRequestsAction,
+          loadBrowserHandoffsAction,
+          loadInboxReplyHandoffsAction,
+          completeInboxReplyHandoffAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const deliveryUrlField = findElement(
+      container,
+      (element) => element.getAttribute('data-settings-inbox-reply-handoff-field') === 'deliveryUrl',
+    );
+    const messageField = findElement(
+      container,
+      (element) => element.getAttribute('data-settings-inbox-reply-handoff-field') === 'message',
+    );
+    const completeButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('标记已发送'),
+    );
+
+    expect(deliveryUrlField).not.toBeNull();
+    expect(messageField).not.toBeNull();
+    expect(completeButton).not.toBeNull();
+
+    await act(async () => {
+      if (deliveryUrlField) {
+        deliveryUrlField.value = 'https://reddit.com/message/messages/88-legacy';
+        deliveryUrlField.dispatchEvent(new window.Event('input', { bubbles: true }));
+      }
+      if (messageField) {
+        messageField.value = 'Reply sent from settings without attempt';
+        messageField.dispatchEvent(new window.Event('input', { bubbles: true }));
+      }
+      await flush();
+    });
+
+    await act(async () => {
+      completeButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(completeInboxReplyHandoffAction).toHaveBeenCalledWith({
+      artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88-legacy.json',
+      replyStatus: 'sent',
+      message: 'Reply sent from settings without attempt',
+      deliveryUrl: 'https://reddit.com/message/messages/88-legacy',
+    });
+    expect(loadInboxReplyHandoffsAction).toHaveBeenCalledTimes(2);
 
     await act(async () => {
       pendingInboxReplyHandoffReload.resolve({
@@ -2739,6 +3074,7 @@ describe('settings save validation and feedback', () => {
           readiness: 'blocked',
           sessionAction: 'request_session',
           artifactPath: 'artifacts/inbox-reply-handoffs/weibo/weibo-main/weibo-item-88.json',
+          handoffAttempt: 1,
           createdAt: '2026-04-28T09:10:00.000Z',
           updatedAt: '2026-04-28T09:10:00.000Z',
           resolvedAt: null,
@@ -2828,6 +3164,7 @@ describe('settings save validation and feedback', () => {
           readiness: 'blocked',
           sessionAction: 'request_session',
           artifactPath: 'artifacts/browser-handoffs/weibo/weibo-main/weibo-draft-88.json',
+          handoffAttempt: 1,
           createdAt: '2026-04-28T09:10:00.000Z',
           updatedAt: '2026-04-28T09:10:00.000Z',
           resolvedAt: null,
@@ -2957,6 +3294,7 @@ describe('settings save validation and feedback', () => {
             accountKey: 'reddit-main',
             status: 'pending',
             artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88.json',
+            handoffAttempt: 1,
             createdAt: '2026-04-28T09:10:00.000Z',
             updatedAt: '2026-04-28T09:10:00.000Z',
             resolvedAt: null,
@@ -2971,6 +3309,7 @@ describe('settings save validation and feedback', () => {
             accountKey: 'reddit-secondary',
             status: 'pending',
             artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-secondary/reddit-item-89.json',
+            handoffAttempt: 1,
             createdAt: '2026-04-28T09:11:00.000Z',
             updatedAt: '2026-04-28T09:11:00.000Z',
             resolvedAt: null,
@@ -3050,11 +3389,13 @@ describe('settings save validation and feedback', () => {
     expect(completeInboxReplyHandoffAction).toHaveBeenCalledTimes(2);
     expect(completeInboxReplyHandoffAction).toHaveBeenNthCalledWith(1, {
       artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88.json',
+      handoffAttempt: 1,
       replyStatus: 'sent',
       deliveryUrl: 'https://reddit.com/message/messages/88',
     });
     expect(completeInboxReplyHandoffAction).toHaveBeenNthCalledWith(2, {
       artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-secondary/reddit-item-89.json',
+      handoffAttempt: 1,
       replyStatus: 'sent',
       deliveryUrl: 'https://reddit.com/message/messages/89',
     });

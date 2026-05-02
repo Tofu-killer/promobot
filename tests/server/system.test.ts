@@ -2388,6 +2388,7 @@ describe('system runtime api', () => {
         path.join(rootDir, artifactPath),
         JSON.stringify({
           type: 'browser_manual_handoff',
+          handoffAttempt: 1,
           status: 'pending',
           platform: 'facebookGroup',
           draftId: String(draft.id),
@@ -2424,6 +2425,7 @@ describe('system runtime api', () => {
         },
         body: {
           artifactPath,
+          handoffAttempt: 1,
           publishStatus: 'published',
           message: 'browser lane completed publish',
           publishUrl: 'https://facebook.com/groups/group-123/posts/42',
@@ -2483,6 +2485,131 @@ describe('system runtime api', () => {
     }
   });
 
+  it('imports browser-handoff completion through the system api without an explicit handoff attempt', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const draftStore = createSQLiteDraftStore();
+      const publishLogStore = createSQLitePublishLogStore();
+      const draft = draftStore.create({
+        platform: 'facebook-group',
+        title: 'Community update',
+        content: 'Need manual browser handoff',
+        target: 'group-123',
+        metadata: {
+          accountKey: 'launch-campaign',
+        },
+      });
+
+      const artifactDir = path.join(
+        rootDir,
+        'artifacts',
+        'browser-handoffs',
+        'facebookGroup',
+        'launch-campaign',
+      );
+      fs.mkdirSync(artifactDir, { recursive: true });
+      const artifactPath =
+        'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-1.json';
+      fs.writeFileSync(
+        path.join(rootDir, artifactPath),
+        JSON.stringify({
+          type: 'browser_manual_handoff',
+          handoffAttempt: 1,
+          status: 'pending',
+          platform: 'facebookGroup',
+          draftId: String(draft.id),
+          title: 'Community update',
+          content: 'Need manual browser handoff',
+          target: 'group-123',
+          accountKey: 'launch-campaign',
+          session: {
+            hasSession: true,
+            id: 'facebookGroup:launch-campaign',
+            status: 'active',
+            validatedAt: '2026-04-23T10:00:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
+          },
+          createdAt: '2026-04-23T10:05:00.000Z',
+          updatedAt: '2026-04-23T10:05:00.000Z',
+          resolvedAt: null,
+          resolution: null,
+        }),
+      );
+
+      const app = createApp({
+        allowedIps: ['127.0.0.1'],
+        adminPassword: 'secret',
+      });
+
+      const response = await requestExistingApp(app, {
+        method: 'POST',
+        url: '/api/system/browser-handoffs/import',
+        remoteAddress: '127.0.0.1',
+        headers: {
+          'x-admin-password': 'secret',
+          'content-type': 'application/json',
+        },
+        body: {
+          artifactPath,
+          publishStatus: 'published',
+          message: 'browser lane completed publish without explicit attempt',
+          publishUrl: 'https://facebook.com/groups/group-123/posts/99',
+          externalId: 'fb-post-99',
+          publishedAt: '2026-04-23T10:12:00.000Z',
+        },
+      });
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        ok: true,
+        imported: true,
+        artifactPath,
+        draftId: draft.id,
+        draftStatus: 'published',
+        platform: 'facebookGroup',
+        mode: 'browser',
+        status: 'published',
+        success: true,
+        publishUrl: 'https://facebook.com/groups/group-123/posts/99',
+        externalId: 'fb-post-99',
+        message: 'browser lane completed publish without explicit attempt',
+        publishedAt: '2026-04-23T10:12:00.000Z',
+      });
+
+      expect(draftStore.getById(draft.id)).toEqual(
+        expect.objectContaining({
+          id: draft.id,
+          status: 'published',
+          publishedAt: '2026-04-23T10:12:00.000Z',
+        }),
+      );
+      expect(publishLogStore.listByDraftId(draft.id)).toEqual([
+        expect.objectContaining({
+          draftId: draft.id,
+          status: 'published',
+          publishUrl: 'https://facebook.com/groups/group-123/posts/99',
+          message: 'browser lane completed publish without explicit attempt',
+        }),
+      ]);
+      expect(JSON.parse(fs.readFileSync(path.join(rootDir, artifactPath), 'utf8'))).toEqual(
+        expect.objectContaining({
+          status: 'resolved',
+          resolution: {
+            status: 'resolved',
+            publishStatus: 'published',
+            draftStatus: 'published',
+            publishUrl: 'https://facebook.com/groups/group-123/posts/99',
+            externalId: 'fb-post-99',
+            message: 'browser lane completed publish without explicit attempt',
+            publishedAt: '2026-04-23T10:12:00.000Z',
+          },
+        }),
+      );
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('lists inbox reply handoff artifacts through the system api', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
@@ -2503,6 +2630,7 @@ describe('system runtime api', () => {
         path.join(artifactDir, 'weibo-inbox-item-12.json'),
         JSON.stringify({
           type: 'browser_inbox_reply_handoff',
+          handoffAttempt: 1,
           status: 'pending',
           platform: 'weibo',
           itemId: '12',
@@ -2557,6 +2685,118 @@ describe('system runtime api', () => {
     }
   });
 
+  it('imports inbox reply handoff completion through the system api without an explicit handoff attempt', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const inboxStore = createInboxStore();
+      const item = inboxStore.create({
+        projectId: 1,
+        source: 'weibo',
+        status: 'needs_reply',
+        author: 'ops-user',
+        title: 'Community question',
+        excerpt: 'Can you share current response times?',
+        metadata: {
+          accountKey: 'weibo-browser-main',
+        },
+      });
+      const artifactPath =
+        'artifacts/inbox-reply-handoffs/weibo/weibo-browser-main/weibo-inbox-item-1.json';
+      fs.mkdirSync(path.dirname(path.join(rootDir, artifactPath)), { recursive: true });
+      fs.writeFileSync(
+        path.join(rootDir, artifactPath),
+        JSON.stringify({
+          type: 'browser_inbox_reply_handoff',
+          handoffAttempt: 1,
+          status: 'pending',
+          platform: 'weibo',
+          itemId: String(item.id),
+          source: 'weibo',
+          title: 'Community question',
+          excerpt: 'Can you share current response times?',
+          reply: 'Thanks for reaching out.',
+          author: 'ops-user',
+          sourceUrl: 'https://weibo.test/post/1',
+          accountKey: 'weibo-browser-main',
+          session: {
+            hasSession: true,
+            id: 'weibo:weibo-browser-main',
+            status: 'active',
+            validatedAt: '2026-04-25T10:00:00.000Z',
+            storageStatePath: 'browser-sessions/managed/weibo/weibo-browser-main.json',
+          },
+          createdAt: '2026-04-25T10:01:00.000Z',
+          updatedAt: '2026-04-25T10:01:00.000Z',
+          resolvedAt: null,
+          resolution: null,
+        }),
+      );
+
+      const app = createApp({
+        allowedIps: ['127.0.0.1'],
+        adminPassword: 'secret',
+      });
+
+      const response = await requestExistingApp(app, {
+        method: 'POST',
+        url: '/api/system/inbox-reply-handoffs/import',
+        remoteAddress: '127.0.0.1',
+        headers: {
+          'x-admin-password': 'secret',
+          'content-type': 'application/json',
+        },
+        body: {
+          artifactPath,
+          replyStatus: 'sent',
+          message: 'manual browser reply sent without explicit attempt',
+          deliveryUrl: 'https://weibo.test/post/1#reply-99',
+          externalId: 'wb-reply-99',
+          deliveredAt: '2026-04-25T10:06:00.000Z',
+        },
+      });
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        ok: true,
+        imported: true,
+        artifactPath,
+        itemId: item.id,
+        itemStatus: 'handled',
+        platform: 'weibo',
+        mode: 'browser',
+        status: 'sent',
+        success: true,
+        deliveryUrl: 'https://weibo.test/post/1#reply-99',
+        externalId: 'wb-reply-99',
+        message: 'manual browser reply sent without explicit attempt',
+        deliveredAt: '2026-04-25T10:06:00.000Z',
+      });
+
+      expect(inboxStore.list()).toEqual([
+        expect.objectContaining({
+          id: item.id,
+          status: 'handled',
+        }),
+      ]);
+      expect(JSON.parse(fs.readFileSync(path.join(rootDir, artifactPath), 'utf8'))).toEqual(
+        expect.objectContaining({
+          status: 'resolved',
+          resolution: {
+            status: 'resolved',
+            replyStatus: 'sent',
+            itemStatus: 'handled',
+            deliveryUrl: 'https://weibo.test/post/1#reply-99',
+            externalId: 'wb-reply-99',
+            message: 'manual browser reply sent without explicit attempt',
+            deliveredAt: '2026-04-25T10:06:00.000Z',
+          },
+        }),
+      );
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('returns a conflict when an inbox reply handoff artifact has already been resolved', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
@@ -2579,6 +2819,7 @@ describe('system runtime api', () => {
         path.join(rootDir, artifactPath),
         JSON.stringify({
           type: 'browser_inbox_reply_handoff',
+          handoffAttempt: 1,
           status: 'resolved',
           platform: 'weibo',
           itemId: String(item.id),
@@ -2621,6 +2862,7 @@ describe('system runtime api', () => {
         },
         body: {
           artifactPath,
+          handoffAttempt: 1,
           replyStatus: 'sent',
           message: 'manual browser reply sent',
         },

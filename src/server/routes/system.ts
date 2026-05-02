@@ -204,8 +204,17 @@ export function createSystemRouter(dependencies: SystemRouteDependencies = {}) {
       typeof request.body?.artifactPath === 'string' ? request.body.artifactPath.trim() : '';
     const message =
       typeof request.body?.message === 'string' ? request.body.message.trim() : '';
+    const handoffAttempt = parseOptionalPositiveInteger(request.body?.handoffAttempt);
+    const hasHandoffAttempt =
+      request.body !== undefined &&
+      Object.prototype.hasOwnProperty.call(request.body, 'handoffAttempt');
 
-    if (!artifactPath || !message || !isBrowserHandoffPublishStatus(request.body?.publishStatus)) {
+    if (
+      !artifactPath ||
+      !message ||
+      (hasHandoffAttempt && handoffAttempt === undefined) ||
+      !isBrowserHandoffPublishStatus(request.body?.publishStatus)
+    ) {
       response.status(400).json({ error: 'invalid browser handoff payload' });
       return;
     }
@@ -224,6 +233,7 @@ export function createSystemRouter(dependencies: SystemRouteDependencies = {}) {
         ...(request.body?.publishedAt === null || typeof request.body?.publishedAt === 'string'
           ? { publishedAt: request.body.publishedAt as string | null | undefined }
           : {}),
+        ...(handoffAttempt !== undefined ? { handoffAttempt } : {}),
       });
       response.json(result);
     } catch (error) {
@@ -256,8 +266,17 @@ export function createSystemRouter(dependencies: SystemRouteDependencies = {}) {
       typeof request.body?.artifactPath === 'string' ? request.body.artifactPath.trim() : '';
     const message =
       typeof request.body?.message === 'string' ? request.body.message.trim() : '';
+    const handoffAttempt = parseOptionalPositiveInteger(request.body?.handoffAttempt);
+    const hasHandoffAttempt =
+      request.body !== undefined &&
+      Object.prototype.hasOwnProperty.call(request.body, 'handoffAttempt');
 
-    if (!artifactPath || !message || !isInboxReplyHandoffReplyStatus(request.body?.replyStatus)) {
+    if (
+      !artifactPath ||
+      !message ||
+      (hasHandoffAttempt && handoffAttempt === undefined) ||
+      !isInboxReplyHandoffReplyStatus(request.body?.replyStatus)
+    ) {
       response.status(400).json({ error: 'invalid inbox reply handoff payload' });
       return;
     }
@@ -276,6 +295,7 @@ export function createSystemRouter(dependencies: SystemRouteDependencies = {}) {
         ...(request.body?.deliveredAt === null || typeof request.body?.deliveredAt === 'string'
           ? { deliveredAt: request.body.deliveredAt as string | null | undefined }
           : {}),
+        ...(handoffAttempt !== undefined ? { handoffAttempt } : {}),
       });
       response.json(result);
     } catch (error) {
@@ -430,11 +450,17 @@ export function createSystemHealthPayload(schedulerRuntime: SchedulerRuntime | u
 }
 
 function parseOptionalPositiveInteger(value: unknown): number | undefined {
-  if (typeof value !== 'string' || value.trim().length === 0) {
+  const normalizedValue =
+    typeof value === 'number'
+      ? String(value)
+      : typeof value === 'string'
+        ? value.trim()
+        : '';
+  if (normalizedValue.length === 0) {
     return undefined;
   }
 
-  const parsed = Number(value);
+  const parsed = Number(normalizedValue);
   if (!Number.isInteger(parsed) || parsed <= 0) {
     return undefined;
   }

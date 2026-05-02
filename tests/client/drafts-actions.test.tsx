@@ -933,6 +933,7 @@ describe('Drafts publish actions', () => {
           sessionAction: null,
           artifactPath:
             'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-31.json',
+          handoffAttempt: 1,
         },
       },
     });
@@ -1007,6 +1008,7 @@ describe('Drafts publish actions', () => {
           readiness: 'ready',
           sessionAction: null,
           artifactPath: 'artifacts/browser-handoffs/tiktok/launch-campaign/tiktok-draft-32.json',
+          handoffAttempt: 1,
         },
       },
     });
@@ -1464,6 +1466,7 @@ describe('Drafts publish actions', () => {
           readiness: 'blocked',
           sessionAction: 'request_session',
           artifactPath: 'artifacts/browser-handoffs/instagram/relaunch/instagram-draft-71.json',
+          handoffAttempt: 1,
         },
       },
     });
@@ -1586,6 +1589,7 @@ describe('Drafts publish actions', () => {
           platform: 'tiktok',
           readiness: 'ready',
           artifactPath: 'artifacts/browser-handoffs/tiktok/relaunch/tiktok-draft-72.json',
+          handoffAttempt: 1,
         },
       },
     });
@@ -1665,6 +1669,7 @@ describe('Drafts publish actions', () => {
 
     expect(completeBrowserHandoffAction).toHaveBeenCalledWith({
       artifactPath: 'artifacts/browser-handoffs/tiktok/relaunch/tiktok-draft-72.json',
+      handoffAttempt: 1,
       publishStatus: 'published',
       publishUrl: 'https://www.tiktok.com/@promobot/video/72',
       message: 'Posted from browser lane.',
@@ -1720,6 +1725,7 @@ describe('Drafts publish actions', () => {
           platform: 'instagram',
           readiness: 'ready',
           artifactPath: 'artifacts/browser-handoffs/instagram/relaunch/instagram-draft-74.json',
+          handoffAttempt: 1,
         },
       },
     });
@@ -1880,6 +1886,7 @@ describe('Drafts publish actions', () => {
           readiness: 'blocked',
           sessionAction: 'request_session',
           artifactPath: 'artifacts/browser-handoffs/instagram/relaunch/instagram-draft-76.json',
+          handoffAttempt: 1,
         },
       },
     });
@@ -2032,6 +2039,7 @@ describe('Drafts publish actions', () => {
                   readiness: 'blocked',
                   sessionAction: 'relogin',
                   artifactPath: 'artifacts/browser-handoffs/weibo/weibo-main/weibo-draft-79.json',
+                  handoffAttempt: 1,
                   createdAt: '2026-04-24T10:00:00.000Z',
                   updatedAt: '2026-04-24T10:00:00.000Z',
                   resolvedAt: null,
@@ -2156,6 +2164,7 @@ describe('Drafts publish actions', () => {
                   readiness: 'ready',
                   sessionAction: null,
                   artifactPath: 'artifacts/browser-handoffs/facebookGroup/fb-main/facebookGroup-draft-80.json',
+                  handoffAttempt: 1,
                   createdAt: '2026-04-24T10:00:00.000Z',
                   updatedAt: '2026-04-24T10:00:00.000Z',
                   resolvedAt: null,
@@ -2216,6 +2225,7 @@ describe('Drafts publish actions', () => {
 
     expect(completeBrowserHandoffAction).toHaveBeenCalledWith({
       artifactPath: 'artifacts/browser-handoffs/facebookGroup/fb-main/facebookGroup-draft-80.json',
+      handoffAttempt: 1,
       publishStatus: 'published',
       publishUrl: 'https://facebook.com/groups/promobot/posts/80',
       message: 'Restored draft browser handoff completed after reload.',
@@ -2226,6 +2236,135 @@ describe('Drafts publish actions', () => {
     );
     expect(collectText(container)).toContain('发布时间');
     expect(collectText(container)).toContain('2026-04-27T01:00:00.000Z');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('restores a ready persisted draft browser handoff without a handoff attempt and allows completing it inline', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { DraftsPage } = await import('../../src/client/pages/Drafts');
+
+    const completeBrowserHandoffAction = vi.fn().mockResolvedValue({
+      ok: true,
+      imported: true,
+      artifactPath: 'artifacts/browser-handoffs/facebookGroup/fb-main/facebookGroup-draft-80-legacy.json',
+      draftId: 80,
+      draftStatus: 'published',
+      platform: 'facebookGroup',
+      mode: 'browser_handoff',
+      status: 'published',
+      success: true,
+      publishUrl: 'https://facebook.com/groups/promobot/posts/80-legacy',
+      externalId: null,
+      message: 'Legacy draft browser handoff completed.',
+      publishedAt: '2026-04-29T01:00:00.000Z',
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(DraftsPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              drafts: [
+                {
+                  id: 80,
+                  platform: 'facebookGroup',
+                  title: 'Facebook Group relaunch draft',
+                  content: 'Draft body',
+                  hashtags: ['#launch'],
+                  status: 'draft',
+                  createdAt: '2026-04-27T00:00:00.000Z',
+                  updatedAt: '2026-04-27T00:00:00.000Z',
+                },
+              ],
+            },
+          },
+          browserHandoffsStateOverride: {
+            status: 'success',
+            data: {
+              handoffs: [
+                {
+                  platform: 'facebookGroup',
+                  draftId: 80,
+                  title: 'Facebook Group relaunch draft',
+                  accountKey: 'fb-main',
+                  channelAccountId: 18,
+                  status: 'pending',
+                  readiness: 'ready',
+                  sessionAction: null,
+                  artifactPath: 'artifacts/browser-handoffs/facebookGroup/fb-main/facebookGroup-draft-80-legacy.json',
+                  createdAt: '2026-04-29T00:00:00.000Z',
+                  updatedAt: '2026-04-29T00:05:00.000Z',
+                  resolvedAt: null,
+                },
+              ],
+              total: 1,
+            },
+          },
+          completeBrowserHandoffAction,
+        }),
+      );
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('发现待处理的 browser handoff，可以直接结单。');
+    expect(collectText(container)).toContain('Handoff 状态：ready');
+    expect(collectText(container)).toContain(
+      'Handoff 路径：artifacts/browser-handoffs/facebookGroup/fb-main/facebookGroup-draft-80-legacy.json',
+    );
+
+    const publishUrlInput = findElement(
+      container,
+      (element) => element.getAttribute('data-draft-browser-handoff-field') === 'publishUrl',
+    );
+    const messageInput = findElement(
+      container,
+      (element) => element.getAttribute('data-draft-browser-handoff-field') === 'message',
+    );
+    const markPublishedButton = findElement(
+      container,
+      (element) => element.getAttribute('data-draft-browser-handoff-complete') === 'published',
+    );
+
+    expect(publishUrlInput).not.toBeNull();
+    expect(messageInput).not.toBeNull();
+    expect(markPublishedButton).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(
+        publishUrlInput as never,
+        'https://facebook.com/groups/promobot/posts/80-legacy',
+        window as never,
+      );
+      updateFieldValue(messageInput as never, 'Recovered after reload without attempt.', window as never);
+      await flush();
+    });
+
+    await act(async () => {
+      markPublishedButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    expect(completeBrowserHandoffAction).toHaveBeenCalledWith({
+      artifactPath: 'artifacts/browser-handoffs/facebookGroup/fb-main/facebookGroup-draft-80-legacy.json',
+      publishStatus: 'published',
+      publishUrl: 'https://facebook.com/groups/promobot/posts/80-legacy',
+      message: 'Recovered after reload without attempt.',
+    });
+    expect(collectText(container)).not.toContain('发现待处理的 browser handoff，可以直接结单。');
+    expect(collectText(container)).not.toContain(
+      'Handoff 路径：artifacts/browser-handoffs/facebookGroup/fb-main/facebookGroup-draft-80-legacy.json',
+    );
+    expect(collectText(container)).toContain('发布时间');
+    expect(collectText(container)).toContain('2026-04-29T01:00:00.000Z');
 
     await act(async () => {
       root.unmount();
@@ -2265,6 +2404,7 @@ describe('Drafts publish actions', () => {
             readiness: 'ready',
             sessionAction: null,
             artifactPath: 'artifacts/browser-handoffs/instagram/ig-main/instagram-draft-81.json',
+            handoffAttempt: 1,
             createdAt: '2026-04-24T10:00:00.000Z',
             updatedAt: '2026-04-24T10:00:00.000Z',
             resolvedAt: null,
@@ -2358,6 +2498,7 @@ describe('Drafts publish actions', () => {
 
     expect(completeBrowserHandoffAction).toHaveBeenCalledWith({
       artifactPath: 'artifacts/browser-handoffs/instagram/ig-main/instagram-draft-81.json',
+      handoffAttempt: 1,
       publishStatus: 'published',
       publishUrl: 'https://instagram.com/p/promobot-81',
       message: 'Instagram browser handoff completed from live reload path.',
@@ -2470,6 +2611,7 @@ describe('Drafts publish actions', () => {
             platform: 'instagram',
             readiness: 'ready',
             artifactPath: 'artifacts/browser-handoffs/instagram/relaunch/instagram-draft-73-v1.json',
+            handoffAttempt: 1,
           },
         },
       })
@@ -2485,6 +2627,7 @@ describe('Drafts publish actions', () => {
             readiness: 'blocked',
             sessionAction: 'relogin',
             artifactPath: 'artifacts/browser-handoffs/instagram/relaunch/instagram-draft-73-v2.json',
+            handoffAttempt: 2,
           },
         },
       });
@@ -2559,6 +2702,7 @@ describe('Drafts publish actions', () => {
 
     expect(completeBrowserHandoffAction).toHaveBeenCalledWith({
       artifactPath: 'artifacts/browser-handoffs/instagram/relaunch/instagram-draft-73-v1.json',
+      handoffAttempt: 1,
       publishStatus: 'published',
     });
     expect(loadDraftsAction).toHaveBeenCalledTimes(3);
@@ -2625,6 +2769,7 @@ describe('Drafts publish actions', () => {
             readiness: 'blocked',
             sessionAction: 'request_session',
             artifactPath: 'artifacts/browser-handoffs/instagram/relaunch/instagram-draft-77-v1.json',
+            handoffAttempt: 1,
           },
         },
       })
@@ -2640,6 +2785,7 @@ describe('Drafts publish actions', () => {
             readiness: 'blocked',
             sessionAction: 'relogin',
             artifactPath: 'artifacts/browser-handoffs/instagram/relaunch/instagram-draft-77-v2.json',
+            handoffAttempt: 2,
           },
         },
       });

@@ -177,6 +177,7 @@ function writePendingBrowserHandoffArtifact(
     JSON.stringify(
       {
         type: 'browser_manual_handoff',
+        handoffAttempt: 1,
         status: 'pending',
         platform: 'facebookGroup',
         draftId: '1',
@@ -236,6 +237,7 @@ describe('browser handoff completion submitter', () => {
 
       const result = await submitBrowserHandoffCompletion({
         artifactPath,
+        handoffAttempt: 1,
         publishStatus: 'published',
         publishUrl: 'https://facebook.com/groups/group-123/posts/42',
         message: 'browser lane completed publish',
@@ -284,6 +286,73 @@ describe('browser handoff completion submitter', () => {
     }
   });
 
+  it('imports a browser handoff completion locally without an explicit handoff attempt', async () => {
+    const { rootDir } = createTestDatabasePath();
+
+    try {
+      const draftStore = createSQLiteDraftStore();
+      const publishLogStore = createSQLitePublishLogStore();
+      draftStore.create({
+        platform: 'facebook-group',
+        title: 'Community update',
+        content: 'Need manual browser handoff',
+        target: 'group-123',
+        metadata: {
+          accountKey: 'launch-campaign',
+        },
+      });
+      const artifactPath = writePendingBrowserHandoffArtifact(rootDir);
+
+      const result = await submitBrowserHandoffCompletion({
+        artifactPath,
+        publishStatus: 'published',
+        publishUrl: 'https://facebook.com/groups/group-123/posts/77',
+        message: 'browser lane completed publish',
+        publishedAt: '2026-04-23T10:12:00.000Z',
+      } as Parameters<typeof submitBrowserHandoffCompletion>[0]);
+
+      expect(result).toEqual({
+        ok: true,
+        imported: true,
+        artifactPath,
+        draftId: 1,
+        draftStatus: 'published',
+        platform: 'facebookGroup',
+        mode: 'browser',
+        status: 'published',
+        success: true,
+        publishUrl: 'https://facebook.com/groups/group-123/posts/77',
+        externalId: null,
+        message: 'browser lane completed publish',
+        publishedAt: '2026-04-23T10:12:00.000Z',
+      });
+      expect(draftStore.getById(1)).toEqual(
+        expect.objectContaining({
+          status: 'published',
+          publishedAt: '2026-04-23T10:12:00.000Z',
+        }),
+      );
+      expect(publishLogStore.listByDraftId(1)).toEqual([
+        expect.objectContaining({
+          status: 'published',
+          publishUrl: 'https://facebook.com/groups/group-123/posts/77',
+          message: 'browser lane completed publish',
+        }),
+      ]);
+      expect(getBrowserHandoffArtifactByPath(artifactPath)).toEqual(
+        expect.objectContaining({
+          status: 'resolved',
+          resolution: expect.objectContaining({
+            publishStatus: 'published',
+            publishUrl: 'https://facebook.com/groups/group-123/posts/77',
+          }),
+        }),
+      );
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('imports a browser handoff completion through the system api when baseUrl is provided', async () => {
     const { rootDir } = createTestDatabasePath();
 
@@ -308,6 +377,7 @@ describe('browser handoff completion submitter', () => {
       const result = await submitBrowserHandoffCompletion(
         {
           artifactPath,
+          handoffAttempt: 1,
           publishStatus: 'failed',
           message: 'manual publish failed',
           importBaseUrl: 'http://local.test',
@@ -326,6 +396,7 @@ describe('browser handoff completion submitter', () => {
           },
           body: {
             artifactPath,
+            handoffAttempt: 1,
             publishStatus: 'failed',
             message: 'manual publish failed',
           },
@@ -384,6 +455,7 @@ describe('browser handoff completion submitter', () => {
       await expect(
         submitBrowserHandoffCompletion({
           artifactPath,
+          handoffAttempt: 1,
           publishStatus: 'published',
         }),
       ).rejects.toMatchObject<Partial<BrowserHandoffCompletionSubmitError>>({
@@ -417,6 +489,7 @@ describe('browser handoff completion submitter', () => {
       await expect(
         submitBrowserHandoffCompletion({
           artifactPath,
+          handoffAttempt: 1,
           publishStatus: 'published',
         }),
       ).rejects.toMatchObject<Partial<BrowserHandoffCompletionSubmitError>>({
@@ -446,6 +519,7 @@ describe('browser handoff completion submitter', () => {
 
       const result = await submitBrowserHandoffCompletion({
         artifactPath,
+        handoffAttempt: 1,
         publishStatus: 'published',
         publishUrl: 'https://facebook.com/groups/group-123/posts/42',
         message: 'browser lane completed publish',
@@ -458,7 +532,7 @@ describe('browser handoff completion submitter', () => {
         imported: false,
         artifactPath,
         resultArtifactPath:
-          'artifacts/browser-handoff-results/facebookGroup/launch-campaign/facebookGroup-draft-1.json',
+          'artifacts/browser-handoff-results/facebookGroup/launch-campaign/facebookGroup-draft-1-attempt-1.json',
       });
       expect(draftStore.getById(1)).toEqual(
         expect.objectContaining({
@@ -471,7 +545,7 @@ describe('browser handoff completion submitter', () => {
           fs.readFileSync(
             path.join(
               rootDir,
-              'artifacts/browser-handoff-results/facebookGroup/launch-campaign/facebookGroup-draft-1.json',
+              'artifacts/browser-handoff-results/facebookGroup/launch-campaign/facebookGroup-draft-1-attempt-1.json',
             ),
             'utf8',
           ),
@@ -480,6 +554,7 @@ describe('browser handoff completion submitter', () => {
         expect.objectContaining({
           type: 'browser_manual_handoff_result',
           handoffArtifactPath: artifactPath,
+          handoffAttempt: 1,
           publishStatus: 'published',
           message: 'browser lane completed publish',
           publishUrl: 'https://facebook.com/groups/group-123/posts/42',
@@ -489,6 +564,7 @@ describe('browser handoff completion submitter', () => {
       expect(getBrowserHandoffArtifactByPath(artifactPath)).toEqual(
         expect.objectContaining({
           status: 'pending',
+          handoffAttempt: 1,
           resolvedAt: null,
         }),
       );
@@ -519,6 +595,7 @@ describe('browser handoff completion submitter', () => {
       await expect(
         submitBrowserHandoffCompletion({
           artifactPath,
+          handoffAttempt: 1,
           publishStatus: 'published',
           queueResult: true,
         }),
@@ -538,6 +615,8 @@ describe('browser handoff completion submitter', () => {
         'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-1.json',
         '--status',
         'failed',
+        '--handoff-attempt',
+        '1',
         '--message',
         'manual publish failed',
         '--publish-url',
@@ -556,6 +635,7 @@ describe('browser handoff completion submitter', () => {
       artifactPath:
         'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-1.json',
       publishStatus: 'failed',
+      handoffAttempt: 1,
       message: 'manual publish failed',
       publishUrl: 'https://facebook.com/groups/group-123/posts/42',
       externalId: 'fb-post-42',
@@ -565,6 +645,7 @@ describe('browser handoff completion submitter', () => {
       adminPassword: 'secret',
     });
     expect(getBrowserHandoffCompleteHelpText()).toContain('--artifact-path <path>');
+    expect(getBrowserHandoffCompleteHelpText()).toContain('--handoff-attempt <n>');
     expect(getBrowserHandoffCompleteHelpText()).toContain('--queue-result');
   });
 });

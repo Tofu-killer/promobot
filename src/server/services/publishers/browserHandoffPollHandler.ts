@@ -12,6 +12,7 @@ const browserHandoffPollQueueScanLimit = 200;
 
 export interface BrowserHandoffPollJobPayload {
   artifactPath?: unknown;
+  handoffAttempt?: unknown;
   attempt?: unknown;
   maxAttempts?: unknown;
   pollDelayMs?: unknown;
@@ -19,6 +20,7 @@ export interface BrowserHandoffPollJobPayload {
 
 interface NormalizedBrowserHandoffPollJobPayload {
   artifactPath: string;
+  handoffAttempt?: number;
   attempt: number;
   maxAttempts: number;
   pollDelayMs: number;
@@ -49,10 +51,21 @@ export function createBrowserHandoffPollJobHandler(
       return;
     }
 
+    if (
+      normalizedPayload.handoffAttempt !== undefined &&
+      handoffArtifact.handoffAttempt !== normalizedPayload.handoffAttempt
+    ) {
+      return;
+    }
+
+    const resolvedHandoffAttempt =
+      normalizedPayload.handoffAttempt ?? handoffArtifact.handoffAttempt;
+
     const resultArtifact = getBrowserHandoffResultArtifact({
       platform: handoffArtifact.platform,
       accountKey: handoffArtifact.accountKey,
       draftId: handoffArtifact.draftId,
+      handoffAttempt: handoffArtifact.handoffAttempt,
     });
 
     if (resultArtifact?.consumedAt === null) {
@@ -71,6 +84,7 @@ export function createBrowserHandoffPollJobHandler(
     if (
       hasOutstandingBrowserHandoffPollJob(jobQueueStore, {
         artifactPath: normalizedPayload.artifactPath,
+        handoffAttempt: resolvedHandoffAttempt,
         currentJobId: job.id,
       })
     ) {
@@ -81,6 +95,7 @@ export function createBrowserHandoffPollJobHandler(
       type: browserHandoffPollJobType,
       payload: {
         artifactPath: normalizedPayload.artifactPath,
+        handoffAttempt: resolvedHandoffAttempt,
         attempt: normalizedPayload.attempt + 1,
         maxAttempts: normalizedPayload.maxAttempts,
         pollDelayMs: normalizedPayload.pollDelayMs,
@@ -94,6 +109,7 @@ export function hasOutstandingBrowserHandoffPollJob(
   jobQueueStore: Pick<JobQueueStore, 'list'>,
   input: {
     artifactPath: string;
+    handoffAttempt: number;
     currentJobId: number | undefined;
   },
 ) {
@@ -112,7 +128,10 @@ export function hasOutstandingBrowserHandoffPollJob(
       return false;
     }
 
-    return queuedPayload.artifactPath === input.artifactPath;
+    return (
+      queuedPayload.artifactPath === input.artifactPath &&
+      (queuedPayload.handoffAttempt ?? input.handoffAttempt) === input.handoffAttempt
+    );
   });
 }
 
@@ -131,6 +150,10 @@ function normalizeBrowserHandoffPollPayload(
 
   return {
     artifactPath,
+    handoffAttempt: normalizeOptionalPositiveInteger(
+      normalizedPayload.handoffAttempt,
+      'invalid browser_handoff_poll job payload',
+    ),
     attempt: normalizeNonNegativeInteger(
       normalizedPayload.attempt,
       0,
@@ -174,6 +197,19 @@ function normalizeNonNegativeInteger(value: unknown, fallback: number, errorMess
 function normalizePositiveInteger(value: unknown, fallback: number, errorMessage: string) {
   if (value === undefined) {
     return fallback;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(errorMessage);
+  }
+
+  return parsed;
+}
+
+function normalizeOptionalPositiveInteger(value: unknown, errorMessage: string) {
+  if (value === undefined) {
+    return undefined;
   }
 
   const parsed = Number(value);

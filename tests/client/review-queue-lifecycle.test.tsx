@@ -1687,6 +1687,7 @@ describe('Review Queue lifecycle actions', () => {
           platform: 'tiktok',
           readiness: 'ready',
           artifactPath: 'artifacts/browser-handoffs/tiktok/relaunch/tiktok-draft-34.json',
+          handoffAttempt: 1,
         },
       },
     });
@@ -1766,6 +1767,7 @@ describe('Review Queue lifecycle actions', () => {
 
     expect(completeBrowserHandoffAction).toHaveBeenCalledWith({
       artifactPath: 'artifacts/browser-handoffs/tiktok/relaunch/tiktok-draft-34.json',
+      handoffAttempt: 1,
       publishStatus: 'published',
       publishUrl: 'https://www.tiktok.com/@promobot/video/34',
       message: 'Posted from browser lane.',
@@ -1965,6 +1967,7 @@ describe('Review Queue lifecycle actions', () => {
                   readiness: 'ready',
                   sessionAction: null,
                   artifactPath: 'artifacts/browser-handoffs/facebookGroup/fb-main/facebookGroup-draft-36.json',
+                  handoffAttempt: 1,
                   createdAt: '2026-04-24T10:00:00.000Z',
                   updatedAt: '2026-04-24T10:00:00.000Z',
                   resolvedAt: null,
@@ -2019,6 +2022,7 @@ describe('Review Queue lifecycle actions', () => {
 
     expect(completeBrowserHandoffAction).toHaveBeenCalledWith({
       artifactPath: 'artifacts/browser-handoffs/facebookGroup/fb-main/facebookGroup-draft-36.json',
+      handoffAttempt: 1,
       publishStatus: 'failed',
       publishUrl: 'https://facebook.com/groups/promobot/posts/36',
       message: 'Restored browser handoff completed after reload.',
@@ -2026,6 +2030,130 @@ describe('Review Queue lifecycle actions', () => {
     expect(collectText(container)).toContain('已结单 draft #36 (review)');
     expect(collectText(container)).toContain('Restored browser handoff completed after reload.');
     expect(collectText(container)).toContain('https://facebook.com/groups/promobot/posts/36');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('restores a ready persisted review browser handoff without a handoff attempt and allows completing it inline', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ReviewQueuePage } = await import('../../src/client/pages/ReviewQueue');
+
+    const completeBrowserHandoffAction = vi.fn().mockResolvedValue({
+      ok: true,
+      imported: true,
+      artifactPath: 'artifacts/browser-handoffs/facebookGroup/fb-main/facebookGroup-draft-36-legacy.json',
+      draftId: 36,
+      draftStatus: 'review',
+      platform: 'facebookGroup',
+      mode: 'browser_handoff',
+      status: 'failed',
+      success: true,
+      publishUrl: 'https://facebook.com/groups/promobot/posts/36-legacy',
+      externalId: null,
+      message: 'Legacy review browser handoff completed.',
+      publishedAt: '2026-04-29T01:05:00.000Z',
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ReviewQueuePage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              drafts: [
+                {
+                  id: 36,
+                  platform: 'facebookGroup',
+                  title: 'Facebook Group follow-up',
+                  content: 'Draft body',
+                  hashtags: ['#launch'],
+                  status: 'review',
+                  createdAt: '2026-04-27T00:00:00.000Z',
+                  updatedAt: '2026-04-27T00:00:00.000Z',
+                },
+              ],
+            },
+          },
+          browserHandoffsStateOverride: {
+            status: 'success',
+            data: {
+              handoffs: [
+                {
+                  platform: 'facebookGroup',
+                  draftId: 36,
+                  title: 'Facebook Group follow-up',
+                  accountKey: 'fb-main',
+                  channelAccountId: 18,
+                  status: 'pending',
+                  readiness: 'ready',
+                  sessionAction: null,
+                  artifactPath: 'artifacts/browser-handoffs/facebookGroup/fb-main/facebookGroup-draft-36-legacy.json',
+                  createdAt: '2026-04-29T00:00:00.000Z',
+                  updatedAt: '2026-04-29T00:05:00.000Z',
+                  resolvedAt: null,
+                },
+              ],
+              total: 1,
+            },
+          },
+          completeBrowserHandoffAction,
+        }),
+      );
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('发现待处理的 browser handoff，可以直接结单。');
+    expect(collectText(container)).toContain('Handoff 状态：ready');
+    expect(collectText(container)).toContain(
+      'Handoff 路径：artifacts/browser-handoffs/facebookGroup/fb-main/facebookGroup-draft-36-legacy.json',
+    );
+
+    const publishUrlInput = findElement(
+      container,
+      (element) => element.getAttribute('data-review-browser-handoff-field') === 'publishUrl',
+    );
+    const messageInput = findElement(
+      container,
+      (element) => element.getAttribute('data-review-browser-handoff-field') === 'message',
+    );
+    const markFailedButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-review-browser-handoff-complete') === 'failed',
+    );
+
+    expect(publishUrlInput).not.toBeNull();
+    expect(messageInput).not.toBeNull();
+    expect(markFailedButton).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(
+        publishUrlInput as never,
+        'https://facebook.com/groups/promobot/posts/36-legacy',
+        window as never,
+      );
+      updateFieldValue(messageInput as never, 'Recovered after reload without attempt.', window as never);
+      await flush();
+    });
+
+    await act(async () => {
+      markFailedButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(completeBrowserHandoffAction).toHaveBeenCalledWith({
+      artifactPath: 'artifacts/browser-handoffs/facebookGroup/fb-main/facebookGroup-draft-36-legacy.json',
+      publishStatus: 'failed',
+      publishUrl: 'https://facebook.com/groups/promobot/posts/36-legacy',
+      message: 'Recovered after reload without attempt.',
+    });
+    expect(collectText(container)).toContain('已结单 draft #36 (review)');
+    expect(collectText(container)).toContain('Legacy review browser handoff completed.');
+    expect(collectText(container)).toContain('https://facebook.com/groups/promobot/posts/36-legacy');
 
     await act(async () => {
       root.unmount();
@@ -2065,6 +2193,7 @@ describe('Review Queue lifecycle actions', () => {
             readiness: 'ready',
             sessionAction: null,
             artifactPath: 'artifacts/browser-handoffs/instagram/ig-main/instagram-draft-37.json',
+            handoffAttempt: 1,
             createdAt: '2026-04-24T10:00:00.000Z',
             updatedAt: '2026-04-24T10:00:00.000Z',
             resolvedAt: null,
@@ -2158,6 +2287,7 @@ describe('Review Queue lifecycle actions', () => {
 
     expect(completeBrowserHandoffAction).toHaveBeenCalledWith({
       artifactPath: 'artifacts/browser-handoffs/instagram/ig-main/instagram-draft-37.json',
+      handoffAttempt: 1,
       publishStatus: 'published',
       publishUrl: 'https://instagram.com/p/promobot-37',
       message: 'Instagram browser handoff completed from live reload path.',

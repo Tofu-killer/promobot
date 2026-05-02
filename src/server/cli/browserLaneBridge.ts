@@ -93,50 +93,62 @@ export function parseBrowserLaneBridgeEnv(
       }
     case 'publish_handoff':
       {
+        const artifactPath = requireEnvValue(
+          env.PROMOBOT_BROWSER_ARTIFACT_PATH,
+          'PROMOBOT_BROWSER_ARTIFACT_PATH is required for publish_handoff dispatches',
+        );
         const message = optionalEnvValue(env.PROMOBOT_BROWSER_MESSAGE);
         const publishUrl = optionalEnvValue(env.PROMOBOT_BROWSER_PUBLISH_URL);
         const externalId = optionalEnvValue(env.PROMOBOT_BROWSER_EXTERNAL_ID);
         const publishedAt = optionalEnvValue(env.PROMOBOT_BROWSER_PUBLISHED_AT);
         const queueResult = parseBooleanEnv(env.PROMOBOT_BROWSER_QUEUE_RESULT);
+        const handoffAttempt = parseOptionalPositiveIntegerEnv(
+          env.PROMOBOT_BROWSER_HANDOFF_ATTEMPT,
+          'PROMOBOT_BROWSER_HANDOFF_ATTEMPT must be a positive integer for publish_handoff dispatches',
+        );
 
       return {
         kind,
         input: {
-          artifactPath: requireEnvValue(
-            env.PROMOBOT_BROWSER_ARTIFACT_PATH,
-            'PROMOBOT_BROWSER_ARTIFACT_PATH is required for publish_handoff dispatches',
-          ),
+          artifactPath,
           publishStatus: requirePublishStatus(env.PROMOBOT_BROWSER_PUBLISH_STATUS),
           ...(message ? { message } : {}),
           ...(publishUrl ? { publishUrl } : {}),
           ...(externalId ? { externalId } : {}),
           ...(publishedAt ? { publishedAt } : {}),
           ...(queueResult ? { queueResult } : {}),
+          ...(handoffAttempt !== undefined ? { handoffAttempt } : {}),
           ...remoteImportContext,
         },
       };
       }
     case 'inbox_reply_handoff':
       {
+        const artifactPath = requireEnvValue(
+          env.PROMOBOT_BROWSER_ARTIFACT_PATH,
+          'PROMOBOT_BROWSER_ARTIFACT_PATH is required for inbox_reply_handoff dispatches',
+        );
         const message = optionalEnvValue(env.PROMOBOT_BROWSER_MESSAGE);
         const deliveryUrl = optionalEnvValue(env.PROMOBOT_BROWSER_DELIVERY_URL);
         const externalId = optionalEnvValue(env.PROMOBOT_BROWSER_EXTERNAL_ID);
         const deliveredAt = optionalEnvValue(env.PROMOBOT_BROWSER_DELIVERED_AT);
         const queueResult = parseBooleanEnv(env.PROMOBOT_BROWSER_QUEUE_RESULT);
+        const handoffAttempt = parseOptionalPositiveIntegerEnv(
+          env.PROMOBOT_BROWSER_HANDOFF_ATTEMPT,
+          'PROMOBOT_BROWSER_HANDOFF_ATTEMPT must be a positive integer for inbox_reply_handoff dispatches',
+        );
 
       return {
         kind,
         input: {
-          artifactPath: requireEnvValue(
-            env.PROMOBOT_BROWSER_ARTIFACT_PATH,
-            'PROMOBOT_BROWSER_ARTIFACT_PATH is required for inbox_reply_handoff dispatches',
-          ),
+          artifactPath,
           replyStatus: requireReplyStatus(env.PROMOBOT_BROWSER_REPLY_STATUS),
           ...(message ? { message } : {}),
           ...(deliveryUrl ? { deliveryUrl } : {}),
           ...(externalId ? { externalId } : {}),
           ...(deliveredAt ? { deliveredAt } : {}),
           ...(queueResult ? { queueResult } : {}),
+          ...(handoffAttempt !== undefined ? { handoffAttempt } : {}),
           ...remoteImportContext,
         },
       };
@@ -190,6 +202,7 @@ export function getBrowserLaneBridgeHelpText() {
     '  PROMOBOT_BROWSER_PUBLISH_URL',
     '  PROMOBOT_BROWSER_EXTERNAL_ID',
     '  PROMOBOT_BROWSER_PUBLISHED_AT',
+    '  PROMOBOT_BROWSER_HANDOFF_ATTEMPT  Optional positive integer identifying the current handoff version',
     '  PROMOBOT_BROWSER_QUEUE_RESULT    true | 1 to write a result artifact without immediate import',
     '',
     'Inbox reply handoff env:',
@@ -198,6 +211,7 @@ export function getBrowserLaneBridgeHelpText() {
     '  PROMOBOT_BROWSER_DELIVERY_URL',
     '  PROMOBOT_BROWSER_EXTERNAL_ID',
     '  PROMOBOT_BROWSER_DELIVERED_AT',
+    '  PROMOBOT_BROWSER_HANDOFF_ATTEMPT  Optional positive integer identifying the current handoff version',
     '  PROMOBOT_BROWSER_QUEUE_RESULT    true | 1 to write a result artifact without immediate import',
     '',
     'Shared optional env:',
@@ -275,6 +289,20 @@ function resolveLocalBaseUrl(port: string | undefined) {
 function parseBooleanEnv(value: string | undefined) {
   const normalized = optionalEnvValue(value)?.toLowerCase();
   return normalized === '1' || normalized === 'true' || normalized === 'yes';
+}
+
+function parseOptionalPositiveIntegerEnv(value: string | undefined, message: string) {
+  const normalized = optionalEnvValue(value);
+  if (!normalized) {
+    return undefined;
+  }
+
+  const parsed = Number(normalized);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new BrowserLaneBridgeError(message);
+  }
+
+  return parsed;
 }
 
 function parseSessionStatus(value: string | undefined) {

@@ -21,6 +21,7 @@ export class BrowserHandoffImportError extends Error {
 
 export async function importBrowserHandoffResult(input: {
   artifactPath: string;
+  handoffAttempt?: number;
   publishStatus: 'published' | 'failed';
   message: string;
   publishUrl?: string | null;
@@ -30,6 +31,14 @@ export async function importBrowserHandoffResult(input: {
   const artifact = getBrowserHandoffArtifactByPath(input.artifactPath);
   if (!artifact) {
     throw new BrowserHandoffImportError('browser handoff artifact not found', 404);
+  }
+
+  const handoffAttempt = resolveHandoffAttempt(input.handoffAttempt, artifact.handoffAttempt);
+  if (handoffAttempt !== artifact.handoffAttempt) {
+    throw new BrowserHandoffImportError(
+      'browser handoff artifact has been superseded by a newer handoff attempt',
+      409,
+    );
   }
 
   if (artifact.status !== 'pending') {
@@ -138,6 +147,31 @@ export async function importBrowserHandoffResultArtifact(
 
   try {
     const handoffArtifact = getBrowserHandoffArtifactByPath(resultArtifact.handoffArtifactPath);
+    if (
+      handoffArtifact &&
+      handoffArtifact.handoffAttempt !== resultArtifact.handoffAttempt
+    ) {
+      markBrowserHandoffResultArtifactConsumed({
+        artifactPath: resultArtifact.artifactPath,
+        consumedAt,
+        resolution: {
+          status: 'ignored',
+          reason: 'browser_handoff_attempt_superseded',
+          handoffArtifactPath: resultArtifact.handoffArtifactPath,
+          handoffAttempt: resultArtifact.handoffAttempt,
+          currentHandoffAttempt: handoffArtifact.handoffAttempt,
+          completedAt: resultArtifact.completedAt,
+        },
+      });
+
+      return {
+        ok: true,
+        imported: false,
+        artifactPath: resultArtifact.artifactPath,
+        handoffArtifactPath: resultArtifact.handoffArtifactPath,
+      };
+    }
+
     if (handoffArtifact?.status === 'pending' && handoffArtifact.readiness === 'blocked') {
       promoteBrowserHandoffArtifactToReady({
         artifactPath: resultArtifact.handoffArtifactPath,
@@ -146,6 +180,7 @@ export async function importBrowserHandoffResultArtifact(
 
     const importResult = await importBrowserHandoffResult({
       artifactPath: resultArtifact.handoffArtifactPath,
+      handoffAttempt: resultArtifact.handoffAttempt,
       publishStatus: resultArtifact.publishStatus,
       message: resultArtifact.message,
       ...(resultArtifact.publishUrl !== undefined ? { publishUrl: resultArtifact.publishUrl } : {}),
@@ -204,4 +239,16 @@ export async function importBrowserHandoffResultArtifact(
 
     throw error;
   }
+}
+
+function resolveHandoffAttempt(value: unknown, currentHandoffAttempt: number) {
+  if (value === undefined) {
+    return currentHandoffAttempt;
+  }
+
+  if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
+    throw new BrowserHandoffImportError('handoffAttempt must be a positive integer', 400);
+  }
+
+  return value;
 }

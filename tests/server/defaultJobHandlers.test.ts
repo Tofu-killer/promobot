@@ -57,6 +57,7 @@ function writePendingBrowserHandoffArtifact(
       {
         type: 'browser_manual_handoff',
         channelAccountId: 3,
+        handoffAttempt: 1,
         status: 'pending',
         readiness: 'ready',
         sessionAction: null,
@@ -99,6 +100,7 @@ function writeBrowserHandoffResultArtifact(rootDir: string, handoffArtifactPath:
       {
         type: 'browser_manual_handoff_result',
         handoffArtifactPath,
+        handoffAttempt: 1,
         channelAccountId: 3,
         platform: 'instagram',
         accountKey: 'launch-campaign',
@@ -134,6 +136,7 @@ function writePendingInboxReplyHandoffArtifact(
       {
         type: 'browser_inbox_reply_handoff',
         channelAccountId: 9,
+        handoffAttempt: 1,
         ownership: 'direct',
         projectId: 1,
         status: 'pending',
@@ -185,6 +188,7 @@ function writeInboxReplyHandoffResultArtifact(
       {
         type: 'browser_inbox_reply_handoff_result',
         handoffArtifactPath,
+        handoffAttempt: 1,
         channelAccountId: 9,
         platform: 'weibo',
         accountKey: 'weibo-browser-main',
@@ -1134,6 +1138,7 @@ describe('default job handlers', () => {
       await handlers[inboxReplyHandoffPollJobType](
         {
           artifactPath: handoffArtifactPath,
+          handoffAttempt: 1,
           attempt: 0,
           maxAttempts: 3,
           pollDelayMs: 60_000,
@@ -1143,6 +1148,7 @@ describe('default job handlers', () => {
           type: inboxReplyHandoffPollJobType,
           payload: {
             artifactPath: handoffArtifactPath,
+            handoffAttempt: 1,
             attempt: 0,
             maxAttempts: 3,
             pollDelayMs: 60_000,
@@ -1233,6 +1239,7 @@ describe('default job handlers', () => {
       await handlers[inboxReplyHandoffPollJobType](
         {
           artifactPath: handoffArtifactPath,
+          handoffAttempt: 1,
           attempt: 0,
           maxAttempts: 3,
           pollDelayMs: 60_000,
@@ -1242,6 +1249,7 @@ describe('default job handlers', () => {
           type: inboxReplyHandoffPollJobType,
           payload: {
             artifactPath: handoffArtifactPath,
+            handoffAttempt: 1,
             attempt: 0,
             maxAttempts: 3,
             pollDelayMs: 60_000,
@@ -1318,10 +1326,74 @@ describe('default job handlers', () => {
       await handlers[inboxReplyHandoffPollJobType](
         {
           artifactPath: handoffArtifactPath,
+          handoffAttempt: 1,
           attempt: 0,
           maxAttempts: 3,
           pollDelayMs: 60_000,
         },
+        createJobRecord({
+          id: 62,
+          type: inboxReplyHandoffPollJobType,
+          payload: {
+            artifactPath: handoffArtifactPath,
+            handoffAttempt: 1,
+            attempt: 0,
+            maxAttempts: 3,
+            pollDelayMs: 60_000,
+          },
+          runAt: '2026-04-29T08:16:00.000Z',
+        }),
+      );
+
+      expect(jobQueueStore.list({ limit: 10 })).toEqual([
+        expect.objectContaining({
+          type: inboxReplyHandoffPollJobType,
+          status: 'pending',
+          attempts: 0,
+          runAt: '2026-04-29T08:17:00.000Z',
+        }),
+      ]);
+      expect(JSON.parse(jobQueueStore.list({ limit: 10 })[0]?.payload ?? '{}')).toEqual({
+        artifactPath: handoffArtifactPath,
+        handoffAttempt: 1,
+        attempt: 1,
+        maxAttempts: 3,
+        pollDelayMs: 60_000,
+      });
+    } finally {
+      vi.useRealTimers();
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('requeues a legacy inbox reply handoff poll job without an explicit handoff attempt', async () => {
+    const { rootDir } = createTestDatabasePath();
+
+    try {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-04-29T08:16:00.000Z'));
+      const inboxStore = createInboxStore();
+      const jobQueueStore = createJobQueueStore();
+      const item = inboxStore.create({
+        projectId: 1,
+        source: 'weibo',
+        status: 'needs_reply',
+        author: 'ops-user',
+        title: 'Community question',
+        excerpt: 'Can you share current response times?',
+        metadata: {
+          accountKey: 'weibo-browser-main',
+        },
+      });
+      const handoffArtifactPath = writePendingInboxReplyHandoffArtifact(rootDir, item.id);
+
+      await createDefaultJobHandlers()[inboxReplyHandoffPollJobType](
+        {
+          artifactPath: handoffArtifactPath,
+          attempt: 0,
+          maxAttempts: 3,
+          pollDelayMs: 60_000,
+        } as Parameters<ReturnType<typeof createDefaultJobHandlers>[typeof inboxReplyHandoffPollJobType]>[0],
         createJobRecord({
           id: 62,
           type: inboxReplyHandoffPollJobType,
@@ -1345,6 +1417,7 @@ describe('default job handlers', () => {
       ]);
       expect(JSON.parse(jobQueueStore.list({ limit: 10 })[0]?.payload ?? '{}')).toEqual({
         artifactPath: handoffArtifactPath,
+        handoffAttempt: 1,
         attempt: 1,
         maxAttempts: 3,
         pollDelayMs: 60_000,
@@ -1469,6 +1542,7 @@ describe('default job handlers', () => {
       ]);
       expect(JSON.parse(jobQueueStore.list({ limit: 10 })[0]?.payload ?? '{}')).toEqual({
         artifactPath: handoffArtifactPath,
+        handoffAttempt: 1,
         attempt: 0,
         maxAttempts: 60,
         pollDelayMs: 60_000,
@@ -1499,6 +1573,7 @@ describe('default job handlers', () => {
       await handlers[browserHandoffPollJobType](
         {
           artifactPath: handoffArtifactPath,
+          handoffAttempt: 1,
           attempt: 0,
           maxAttempts: 3,
           pollDelayMs: 60_000,
@@ -1508,6 +1583,7 @@ describe('default job handlers', () => {
           type: browserHandoffPollJobType,
           payload: {
             artifactPath: handoffArtifactPath,
+            handoffAttempt: 1,
             attempt: 0,
             maxAttempts: 3,
             pollDelayMs: 60_000,
@@ -1592,6 +1668,7 @@ describe('default job handlers', () => {
       await handlers[browserHandoffPollJobType](
         {
           artifactPath: handoffArtifactPath,
+          handoffAttempt: 1,
           attempt: 0,
           maxAttempts: 3,
           pollDelayMs: 60_000,
@@ -1601,6 +1678,7 @@ describe('default job handlers', () => {
           type: browserHandoffPollJobType,
           payload: {
             artifactPath: handoffArtifactPath,
+            handoffAttempt: 1,
             attempt: 0,
             maxAttempts: 3,
             pollDelayMs: 60_000,
@@ -1669,10 +1747,62 @@ describe('default job handlers', () => {
       await handlers[browserHandoffPollJobType](
         {
           artifactPath: handoffArtifactPath,
+          handoffAttempt: 1,
           attempt: 0,
           maxAttempts: 3,
           pollDelayMs: 60_000,
         },
+        createJobRecord({
+          id: 61,
+          type: browserHandoffPollJobType,
+          payload: {
+            artifactPath: handoffArtifactPath,
+            handoffAttempt: 1,
+            attempt: 0,
+            maxAttempts: 3,
+            pollDelayMs: 60_000,
+          },
+          runAt: '2026-04-29T08:00:00.000Z',
+        }),
+      );
+
+      expect(jobQueueStore.list({ limit: 10 })).toEqual([
+        expect.objectContaining({
+          type: browserHandoffPollJobType,
+          status: 'pending',
+          attempts: 0,
+          runAt: '2026-04-29T08:01:00.000Z',
+        }),
+      ]);
+      expect(JSON.parse(jobQueueStore.list({ limit: 10 })[0]?.payload ?? '{}')).toEqual({
+        artifactPath: handoffArtifactPath,
+        handoffAttempt: 1,
+        attempt: 1,
+        maxAttempts: 3,
+        pollDelayMs: 60_000,
+      });
+    } finally {
+      vi.useRealTimers();
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('requeues a legacy browser handoff poll job without an explicit handoff attempt', async () => {
+    const { rootDir } = createTestDatabasePath();
+
+    try {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-04-29T08:00:00.000Z'));
+      const jobQueueStore = createJobQueueStore();
+      const handoffArtifactPath = writePendingBrowserHandoffArtifact(rootDir);
+
+      await createDefaultJobHandlers()[browserHandoffPollJobType](
+        {
+          artifactPath: handoffArtifactPath,
+          attempt: 0,
+          maxAttempts: 3,
+          pollDelayMs: 60_000,
+        } as Parameters<ReturnType<typeof createDefaultJobHandlers>[typeof browserHandoffPollJobType]>[0],
         createJobRecord({
           id: 61,
           type: browserHandoffPollJobType,
@@ -1696,6 +1826,7 @@ describe('default job handlers', () => {
       ]);
       expect(JSON.parse(jobQueueStore.list({ limit: 10 })[0]?.payload ?? '{}')).toEqual({
         artifactPath: handoffArtifactPath,
+        handoffAttempt: 1,
         attempt: 1,
         maxAttempts: 3,
         pollDelayMs: 60_000,

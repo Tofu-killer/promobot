@@ -1329,6 +1329,7 @@ describe('Publish Calendar lifecycle', () => {
           platform: 'tiktok',
           readiness: 'ready',
           artifactPath: 'artifacts/browser-handoffs/tiktok/relaunch/tiktok-draft-42.json',
+          handoffAttempt: 1,
         },
       },
     });
@@ -1408,6 +1409,7 @@ describe('Publish Calendar lifecycle', () => {
 
     expect(completeBrowserHandoffAction).toHaveBeenCalledWith({
       artifactPath: 'artifacts/browser-handoffs/tiktok/relaunch/tiktok-draft-42.json',
+      handoffAttempt: 1,
       publishStatus: 'published',
       publishUrl: 'https://www.tiktok.com/@promobot/video/42',
       message: 'Posted from browser lane.',
@@ -1574,6 +1576,7 @@ describe('Publish Calendar lifecycle', () => {
                   readiness: 'ready',
                   sessionAction: null,
                   artifactPath: 'artifacts/browser-handoffs/tiktok/relaunch/tiktok-draft-142.json',
+                  handoffAttempt: 1,
                   createdAt: '2026-04-29T00:00:00.000Z',
                   updatedAt: '2026-04-29T00:05:00.000Z',
                   resolvedAt: null,
@@ -1625,12 +1628,133 @@ describe('Publish Calendar lifecycle', () => {
 
     expect(completeBrowserHandoffAction).toHaveBeenCalledWith({
       artifactPath: 'artifacts/browser-handoffs/tiktok/relaunch/tiktok-draft-142.json',
+      handoffAttempt: 1,
       publishStatus: 'published',
       publishUrl: 'https://www.tiktok.com/@promobot/video/142',
       message: 'Recovered after reload.',
     });
     expect(collectText(container)).toContain('TikTok browser handoff completed.');
     expect(collectText(container)).toContain('发布时间：2026-04-29T01:00:00.000Z');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('restores ready persisted calendar browser handoffs without a handoff attempt and completes them inline', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { PublishCalendarPage } = await import('../../src/client/pages/PublishCalendar');
+
+    const completeBrowserHandoffAction = vi.fn().mockResolvedValue({
+      ok: true,
+      imported: true,
+      artifactPath: 'artifacts/browser-handoffs/tiktok/relaunch/tiktok-draft-142-legacy.json',
+      draftId: 142,
+      draftStatus: 'published',
+      platform: 'tiktok',
+      mode: 'browser_handoff',
+      status: 'published',
+      success: true,
+      publishUrl: 'https://www.tiktok.com/@promobot/video/142-legacy',
+      externalId: null,
+      message: 'Legacy TikTok browser handoff completed.',
+      publishedAt: '2026-04-29T01:10:00.000Z',
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(PublishCalendarPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              drafts: [
+                {
+                  id: 142,
+                  platform: 'tiktok',
+                  title: 'TikTok relaunch clip',
+                  content: 'Draft body',
+                  hashtags: ['#launch'],
+                  status: 'failed',
+                  lastPublishError: 'waiting for browser lane',
+                  createdAt: '2026-04-29T00:00:00.000Z',
+                  updatedAt: '2026-04-29T00:00:00.000Z',
+                },
+              ],
+            },
+          },
+          browserHandoffsStateOverride: {
+            status: 'success',
+            data: {
+              handoffs: [
+                {
+                  platform: 'tiktok',
+                  draftId: 142,
+                  title: 'TikTok relaunch clip',
+                  accountKey: 'tiktok:relaunch',
+                  status: 'pending',
+                  readiness: 'ready',
+                  sessionAction: null,
+                  artifactPath: 'artifacts/browser-handoffs/tiktok/relaunch/tiktok-draft-142-legacy.json',
+                  createdAt: '2026-04-29T00:00:00.000Z',
+                  updatedAt: '2026-04-29T00:05:00.000Z',
+                  resolvedAt: null,
+                },
+              ],
+              total: 1,
+            },
+          },
+          completeBrowserHandoffAction,
+        }),
+      );
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('发现待处理的 browser handoff，可以直接结单。');
+
+    const publishUrlInput = findElement(
+      container,
+      (element) => element.getAttribute('data-calendar-browser-handoff-field') === 'publishUrl',
+    );
+    const messageInput = findElement(
+      container,
+      (element) => element.getAttribute('data-calendar-browser-handoff-field') === 'message',
+    );
+    const completeButton = findElement(
+      container,
+      (element) => element.getAttribute('data-calendar-browser-handoff-complete') === 'published',
+    );
+
+    expect(publishUrlInput).not.toBeNull();
+    expect(messageInput).not.toBeNull();
+    expect(completeButton).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(
+        publishUrlInput as never,
+        'https://www.tiktok.com/@promobot/video/142-legacy',
+        window as never,
+      );
+      updateFieldValue(messageInput as never, 'Recovered after reload without attempt.', window as never);
+      await flush();
+    });
+
+    await act(async () => {
+      completeButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(completeBrowserHandoffAction).toHaveBeenCalledWith({
+      artifactPath: 'artifacts/browser-handoffs/tiktok/relaunch/tiktok-draft-142-legacy.json',
+      publishStatus: 'published',
+      publishUrl: 'https://www.tiktok.com/@promobot/video/142-legacy',
+      message: 'Recovered after reload without attempt.',
+    });
+    expect(collectText(container)).toContain('Legacy TikTok browser handoff completed.');
+    expect(collectText(container)).toContain('发布时间：2026-04-29T01:10:00.000Z');
 
     await act(async () => {
       root.unmount();
@@ -1656,6 +1780,7 @@ describe('Publish Calendar lifecycle', () => {
             readiness: 'ready',
             sessionAction: null,
             artifactPath: 'artifacts/browser-handoffs/tiktok/relaunch/tiktok-draft-143.json',
+            handoffAttempt: 1,
             createdAt: '2026-04-29T00:00:00.000Z',
             updatedAt: '2026-04-29T00:05:00.000Z',
             resolvedAt: null,

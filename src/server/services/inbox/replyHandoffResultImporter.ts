@@ -20,6 +20,7 @@ export class InboxReplyHandoffImportError extends Error {
 
 export async function importInboxReplyHandoffResult(input: {
   artifactPath: string;
+  handoffAttempt?: number;
   replyStatus: 'sent' | 'failed';
   message: string;
   deliveryUrl?: string | null;
@@ -29,6 +30,14 @@ export async function importInboxReplyHandoffResult(input: {
   const artifact = getInboxReplyHandoffArtifactByPath(input.artifactPath);
   if (!artifact) {
     throw new InboxReplyHandoffImportError('inbox reply handoff artifact not found', 404);
+  }
+
+  const handoffAttempt = resolveHandoffAttempt(input.handoffAttempt, artifact.handoffAttempt);
+  if (handoffAttempt !== artifact.handoffAttempt) {
+    throw new InboxReplyHandoffImportError(
+      'inbox reply handoff artifact has been superseded by a newer handoff attempt',
+      409,
+    );
   }
 
   if (artifact.status !== 'pending') {
@@ -130,6 +139,31 @@ export async function importInboxReplyHandoffResultArtifact(
 
   try {
     const handoffArtifact = getInboxReplyHandoffArtifactByPath(resultArtifact.handoffArtifactPath);
+    if (
+      handoffArtifact &&
+      handoffArtifact.handoffAttempt !== resultArtifact.handoffAttempt
+    ) {
+      markInboxReplyHandoffResultArtifactConsumed({
+        artifactPath: resultArtifact.artifactPath,
+        consumedAt,
+        resolution: {
+          status: 'ignored',
+          reason: 'inbox_reply_handoff_attempt_superseded',
+          handoffArtifactPath: resultArtifact.handoffArtifactPath,
+          handoffAttempt: resultArtifact.handoffAttempt,
+          currentHandoffAttempt: handoffArtifact.handoffAttempt,
+          completedAt: resultArtifact.completedAt,
+        },
+      });
+
+      return {
+        ok: true,
+        imported: false,
+        artifactPath: resultArtifact.artifactPath,
+        handoffArtifactPath: resultArtifact.handoffArtifactPath,
+      };
+    }
+
     if (handoffArtifact?.status === 'pending' && handoffArtifact.readiness === 'blocked') {
       promoteInboxReplyHandoffArtifactToReady({
         artifactPath: resultArtifact.handoffArtifactPath,
@@ -138,6 +172,7 @@ export async function importInboxReplyHandoffResultArtifact(
 
     const importResult = await importInboxReplyHandoffResult({
       artifactPath: resultArtifact.handoffArtifactPath,
+      handoffAttempt: resultArtifact.handoffAttempt,
       replyStatus: resultArtifact.replyStatus,
       message: resultArtifact.message,
       ...(resultArtifact.deliveryUrl !== undefined ? { deliveryUrl: resultArtifact.deliveryUrl } : {}),
@@ -196,4 +231,16 @@ export async function importInboxReplyHandoffResultArtifact(
 
     throw error;
   }
+}
+
+function resolveHandoffAttempt(value: unknown, currentHandoffAttempt: number) {
+  if (value === undefined) {
+    return currentHandoffAttempt;
+  }
+
+  if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
+    throw new InboxReplyHandoffImportError('handoffAttempt must be a positive integer', 400);
+  }
+
+  return value;
 }

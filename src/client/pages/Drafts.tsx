@@ -92,6 +92,7 @@ interface RequestChannelAccountSessionActionResponse {
 
 interface CompleteBrowserHandoffInput {
   artifactPath: string;
+  handoffAttempt?: number;
   publishStatus: 'published' | 'failed';
   message?: string;
   publishUrl?: string;
@@ -120,6 +121,7 @@ interface BrowserHandoffRecord {
   title: string | null;
   accountKey: string;
   status: string;
+  handoffAttempt?: number;
   readiness?: string;
   sessionAction?: string | null;
   artifactPath: string;
@@ -165,6 +167,7 @@ export async function completeDraftBrowserHandoffRequest(
     },
     body: JSON.stringify({
       artifactPath: input.artifactPath,
+      ...(input.handoffAttempt !== undefined ? { handoffAttempt: input.handoffAttempt } : {}),
       publishStatus: input.publishStatus,
       message:
         input.message ??
@@ -247,6 +250,7 @@ interface BrowserHandoffContract {
   platform: string | null;
   accountKey: string | null;
   channelAccountId?: number;
+  handoffAttempt?: number;
   readiness: string | null;
   sessionAction: BrowserSessionAction | null;
   artifactPath: string | null;
@@ -323,9 +327,10 @@ function readBrowserHandoffContract(details: Record<string, unknown> | null): Br
   const platform = readString(browserHandoff.platform);
   const accountKey = readString(browserHandoff.accountKey);
   const channelAccountId = readPositiveInteger(browserHandoff.channelAccountId);
+  const handoffAttempt = readPositiveInteger(browserHandoff.handoffAttempt);
   const readiness = readString(browserHandoff.readiness);
 
-  if (!platform && !accountKey && !channelAccountId && !readiness && !sessionAction && !artifactPath) {
+  if (!platform && !accountKey && !channelAccountId && !handoffAttempt && !readiness && !sessionAction && !artifactPath) {
     return null;
   }
 
@@ -333,6 +338,7 @@ function readBrowserHandoffContract(details: Record<string, unknown> | null): Br
     platform,
     accountKey,
     channelAccountId,
+    handoffAttempt,
     readiness,
     sessionAction,
     artifactPath,
@@ -364,6 +370,7 @@ function toBrowserHandoffContract(handoff: BrowserHandoffRecord): BrowserHandoff
     platform: handoff.platform,
     accountKey: handoff.accountKey,
     channelAccountId: handoff.channelAccountId,
+    handoffAttempt: handoff.handoffAttempt,
     readiness: handoff.readiness ?? 'ready',
     sessionAction: readBrowserSessionAction(handoff.sessionAction),
     artifactPath: handoff.artifactPath,
@@ -948,6 +955,7 @@ export function DraftsPage({
 
     void completeBrowserHandoffAction({
       artifactPath: browserHandoff.artifactPath,
+      handoffAttempt: browserHandoff.handoffAttempt,
       publishStatus,
       ...(message ? { message } : {}),
       ...(publishUrl ? { publishUrl } : {}),

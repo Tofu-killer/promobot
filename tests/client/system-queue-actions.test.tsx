@@ -358,6 +358,7 @@ describe('System Queue actions', () => {
 
     const completeBrowserHandoffRequest = queueModule.completeBrowserHandoffRequest as (input: {
       artifactPath: string;
+      handoffAttempt: number;
       publishStatus: 'published' | 'failed';
       message?: string;
     }) => Promise<unknown>;
@@ -365,6 +366,7 @@ describe('System Queue actions', () => {
     await completeBrowserHandoffRequest({
       artifactPath:
         'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-13.json',
+      handoffAttempt: 1,
       publishStatus: 'published',
       publishUrl: 'https://facebook.com/groups/group-123/posts/42',
       message: 'browser lane completed publish',
@@ -378,6 +380,61 @@ describe('System Queue actions', () => {
         body: JSON.stringify({
           artifactPath:
             'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-13.json',
+          handoffAttempt: 1,
+          publishStatus: 'published',
+          message: 'browser lane completed publish',
+          publishUrl: 'https://facebook.com/groups/group-123/posts/42',
+        }),
+      }),
+    );
+  });
+
+  it('posts browser handoff completion through the shared API helper without a handoff attempt', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        imported: true,
+        artifactPath: 'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-13-legacy.json',
+        draftId: 13,
+        draftStatus: 'published',
+        platform: 'facebookGroup',
+        mode: 'browser',
+        status: 'published',
+        success: true,
+        publishUrl: 'https://facebook.com/groups/group-123/posts/42',
+        externalId: 'fb-post-42',
+        message: 'browser lane completed publish',
+        publishedAt: '2026-04-23T10:10:00.000Z',
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const queueModule = (await import('../../src/client/pages/SystemQueue')) as Record<string, unknown>;
+
+    const completeBrowserHandoffRequest = queueModule.completeBrowserHandoffRequest as (input: {
+      artifactPath: string;
+      handoffAttempt?: number;
+      publishStatus: 'published' | 'failed';
+      message?: string;
+      publishUrl?: string;
+    }) => Promise<unknown>;
+
+    await completeBrowserHandoffRequest({
+      artifactPath:
+        'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-13-legacy.json',
+      publishStatus: 'published',
+      publishUrl: 'https://facebook.com/groups/group-123/posts/42',
+      message: 'browser lane completed publish',
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/system/browser-handoffs/import',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          artifactPath:
+            'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-13-legacy.json',
           publishStatus: 'published',
           message: 'browser lane completed publish',
           publishUrl: 'https://facebook.com/groups/group-123/posts/42',
@@ -412,6 +469,7 @@ describe('System Queue actions', () => {
 
     const completeInboxReplyHandoffRequest = queueModule.completeInboxReplyHandoffRequest as (input: {
       artifactPath: string;
+      handoffAttempt: number;
       replyStatus: 'sent' | 'failed';
       message?: string;
       deliveryUrl?: string;
@@ -419,6 +477,7 @@ describe('System Queue actions', () => {
 
     await completeInboxReplyHandoffRequest({
       artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88.json',
+      handoffAttempt: 1,
       replyStatus: 'sent',
       deliveryUrl: 'https://reddit.com/message/messages/abc123',
       message: 'inbox reply handoff marked sent',
@@ -431,6 +490,59 @@ describe('System Queue actions', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88.json',
+          handoffAttempt: 1,
+          replyStatus: 'sent',
+          message: 'inbox reply handoff marked sent',
+          deliveryUrl: 'https://reddit.com/message/messages/abc123',
+        }),
+      }),
+    );
+  });
+
+  it('posts inbox reply handoff completion through the shared API helper without a handoff attempt', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        imported: true,
+        artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88-legacy.json',
+        itemId: 88,
+        itemStatus: 'handled',
+        platform: 'reddit',
+        mode: 'browser',
+        status: 'sent',
+        success: true,
+        deliveryUrl: 'https://reddit.com/message/messages/abc123',
+        externalId: 'msg-88',
+        message: 'inbox reply handoff marked sent',
+        deliveredAt: '2026-04-23T11:15:00.000Z',
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const queueModule = (await import('../../src/client/pages/SystemQueue')) as Record<string, unknown>;
+
+    const completeInboxReplyHandoffRequest = queueModule.completeInboxReplyHandoffRequest as (input: {
+      artifactPath: string;
+      handoffAttempt?: number;
+      replyStatus: 'sent' | 'failed';
+      message?: string;
+      deliveryUrl?: string;
+    }) => Promise<unknown>;
+
+    await completeInboxReplyHandoffRequest({
+      artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88-legacy.json',
+      replyStatus: 'sent',
+      deliveryUrl: 'https://reddit.com/message/messages/abc123',
+      message: 'inbox reply handoff marked sent',
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/system/inbox-reply-handoffs/import',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88-legacy.json',
           replyStatus: 'sent',
           message: 'inbox reply handoff marked sent',
           deliveryUrl: 'https://reddit.com/message/messages/abc123',
@@ -945,6 +1057,7 @@ describe('System Queue actions', () => {
         {
           channelAccountId: 7,
           accountDisplayName: 'FB Group Manual',
+          handoffAttempt: 1,
           platform: 'facebookGroup',
           draftId: '13',
           title: 'Community update',
@@ -1040,6 +1153,7 @@ describe('System Queue actions', () => {
     expect(completeBrowserHandoffAction).toHaveBeenCalledWith({
       artifactPath:
         'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-13.json',
+      handoffAttempt: 1,
       publishStatus: 'published',
       publishUrl: 'https://facebook.com/groups/group-123/posts/42',
       message: 'browser lane completed publish',
@@ -1214,6 +1328,7 @@ describe('System Queue actions', () => {
       handoffs: [
         {
           channelAccountId: 12,
+          handoffAttempt: 1,
           platform: 'reddit',
           itemId: '88',
           source: 'reddit',
@@ -1301,6 +1416,7 @@ describe('System Queue actions', () => {
 
     expect(completeInboxReplyHandoffAction).toHaveBeenCalledWith({
       artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88.json',
+      handoffAttempt: 1,
       replyStatus: 'sent',
       deliveryUrl: 'https://reddit.com/message/messages/abc123',
       message: 'reply sent manually',
@@ -1601,6 +1717,7 @@ describe('System Queue actions', () => {
         {
           channelAccountId: 13,
           accountDisplayName: 'Launch A',
+          handoffAttempt: 1,
           platform: 'facebookGroup',
           draftId: '13',
           title: 'Community update A',
@@ -1617,6 +1734,7 @@ describe('System Queue actions', () => {
         {
           channelAccountId: 14,
           accountDisplayName: 'Launch B',
+          handoffAttempt: 1,
           platform: 'facebookGroup',
           draftId: '14',
           title: 'Community update B',
@@ -1714,11 +1832,13 @@ describe('System Queue actions', () => {
     expect(completeBrowserHandoffAction).toHaveBeenCalledTimes(2);
     expect(completeBrowserHandoffAction).toHaveBeenNthCalledWith(1, {
       artifactPath: 'artifacts/browser-handoffs/facebookGroup/launch-campaign-a/facebookGroup-draft-13.json',
+      handoffAttempt: 1,
       publishStatus: 'published',
       publishUrl: 'https://facebook.com/groups/a/posts/13',
     });
     expect(completeBrowserHandoffAction).toHaveBeenNthCalledWith(2, {
       artifactPath: 'artifacts/browser-handoffs/facebookGroup/launch-campaign-b/facebookGroup-draft-14.json',
+      handoffAttempt: 1,
       publishStatus: 'published',
       publishUrl: 'https://facebook.com/groups/b/posts/14',
     });
@@ -1821,6 +1941,7 @@ describe('System Queue actions', () => {
       handoffs: [
         {
           channelAccountId: 12,
+          handoffAttempt: 1,
           platform: 'reddit',
           itemId: '88',
           source: 'reddit',
@@ -1836,6 +1957,7 @@ describe('System Queue actions', () => {
         },
         {
           channelAccountId: 13,
+          handoffAttempt: 1,
           platform: 'reddit',
           itemId: '89',
           source: 'reddit',
@@ -1929,11 +2051,13 @@ describe('System Queue actions', () => {
     expect(completeInboxReplyHandoffAction).toHaveBeenCalledTimes(2);
     expect(completeInboxReplyHandoffAction).toHaveBeenNthCalledWith(1, {
       artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88.json',
+      handoffAttempt: 1,
       replyStatus: 'sent',
       deliveryUrl: 'https://reddit.com/message/messages/88',
     });
     expect(completeInboxReplyHandoffAction).toHaveBeenNthCalledWith(2, {
       artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-secondary/reddit-item-89.json',
+      handoffAttempt: 1,
       replyStatus: 'sent',
       deliveryUrl: 'https://reddit.com/message/messages/89',
     });
@@ -2003,6 +2127,7 @@ describe('System Queue actions', () => {
         {
           channelAccountId: 7,
           accountDisplayName: 'FB Group Manual',
+          handoffAttempt: 1,
           platform: 'facebookGroup',
           draftId: '13',
           title: 'Community update',
@@ -2102,6 +2227,7 @@ describe('System Queue actions', () => {
     expect(completeBrowserHandoffAction).toHaveBeenCalledWith({
       artifactPath:
         'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-13.json',
+      handoffAttempt: 1,
       publishStatus: 'published',
       publishUrl: 'https://facebook.com/groups/group-123/posts/42',
       message: 'browser lane completed publish',
@@ -2133,6 +2259,7 @@ describe('System Queue actions', () => {
     const pendingHandoff = {
       channelAccountId: 7,
       accountDisplayName: 'FB Group Manual',
+      handoffAttempt: 1,
       platform: 'facebookGroup',
       draftId: '13',
       title: 'Community update',
@@ -2852,6 +2979,7 @@ describe('System Queue actions', () => {
       handoffs: [
         {
           channelAccountId: 12,
+          handoffAttempt: 1,
           platform: 'reddit',
           itemId: '88',
           source: 'reddit',
@@ -2939,6 +3067,7 @@ describe('System Queue actions', () => {
 
     expect(completeInboxReplyHandoffAction).toHaveBeenCalledWith({
       artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88.json',
+      handoffAttempt: 1,
       replyStatus: 'sent',
       deliveryUrl: 'https://reddit.com/message/messages/abc123',
       message: 'reply sent manually',
@@ -2979,6 +3108,7 @@ describe('System Queue actions', () => {
       handoffs: [
         {
           channelAccountId: 12,
+          handoffAttempt: 1,
           platform: 'weibo',
           itemId: '88',
           source: 'weibo',
@@ -3063,6 +3193,7 @@ describe('System Queue actions', () => {
       handoffs: [
         {
           channelAccountId: 12,
+          handoffAttempt: 1,
           platform: 'weibo',
           draftId: '88',
           title: 'Need lower latency in APAC',
@@ -3149,6 +3280,7 @@ describe('System Queue actions', () => {
     });
     const pendingHandoff = {
       channelAccountId: 12,
+      handoffAttempt: 1,
       platform: 'reddit',
       itemId: '88',
       source: 'reddit',

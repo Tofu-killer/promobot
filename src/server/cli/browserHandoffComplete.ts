@@ -4,10 +4,16 @@ import {
   type SubmitBrowserHandoffCompletionInput,
 } from '../services/publishers/browserHandoffCompletionSubmitter.js';
 
-export function parseBrowserHandoffCompleteArgs(argv: string[]): SubmitBrowserHandoffCompletionInput & {
+interface ParsedBrowserHandoffCompleteArgs
+  extends Omit<SubmitBrowserHandoffCompletionInput, 'handoffAttempt'> {
+  handoffAttempt?: number;
   showHelp?: boolean;
-} {
-  const parsed: SubmitBrowserHandoffCompletionInput & { showHelp?: boolean } = {
+}
+
+export function parseBrowserHandoffCompleteArgs(
+  argv: string[],
+): ParsedBrowserHandoffCompleteArgs {
+  const parsed: ParsedBrowserHandoffCompleteArgs = {
     artifactPath: '',
     publishStatus: 'published',
   };
@@ -57,6 +63,13 @@ export function parseBrowserHandoffCompleteArgs(argv: string[]): SubmitBrowserHa
       continue;
     }
 
+    if (token === '--handoff-attempt') {
+      parsed.handoffAttempt =
+        typeof nextValue === 'string' ? Number(nextValue) : Number.NaN;
+      index += 1;
+      continue;
+    }
+
     if (token === '--queue-result') {
       parsed.queueResult = true;
       continue;
@@ -86,6 +99,7 @@ export function getBrowserHandoffCompleteHelpText() {
     '  --artifact-path <path>       Existing browser handoff artifact path',
     '',
     'Optional:',
+    '  --handoff-attempt <n>        Positive integer identifying the current handoff version',
     '  --status <published|failed>  Defaults to published',
     '  --message <text>',
     '  --publish-url <url>',

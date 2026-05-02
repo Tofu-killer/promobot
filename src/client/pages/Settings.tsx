@@ -105,6 +105,7 @@ export interface BrowserHandoffRecord {
   ownership?: string;
   platform: string;
   draftId: string;
+  handoffAttempt?: number;
   title: string | null;
   accountKey: string;
   status: string;
@@ -126,6 +127,7 @@ export interface InboxReplyHandoffRecord {
   channelAccountId?: number;
   platform: string;
   itemId: string;
+  handoffAttempt?: number;
   source: string;
   title: string | null;
   author: string | null;
@@ -278,6 +280,7 @@ export async function importBrowserLaneRequestResultRequest(input: {
 
 export async function completeBrowserHandoffRequest(input: {
   artifactPath: string;
+  handoffAttempt?: number;
   publishStatus: 'published' | 'failed';
   message?: string;
   publishUrl?: string;
@@ -289,6 +292,7 @@ export async function completeBrowserHandoffRequest(input: {
     },
     body: JSON.stringify({
       artifactPath: input.artifactPath,
+      ...(input.handoffAttempt !== undefined ? { handoffAttempt: input.handoffAttempt } : {}),
       publishStatus: input.publishStatus,
       message:
         input.message ??
@@ -304,6 +308,7 @@ export async function completeBrowserHandoffRequest(input: {
 
 export async function completeInboxReplyHandoffRequest(input: {
   artifactPath: string;
+  handoffAttempt?: number;
   replyStatus: 'sent' | 'failed';
   message?: string;
   deliveryUrl?: string;
@@ -315,6 +320,7 @@ export async function completeInboxReplyHandoffRequest(input: {
     },
     body: JSON.stringify({
       artifactPath: input.artifactPath,
+      ...(input.handoffAttempt !== undefined ? { handoffAttempt: input.handoffAttempt } : {}),
       replyStatus: input.replyStatus,
       message:
         input.message ??
@@ -975,6 +981,7 @@ export function SettingsPage({
   const { state: browserHandoffMutationState, run: runBrowserHandoffCompletion } = useAsyncAction(
     (input: {
       artifactPath: string;
+      handoffAttempt?: number;
       publishStatus: 'published' | 'failed';
       message?: string;
       publishUrl?: string;
@@ -983,6 +990,7 @@ export function SettingsPage({
   const { state: inboxReplyHandoffMutationState, run: runInboxReplyHandoffCompletion } = useAsyncAction(
     (input: {
       artifactPath: string;
+      handoffAttempt?: number;
       replyStatus: 'sent' | 'failed';
       message?: string;
       deliveryUrl?: string;
@@ -1435,7 +1443,11 @@ export function SettingsPage({
     handoff: BrowserHandoffRecord,
     publishStatus: 'published' | 'failed',
   ) {
-    if (pendingBrowserHandoffArtifactPaths[handoff.artifactPath]) {
+    if (
+      pendingBrowserHandoffArtifactPaths[handoff.artifactPath] ||
+      (handoff.handoffAttempt !== undefined &&
+        (!Number.isInteger(handoff.handoffAttempt) || handoff.handoffAttempt <= 0))
+    ) {
       return;
     }
 
@@ -1446,6 +1458,7 @@ export function SettingsPage({
     setPendingBrowserHandoffArtifactPaths((current) => addPendingArtifactPath(current, handoff.artifactPath));
     void runBrowserHandoffCompletion({
       artifactPath: handoff.artifactPath,
+      handoffAttempt: handoff.handoffAttempt,
       publishStatus,
       ...(message ? { message } : {}),
       ...(publishUrl ? { publishUrl } : {}),
@@ -1471,7 +1484,11 @@ export function SettingsPage({
     handoff: InboxReplyHandoffRecord,
     replyStatus: 'sent' | 'failed',
   ) {
-    if (pendingInboxReplyHandoffArtifactPaths[handoff.artifactPath]) {
+    if (
+      pendingInboxReplyHandoffArtifactPaths[handoff.artifactPath] ||
+      (handoff.handoffAttempt !== undefined &&
+        (!Number.isInteger(handoff.handoffAttempt) || handoff.handoffAttempt <= 0))
+    ) {
       return;
     }
 
@@ -1482,6 +1499,7 @@ export function SettingsPage({
     setPendingInboxReplyHandoffArtifactPaths((current) => addPendingArtifactPath(current, handoff.artifactPath));
     void runInboxReplyHandoffCompletion({
       artifactPath: handoff.artifactPath,
+      handoffAttempt: handoff.handoffAttempt,
       replyStatus,
       ...(message ? { message } : {}),
       ...(deliveryUrl ? { deliveryUrl } : {}),

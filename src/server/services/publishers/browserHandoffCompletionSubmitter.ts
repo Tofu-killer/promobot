@@ -16,6 +16,7 @@ export class BrowserHandoffCompletionSubmitError extends Error {
 
 export interface SubmitBrowserHandoffCompletionInput {
   artifactPath: string;
+  handoffAttempt?: number;
   publishStatus: 'published' | 'failed';
   message?: string;
   publishUrl?: string;
@@ -45,11 +46,15 @@ export async function submitBrowserHandoffCompletion(
     (input.publishStatus === 'published'
       ? 'browser handoff marked published'
       : 'browser handoff marked failed');
+  const explicitHandoffAttempt = normalizeOptionalPositiveHandoffAttempt(input.handoffAttempt);
+  const resolvedHandoffAttempt =
+    explicitHandoffAttempt ?? getRequiredBrowserHandoffArtifact(artifactPath).handoffAttempt;
 
   const normalizedInput = {
     artifactPath,
     publishStatus: input.publishStatus,
     message,
+    handoffAttempt: resolvedHandoffAttempt,
     ...(input.publishUrl?.trim() ? { publishUrl: input.publishUrl.trim() } : {}),
     ...(input.externalId?.trim() ? { externalId: input.externalId.trim() } : {}),
     ...(input.publishedAt?.trim() ? { publishedAt: input.publishedAt.trim() } : {}),
@@ -64,10 +69,7 @@ export async function submitBrowserHandoffCompletion(
       );
     }
 
-    const handoffArtifact = getBrowserHandoffArtifactByPath(artifactPath);
-    if (!handoffArtifact) {
-      throw new BrowserHandoffCompletionSubmitError('browser handoff artifact not found', 404);
-    }
+    const handoffArtifact = getRequiredBrowserHandoffArtifact(artifactPath);
 
     if (handoffArtifact.status !== 'pending') {
       throw new BrowserHandoffCompletionSubmitError(
@@ -83,9 +85,17 @@ export async function submitBrowserHandoffCompletion(
       );
     }
 
+    if (resolvedHandoffAttempt !== handoffArtifact.handoffAttempt) {
+      throw new BrowserHandoffCompletionSubmitError(
+        'browser handoff artifact has been superseded by a newer handoff attempt',
+        409,
+      );
+    }
+
     const completedAt = (dependencies.now ?? (() => new Date()))().toISOString();
     const resultArtifactPath = createBrowserHandoffResultArtifact({
       handoffArtifactPath: artifactPath,
+      handoffAttempt: handoffArtifact.handoffAttempt,
       ...(typeof handoffArtifact.channelAccountId === 'number'
         ? { channelAccountId: handoffArtifact.channelAccountId }
         : {}),
@@ -153,4 +163,28 @@ export async function submitBrowserHandoffCompletion(
   }
 
   return payload;
+}
+
+function getRequiredBrowserHandoffArtifact(artifactPath: string) {
+  const handoffArtifact = getBrowserHandoffArtifactByPath(artifactPath);
+  if (!handoffArtifact) {
+    throw new BrowserHandoffCompletionSubmitError('browser handoff artifact not found', 404);
+  }
+
+  return handoffArtifact;
+}
+
+function normalizeOptionalPositiveHandoffAttempt(value: unknown) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
+    throw new BrowserHandoffCompletionSubmitError(
+      'handoffAttempt must be a positive integer',
+      400,
+    );
+  }
+
+  return value;
 }

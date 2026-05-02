@@ -16,6 +16,7 @@ export class InboxReplyHandoffCompletionSubmitError extends Error {
 
 export interface SubmitInboxReplyHandoffCompletionInput {
   artifactPath: string;
+  handoffAttempt?: number;
   replyStatus: 'sent' | 'failed';
   message?: string;
   deliveryUrl?: string;
@@ -45,11 +46,15 @@ export async function submitInboxReplyHandoffCompletion(
     (input.replyStatus === 'sent'
       ? 'inbox reply handoff marked sent'
       : 'inbox reply handoff marked failed');
+  const explicitHandoffAttempt = normalizeOptionalPositiveHandoffAttempt(input.handoffAttempt);
+  const resolvedHandoffAttempt =
+    explicitHandoffAttempt ?? getRequiredInboxReplyHandoffArtifact(artifactPath).handoffAttempt;
 
   const normalizedInput = {
     artifactPath,
     replyStatus: input.replyStatus,
     message,
+    handoffAttempt: resolvedHandoffAttempt,
     ...(input.deliveryUrl?.trim() ? { deliveryUrl: input.deliveryUrl.trim() } : {}),
     ...(input.externalId?.trim() ? { externalId: input.externalId.trim() } : {}),
     ...(input.deliveredAt?.trim() ? { deliveredAt: input.deliveredAt.trim() } : {}),
@@ -64,10 +69,7 @@ export async function submitInboxReplyHandoffCompletion(
       );
     }
 
-    const handoffArtifact = getInboxReplyHandoffArtifactByPath(artifactPath);
-    if (!handoffArtifact) {
-      throw new InboxReplyHandoffCompletionSubmitError('inbox reply handoff artifact not found', 404);
-    }
+    const handoffArtifact = getRequiredInboxReplyHandoffArtifact(artifactPath);
 
     if (handoffArtifact.status !== 'pending') {
       throw new InboxReplyHandoffCompletionSubmitError(
@@ -83,9 +85,17 @@ export async function submitInboxReplyHandoffCompletion(
       );
     }
 
+    if (resolvedHandoffAttempt !== handoffArtifact.handoffAttempt) {
+      throw new InboxReplyHandoffCompletionSubmitError(
+        'inbox reply handoff artifact has been superseded by a newer handoff attempt',
+        409,
+      );
+    }
+
     const completedAt = (dependencies.now ?? (() => new Date()))().toISOString();
     const resultArtifactPath = createInboxReplyHandoffResultArtifact({
       handoffArtifactPath: artifactPath,
+      handoffAttempt: handoffArtifact.handoffAttempt,
       ...(typeof handoffArtifact.channelAccountId === 'number'
         ? { channelAccountId: handoffArtifact.channelAccountId }
         : {}),
@@ -159,4 +169,28 @@ export async function submitInboxReplyHandoffCompletion(
   }
 
   return payload;
+}
+
+function getRequiredInboxReplyHandoffArtifact(artifactPath: string) {
+  const handoffArtifact = getInboxReplyHandoffArtifactByPath(artifactPath);
+  if (!handoffArtifact) {
+    throw new InboxReplyHandoffCompletionSubmitError('inbox reply handoff artifact not found', 404);
+  }
+
+  return handoffArtifact;
+}
+
+function normalizeOptionalPositiveHandoffAttempt(value: unknown) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
+    throw new InboxReplyHandoffCompletionSubmitError(
+      'handoffAttempt must be a positive integer',
+      400,
+    );
+  }
+
+  return value;
 }
