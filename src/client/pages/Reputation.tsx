@@ -115,6 +115,7 @@ export interface UpdateReputationItemResponse {
   item: ReputationItem;
   inboxItem?: {
     id: number;
+    projectId?: number;
     source: string;
     status: string;
     title: string;
@@ -142,6 +143,9 @@ interface ReputationPageProps {
   fetchStateOverride?: AsyncState<FetchReputationResponse>;
   enqueueStateOverride?: AsyncState<EnqueueReputationFetchJobResponse>;
   reputationUpdateStateOverride?: AsyncState<UpdateReputationItemResponse>;
+  projectIdDraft?: string;
+  onProjectIdDraftChange?: (value: string) => void;
+  onOpenInboxItem?: (input: { itemId: number; projectIdDraft: string; projectId?: number }) => void;
 }
 
 type ReputationMutationStatus = 'handled' | 'escalate';
@@ -200,9 +204,13 @@ export function ReputationPage({
   fetchStateOverride,
   enqueueStateOverride,
   reputationUpdateStateOverride,
+  projectIdDraft,
+  onProjectIdDraftChange,
+  onOpenInboxItem,
 }: ReputationPageProps) {
-  const [projectIdDraft, setProjectIdDraft] = useState('');
-  const projectId = parseProjectId(projectIdDraft);
+  const [localProjectIdDraft, setLocalProjectIdDraft] = useState('');
+  const activeProjectIdDraft = projectIdDraft ?? localProjectIdDraft;
+  const projectId = parseProjectId(activeProjectIdDraft);
   const { state, reload } = useAsyncQuery(
     () => (projectId === undefined ? loadReputationAction() : loadReputationAction(projectId)),
     [loadReputationAction, projectId],
@@ -339,6 +347,13 @@ export function ReputationPage({
           nextStatus: status,
         },
       }));
+      if (status === 'escalate' && response.inboxItem) {
+        onOpenInboxItem?.({
+          itemId: response.inboxItem.id,
+          projectId: response.inboxItem.projectId,
+          projectIdDraft: activeProjectIdDraft,
+        });
+      }
       reload();
     } catch (error) {
       if (scopeVersionAtStart !== reputationMutationScopeVersionRef.current) {
@@ -477,8 +492,16 @@ export function ReputationPage({
               <label style={{ display: 'grid', gap: '8px' }}>
                 <span style={{ fontWeight: 700 }}>项目 ID（可选）</span>
                 <input
-                  value={projectIdDraft}
-                  onChange={(event) => setProjectIdDraft(event.target.value)}
+                  value={activeProjectIdDraft}
+                  onChange={(event) => {
+                    const nextProjectIdDraft = event.target.value;
+                    if (onProjectIdDraftChange) {
+                      onProjectIdDraftChange(nextProjectIdDraft);
+                      return;
+                    }
+
+                    setLocalProjectIdDraft(nextProjectIdDraft);
+                  }}
                   placeholder="例如 12"
                   style={queueInputStyle}
                 />

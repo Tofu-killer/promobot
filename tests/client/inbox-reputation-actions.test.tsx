@@ -6403,6 +6403,131 @@ describe('Reputation action wiring', () => {
     }
   });
 
+  it('opens the created inbox item only for successful escalate responses', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ReputationPage } = await import('../../src/client/pages/Reputation');
+
+    const reputationItems = [
+      {
+        id: 4,
+        source: 'x',
+        sentiment: 'negative' as const,
+        status: 'new',
+        title: 'Session expired complaint',
+        detail: 'Users report being logged out unexpectedly.',
+        createdAt: '2026-04-19T10:00:00.000Z',
+      },
+      {
+        id: 5,
+        source: 'reddit',
+        sentiment: 'negative' as const,
+        status: 'new',
+        title: 'Escalate to inbox',
+        detail: 'Customers now need a manual follow-up from the inbox team.',
+        createdAt: '2026-04-19T10:30:00.000Z',
+      },
+    ];
+    const loadReputationAction = vi.fn().mockResolvedValue({
+      total: reputationItems.length,
+      positive: 0,
+      neutral: 0,
+      negative: reputationItems.length,
+      trend: [
+        { label: '正向', value: 0 },
+        { label: '中性', value: 0 },
+        { label: '负向', value: reputationItems.length },
+      ],
+      items: reputationItems,
+    });
+    const updateReputationAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        item: {
+          ...reputationItems[0],
+          status: 'handled',
+        },
+      })
+      .mockResolvedValueOnce({
+        item: {
+          ...reputationItems[1],
+          status: 'escalate',
+        },
+        inboxItem: {
+          id: 19,
+          projectId: 12,
+          source: 'reddit',
+          status: 'needs_review',
+          title: 'Escalate to inbox',
+          excerpt: 'Customers now need a manual follow-up from the inbox team.',
+          createdAt: '2026-04-19T10:35:00.000Z',
+        },
+      });
+    const onOpenInboxItem = vi.fn();
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ReputationPage as never, {
+          loadReputationAction,
+          updateReputationAction,
+          projectIdDraft: ' 12 ',
+          onProjectIdDraftChange: vi.fn(),
+          onOpenInboxItem,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const headerHandledButton =
+      findAllElements(
+        container,
+        (element) =>
+          element.tagName === 'BUTTON' &&
+          collectText(element).includes('标记已处理') &&
+          !hasAncestorTag(element, 'ARTICLE'),
+      )[0] ?? null;
+    expect(headerHandledButton).not.toBeNull();
+
+    await act(async () => {
+      headerHandledButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(updateReputationAction).toHaveBeenNthCalledWith(1, 4, 'handled');
+    expect(onOpenInboxItem).not.toHaveBeenCalled();
+
+    const secondArticle = findElement(
+      container,
+      (element) => element.tagName === 'ARTICLE' && collectText(element).includes('Escalate to inbox'),
+    );
+    const secondEscalateButton = findElement(
+      secondArticle,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('转入 Social Inbox'),
+    );
+
+    expect(secondArticle).not.toBeNull();
+    expect(secondEscalateButton).not.toBeNull();
+
+    await act(async () => {
+      secondEscalateButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(updateReputationAction).toHaveBeenNthCalledWith(2, 5, 'escalate');
+    expect(onOpenInboxItem).toHaveBeenCalledWith({
+      itemId: 19,
+      projectId: 12,
+      projectIdDraft: ' 12 ',
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('keeps reputation loading feedback bound to the original item when another item is selected', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
@@ -7082,6 +7207,111 @@ describe('Reputation action wiring', () => {
     expect(loadReputationAction).toHaveBeenLastCalledWith(12);
     expect(collectText(container)).toContain('Project B complaint');
     expect(collectText(container)).not.toContain('已将“Project A complaint”回写为 handled');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('focuses a handed-off inbox item and resets filters to keep it visible', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    const onInboxItemFocusApplied = vi.fn();
+    const stateOverride = {
+      status: 'success',
+      data: {
+        items: [
+          {
+            id: 7,
+            source: 'reddit',
+            status: 'needs_reply',
+            author: 'user123',
+            title: 'Need lower latency in APAC',
+            excerpt: 'Can you share current response times?',
+            createdAt: '2026-04-19T10:00:00.000Z',
+          },
+          {
+            id: 8,
+            source: 'x',
+            status: 'needs_review',
+            author: 'support-lead',
+            title: 'Escalated billing complaint',
+            excerpt: 'This is the newly escalated inbox item.',
+            createdAt: '2026-04-19T10:05:00.000Z',
+          },
+          {
+            id: 9,
+            source: 'reddit',
+            status: 'handled',
+            author: 'triage-bot',
+            title: 'Reddit follow-up already sent',
+            excerpt: 'Manual reply delivered.',
+            createdAt: '2026-04-19T10:10:00.000Z',
+          },
+        ],
+        total: 3,
+        unread: 2,
+      },
+    } satisfies ApiState<unknown>;
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(InboxPage as never, {
+          stateOverride,
+          onInboxItemFocusApplied,
+        }),
+      );
+      await flush();
+    });
+
+    const redditPlatformFilter = findElement(
+      container,
+      (element) => element.getAttribute('data-inbox-filter-platform') === 'reddit',
+    );
+    const handledStatusFilter = findElement(
+      container,
+      (element) => element.getAttribute('data-inbox-filter-status') === 'handled',
+    );
+
+    expect(redditPlatformFilter).not.toBeNull();
+    expect(handledStatusFilter).not.toBeNull();
+
+    await act(async () => {
+      redditPlatformFilter?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      handledStatusFilter?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(redditPlatformFilter?.getAttribute('aria-pressed')).toBe('true');
+    expect(handledStatusFilter?.getAttribute('aria-pressed')).toBe('true');
+    expect(collectText(container)).toContain('当前会话：reddit · triage-bot');
+
+    await act(async () => {
+      root.render(
+        createElement(InboxPage as never, {
+          stateOverride,
+          focusInboxItem: {
+            token: 1,
+            itemId: 8,
+          },
+          onInboxItemFocusApplied,
+        }),
+      );
+      await flush();
+    });
+
+    expect(findElement(container, (element) => element.getAttribute('data-inbox-filter-platform') === 'all')?.getAttribute('aria-pressed')).toBe(
+      'true',
+    );
+    expect(findElement(container, (element) => element.getAttribute('data-inbox-filter-status') === 'all')?.getAttribute('aria-pressed')).toBe(
+      'true',
+    );
+    expect(collectText(container)).toContain('当前会话：x · support-lead');
+    expect(onInboxItemFocusApplied).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       root.unmount();

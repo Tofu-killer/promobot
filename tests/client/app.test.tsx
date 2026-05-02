@@ -596,6 +596,333 @@ describe('App shell', () => {
     });
   });
 
+  it('opens the escalated inbox item from reputation and keeps the shared project scope', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    installAuthStorage(window, {
+      localStorage: createStorageArea(),
+      sessionStorage: createStorageArea('secret'),
+    });
+    installBrowserHistory(window as never, '/reputation');
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+
+        if (url === '/api/auth/probe') {
+          return Promise.resolve(
+            new Response(null, {
+              status: 204,
+            }),
+          );
+        }
+
+        if (url === '/api/reputation/stats' || url === '/api/reputation/stats?projectId=12') {
+          return Promise.resolve(
+            jsonResponse({
+              total: 1,
+              positive: 0,
+              neutral: 0,
+              negative: 1,
+              trend: [
+                { label: '正向', value: 0 },
+                { label: '中性', value: 0 },
+                { label: '负向', value: 1 },
+              ],
+              items: [
+                {
+                  id: 4,
+                  source: 'x',
+                  sentiment: 'negative',
+                  status: 'new',
+                  title: 'Escalate this conversation',
+                  detail: 'Carry this into the shared inbox queue.',
+                  createdAt: '2026-04-19T12:00:00.000Z',
+                },
+              ],
+            }),
+          );
+        }
+
+        if (url === '/api/reputation/4') {
+          expect(init?.method).toBe('PATCH');
+          return Promise.resolve(
+            jsonResponse({
+              item: {
+                id: 4,
+                source: 'x',
+                sentiment: 'negative',
+                status: 'escalate',
+                title: 'Escalate this conversation',
+                detail: 'Carry this into the shared inbox queue.',
+                createdAt: '2026-04-19T12:00:00.000Z',
+              },
+              inboxItem: {
+                id: 9,
+                projectId: 12,
+                source: 'x',
+                status: 'needs_review',
+                title: 'Escalated inbox thread',
+                excerpt: 'The inbox should focus this newly created conversation.',
+                createdAt: '2026-04-19T12:05:00.000Z',
+              },
+            }),
+          );
+        }
+
+        if (url === '/api/inbox?projectId=12') {
+          return Promise.resolve(
+            jsonResponse({
+              items: [
+                {
+                  id: 7,
+                  source: 'reddit',
+                  status: 'needs_reply',
+                  author: 'builder',
+                  title: 'Older inbox thread',
+                  excerpt: 'This was already waiting in the queue.',
+                  createdAt: '2026-04-19T11:30:00.000Z',
+                },
+                {
+                  id: 9,
+                  source: 'x',
+                  status: 'needs_review',
+                  author: 'support-lead',
+                  title: 'Escalated inbox thread',
+                  excerpt: 'The inbox should focus this newly created conversation.',
+                  createdAt: '2026-04-19T12:05:00.000Z',
+                },
+              ],
+              total: 2,
+              unread: 2,
+            }),
+          );
+        }
+
+        if (url === '/api/system/inbox-reply-handoffs?limit=100') {
+          return Promise.resolve(
+            jsonResponse({
+              handoffs: [],
+              total: 0,
+            }),
+          );
+        }
+
+        throw new Error(`unexpected fetch request: ${url}`);
+      }),
+    );
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(createElement(App as never, { initialAdminPassword: 'secret' }));
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    expect((window.location as { pathname?: string }).pathname).toBe('/reputation');
+    expect(collectText(container)).toContain('Brand Signals');
+
+    const reputationProjectInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    );
+    expect(reputationProjectInput).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(reputationProjectInput as never, '12', window as never);
+      await flush();
+      await flush();
+    });
+
+    const escalateButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('转入 Social Inbox'),
+    );
+    expect(escalateButton).not.toBeNull();
+
+    await act(async () => {
+      escalateButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    expect((window.location as { pathname?: string }).pathname).toBe('/inbox');
+    expect(collectText(container)).toContain('Social Inbox');
+
+    const inboxProjectInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    );
+    expect((inboxProjectInput as { value?: string } | null)?.value).toBe('12');
+    expect(collectText(container)).toContain('Older inbox thread');
+    expect(collectText(container)).toContain('Escalated inbox thread');
+    expect(collectText(container)).toContain('当前会话：x · support-lead');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('falls back to the escalated inbox project when the reputation project draft is invalid', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    installAuthStorage(window, {
+      localStorage: createStorageArea(),
+      sessionStorage: createStorageArea('secret'),
+    });
+    installBrowserHistory(window as never, '/reputation');
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+
+        if (url === '/api/auth/probe') {
+          return Promise.resolve(
+            new Response(null, {
+              status: 204,
+            }),
+          );
+        }
+
+        if (url === '/api/reputation/stats') {
+          return Promise.resolve(
+            jsonResponse({
+              total: 1,
+              positive: 0,
+              neutral: 0,
+              negative: 1,
+              trend: [
+                { label: '正向', value: 0 },
+                { label: '中性', value: 0 },
+                { label: '负向', value: 1 },
+              ],
+              items: [
+                {
+                  id: 4,
+                  source: 'x',
+                  sentiment: 'negative',
+                  status: 'new',
+                  title: 'Escalate this conversation',
+                  detail: 'Carry this into the shared inbox queue.',
+                  createdAt: '2026-04-19T12:00:00.000Z',
+                },
+              ],
+            }),
+          );
+        }
+
+        if (url === '/api/reputation/4') {
+          expect(init?.method).toBe('PATCH');
+          return Promise.resolve(
+            jsonResponse({
+              item: {
+                id: 4,
+                source: 'x',
+                sentiment: 'negative',
+                status: 'escalate',
+                title: 'Escalate this conversation',
+                detail: 'Carry this into the shared inbox queue.',
+                createdAt: '2026-04-19T12:00:00.000Z',
+              },
+              inboxItem: {
+                id: 9,
+                projectId: 12,
+                source: 'x',
+                status: 'needs_review',
+                title: 'Escalated inbox thread',
+                excerpt: 'The inbox should focus this newly created conversation.',
+                createdAt: '2026-04-19T12:05:00.000Z',
+              },
+            }),
+          );
+        }
+
+        if (url === '/api/inbox?projectId=12') {
+          return Promise.resolve(
+            jsonResponse({
+              items: [
+                {
+                  id: 9,
+                  source: 'x',
+                  status: 'needs_review',
+                  author: 'support-lead',
+                  title: 'Escalated inbox thread',
+                  excerpt: 'The inbox should focus this newly created conversation.',
+                  createdAt: '2026-04-19T12:05:00.000Z',
+                },
+              ],
+              total: 1,
+              unread: 1,
+            }),
+          );
+        }
+
+        if (url === '/api/system/inbox-reply-handoffs?limit=100') {
+          return Promise.resolve(
+            jsonResponse({
+              handoffs: [],
+              total: 0,
+            }),
+          );
+        }
+
+        throw new Error(`unexpected fetch request: ${url}`);
+      }),
+    );
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(createElement(App as never, { initialAdminPassword: 'secret' }));
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    const reputationProjectInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    );
+    expect(reputationProjectInput).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(reputationProjectInput as never, '12x', window as never);
+      await flush();
+      await flush();
+    });
+
+    const escalateButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('转入 Social Inbox'),
+    );
+    expect(escalateButton).not.toBeNull();
+
+    await act(async () => {
+      escalateButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    expect((window.location as { pathname?: string }).pathname).toBe('/inbox');
+
+    const inboxProjectInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    );
+    expect((inboxProjectInput as { value?: string } | null)?.value).toBe('12');
+    expect(collectText(container)).toContain('当前会话：x · support-lead');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('prefills Generate Center from a monitor handoff and keeps the shared projectId draft', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');

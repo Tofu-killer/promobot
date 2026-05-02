@@ -324,6 +324,11 @@ interface InboxPageProps {
   projectIdDraft?: string;
   onProjectIdDraftChange?: (value: string) => void;
   onOpenGenerateCenter?: (input: { topic: string; preferredPlatforms: string[] }) => void;
+  focusInboxItem?: {
+    token: number;
+    itemId: number;
+  } | null;
+  onInboxItemFocusApplied?: () => void;
 }
 
 interface PlaceholderActionButtonProps {
@@ -741,6 +746,8 @@ export function InboxPage({
   projectIdDraft,
   onProjectIdDraftChange,
   onOpenGenerateCenter,
+  focusInboxItem,
+  onInboxItemFocusApplied,
 }: InboxPageProps) {
   const [localProjectIdDraft, setLocalProjectIdDraft] = useState('');
   const activeProjectIdDraft = projectIdDraft ?? localProjectIdDraft;
@@ -800,6 +807,7 @@ export function InboxPage({
   >({});
   const replyHandoffCompletionAttemptRef = useRef(0);
   const manualReplyAssistantCompletionAttemptRef = useRef(0);
+  const appliedInboxFocusTokenRef = useRef<number | null>(null);
   const [allowReplySuggestionFallback, setAllowReplySuggestionFallback] = useState(true);
   const [enqueueRunAtDraft, setEnqueueRunAtDraft] = useState('');
   const displayState = stateOverride ?? state;
@@ -897,6 +905,22 @@ export function InboxPage({
     setReplyHandoffDraftByArtifactPath({});
     setAllowReplySuggestionFallback(false);
   }, [projectId]);
+
+  useEffect(() => {
+    if (!focusInboxItem) {
+      return;
+    }
+
+    if (appliedInboxFocusTokenRef.current === focusInboxItem.token) {
+      return;
+    }
+
+    appliedInboxFocusTokenRef.current = focusInboxItem.token;
+    setActivePlatformFilter('all');
+    setActiveStatusFilter('all');
+    setSelectedItemId(focusInboxItem.itemId);
+    onInboxItemFocusApplied?.();
+  }, [focusInboxItem, onInboxItemFocusApplied]);
 
   const platformFilters = [
     { id: 'all', label: formatInboxPlatformFilterLabel('all') },

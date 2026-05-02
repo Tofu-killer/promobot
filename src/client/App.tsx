@@ -77,10 +77,25 @@ function getRouteFromPathname(pathname: string | null | undefined, fallback: App
   return knownRoutes.has(candidate) ? candidate : fallback;
 }
 
+function parseProjectIdDraft(value: string) {
+  const normalizedValue = value.trim();
+  if (!/^\d+$/.test(normalizedValue)) {
+    return null;
+  }
+
+  const projectId = Number(normalizedValue);
+  return Number.isSafeInteger(projectId) && projectId > 0 ? projectId : null;
+}
+
 interface GeneratePrefillState {
   token: number;
   topic: string;
   preferredPlatforms: string[];
+}
+
+interface InboxFocusState {
+  token: number;
+  itemId: number;
 }
 
 function renderRoute(
@@ -91,6 +106,9 @@ function renderRoute(
   generatePrefillState: GeneratePrefillState | null,
   onOpenGenerateCenter: (input: { topic: string; preferredPlatforms: string[] }) => void,
   onGeneratePrefillApplied: () => void,
+  inboxFocusState: InboxFocusState | null,
+  onOpenInboxItem: (input: { itemId: number; projectIdDraft: string; projectId?: number }) => void,
+  onInboxFocusApplied: () => void,
 ) {
   switch (route) {
     case 'dashboard':
@@ -136,6 +154,8 @@ function renderRoute(
           projectIdDraft={sharedProjectIdDraft}
           onProjectIdDraftChange={onProjectIdDraftChange}
           onOpenGenerateCenter={onOpenGenerateCenter}
+          focusInboxItem={inboxFocusState}
+          onInboxItemFocusApplied={onInboxFocusApplied}
         />
       );
     case 'monitor':
@@ -147,7 +167,13 @@ function renderRoute(
         />
       );
     case 'reputation':
-      return <ReputationPage />;
+      return (
+        <ReputationPage
+          projectIdDraft={sharedProjectIdDraft}
+          onProjectIdDraftChange={onProjectIdDraftChange}
+          onOpenInboxItem={onOpenInboxItem}
+        />
+      );
     case 'channels':
       return <ChannelAccountsPage />;
     case 'settings':
@@ -178,6 +204,7 @@ export default function App({ initialRoute = 'dashboard', initialAdminPassword =
   );
   const [sharedProjectIdDraft, setSharedProjectIdDraft] = useState('');
   const [generatePrefillState, setGeneratePrefillState] = useState<GeneratePrefillState | null>(null);
+  const [inboxFocusState, setInboxFocusState] = useState<InboxFocusState | null>(null);
   const authSyncVersionRef = useRef(0);
   const [authStatus, setAuthStatus] = useState<AuthStatus>(
     typeof window === 'undefined'
@@ -272,6 +299,23 @@ export default function App({ initialRoute = 'dashboard', initialAdminPassword =
     handleNavigate('generate');
   };
 
+  const handleOpenInboxItem = (input: { itemId: number; projectIdDraft: string; projectId?: number }) => {
+    const requestedProjectId = parseProjectIdDraft(input.projectIdDraft);
+    const nextProjectIdDraft =
+      requestedProjectId !== null
+        ? input.projectIdDraft
+        : input.projectId !== undefined
+          ? String(input.projectId)
+          : '';
+
+    setSharedProjectIdDraft(nextProjectIdDraft);
+    setInboxFocusState((currentState) => ({
+      token: (currentState?.token ?? 0) + 1,
+      itemId: input.itemId,
+    }));
+    handleNavigate('inbox');
+  };
+
   if (authStatus === 'booting' || authStatus === 'checking') {
     return (
       <section
@@ -343,6 +387,9 @@ export default function App({ initialRoute = 'dashboard', initialAdminPassword =
         generatePrefillState,
         handleOpenGenerateCenter,
         () => setGeneratePrefillState(null),
+        inboxFocusState,
+        handleOpenInboxItem,
+        () => setInboxFocusState(null),
       )}
     </Layout>
   );
