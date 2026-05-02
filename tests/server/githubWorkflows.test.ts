@@ -159,6 +159,35 @@ describe('GitHub workflow contracts', () => {
     expect(uploadArtifactStep).toContain('compression-level: 0');
   });
 
+  it('stages and verifies the standalone downloaded release helper before upload', () => {
+    const releaseBundleWorkflow = fs.readFileSync(
+      path.resolve('.github/workflows/release-bundle.yml'),
+      'utf8',
+    );
+    const stageHelperStep = releaseBundleWorkflow.slice(
+      releaseBundleWorkflow.indexOf('      - name: Stage downloaded release verification helper'),
+      releaseBundleWorkflow.indexOf('      - name: Reset archived release bundle metadata file'),
+    );
+    const verifyHelperStep = releaseBundleWorkflow.slice(
+      releaseBundleWorkflow.indexOf('      - name: Verify standalone downloaded release helper'),
+      releaseBundleWorkflow.indexOf('      - name: Upload release bundle artifact'),
+    );
+
+    expect(stageHelperStep).toContain('HELPER_PATH: ${{ steps.asset_names.outputs.helper_path }}');
+    expect(stageHelperStep).toContain('cp ops/verify-downloaded-release.sh "$HELPER_PATH"');
+    expect(stageHelperStep).toContain('chmod +x "$HELPER_PATH"');
+    expect(stageHelperStep).toContain('bash -n "$HELPER_PATH"');
+
+    expect(verifyHelperStep).toContain('HELPER_PATH: ${{ steps.asset_names.outputs.helper_path }}');
+    expect(verifyHelperStep).toContain('ARCHIVE_PATH: ${{ steps.asset_names.outputs.archive_path }}');
+    expect(verifyHelperStep).toContain('CHECKSUM_PATH: ${{ steps.asset_names.outputs.checksum_path }}');
+    expect(verifyHelperStep).toContain('METADATA_PATH: ${{ steps.asset_names.outputs.metadata_path }}');
+    expect(verifyHelperStep).toContain('bash "$HELPER_PATH" \\');
+    expect(verifyHelperStep).toContain('--archive-file "$ARCHIVE_PATH" \\');
+    expect(verifyHelperStep).toContain('--checksum-file "$CHECKSUM_PATH" \\');
+    expect(verifyHelperStep).toContain('--metadata-file "$METADATA_PATH"');
+  });
+
   it('keeps the GitHub Release body guidance aligned with the downloaded helper contract', () => {
     const releaseBundleWorkflow = fs.readFileSync(
       path.resolve('.github/workflows/release-bundle.yml'),
