@@ -981,6 +981,52 @@ describe('release shell wrappers', () => {
     );
   });
 
+  it('verifies and extracts a downloaded release archive via the --archive alias', async () => {
+    const fixture = await createDownloadedReleaseFixture();
+    const extractRoot = path.join(fixture.rootDir, 'extract-target-alias');
+
+    const result = runScript(
+      fixture.scriptPath,
+      ['--archive', fixture.archivePath, '--extract-to', extractRoot, '--keep-extracted'],
+      {
+        cwd: fixture.rootDir,
+      },
+    );
+
+    const extractedRoots = fs
+      .readdirSync(extractRoot)
+      .map((entry) => path.join(extractRoot, entry))
+      .filter((entryPath) => fs.statSync(entryPath).isDirectory());
+    const extractedBundleDir = path.join(extractedRoots[0] ?? '', 'promobot-release-bundle');
+    const extractedManifest = JSON.parse(
+      fs.readFileSync(path.join(extractedBundleDir, 'manifest.json'), 'utf8'),
+    ) as {
+      files?: string[];
+      missing?: string[];
+      ok?: boolean;
+    };
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Verifying archive checksum');
+    expect(result.stdout).toContain('Running extracted bundle release verifier');
+    expect(result.stdout).toContain('Verification succeeded; kept extracted bundle');
+    expect(fs.existsSync(extractedBundleDir)).toBe(true);
+    expect(extractedManifest.ok).toBe(true);
+    expect(extractedManifest.missing).toEqual([]);
+    expect(extractedManifest.files).toEqual(
+      expect.arrayContaining([
+        '.env.example',
+        'database/schema.sql',
+        'docs/DEPLOYMENT.md',
+        'dist/server/cli/browserHandoffComplete.js',
+        'dist/server/cli/inboxReplyHandoffComplete.js',
+        'ops/deploy-release.sh',
+        'ops/verify-downloaded-release.sh',
+        'ops/verify-release.sh',
+      ]),
+    );
+  });
+
   it('fails verify-downloaded-release when archive checksum verification fails', async () => {
     const fixture = await createDownloadedReleaseFixture();
 
