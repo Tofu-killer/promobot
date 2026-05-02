@@ -151,6 +151,34 @@ describe('release shell wrappers', () => {
     });
   });
 
+  it('runs pnpm build before packaging when release-promobot uses the default build path', () => {
+    const fixture = createReleasePromobotFixture();
+    const result = runScript(
+      fixture.scriptPath,
+      ['--output-dir', fixture.bundleDir],
+      {
+        cwd: fixture.rootDir,
+        env: {
+          ...process.env,
+          PATH: `${fixture.binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+        },
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Running pnpm build');
+    expect(result.stdout).toContain(
+      `Running node dist/server/cli/releaseBundle.js --output-dir ${fixture.bundleDir}`,
+    );
+    expect(result.stdout).toContain(`Self-verifying downloaded release archive ${fixture.archivePath}`);
+    expect(fs.readFileSync(fixture.pnpmMarkerPath, 'utf8')).toBe('build\n');
+    expect(result.stdout.indexOf('Running pnpm build')).toBeLessThan(
+      result.stdout.indexOf(
+        `Running node dist/server/cli/releaseBundle.js --output-dir ${fixture.bundleDir}`,
+      ),
+    );
+  });
+
   it('shows verify-release help for direct and leading dash-dash help paths', () => {
     for (const args of [['--help'], ['--', '--help']]) {
       const result = runRepoScript('ops/verify-release.sh', args);
