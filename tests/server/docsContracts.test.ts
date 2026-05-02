@@ -129,7 +129,16 @@ describe('deployment document contracts', () => {
     expect(readme).toContain(
       'bundle-safe 的 ops 脚本（`deploy-promobot.sh`、`deploy-release.sh`、`preflight-promobot.sh`、`rollback-promobot.sh`、`verify-downloaded-release.sh`、`verify-release.sh`）',
     );
+    expect(readme).toContain(
+      'bundle 内会额外锁定 `dist/server/cli/preflightPromobot.js`、`dist/server/cli/runtimeRestore.js` 这两个 compiled helper，保证已解压 bundle 根目录里的 `preflight-promobot.sh` / `rollback-promobot.sh` 不会回退到源码仓库专用的 `pnpm` 脚本',
+    );
     expect(readme).toContain('仓库侧的 `ops/release-promobot.sh` 不会随 bundle 分发');
+    expect(readme).toContain(
+      '- `ops/preflight-promobot.sh` 现在提供上线前预检脚本；它会先跑 `preflight:prod`，再按需追加 smoke check。在源码仓库里会走 `pnpm preflight:prod` / `pnpm smoke:server`，在已解压的 bundle 根目录里则会自动切到 bundle 自带的 `dist/server/cli/preflightPromobot.js` / `dist/server/cli/deploymentSmoke.js`。',
+    );
+    expect(readme).toContain(
+      '- `ops/rollback-promobot.sh` 现在提供对应的本机回滚脚本；它会先停 PM2，再调用 `runtime:restore` 恢复运行时数据，最后重启服务并可选追加 smoke check。需要保留当前 `.env` 时，可给 rollback 传 `--skip-env`。在已解压的 bundle 根目录里，它会改用 bundle 自带的 `dist/server/cli/runtimeRestore.js` / `dist/server/cli/deploymentSmoke.js`。',
+    );
 
     expect(deploymentDoc).toContain('release bundle 当前会包含以下 bundle-safe 文件：');
     expect(deploymentDoc).toContain('- `ops/deploy-promobot.sh`');
@@ -139,6 +148,9 @@ describe('deployment document contracts', () => {
     expect(deploymentDoc).toContain('- `ops/verify-downloaded-release.sh`');
     expect(deploymentDoc).toContain('- `ops/verify-release.sh`');
     expect(deploymentDoc).toContain('仓库侧的 `ops/release-promobot.sh` 只用于源码目录本地打包，不会随 release bundle 分发。');
+    expect(deploymentDoc).toContain(
+      '其中 `ops/preflight-promobot.sh` 和 `ops/rollback-promobot.sh` 虽然也是 shell wrapper，但它们在已解压的 bundle 根目录里不再回退到源码仓库专用的 `pnpm preflight:prod` / `pnpm runtime:restore`。为了保证这两条链路在 bundle-only 场景下仍然可执行，bundle manifest 现在会强制锁定 `dist/server/cli/preflightPromobot.js`、`dist/server/cli/runtimeRestore.js`，并与 `dist/server/cli/deploymentSmoke.js` 一起作为 wrapper 的 bundle-local compiled 入口。',
+    );
     expect(deploymentDoc).not.toContain('release bundle 当前至少会包含：');
   });
 });
