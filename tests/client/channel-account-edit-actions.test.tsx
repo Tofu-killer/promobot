@@ -710,6 +710,43 @@ type BrowserAccountFixtureOverrides = {
   updatedAt?: string;
 };
 
+function buildDefaultBrowserPublishReadiness({
+  platform,
+  session,
+}: {
+  platform: string;
+  session: {
+    hasSession: boolean;
+    status: string;
+  };
+}) {
+  const platformLabel =
+    platform === 'x' ? 'X' : platform === 'instagram' ? 'Instagram' : platform;
+
+  if (!session.hasSession || session.status === 'missing') {
+    return {
+      platform,
+      ready: false,
+      mode: 'browser' as const,
+      status: 'needs_session',
+      message: `${platformLabel} 浏览器登录态缺失，请先完成登录。`,
+      action: 'request_session' as const,
+    };
+  }
+
+  return {
+    platform,
+    ready: false,
+    mode: 'browser' as const,
+    status: 'needs_relogin',
+    message:
+      platform === 'x'
+        ? '已有 X 浏览器 session，但需要重新登录刷新。'
+        : `${platformLabel} 浏览器 session 需要重新登录刷新。`,
+    action: 'relogin' as const,
+  };
+}
+
 function buildBrowserAccountFixture({
   id = 7,
   platform = 'x',
@@ -726,14 +763,10 @@ function buildBrowserAccountFixture({
   },
   latestBrowserLaneArtifact,
   activeSessionActionArtifacts,
-  publishReadiness = {
+  publishReadiness = buildDefaultBrowserPublishReadiness({
     platform,
-    ready: false,
-    mode: 'browser',
-    status: 'needs_relogin',
-    message: '已有 X 浏览器 session，但需要重新登录刷新。',
-    action: 'relogin',
-  },
+    session,
+  }),
   createdAt = '2026-04-19T00:00:00.000Z',
   updatedAt = createdAt,
 }: BrowserAccountFixtureOverrides = {}) {
@@ -785,10 +818,7 @@ function buildSessionActionResult({
   status = 'pending',
   reused,
   artifactPath,
-  channelAccount = buildBrowserAccountFixture({
-    platform,
-    accountKey,
-  }),
+  channelAccount,
 }: SessionActionResultFixtureOptions = {}) {
   const browserLaneArtifact = buildBrowserLaneArtifactFixture({
     platform,
@@ -798,6 +828,31 @@ function buildSessionActionResult({
     jobId,
     jobStatus,
   });
+  const defaultChannelAccount =
+    action === 'request_session'
+      ? buildBrowserAccountFixture({
+          platform,
+          accountKey,
+          session: {
+            hasSession: false,
+            status: 'missing',
+            validatedAt: null,
+            storageStatePath: null,
+            id: `${platform}:${accountKey}`,
+          },
+          latestBrowserLaneArtifact: browserLaneArtifact,
+          activeSessionActionArtifacts: {
+            request_session: browserLaneArtifact,
+          },
+        })
+      : buildBrowserAccountFixture({
+          platform,
+          accountKey,
+          latestBrowserLaneArtifact: browserLaneArtifact,
+          activeSessionActionArtifacts: {
+            relogin: browserLaneArtifact,
+          },
+        });
 
   return {
     ok: true,
@@ -813,7 +868,7 @@ function buildSessionActionResult({
       artifactPath: artifactPath ?? browserLaneArtifact.artifactPath,
       ...(reused === undefined ? {} : { reused }),
     },
-    channelAccount,
+    channelAccount: channelAccount ?? defaultChannelAccount,
   };
 }
 

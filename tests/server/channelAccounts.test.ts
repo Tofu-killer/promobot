@@ -78,6 +78,21 @@ function matchSessionActionArtifactSummary(expected: Record<string, unknown>) {
   return expect.objectContaining(expected);
 }
 
+function buildSessionActionArtifactSummaryExpectation(expected: Record<string, unknown>) {
+  return expected;
+}
+
+function matchActiveSessionActionArtifacts(
+  expectedByAction: Record<string, Record<string, unknown>>,
+) {
+  return Object.fromEntries(
+    Object.entries(expectedByAction).map(([action, expected]) => [
+      action,
+      matchSessionActionArtifactSummary(expected),
+    ]),
+  );
+}
+
 async function requestApp(method: string, url: string, body?: unknown) {
   const app = express();
   app.use(express.json());
@@ -3126,31 +3141,25 @@ describe('channel accounts api', () => {
           } | null;
         };
       };
+      const requestSessionArtifactSummary = buildSessionActionArtifactSummaryExpectation({
+        channelAccountId: 1,
+        platform: 'x',
+        accountKey: '@promobot',
+        action: 'request_session',
+        jobStatus: 'pending',
+        requestedAt: requestSessionBody.job.runAt,
+        artifactPath: requestSessionBody.sessionAction.artifactPath,
+        resolvedAt: null,
+      });
 
       expect(requestSessionBody.channelAccount.latestBrowserLaneArtifact).toEqual(
-        matchSessionActionArtifactSummary({
-          channelAccountId: 1,
-          platform: 'x',
-          accountKey: '@promobot',
-          action: 'request_session',
-          jobStatus: 'pending',
-          requestedAt: requestSessionBody.job.runAt,
-          artifactPath: requestSessionBody.sessionAction.artifactPath,
-          resolvedAt: null,
+        matchSessionActionArtifactSummary(requestSessionArtifactSummary),
+      );
+      expect(requestSessionBody.channelAccount.activeSessionActionArtifacts).toEqual(
+        matchActiveSessionActionArtifacts({
+          request_session: requestSessionArtifactSummary,
         }),
       );
-      expect(requestSessionBody.channelAccount.activeSessionActionArtifacts).toEqual({
-        request_session: expect.objectContaining({
-          channelAccountId: 1,
-          platform: 'x',
-          accountKey: '@promobot',
-          action: 'request_session',
-          jobStatus: 'pending',
-          requestedAt: requestSessionBody.job.runAt,
-          artifactPath: requestSessionBody.sessionAction.artifactPath,
-          resolvedAt: null,
-        }),
-      });
 
       const initialStorageStatePath = 'artifacts/browser-sessions/x-promobot.json';
       writeStorageStateFile(rootDir, initialStorageStatePath);
@@ -3173,27 +3182,28 @@ describe('channel accounts api', () => {
           } | null;
         };
       };
+      const resolvedRequestSessionArtifactSummary = buildSessionActionArtifactSummaryExpectation({
+        channelAccountId: 1,
+        platform: 'x',
+        accountKey: '@promobot',
+        action: 'request_session',
+        jobStatus: 'resolved',
+        requestedAt: requestSessionBody.job.runAt,
+        artifactPath: requestSessionBody.sessionAction.artifactPath,
+        resolvedAt: expect.any(String),
+        resolution: {
+          status: 'resolved',
+          session: expect.objectContaining({
+            hasSession: true,
+            id: 'x:-promobot',
+            status: 'active',
+            storageStatePath: initialStorageStatePath,
+          }),
+        },
+      });
 
       expect(saveBody.channelAccount.latestBrowserLaneArtifact).toEqual(
-        matchSessionActionArtifactSummary({
-          channelAccountId: 1,
-          platform: 'x',
-          accountKey: '@promobot',
-          action: 'request_session',
-          jobStatus: 'resolved',
-          requestedAt: requestSessionBody.job.runAt,
-          artifactPath: requestSessionBody.sessionAction.artifactPath,
-          resolvedAt: expect.any(String),
-          resolution: {
-            status: 'resolved',
-            session: expect.objectContaining({
-              hasSession: true,
-              id: 'x:-promobot',
-              status: 'active',
-              storageStatePath: initialStorageStatePath,
-            }),
-          },
-        }),
+        matchSessionActionArtifactSummary(resolvedRequestSessionArtifactSummary),
       );
       expect(saveBody.channelAccount.activeSessionActionArtifacts).toEqual({});
 
@@ -3229,31 +3239,25 @@ describe('channel accounts api', () => {
           } | null;
         };
       };
+      const reloginArtifactSummary = buildSessionActionArtifactSummaryExpectation({
+        channelAccountId: 1,
+        platform: 'x',
+        accountKey: '@promobot',
+        action: 'relogin',
+        jobStatus: 'pending',
+        requestedAt: reloginBody.job.runAt,
+        artifactPath: reloginBody.sessionAction.artifactPath,
+        resolvedAt: null,
+      });
 
       expect(reloginBody.channelAccount.latestBrowserLaneArtifact).toEqual(
-        matchSessionActionArtifactSummary({
-          channelAccountId: 1,
-          platform: 'x',
-          accountKey: '@promobot',
-          action: 'relogin',
-          jobStatus: 'pending',
-          requestedAt: reloginBody.job.runAt,
-          artifactPath: reloginBody.sessionAction.artifactPath,
-          resolvedAt: null,
+        matchSessionActionArtifactSummary(reloginArtifactSummary),
+      );
+      expect(reloginBody.channelAccount.activeSessionActionArtifacts).toEqual(
+        matchActiveSessionActionArtifacts({
+          relogin: reloginArtifactSummary,
         }),
       );
-      expect(reloginBody.channelAccount.activeSessionActionArtifacts).toEqual({
-        relogin: matchSessionActionArtifactSummary({
-          channelAccountId: 1,
-          platform: 'x',
-          accountKey: '@promobot',
-          action: 'relogin',
-          jobStatus: 'pending',
-          requestedAt: reloginBody.job.runAt,
-          artifactPath: reloginBody.sessionAction.artifactPath,
-          resolvedAt: null,
-        }),
-      });
 
       const listedResponse = await requestApp('GET', '/api/channel-accounts');
       expect(listedResponse.status).toBe(200);
@@ -3261,28 +3265,10 @@ describe('channel accounts api', () => {
         channelAccounts: [
           expect.objectContaining({
             id: 1,
-            activeSessionActionArtifacts: {
-              relogin: matchSessionActionArtifactSummary({
-                channelAccountId: 1,
-                platform: 'x',
-                accountKey: '@promobot',
-                action: 'relogin',
-                jobStatus: 'pending',
-                requestedAt: reloginBody.job.runAt,
-                artifactPath: reloginBody.sessionAction.artifactPath,
-                resolvedAt: null,
-              }),
-            },
-            latestBrowserLaneArtifact: matchSessionActionArtifactSummary({
-              channelAccountId: 1,
-              platform: 'x',
-              accountKey: '@promobot',
-              action: 'relogin',
-              jobStatus: 'pending',
-              requestedAt: reloginBody.job.runAt,
-              artifactPath: reloginBody.sessionAction.artifactPath,
-              resolvedAt: null,
+            activeSessionActionArtifacts: matchActiveSessionActionArtifacts({
+              relogin: reloginArtifactSummary,
             }),
+            latestBrowserLaneArtifact: matchSessionActionArtifactSummary(reloginArtifactSummary),
           }),
         ],
       });
@@ -4215,6 +4201,16 @@ describe('channel accounts api', () => {
           artifactPath: string;
         };
       };
+      const requestSessionArtifactSummary = buildSessionActionArtifactSummaryExpectation({
+        channelAccountId: 1,
+        platform: 'facebookGroup',
+        accountKey: 'launch-campaign',
+        action: 'request_session',
+        jobStatus: 'pending',
+        requestedAt: requestSessionBody.job.runAt,
+        artifactPath: requestSessionBody.sessionAction.artifactPath,
+        resolvedAt: null,
+      });
 
       writeStorageStateFile(
         rootDir,
@@ -4233,28 +4229,10 @@ describe('channel accounts api', () => {
               validatedAt: expect.any(String),
               storageStatePath: 'browser-sessions/managed/facebookGroup/launch-campaign.json',
             },
-            activeSessionActionArtifacts: {
-              request_session: matchSessionActionArtifactSummary({
-                channelAccountId: 1,
-                platform: 'facebookGroup',
-                accountKey: 'launch-campaign',
-                action: 'request_session',
-                jobStatus: 'pending',
-                requestedAt: requestSessionBody.job.runAt,
-                artifactPath: requestSessionBody.sessionAction.artifactPath,
-                resolvedAt: null,
-              }),
-            },
-            latestBrowserLaneArtifact: matchSessionActionArtifactSummary({
-              channelAccountId: 1,
-              platform: 'facebookGroup',
-              accountKey: 'launch-campaign',
-              action: 'request_session',
-              jobStatus: 'pending',
-              requestedAt: requestSessionBody.job.runAt,
-              artifactPath: requestSessionBody.sessionAction.artifactPath,
-              resolvedAt: null,
+            activeSessionActionArtifacts: matchActiveSessionActionArtifacts({
+              request_session: requestSessionArtifactSummary,
             }),
+            latestBrowserLaneArtifact: matchSessionActionArtifactSummary(requestSessionArtifactSummary),
             publishReadiness: expect.objectContaining({
               platform: 'facebookGroup',
               ready: true,
