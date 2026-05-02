@@ -13,6 +13,7 @@ export class ApiRequestError extends Error {
 const ADMIN_PASSWORD_STORAGE_KEY = 'promobot_admin_password';
 const ADMIN_PASSWORD_STORAGE_MODE_KEY = 'promobot_admin_password_mode';
 const AUTH_ERROR_EVENT = 'promobot-auth-error';
+const AUTH_SYNC_STORAGE_KEY = 'promobot_auth_sync';
 
 async function parseResponseBody(response: Response): Promise<unknown> {
   const contentType = response.headers.get('content-type') ?? '';
@@ -44,6 +45,10 @@ export async function apiRequest<T>(input: RequestInfo | URL, init?: RequestInit
 
     if (response.status === 401) {
       clearStoredAdminPassword();
+      broadcastAuthSyncEvent({
+        type: 'expired',
+        message,
+      });
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent(AUTH_ERROR_EVENT, { detail: { message } }));
       }
@@ -99,6 +104,9 @@ export async function loginAdminSession(
 
   if (response.ok) {
     clearLegacyAdminPasswordStorage();
+    broadcastAuthSyncEvent({
+      type: 'login',
+    });
     return;
   }
 
@@ -125,6 +133,9 @@ export async function logoutAdminSession(): Promise<void> {
 
   if (response.ok) {
     clearLegacyAdminPasswordStorage();
+    broadcastAuthSyncEvent({
+      type: 'logout',
+    });
     return;
   }
 
@@ -172,6 +183,10 @@ export function getAuthErrorEventName() {
   return AUTH_ERROR_EVENT;
 }
 
+export function getAuthSyncStorageKey() {
+  return AUTH_SYNC_STORAGE_KEY;
+}
+
 export function getAdminPasswordStorageKey() {
   return 'promobot_admin_password';
 }
@@ -192,5 +207,24 @@ function clearLegacyAdminPasswordStorage() {
     window.localStorage?.removeItem(ADMIN_PASSWORD_STORAGE_MODE_KEY);
   } catch {
     // Ignore storage cleanup failures.
+  }
+}
+
+function broadcastAuthSyncEvent(input: { type: 'login' | 'logout' | 'expired'; message?: string }) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    window.localStorage?.setItem(
+      AUTH_SYNC_STORAGE_KEY,
+      JSON.stringify({
+        type: input.type,
+        ...(input.message ? { message: input.message } : {}),
+        at: new Date().toISOString(),
+      }),
+    );
+  } catch {
+    // Ignore storage write failures.
   }
 }

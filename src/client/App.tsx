@@ -3,6 +3,7 @@ import { Layout } from './components/Layout';
 import {
   clearStoredAdminPassword,
   getAuthErrorEventName,
+  getAuthSyncStorageKey,
   loginAdminSession,
   logoutAdminSession,
   probeAdminSession,
@@ -96,6 +97,94 @@ interface GeneratePrefillState {
 interface InboxFocusState {
   token: number;
   itemId: number;
+}
+
+interface AppRouteHistoryState {
+  generatePrefillState?: GeneratePrefillState;
+  inboxFocusState?: InboxFocusState;
+}
+
+function readGeneratePrefillState(value: unknown): GeneratePrefillState | null {
+  if (typeof value !== 'object' || value === null) {
+    return null;
+  }
+
+  const candidate = value as {
+    token?: unknown;
+    topic?: unknown;
+    preferredPlatforms?: unknown;
+  };
+  return typeof candidate.token === 'number' &&
+    Number.isFinite(candidate.token) &&
+    typeof candidate.topic === 'string' &&
+    Array.isArray(candidate.preferredPlatforms) &&
+    candidate.preferredPlatforms.every((platform) => typeof platform === 'string')
+    ? {
+        token: candidate.token,
+        topic: candidate.topic,
+        preferredPlatforms: candidate.preferredPlatforms,
+      }
+    : null;
+}
+
+function readInboxFocusState(value: unknown): InboxFocusState | null {
+  if (typeof value !== 'object' || value === null) {
+    return null;
+  }
+
+  const candidate = value as {
+    token?: unknown;
+    itemId?: unknown;
+  };
+  return typeof candidate.token === 'number' &&
+    Number.isFinite(candidate.token) &&
+    typeof candidate.itemId === 'number' &&
+    Number.isInteger(candidate.itemId)
+    ? {
+        token: candidate.token,
+        itemId: candidate.itemId,
+      }
+    : null;
+}
+
+function readAppRouteHistoryState(value: unknown): AppRouteHistoryState {
+  if (typeof value !== 'object' || value === null) {
+    return {};
+  }
+
+  const candidate = value as {
+    generatePrefillState?: unknown;
+    inboxFocusState?: unknown;
+  };
+  const generatePrefillState = readGeneratePrefillState(candidate.generatePrefillState);
+  const inboxFocusState = readInboxFocusState(candidate.inboxFocusState);
+
+  return {
+    ...(generatePrefillState ? { generatePrefillState } : {}),
+    ...(inboxFocusState ? { inboxFocusState } : {}),
+  };
+}
+
+function createAppRouteHistoryState(
+  route: AppRoute,
+  input: {
+    generatePrefillState?: GeneratePrefillState | null;
+    inboxFocusState?: InboxFocusState | null;
+  } = {},
+) {
+  if (route === 'generate' && input.generatePrefillState) {
+    return {
+      generatePrefillState: input.generatePrefillState,
+    } satisfies AppRouteHistoryState;
+  }
+
+  if (route === 'inbox' && input.inboxFocusState) {
+    return {
+      inboxFocusState: input.inboxFocusState,
+    } satisfies AppRouteHistoryState;
+  }
+
+  return null;
 }
 
 function renderRoute(
@@ -218,6 +307,9 @@ export default function App({ initialRoute = 'dashboard', initialAdminPassword =
       : 'booting',
   );
   const [authError, setAuthError] = useState<string | null>(null);
+  const cancelPendingAuthSync = () => {
+    authSyncVersionRef.current += 1;
+  };
 
   const syncAdminSession = (nextAuthError: string | null = null) => {
     const authSyncVersion = ++authSyncVersionRef.current;
@@ -258,6 +350,7 @@ export default function App({ initialRoute = 'dashboard', initialAdminPassword =
         event instanceof CustomEvent && typeof event.detail?.message === 'string'
           ? event.detail.message
           : '管理员登录已过期';
+      cancelPendingAuthSync();
       clearStoredAdminPassword();
       setAuthError(detail);
       setAuthStatus('anonymous');
@@ -270,18 +363,75 @@ export default function App({ initialRoute = 'dashboard', initialAdminPassword =
   }, []);
 
   useEffect(() => {
-    const syncRouteFromLocation = () => {
-      setActiveRoute((currentRoute) => getRouteFromPathname(window.location.pathname, currentRoute));
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const handleStorage = (event: Event) => {
+      const storageEvent = event as StorageEvent;
+      if (storageEvent.key !== getAuthSyncStorageKey() || typeof storageEvent.newValue !== 'string') {
+        return;
+      }
+
+      let detail: { type?: string; message?: string } | null = null;
+
+      try {
+        const parsed = JSON.parse(storageEvent.newValue) as unknown;
+        detail = typeof parsed === 'object' && parsed !== null ? (parsed as { type?: string; message?: string }) : null;
+      } catch {
+        return;
+      }
+
+      if (!detail?.type) {
+        return;
+      }
+
+      if (detail.type === 'login') {
+        syncAdminSession();
+        return;
+      }
+
+      cancelPendingAuthSync();
+      clearStoredAdminPassword();
+      setAuthError(detail.message ?? (detail.type === 'logout' ? '已在其他标签页退出登录' : '管理员登录已过期'));
+      setAuthStatus('anonymous');
     };
 
-    syncRouteFromLocation();
-    window.addEventListener('popstate', syncRouteFromLocation);
+    window.addEventListener('storage', handleStorage);
     return () => {
-      window.removeEventListener('popstate', syncRouteFromLocation);
+      window.removeEventListener('storage', handleStorage);
     };
   }, []);
 
-  const handleNavigate = (route: AppRoute) => {
+  useEffect(() => {
+    const syncRouteFromLocation = (nextHistoryState: unknown = window.history?.state) => {
+      const nextRoute = getRouteFromPathname(window.location.pathname, initialRoute);
+      const routeHistoryState = readAppRouteHistoryState(nextHistoryState);
+
+      setActiveRoute(nextRoute);
+      setGeneratePrefillState(nextRoute === 'generate' ? routeHistoryState.generatePrefillState ?? null : null);
+      setInboxFocusState(nextRoute === 'inbox' ? routeHistoryState.inboxFocusState ?? null : null);
+    };
+
+    syncRouteFromLocation();
+    const handlePopState = (event: Event) => {
+      const popStateEvent = event as PopStateEvent & { state?: unknown };
+      syncRouteFromLocation(popStateEvent.state);
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [initialRoute]);
+
+  const handleNavigate = (
+    route: AppRoute,
+    input: {
+      generatePrefillState?: GeneratePrefillState | null;
+      inboxFocusState?: InboxFocusState | null;
+    } = {},
+  ) => {
     setActiveRoute(route);
 
     if (typeof window.history?.pushState !== 'function') {
@@ -289,18 +439,28 @@ export default function App({ initialRoute = 'dashboard', initialAdminPassword =
     }
 
     const nextPath = routePathById[route];
+    const nextHistoryState = createAppRouteHistoryState(route, input);
     if (normalizeRoutePath(window.location.pathname) !== nextPath) {
-      window.history.pushState(null, '', nextPath);
+      window.history.pushState(nextHistoryState, '', nextPath);
+      return;
+    }
+
+    if (typeof window.history.replaceState === 'function') {
+      window.history.replaceState(nextHistoryState, '', nextPath);
     }
   };
 
   const handleOpenGenerateCenter = (input: { topic: string; preferredPlatforms: string[] }) => {
-    setGeneratePrefillState((currentState) => ({
-      token: (currentState?.token ?? 0) + 1,
+    const nextState = {
+      token: (generatePrefillState?.token ?? 0) + 1,
       topic: input.topic,
       preferredPlatforms: input.preferredPlatforms,
-    }));
-    handleNavigate('generate');
+    } satisfies GeneratePrefillState;
+
+    setGeneratePrefillState(nextState);
+    handleNavigate('generate', {
+      generatePrefillState: nextState,
+    });
   };
 
   const handleOpenInboxItem = (input: { itemId: number; projectIdDraft: string; projectId?: number }) => {
@@ -311,13 +471,16 @@ export default function App({ initialRoute = 'dashboard', initialAdminPassword =
         : input.projectId !== undefined
           ? String(input.projectId)
           : '';
+    const nextState = {
+      token: (inboxFocusState?.token ?? 0) + 1,
+      itemId: input.itemId,
+    } satisfies InboxFocusState;
 
     setSharedProjectIdDraft(nextProjectIdDraft);
-    setInboxFocusState((currentState) => ({
-      token: (currentState?.token ?? 0) + 1,
-      itemId: input.itemId,
-    }));
-    handleNavigate('inbox');
+    setInboxFocusState(nextState);
+    handleNavigate('inbox', {
+      inboxFocusState: nextState,
+    });
   };
 
   if (authStatus === 'booting' || authStatus === 'checking') {
@@ -370,6 +533,7 @@ export default function App({ initialRoute = 'dashboard', initialAdminPassword =
       navItems={navItems}
       onNavigate={handleNavigate}
       onLogout={() => {
+        cancelPendingAuthSync();
         setAuthStatus('checking');
 
         void logoutAdminSession()

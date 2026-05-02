@@ -86,6 +86,16 @@ function installBrowserHistory(
   initialPathname: string,
 ) {
   const location = window.location;
+  const entries: Array<{
+    pathname: string;
+    state: unknown;
+  }> = [
+    {
+      pathname: initialPathname,
+      state: null,
+    },
+  ];
+  let currentIndex = 0;
 
   const syncLocation = (pathname: string) => {
     location.pathname = pathname;
@@ -93,23 +103,93 @@ function installBrowserHistory(
     vi.stubGlobal('location', location);
   };
 
+  const resolvePathname = (url?: string | URL | null) =>
+    typeof url === 'string'
+      ? new URL(url, location.href).pathname
+      : url instanceof URL
+        ? url.pathname
+        : entries[currentIndex]?.pathname ?? location.pathname ?? '/';
+
+  const dispatchPopState = (state: unknown) => {
+    const popStateEvent = new window.Event('popstate');
+    Object.defineProperty(popStateEvent, 'state', {
+      configurable: true,
+      value: state,
+    });
+    window.dispatchEvent(popStateEvent);
+  };
+
   const history = {
-    pushState: vi.fn((_state: unknown, _unused: string, url?: string | URL | null) => {
-      const nextPathname =
-        typeof url === 'string'
-          ? new URL(url, location.href).pathname
-          : url instanceof URL
-            ? url.pathname
-            : location.pathname ?? '/';
+    get state() {
+      return entries[currentIndex]?.state ?? null;
+    },
+    pushState: vi.fn((state: unknown, _unused: string, url?: string | URL | null) => {
+      const nextPathname = resolvePathname(url);
+      entries.splice(currentIndex + 1);
+      entries.push({
+        pathname: nextPathname,
+        state,
+      });
+      currentIndex = entries.length - 1;
       syncLocation(nextPathname);
+    }),
+    replaceState: vi.fn((state: unknown, _unused: string, url?: string | URL | null) => {
+      const nextPathname = resolvePathname(url);
+      entries[currentIndex] = {
+        pathname: nextPathname,
+        state,
+      };
+      syncLocation(nextPathname);
+    }),
+    back: vi.fn(() => {
+      if (currentIndex === 0) {
+        return;
+      }
+
+      currentIndex -= 1;
+      syncLocation(entries[currentIndex]?.pathname ?? '/');
+      dispatchPopState(entries[currentIndex]?.state ?? null);
+    }),
+    forward: vi.fn(() => {
+      if (currentIndex >= entries.length - 1) {
+        return;
+      }
+
+      currentIndex += 1;
+      syncLocation(entries[currentIndex]?.pathname ?? '/');
+      dispatchPopState(entries[currentIndex]?.state ?? null);
     }),
   };
 
   window.history = history;
   vi.stubGlobal('history', history);
-  syncLocation(initialPathname);
+  syncLocation(entries[currentIndex]?.pathname ?? initialPathname);
 
   return history;
+}
+
+function dispatchStorageEvent(
+  window: {
+    Event: typeof Event;
+    dispatchEvent: (event: Event) => boolean;
+  },
+  input: {
+    key: string | null;
+    newValue: string | null;
+  },
+) {
+  const storageEvent = new window.Event('storage');
+  Object.defineProperties(storageEvent, {
+    key: {
+      configurable: true,
+      value: input.key,
+    },
+    newValue: {
+      configurable: true,
+      value: input.newValue,
+    },
+  });
+  window.dispatchEvent(storageEvent);
 }
 
 function findGeneratePlatformCheckbox(container: Parameters<typeof findElement>[0], platformValue: string) {
@@ -671,6 +751,125 @@ describe('App shell', () => {
     });
   });
 
+  it('restores generate handoff payload after popstate forward', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    installAuthStorage(window, {
+      localStorage: createStorageArea(),
+      sessionStorage: createStorageArea('secret'),
+    });
+    installBrowserHistory(window as never, '/discovery');
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+
+        if (url === '/api/auth/probe') {
+          return Promise.resolve(
+            new Response(null, {
+              status: 204,
+            }),
+          );
+        }
+
+        if (url === '/api/discovery') {
+          return Promise.resolve(
+            jsonResponse({
+              items: [
+                {
+                  id: 701,
+                  type: 'monitor',
+                  source: 'Product Hunt',
+                  title: 'Manual discovery follow-up',
+                  summary: '适合走人工平台的后续内容整理。',
+                  status: 'triaged',
+                  score: 79,
+                  createdAt: '2026-04-19T12:00:00.000Z',
+                },
+              ],
+              total: 1,
+              stats: {
+                sources: 1,
+                averageScore: 79,
+              },
+            }),
+          );
+        }
+
+        throw new Error(`unexpected fetch request: ${url}`);
+      }),
+    );
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(createElement(App as never, { initialAdminPassword: 'secret' }));
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    const discoveryProjectInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    );
+    expect(discoveryProjectInput).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(discoveryProjectInput as never, '12', window as never);
+      await flush();
+      await flush();
+    });
+
+    const manualHandoffButton = findElement(
+      container,
+      (element) => element.getAttribute('data-discovery-manual-generate-id') === 'monitor-701',
+    );
+    expect(manualHandoffButton).not.toBeNull();
+
+    await act(async () => {
+      manualHandoffButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    const topicField = () => findElement(container, (element) => element.tagName === 'TEXTAREA');
+    expect((window.location as { pathname?: string }).pathname).toBe('/generate');
+    expect((topicField() as { value?: string } | null)?.value).toBe(
+      'Manual discovery follow-up\n\n适合走人工平台的后续内容整理。',
+    );
+
+    await act(async () => {
+      (window.history as { back: () => void }).back();
+      await flush();
+      await flush();
+    });
+
+    expect((window.location as { pathname?: string }).pathname).toBe('/discovery');
+    expect(collectText(container)).toContain('Discovery Pool');
+
+    await act(async () => {
+      (window.history as { forward: () => void }).forward();
+      await flush();
+      await flush();
+    });
+
+    expect((window.location as { pathname?: string }).pathname).toBe('/generate');
+    expect((topicField() as { value?: string } | null)?.value).toBe(
+      'Manual discovery follow-up\n\n适合走人工平台的后续内容整理。',
+    );
+    expect((findGeneratePlatformCheckbox(container, 'facebook-group') as { checked?: boolean } | null)?.checked).toBe(
+      true,
+    );
+    expect((findGeneratePlatformCheckbox(container, 'instagram') as { checked?: boolean } | null)?.checked).toBe(true);
+    expect((findGeneratePlatformCheckbox(container, 'x') as { checked?: boolean } | null)?.checked).toBe(false);
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('prefills Generate Center from an inbox handoff and keeps the shared projectId draft', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
@@ -947,6 +1146,187 @@ describe('App shell', () => {
     expect(collectText(container)).toContain('Older inbox thread');
     expect(collectText(container)).toContain('Escalated inbox thread');
     expect(collectText(container)).toContain('当前会话：x · support-lead');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('restores inbox focus handoff after popstate forward', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    installAuthStorage(window, {
+      localStorage: createStorageArea(),
+      sessionStorage: createStorageArea('secret'),
+    });
+    installBrowserHistory(window as never, '/reputation');
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+
+        if (url === '/api/auth/probe') {
+          return Promise.resolve(
+            new Response(null, {
+              status: 204,
+            }),
+          );
+        }
+
+        if (url === '/api/reputation/stats' || url === '/api/reputation/stats?projectId=12') {
+          return Promise.resolve(
+            jsonResponse({
+              total: 1,
+              positive: 0,
+              neutral: 0,
+              negative: 1,
+              trend: [
+                { label: '正向', value: 0 },
+                { label: '中性', value: 0 },
+                { label: '负向', value: 1 },
+              ],
+              items: [
+                {
+                  id: 4,
+                  source: 'x',
+                  sentiment: 'negative',
+                  status: 'new',
+                  title: 'Escalate this conversation',
+                  detail: 'Carry this into the shared inbox queue.',
+                  createdAt: '2026-04-19T12:00:00.000Z',
+                },
+              ],
+            }),
+          );
+        }
+
+        if (url === '/api/reputation/4') {
+          expect(init?.method).toBe('PATCH');
+          return Promise.resolve(
+            jsonResponse({
+              item: {
+                id: 4,
+                source: 'x',
+                sentiment: 'negative',
+                status: 'escalate',
+                title: 'Escalate this conversation',
+                detail: 'Carry this into the shared inbox queue.',
+                createdAt: '2026-04-19T12:00:00.000Z',
+              },
+              inboxItem: {
+                id: 9,
+                projectId: 12,
+                source: 'x',
+                status: 'needs_review',
+                title: 'Escalated inbox thread',
+                excerpt: 'The inbox should focus this newly created conversation.',
+                createdAt: '2026-04-19T12:05:00.000Z',
+              },
+            }),
+          );
+        }
+
+        if (url === '/api/inbox?projectId=12') {
+          return Promise.resolve(
+            jsonResponse({
+              items: [
+                {
+                  id: 7,
+                  source: 'reddit',
+                  status: 'needs_reply',
+                  author: 'builder',
+                  title: 'Older inbox thread',
+                  excerpt: 'This was already waiting in the queue.',
+                  createdAt: '2026-04-19T11:30:00.000Z',
+                },
+                {
+                  id: 9,
+                  source: 'x',
+                  status: 'needs_review',
+                  author: 'support-lead',
+                  title: 'Escalated inbox thread',
+                  excerpt: 'The inbox should focus this newly created conversation.',
+                  createdAt: '2026-04-19T12:05:00.000Z',
+                },
+              ],
+              total: 2,
+              unread: 2,
+            }),
+          );
+        }
+
+        if (url === '/api/system/inbox-reply-handoffs?limit=100') {
+          return Promise.resolve(
+            jsonResponse({
+              handoffs: [],
+              total: 0,
+            }),
+          );
+        }
+
+        throw new Error(`unexpected fetch request: ${url}`);
+      }),
+    );
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(createElement(App as never, { initialAdminPassword: 'secret' }));
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    const reputationProjectInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    );
+    expect(reputationProjectInput).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(reputationProjectInput as never, '12', window as never);
+      await flush();
+      await flush();
+    });
+
+    const escalateButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('转入 Social Inbox'),
+    );
+    expect(escalateButton).not.toBeNull();
+
+    await act(async () => {
+      escalateButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    expect((window.location as { pathname?: string }).pathname).toBe('/inbox');
+    expect(collectText(container)).toContain('当前会话：x · support-lead');
+    expect(collectText(container)).not.toContain('当前会话：reddit · builder');
+
+    await act(async () => {
+      (window.history as { back: () => void }).back();
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    expect((window.location as { pathname?: string }).pathname).toBe('/reputation');
+    expect(collectText(container)).toContain('Brand Signals');
+
+    await act(async () => {
+      (window.history as { forward: () => void }).forward();
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    expect((window.location as { pathname?: string }).pathname).toBe('/inbox');
+    expect(collectText(container)).toContain('当前会话：x · support-lead');
+    expect(collectText(container)).not.toContain('当前会话：reddit · builder');
 
     await act(async () => {
       root.unmount();
@@ -1263,6 +1643,10 @@ describe('App shell', () => {
   it('logs in through the session api before entering the shell', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
+    const { localStorage, sessionStorage } = installAuthStorage(window, {
+      localStorage: createStorageArea(),
+      sessionStorage: createStorageArea(),
+    });
 
     const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
       if (String(input) === '/api/auth/probe') {
@@ -1351,6 +1735,11 @@ describe('App shell', () => {
         method: 'POST',
       }),
     );
+    expect(localStorage.setItem).toHaveBeenCalledWith(
+      'promobot_auth_sync',
+      expect.stringContaining('"type":"login"'),
+    );
+    expect(sessionStorage.setItem).not.toHaveBeenCalled();
     expect(collectText(container)).toContain('PromoBot');
 
     await act(async () => {
@@ -1413,6 +1802,7 @@ describe('App shell', () => {
     expect(sessionStorage.removeItem).toHaveBeenCalledWith('promobot_admin_password');
     expect(localStorage.removeItem).toHaveBeenCalledWith('promobot_admin_password');
     expect(localStorage.removeItem).toHaveBeenCalledWith('promobot_admin_password_mode');
+    expect(localStorage.setItem).not.toHaveBeenCalledWith('promobot_auth_sync', expect.any(String));
     expect(collectText(container)).toContain('PromoBot');
 
     await act(async () => {
@@ -1597,6 +1987,10 @@ describe('App shell', () => {
   it('logs out through the session api and returns to the login page', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
+    const { localStorage } = installAuthStorage(window, {
+      localStorage: createStorageArea(),
+      sessionStorage: createStorageArea('secret'),
+    });
 
     const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
       if (String(input) === '/api/auth/probe') {
@@ -1659,7 +2053,224 @@ describe('App shell', () => {
         method: 'POST',
       }),
     );
+    expect(localStorage.setItem).toHaveBeenCalledWith(
+      'promobot_auth_sync',
+      expect.stringContaining('"type":"logout"'),
+    );
     expect(collectText(container)).toContain('Admin Login');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('returns to the login page when another tab broadcasts a logout storage event', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      if (String(input) === '/api/auth/probe') {
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+
+      return Promise.resolve(
+        jsonResponse({
+          monitor: {
+            total: 0,
+            new: 0,
+            followUpDrafts: 0,
+          },
+          drafts: {
+            total: 0,
+            review: 0,
+          },
+          totals: {
+            items: 0,
+            followUps: 0,
+          },
+        }),
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(createElement(App as never, { initialAdminPassword: null }));
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('PromoBot');
+
+    await act(async () => {
+      dispatchStorageEvent(window as never, {
+        key: 'promobot_auth_sync',
+        newValue: JSON.stringify({
+          type: 'logout',
+          message: '已在其他标签页退出登录',
+          at: '2026-05-02T04:00:00.000Z',
+        }),
+      });
+      await flush();
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('Admin Login');
+    expect(collectText(container)).toContain('登录失败：已在其他标签页退出登录');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('ignores a stale auth probe success after another tab broadcasts logout', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+
+    let resolveProbe: ((value: Response) => void) | null = null;
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      if (String(input) === '/api/auth/probe') {
+        return new Promise<Response>((resolve) => {
+          resolveProbe = resolve;
+        });
+      }
+
+      return Promise.resolve(
+        jsonResponse({
+          monitor: {
+            total: 0,
+            new: 0,
+            followUpDrafts: 0,
+          },
+          drafts: {
+            total: 0,
+            review: 0,
+          },
+          totals: {
+            items: 0,
+            followUps: 0,
+          },
+        }),
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(createElement(App as never, { initialAdminPassword: null }));
+      await flush();
+    });
+
+    await act(async () => {
+      dispatchStorageEvent(window as never, {
+        key: 'promobot_auth_sync',
+        newValue: JSON.stringify({
+          type: 'logout',
+          message: '已在其他标签页退出登录',
+          at: '2026-05-02T04:03:00.000Z',
+        }),
+      });
+      await flush();
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('Admin Login');
+    expect(collectText(container)).toContain('登录失败：已在其他标签页退出登录');
+
+    await act(async () => {
+      resolveProbe?.(new Response(null, { status: 204 }));
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('Admin Login');
+    expect(collectText(container)).not.toContain('Dashboard');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('re-probes the admin session when another tab broadcasts a login storage event', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+
+    let probeCount = 0;
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      if (String(input) === '/api/auth/probe') {
+        probeCount += 1;
+
+        if (probeCount === 1) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ error: 'unauthorized' }), {
+              status: 401,
+              headers: {
+                'Content-Type': 'application/json',
+              },
+            }),
+          );
+        }
+
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+
+      return Promise.resolve(
+        jsonResponse({
+          monitor: {
+            total: 0,
+            new: 0,
+            followUpDrafts: 0,
+          },
+          drafts: {
+            total: 0,
+            review: 0,
+          },
+          totals: {
+            items: 0,
+            followUps: 0,
+          },
+        }),
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(createElement(App as never, { initialAdminPassword: null }));
+      await flush();
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('Admin Login');
+    expect(collectText(container)).not.toContain('退出登录');
+
+    await act(async () => {
+      dispatchStorageEvent(window as never, {
+        key: 'promobot_auth_sync',
+        newValue: JSON.stringify({
+          type: 'login',
+          at: '2026-05-02T04:05:00.000Z',
+        }),
+      });
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/auth/probe',
+      expect.objectContaining({
+        method: 'GET',
+      }),
+    );
+    expect(probeCount).toBe(2);
+    expect(collectText(container)).toContain('PromoBot');
+    expect(collectText(container)).not.toContain('Admin Login');
 
     await act(async () => {
       root.unmount();
