@@ -163,9 +163,14 @@ describe('createBrowserLaneDispatch', () => {
     });
   });
 
-  it('does not auto-run the local runner for publish handoffs without an explicit command', () => {
-    const spawn = vi.fn();
+  it('uses the opt-in local runner command for publish handoffs when no explicit browser lane command is configured', () => {
+    const child = {
+      once: vi.fn().mockReturnThis(),
+      unref: vi.fn(),
+    };
+    const spawn = vi.fn().mockReturnValue(child);
     const dispatch = createBrowserLaneDispatch({
+      cwd: '/tmp/promobot',
       env: {
         PROMOBOT_BROWSER_LOCAL_AUTORUN: 'true',
       },
@@ -180,14 +185,32 @@ describe('createBrowserLaneDispatch', () => {
         accountKey: 'main',
         draftId: '4',
       }),
-    ).toBe(false);
+    ).toBe(true);
 
-    expect(spawn).not.toHaveBeenCalled();
+    expect(spawn).toHaveBeenCalledWith('pnpm browser:lane:local', {
+      cwd: '/tmp/promobot',
+      env: expect.objectContaining({
+        PROMOBOT_BROWSER_LOCAL_AUTORUN: 'true',
+        PROMOBOT_BROWSER_DISPATCH_KIND: 'publish_handoff',
+        PROMOBOT_BROWSER_ARTIFACT_PATH:
+          'artifacts/browser-handoffs/instagram/main/instagram-draft-4.json',
+        PROMOBOT_BROWSER_PLATFORM: 'instagram',
+        PROMOBOT_BROWSER_ACCOUNT_KEY: 'main',
+        PROMOBOT_BROWSER_DRAFT_ID: '4',
+      }),
+      shell: true,
+      stdio: 'ignore',
+    });
   });
 
-  it('does not auto-run the local runner for inbox reply handoffs without an explicit command', () => {
-    const spawn = vi.fn();
+  it('uses the opt-in local runner command for inbox reply handoffs when no explicit browser lane command is configured', () => {
+    const child = {
+      once: vi.fn().mockReturnThis(),
+      unref: vi.fn(),
+    };
+    const spawn = vi.fn().mockReturnValue(child);
     const dispatch = createBrowserLaneDispatch({
+      cwd: '/tmp/promobot',
       env: {
         PROMOBOT_BROWSER_LOCAL_AUTORUN: 'true',
       },
@@ -202,9 +225,22 @@ describe('createBrowserLaneDispatch', () => {
         accountKey: 'main',
         itemId: '4',
       }),
-    ).toBe(false);
+    ).toBe(true);
 
-    expect(spawn).not.toHaveBeenCalled();
+    expect(spawn).toHaveBeenCalledWith('pnpm browser:lane:local', {
+      cwd: '/tmp/promobot',
+      env: expect.objectContaining({
+        PROMOBOT_BROWSER_LOCAL_AUTORUN: 'true',
+        PROMOBOT_BROWSER_DISPATCH_KIND: 'inbox_reply_handoff',
+        PROMOBOT_BROWSER_ARTIFACT_PATH:
+          'artifacts/inbox-reply-handoffs/weibo/main/weibo-inbox-item-4.json',
+        PROMOBOT_BROWSER_PLATFORM: 'weibo',
+        PROMOBOT_BROWSER_ACCOUNT_KEY: 'main',
+        PROMOBOT_BROWSER_ITEM_ID: '4',
+      }),
+      shell: true,
+      stdio: 'ignore',
+    });
   });
 
   it('logs and keeps going when the browser lane child fails to start or exits non-zero', () => {

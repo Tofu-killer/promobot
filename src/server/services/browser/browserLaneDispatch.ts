@@ -121,12 +121,8 @@ function normalizeCommand(value: string | undefined) {
 
 function resolveLocalBrowserLaneDispatchCommand(
   env: NodeJS.ProcessEnv,
-  kind: BrowserLaneDispatchKind,
+  _kind: BrowserLaneDispatchKind,
 ) {
-  if (kind !== 'session_request') {
-    return null;
-  }
-
   if (!parseBooleanEnv(env.PROMOBOT_BROWSER_LOCAL_AUTORUN)) {
     return null;
   }

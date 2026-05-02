@@ -122,7 +122,7 @@ export function getBrowserLaneLocalRunnerHelpText() {
     '  PROMOBOT_BROWSER_DELIVERED_AT               Defaults to now after PROMOBOT_BROWSER_REPLY_STATUS is set',
     '',
     'Dispatch integration:',
-    '  PROMOBOT_BROWSER_LOCAL_AUTORUN              true | 1 | yes to use this runner for session_request when no explicit browser lane command is configured',
+    '  PROMOBOT_BROWSER_LOCAL_AUTORUN              true | 1 | yes to use this runner for any browser lane dispatch when no explicit browser lane command is configured',
     '  PROMOBOT_BROWSER_LOCAL_RUNNER_COMMAND       Override the fallback command used by browserLaneDispatch',
     '',
     'Any explicit bridge env still wins over these defaults. --help',
