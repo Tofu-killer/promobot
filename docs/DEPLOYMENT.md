@@ -270,6 +270,8 @@ release bundle 当前会包含以下 bundle-safe 文件：
 
 仓库侧的 `ops/release-promobot.sh` 只用于源码目录本地打包，不会随 release bundle 分发。
 
+其中 `ops/preflight-promobot.sh` 和 `ops/rollback-promobot.sh` 虽然也是 shell wrapper，但它们在已解压的 bundle 根目录里不再回退到源码仓库专用的 `pnpm preflight:prod` / `pnpm runtime:restore`。为了保证这两条链路在 bundle-only 场景下仍然可执行，bundle manifest 现在会强制锁定 `dist/server/cli/preflightPromobot.js`、`dist/server/cli/runtimeRestore.js`，并与 `dist/server/cli/deploymentSmoke.js` 一起作为 wrapper 的 bundle-local compiled 入口。
+
 输出目录下会同时生成 `manifest.json`，其中会记录 bundle 文件列表和可用的 checksum，便于交付前核对缺失项和完整性。这份 manifest 只描述解压后的目录型 release bundle 内容，不负责 GitHub Release 上 `.tar.gz` 下载文件本身的完整性校验。
 
 交付前可以再做一次 release 目录校验：
