@@ -12,6 +12,20 @@ export type { DraftRecord, DraftsResponse } from '../lib/drafts';
 type CalendarDraftStatus = 'scheduled' | 'published';
 type BrowserSessionAction = 'request_session' | 'relogin';
 
+interface CalendarDayCell {
+  dateKey: string;
+  dayLabel: string;
+  items: DraftRecord[];
+}
+
+interface CalendarMonthSection {
+  monthKey: string;
+  monthLabel: string;
+  leadingEmptyDays: number;
+  trailingEmptyDays: number;
+  dayCells: CalendarDayCell[];
+}
+
 export interface UpdatePublishCalendarDraftScheduleResponse {
   draft: DraftRecord;
 }
@@ -134,6 +148,7 @@ interface BrowserHandoffCompletionMutationState {
 }
 
 const calendarStatuses: CalendarDraftStatus[] = ['scheduled', 'published'];
+const calendarWeekdayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 function parseProjectId(value: string) {
   const normalizedValue = value.trim();
@@ -364,6 +379,93 @@ function formatCalendarDraftStateDescription(draft: DraftRecord, scheduledAt: st
   }
 
   return '当前排程状态：尚未提供 scheduledAt，保存后才能进入发布窗口。';
+}
+
+function normalizeCalendarDateKey(value: string | null | undefined) {
+  if (!value) {
+    return null;
+  }
+
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) {
+    return null;
+  }
+
+  return `${match[1]}-${match[2]}-${match[3]}`;
+}
+
+function formatCalendarMonthLabel(monthKey: string) {
+  const [year, month] = monthKey.split('-');
+  const monthNumber = Number(month);
+  return Number.isInteger(monthNumber) ? `${year}年${monthNumber}月` : monthKey;
+}
+
+function buildCalendarDateKey(year: number, month: number, day: number) {
+  return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+function getDraftCalendarDateKey(draft: DraftRecord, scheduledAt: string) {
+  if (draft.status === 'scheduled') {
+    return normalizeCalendarDateKey(scheduledAt);
+  }
+
+  if (draft.status === 'published') {
+    return normalizeCalendarDateKey(draft.publishedAt ?? scheduledAt);
+  }
+
+  return null;
+}
+
+function buildCalendarMonthSections(
+  drafts: DraftRecord[],
+  readScheduledAtValue: (draft: DraftRecord) => string,
+): CalendarMonthSection[] {
+  const monthBucketMap = new Map<string, Map<string, DraftRecord[]>>();
+
+  for (const draft of drafts) {
+    const dateKey = getDraftCalendarDateKey(draft, readScheduledAtValue(draft));
+    if (!dateKey) {
+      continue;
+    }
+
+    const monthKey = dateKey.slice(0, 7);
+    const monthEntries = monthBucketMap.get(monthKey) ?? new Map<string, DraftRecord[]>();
+    const currentEntries = monthEntries.get(dateKey) ?? [];
+    currentEntries.push(draft);
+    monthEntries.set(dateKey, currentEntries);
+    monthBucketMap.set(monthKey, monthEntries);
+  }
+
+  return Array.from(monthBucketMap.entries())
+    .sort(([leftMonth], [rightMonth]) => leftMonth.localeCompare(rightMonth))
+    .map(([monthKey, dayBucketMap]) => {
+      const [yearPart, monthPart] = monthKey.split('-');
+      const year = Number(yearPart);
+      const month = Number(monthPart);
+      const totalDays = new Date(Date.UTC(year, month, 0)).getUTCDate();
+      const firstDayWeekIndex = new Date(Date.UTC(year, month - 1, 1)).getUTCDay();
+      const leadingEmptyDays = (firstDayWeekIndex + 6) % 7;
+      const dayCells: CalendarDayCell[] = [];
+
+      for (let day = 1; day <= totalDays; day += 1) {
+        const dateKey = buildCalendarDateKey(year, month, day);
+        dayCells.push({
+          dateKey,
+          dayLabel: String(day),
+          items: dayBucketMap.get(dateKey) ?? [],
+        });
+      }
+
+      const trailingEmptyDays = (7 - ((leadingEmptyDays + totalDays) % 7)) % 7;
+
+      return {
+        monthKey,
+        monthLabel: formatCalendarMonthLabel(monthKey),
+        leadingEmptyDays,
+        trailingEmptyDays,
+        dayCells,
+      };
+    });
 }
 
 function createIdleMutationState(): ScheduleMutationState {
@@ -609,6 +711,7 @@ export function PublishCalendarPage({
   );
   const publishedDrafts = calendarDrafts.filter((draft) => draft.status === 'published');
   const failedDrafts = visibleDrafts.filter((draft) => draft.status === 'failed');
+  const calendarMonthSections = buildCalendarMonthSections(calendarDrafts, getScheduledAtValue);
 
   function getMutationState(draftId: number) {
     return mutationStateById[draftId] ?? createIdleMutationState();
@@ -1204,10 +1307,160 @@ export function PublishCalendarPage({
               </div>
             </div>
 
+            <div
+              style={{
+                borderRadius: '18px',
+                border: '1px solid #dbe4f0',
+                background: '#ffffff',
+                padding: '18px',
+                display: 'grid',
+                gap: '16px',
+              }}
+            >
+              <div style={{ display: 'grid', gap: '4px' }}>
+                <strong style={{ color: '#0f172a' }}>Calendar View</strong>
+                <span style={{ color: '#475569' }}>
+                  基于 scheduledAt / publishedAt 聚合草稿日期，保留当前列表用于排程编辑、contract 检查和失败重试。
+                </span>
+              </div>
+
+              {calendarMonthSections.length === 0 ? (
+                <p style={{ margin: 0, color: '#475569' }}>暂无带日期的 scheduled / published 草稿。</p>
+              ) : (
+                <div style={{ display: 'grid', gap: '16px' }}>
+                  {calendarMonthSections.map((monthSection) => (
+                    <section
+                      key={monthSection.monthKey}
+                      data-calendar-month={monthSection.monthKey}
+                      style={{ display: 'grid', gap: '10px' }}
+                    >
+                      <strong style={{ color: '#0f172a' }}>{monthSection.monthLabel}</strong>
+                      <div
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
+                          gap: '8px',
+                        }}
+                      >
+                        {calendarWeekdayLabels.map((weekday) => (
+                          <div
+                            key={`${monthSection.monthKey}-${weekday}`}
+                            style={{
+                              padding: '6px 8px',
+                              borderRadius: '10px',
+                              background: '#eff6ff',
+                              color: '#1d4ed8',
+                              fontSize: '12px',
+                              fontWeight: 700,
+                              textAlign: 'center',
+                            }}
+                          >
+                            {weekday}
+                          </div>
+                        ))}
+                        {Array.from({ length: monthSection.leadingEmptyDays }).map((_, index) => (
+                          <div
+                            key={`${monthSection.monthKey}-leading-${index}`}
+                            aria-hidden="true"
+                            style={{ minHeight: '96px' }}
+                          />
+                        ))}
+                        {monthSection.dayCells.map((dayCell) => (
+                          <div
+                            key={dayCell.dateKey}
+                            data-calendar-day={dayCell.dateKey}
+                            style={{
+                              minHeight: '96px',
+                              borderRadius: '14px',
+                              border: '1px solid #dbe4f0',
+                              background: dayCell.items.length > 0 ? '#f8fafc' : '#ffffff',
+                              padding: '10px',
+                              display: 'grid',
+                              alignContent: 'start',
+                              gap: '8px',
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
+                              <strong style={{ color: '#0f172a' }}>{dayCell.dayLabel}</strong>
+                              {dayCell.items.length > 0 ? (
+                                <span style={{ fontSize: '12px', color: '#64748b' }}>{dayCell.items.length} 条</span>
+                              ) : null}
+                            </div>
+                            {dayCell.items.length === 0 ? (
+                              <span style={{ color: '#94a3b8', fontSize: '12px' }}>无排程</span>
+                            ) : (
+                              dayCell.items.map((draft) => {
+                                const scheduledAt = getScheduledAtValue(draft);
+                                return (
+                                  <div
+                                    key={`calendar-draft-${draft.id}`}
+                                    style={{
+                                      borderRadius: '12px',
+                                      background: '#ffffff',
+                                      border: '1px solid #e2e8f0',
+                                      padding: '8px',
+                                      display: 'grid',
+                                      gap: '4px',
+                                    }}
+                                  >
+                                    <strong style={{ color: '#0f172a', fontSize: '13px' }}>
+                                      {draft.title ?? `${draft.platform} draft #${draft.id}`}
+                                    </strong>
+                                    <span style={{ color: '#475569', fontSize: '12px' }}>{draft.platform}</span>
+                                    <span style={{ color: '#334155', fontSize: '12px' }}>
+                                      {formatCalendarPhaseLabel(draft, scheduledAt)}
+                                    </span>
+                                  </div>
+                                );
+                              })
+                            )}
+                          </div>
+                        ))}
+                        {Array.from({ length: monthSection.trailingEmptyDays }).map((_, index) => (
+                          <div
+                            key={`${monthSection.monthKey}-trailing-${index}`}
+                            aria-hidden="true"
+                            style={{ minHeight: '96px' }}
+                          />
+                        ))}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              )}
+
+              {pendingScheduleDrafts.length > 0 ? (
+                <div style={{ display: 'grid', gap: '8px' }}>
+                  <strong style={{ color: '#92400e' }}>待补日期</strong>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    {pendingScheduleDrafts.map((draft) => (
+                      <span
+                        key={`pending-schedule-${draft.id}`}
+                        style={{
+                          borderRadius: '999px',
+                          background: '#fef3c7',
+                          color: '#92400e',
+                          padding: '6px 10px',
+                          fontSize: '13px',
+                          fontWeight: 700,
+                        }}
+                      >
+                        {draft.title ?? `${draft.platform} draft #${draft.id}`}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
             {calendarDrafts.length === 0 && failedDrafts.length === 0 ? (
               <p style={{ margin: 0, color: '#475569' }}>暂无 scheduled 或 published 草稿。</p>
             ) : (
-              <div style={{ display: 'grid', gap: '12px' }}>
+              <div style={{ display: 'grid', gap: '12px' }} data-calendar-list-view="true">
+                <div style={{ display: 'grid', gap: '4px' }}>
+                  <strong style={{ color: '#0f172a' }}>List View</strong>
+                  <span style={{ color: '#475569' }}>继续用列表执行排程写回、失败重试与 publish contract 检查。</span>
+                </div>
                 {[...calendarDrafts, ...failedDrafts].map((draft) => {
                   const mutationState = getDisplayMutationState(draft);
                   const scheduledAt = getScheduledAtValue(draft);

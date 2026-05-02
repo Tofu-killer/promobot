@@ -848,4 +848,72 @@ describe('Publish Calendar schedule actions', () => {
     });
   });
 
+  it('renders a calendar overview grouped by date alongside the existing list controls', async () => {
+    const { container } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { PublishCalendarPage } = await import('../../src/client/pages/PublishCalendar');
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(PublishCalendarPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              drafts: [
+                {
+                  id: 21,
+                  platform: 'x',
+                  title: 'Scheduled APAC launch thread',
+                  content: 'Queued for the Monday window',
+                  hashtags: ['#launch'],
+                  status: 'scheduled',
+                  scheduledAt: '2026-04-20T09:30',
+                  createdAt: '2026-04-19T08:00:00.000Z',
+                  updatedAt: '2026-04-19T08:10:00.000Z',
+                },
+                {
+                  id: 22,
+                  platform: 'reddit',
+                  title: 'Published AMA recap',
+                  content: 'Recap thread already sent',
+                  hashtags: ['#ama'],
+                  status: 'published',
+                  publishedAt: '2026-04-21T10:05:00.000Z',
+                  createdAt: '2026-04-18T08:00:00.000Z',
+                  updatedAt: '2026-04-21T10:05:00.000Z',
+                },
+              ],
+            },
+          },
+        }),
+      );
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('Calendar View');
+
+    const aprilMonth = findElement(container, (element) => element.getAttribute('data-calendar-month') === '2026-04');
+    expect(aprilMonth).not.toBeNull();
+
+    const april20 = findElement(container, (element) => element.getAttribute('data-calendar-day') === '2026-04-20');
+    expect(april20).not.toBeNull();
+    expect(collectText(april20 as FakeNode)).toContain('Scheduled APAC launch thread');
+
+    const april21 = findElement(container, (element) => element.getAttribute('data-calendar-day') === '2026-04-21');
+    expect(april21).not.toBeNull();
+    expect(collectText(april21 as FakeNode)).toContain('Published AMA recap');
+
+    const scheduledAtField = findElement(
+      container,
+      (element) => element.getAttribute('data-calendar-scheduled-at-id') === '21',
+    );
+    expect(scheduledAtField).not.toBeNull();
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
 });
