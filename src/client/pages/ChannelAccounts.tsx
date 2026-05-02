@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { apiRequest } from '../lib/api';
 import type { AsyncState } from '../hooks/useAsyncRequest';
 import { useAsyncAction, useAsyncQuery } from '../hooks/useAsyncRequest';
@@ -720,6 +720,81 @@ export function ChannelAccountsPage({
     sessionSavedAccountById,
     latestBlockedSessionSaveId,
   ]);
+
+  useEffect(() => {
+    if (!hasLiveAccounts) {
+      return;
+    }
+
+    const loadedAccountById = new Map(loadedAccounts.map((account) => [account.id, account]));
+    const staleSessionActionIds = new Set<number>();
+
+    for (const accountIdText of new Set([
+      ...Object.keys(sessionActionFeedbackById),
+      ...Object.keys(sessionActionAccountById),
+    ])) {
+      const accountId = Number(accountIdText);
+      const loadedAccount = loadedAccountById.get(accountId);
+      if (!loadedAccount) {
+        continue;
+      }
+
+      const localFeedback = sessionActionFeedbackById[accountId];
+      const localAccount = sessionActionAccountById[accountId];
+      const localAction =
+        localFeedback?.action ??
+        localAccount?.latestBrowserLaneArtifact?.action ??
+        getRequestedSessionAction(localAccount ?? loadedAccount);
+
+      if (!localAction) {
+        continue;
+      }
+
+      const liveReadiness = normalizeReadinessRecord(resolvePublishReadiness(loadedAccount));
+      if (
+        getSessionActionArtifactForAction(loadedAccount, localAction) ||
+        !supportsBrowserSessionMetadata(loadedAccount) ||
+        (liveReadiness !== undefined && getRequestedSessionAction(loadedAccount) !== localAction)
+      ) {
+        staleSessionActionIds.add(accountId);
+      }
+    }
+
+    if (staleSessionActionIds.size === 0) {
+      return;
+    }
+
+    setSessionActionFeedbackById((current) => {
+      let changed = false;
+      const next = { ...current };
+
+      for (const accountId of staleSessionActionIds) {
+        if (!(accountId in next)) {
+          continue;
+        }
+
+        changed = true;
+        delete next[accountId];
+      }
+
+      return changed ? next : current;
+    });
+    setSessionActionAccountById((current) => {
+      let changed = false;
+      const next = { ...current };
+
+      for (const accountId of staleSessionActionIds) {
+        if (!(accountId in next)) {
+          continue;
+        }
+
+        changed = true;
+        delete next[accountId];
+      }
+
+      return changed ? next : current;
+    });
+  }, [hasLiveAccounts, loadedAccounts, sessionActionAccountById, sessionActionFeedbackById]);
 
   const latestCreatedAccount = createdAccount;
   const actionTargetAccount = resolveActionTargetAccount(
@@ -2028,21 +2103,28 @@ function getSessionActionMessage(action: 'request_session' | 'relogin') {
   return 'Browser session request queued. Complete login manually and attach session metadata after the browser lane picks up the job.';
 }
 
+function getRequestedSessionAction(account: ChannelAccountRecord): BrowserSessionAction | null {
+  const readiness = normalizeReadinessRecord(resolvePublishReadiness(account));
+  return readiness?.action === 'request_session' || readiness?.action === 'relogin' ? readiness.action : null;
+}
+
+function getSessionActionArtifactForAction(
+  account: ChannelAccountRecord,
+  action: BrowserSessionAction,
+): SessionActionArtifactSummary | undefined {
+  return (
+    account.activeSessionActionArtifacts?.[action] ??
+    (account.latestBrowserLaneArtifact?.action === action ? account.latestBrowserLaneArtifact : undefined)
+  );
+}
+
 function getPersistedSessionActionFeedback(account: ChannelAccountRecord): SessionActionFeedback | null {
-  const readiness = normalizeReadinessRecord(account.publishReadiness);
-  const readinessAction =
-    readiness?.action === 'request_session' || readiness?.action === 'relogin'
-      ? readiness.action
-      : null;
+  const readinessAction = getRequestedSessionAction(account);
   if (!readinessAction) {
     return null;
   }
 
-  const latestArtifact =
-    account.activeSessionActionArtifacts?.[readinessAction] ??
-    (account.latestBrowserLaneArtifact?.action === readinessAction
-      ? account.latestBrowserLaneArtifact
-      : undefined);
+  const latestArtifact = getSessionActionArtifactForAction(account, readinessAction);
   if (!latestArtifact || latestArtifact.resolvedAt !== null) {
     return null;
   }

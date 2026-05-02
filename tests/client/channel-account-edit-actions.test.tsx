@@ -6061,6 +6061,241 @@ describe('channel account edit actions', () => {
     });
   });
 
+  it('drops local session-action feedback after a live reload returns ready account data', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ChannelAccountsPage } = await import('../../src/client/pages/ChannelAccounts');
+
+    const loadChannelAccountsAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        channelAccounts: [
+          {
+            id: 7,
+            platform: 'x',
+            accountKey: 'acct-browser',
+            displayName: 'Browser X',
+            authType: 'browser',
+            status: 'healthy',
+            metadata: {},
+            session: {
+              hasSession: true,
+              status: 'expired',
+              validatedAt: '2026-04-19T02:00:00.000Z',
+              storageStatePath: 'artifacts/browser-sessions/acct-browser.json',
+              id: 'x:acct-browser',
+            },
+            publishReadiness: {
+              platform: 'x',
+              ready: false,
+              mode: 'browser',
+              status: 'needs_relogin',
+              message: '已有 X 浏览器 session，但需要重新登录刷新。',
+              action: 'relogin',
+            },
+            createdAt: '2026-04-19T00:00:00.000Z',
+            updatedAt: '2026-04-19T00:00:00.000Z',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        channelAccounts: [
+          {
+            id: 7,
+            platform: 'x',
+            accountKey: 'acct-browser',
+            displayName: 'Browser X',
+            authType: 'browser',
+            status: 'healthy',
+            metadata: {},
+            session: {
+              hasSession: true,
+              status: 'active',
+              validatedAt: '2026-04-19T05:20:00.000Z',
+              storageStatePath: 'artifacts/browser-sessions/acct-browser.json',
+              id: 'x:acct-browser',
+            },
+            latestBrowserLaneArtifact: {
+              action: 'relogin',
+              jobStatus: 'pending',
+              requestedAt: '2026-04-19T05:00:00.000Z',
+              artifactPath: 'artifacts/browser-lane-requests/x/acct-browser/relogin-job-27.json',
+              resolvedAt: null,
+            },
+            publishReadiness: {
+              platform: 'x',
+              ready: true,
+              mode: 'browser',
+              status: 'ready',
+              message: 'X 浏览器发布链路已具备可用 session。',
+            },
+            createdAt: '2026-04-19T00:00:00.000Z',
+            updatedAt: '2026-04-19T05:20:00.000Z',
+          },
+        ],
+      });
+    const requestChannelAccountSessionAction = vi.fn().mockResolvedValue({
+      ok: true,
+      sessionAction: {
+        action: 'relogin',
+        accountId: 7,
+        status: 'pending',
+        requestedAt: '2026-04-19T05:00:00.000Z',
+        message:
+          'Browser relogin request queued. Refresh login manually and attach updated session metadata after the browser lane picks up the job.',
+        nextStep: '/api/channel-accounts/7/session',
+        jobId: 27,
+        jobStatus: 'pending',
+        artifactPath: 'artifacts/browser-lane-requests/x/acct-browser/relogin-job-27.json',
+      },
+      channelAccount: {
+        id: 7,
+        platform: 'x',
+        accountKey: 'acct-browser',
+        displayName: 'Browser X',
+        authType: 'browser',
+        status: 'healthy',
+        metadata: {},
+        session: {
+          hasSession: true,
+          status: 'expired',
+          validatedAt: '2026-04-19T02:00:00.000Z',
+          storageStatePath: 'artifacts/browser-sessions/acct-browser.json',
+          id: 'x:acct-browser',
+        },
+        latestBrowserLaneArtifact: {
+          action: 'relogin',
+          jobStatus: 'pending',
+          requestedAt: '2026-04-19T05:00:00.000Z',
+          artifactPath: 'artifacts/browser-lane-requests/x/acct-browser/relogin-job-27.json',
+          resolvedAt: null,
+        },
+        publishReadiness: {
+          platform: 'x',
+          ready: false,
+          mode: 'browser',
+          status: 'needs_relogin',
+          message: '已有 X 浏览器 session，但需要重新登录刷新。',
+          action: 'relogin',
+        },
+        createdAt: '2026-04-19T00:00:00.000Z',
+        updatedAt: '2026-04-19T05:00:00.000Z',
+      },
+    });
+    const testChannelAccountAction = vi.fn().mockResolvedValue({
+      ok: true,
+      test: {
+        checkedAt: '2026-04-19T05:20:00.000Z',
+        status: 'ready',
+        result: {
+          label: '已就绪',
+        },
+        feedback: {
+          message: 'X 浏览器 session 已刷新。',
+        },
+        details: {
+          ready: true,
+          mode: 'browser',
+          authType: 'browser',
+          session: {
+            hasSession: true,
+            status: 'active',
+            validatedAt: '2026-04-19T05:20:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/acct-browser.json',
+            id: 'x:acct-browser',
+          },
+        },
+      },
+      channelAccount: {
+        id: 7,
+        platform: 'x',
+        accountKey: 'acct-browser',
+        displayName: 'Browser X',
+        authType: 'browser',
+        status: 'healthy',
+        metadata: {},
+        session: {
+          hasSession: true,
+          status: 'active',
+          validatedAt: '2026-04-19T05:20:00.000Z',
+          storageStatePath: 'artifacts/browser-sessions/acct-browser.json',
+          id: 'x:acct-browser',
+        },
+        publishReadiness: {
+          platform: 'x',
+          ready: true,
+          mode: 'browser',
+          status: 'ready',
+          message: 'X 浏览器发布链路已具备可用 session。',
+        },
+        createdAt: '2026-04-19T00:00:00.000Z',
+        updatedAt: '2026-04-19T05:20:00.000Z',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ChannelAccountsPage as never, {
+          loadChannelAccountsAction,
+          requestChannelAccountSessionAction,
+          testChannelAccountAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const reloginButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-session-action-id') === '7',
+    );
+
+    expect(reloginButton).not.toBeNull();
+
+    await act(async () => {
+      reloginButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(requestChannelAccountSessionAction).toHaveBeenCalledWith(7, {
+      action: 'relogin',
+    });
+    expect(collectText(container)).toContain('重新登录工单已记录');
+    expect(collectText(container)).toContain('发布就绪：需要重新登录');
+    expect(collectText(container)).toContain('Session 状态：expired');
+
+    const headerTestConnectionButton = findElement(
+      container,
+      (element) => element.getAttribute('data-header-test-connection-action') === 'true',
+    );
+
+    expect(headerTestConnectionButton).not.toBeNull();
+
+    await act(async () => {
+      headerTestConnectionButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    expect(testChannelAccountAction).toHaveBeenCalledWith(7);
+    expect(loadChannelAccountsAction).toHaveBeenCalledTimes(2);
+    expect(collectText(container)).not.toContain('重新登录工单已记录');
+    expect(collectText(container)).not.toContain(
+      'Browser relogin request queued. Refresh login manually and attach updated session metadata after the browser lane picks up the job.',
+    );
+    expect(collectText(container)).toContain('发布就绪：已就绪');
+    expect(collectText(container)).toContain('Session 状态：active');
+    expect(collectText(container)).toContain('最近创建工单：重新登录');
+    expect(collectText(container)).toContain('最近工单状态：pending');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('keeps the reused session-action receipt separate from the latest browser-lane artifact for the same account', async () => {
     const { container } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
