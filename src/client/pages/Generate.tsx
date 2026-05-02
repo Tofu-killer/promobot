@@ -26,6 +26,7 @@ const platformOptions: PlatformOption[] = [
 const defaultLaunchPlatforms = platformOptions
   .filter((platform) => platform.launchStatus === 'ready')
   .map((platform) => platform.value);
+const supportedGeneratePlatforms = new Set(platformOptions.map((platform) => platform.value));
 
 const toneOptions = [
   { label: '专业', value: 'professional' },
@@ -332,6 +333,10 @@ interface GeneratePageProps {
   browserHandoffsStateOverride?: AsyncState<BrowserHandoffsResponse>;
   projectIdDraft?: string;
   onProjectIdDraftChange?: (value: string) => void;
+  prefilledTopic?: string;
+  preferredPlatforms?: string[];
+  prefillToken?: number;
+  onPrefillApplied?: () => void;
 }
 
 function createIdleReviewMutationState(): ReviewMutationState {
@@ -510,6 +515,10 @@ export function GeneratePage({
   browserHandoffsStateOverride,
   projectIdDraft,
   onProjectIdDraftChange,
+  prefilledTopic,
+  preferredPlatforms,
+  prefillToken,
+  onPrefillApplied,
 }: GeneratePageProps) {
   const [topic, setTopic] = useState('We added a cheaper Claude-compatible endpoint for Australian customers.');
   const [localProjectIdDraft, setLocalProjectIdDraft] = useState('');
@@ -533,6 +542,7 @@ export function GeneratePage({
   const [scheduledAtByDraftId, setScheduledAtByDraftId] = useState<Record<number, string>>({});
   const [draftStatusById, setDraftStatusById] = useState<Record<number, string>>({});
   const [generationProgressStep, setGenerationProgressStep] = useState(0);
+  const appliedPrefillTokenRef = useRef<number | null>(null);
   const followUpScopeVersionRef = useRef(0);
   const publishFollowUpAttemptByIdRef = useRef<Record<number, number>>({});
   const shouldLoadBrowserHandoffsLive = browserHandoffsStateOverride === undefined;
@@ -560,6 +570,27 @@ export function GeneratePage({
       ? displayBrowserHandoffsState.data.handoffs
       : [];
   const activeGenerationProgressStage = generationProgressStages[generationProgressStep] ?? generationProgressStages[0];
+
+  useEffect(() => {
+    if (prefillToken === undefined || appliedPrefillTokenRef.current === prefillToken) {
+      return;
+    }
+
+    appliedPrefillTokenRef.current = prefillToken;
+
+    if (typeof prefilledTopic === 'string') {
+      setTopic(prefilledTopic);
+    }
+
+    const nextPlatforms = Array.from(
+      new Set((preferredPlatforms ?? []).filter((platform) => supportedGeneratePlatforms.has(platform))),
+    );
+    if (nextPlatforms.length > 0) {
+      setSelectedPlatforms(nextPlatforms);
+    }
+
+    onPrefillApplied?.();
+  }, [onPrefillApplied, prefillToken, preferredPlatforms, prefilledTopic]);
 
   useEffect(() => {
     if (displayState.status !== 'success' || !displayState.data) {

@@ -112,6 +112,20 @@ function installBrowserHistory(
   return history;
 }
 
+function findGeneratePlatformCheckbox(container: Parameters<typeof findElement>[0], platformValue: string) {
+  const platformLabel = findElement(
+    container,
+    (element) => element.getAttribute('data-generate-platform') === platformValue,
+  );
+
+  return platformLabel
+    ? findElement(
+        platformLabel,
+        (element) => element.tagName === 'INPUT' && (element as { type?: string }).type === 'checkbox',
+      )
+    : null;
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -357,6 +371,112 @@ describe('App shell', () => {
     expect(collectText(container)).toContain('Competitor Monitor');
     expect(collectText(container)).toContain('抓取排程');
     expect(collectText(container)).not.toContain('先看今天的内容运营节奏');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('prefills Generate Center from a discovery manual handoff and keeps the shared projectId draft', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    installAuthStorage(window, {
+      localStorage: createStorageArea(),
+      sessionStorage: createStorageArea('secret'),
+    });
+    installBrowserHistory(window as never, '/discovery');
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+
+        if (url === '/api/auth/probe') {
+          return Promise.resolve(
+            new Response(null, {
+              status: 204,
+            }),
+          );
+        }
+
+        if (url === '/api/discovery') {
+          return Promise.resolve(
+            jsonResponse({
+              items: [
+                {
+                  id: 701,
+                  source: 'Product Hunt',
+                  title: 'Manual discovery follow-up',
+                  summary: '适合走人工平台的后续内容整理。',
+                  status: 'triaged',
+                  score: 79,
+                  createdAt: '2026-04-19T12:00:00.000Z',
+                },
+              ],
+              total: 1,
+              stats: {
+                sources: 1,
+                averageScore: 79,
+              },
+            }),
+          );
+        }
+
+        throw new Error(`unexpected fetch request: ${url}`);
+      }),
+    );
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(createElement(App as never, { initialAdminPassword: 'secret' }));
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    const discoveryProjectInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    );
+    expect(discoveryProjectInput).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(discoveryProjectInput as never, '12', window as never);
+      await flush();
+      await flush();
+    });
+
+    const manualHandoffButton = findElement(
+      container,
+      (element) => element.getAttribute('data-discovery-manual-generate-id') === '701',
+    );
+    expect(manualHandoffButton).not.toBeNull();
+
+    await act(async () => {
+      manualHandoffButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect((window.location as { pathname?: string }).pathname).toBe('/generate');
+    expect(collectText(container)).toContain('Generate Center');
+
+    const topicField = findElement(container, (element) => element.tagName === 'TEXTAREA');
+    expect((topicField as { value?: string } | null)?.value).toBe(
+      'Manual discovery follow-up\n\n适合走人工平台的后续内容整理。',
+    );
+    expect((findGeneratePlatformCheckbox(container, 'facebook-group') as { checked?: boolean } | null)?.checked).toBe(
+      true,
+    );
+    expect((findGeneratePlatformCheckbox(container, 'instagram') as { checked?: boolean } | null)?.checked).toBe(true);
+    expect((findGeneratePlatformCheckbox(container, 'x') as { checked?: boolean } | null)?.checked).toBe(false);
+
+    const generateProjectInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    );
+    expect((generateProjectInput as { value?: string } | null)?.value).toBe('12');
 
     await act(async () => {
       root.unmount();

@@ -27,6 +27,9 @@ interface DiscoveryPageProps {
     action: 'save' | 'ignore',
     projectId?: number,
   ) => Promise<UpdateDiscoveryItemActionResponse>;
+  projectIdDraft?: string;
+  onProjectIdDraftChange?: (value: string) => void;
+  onOpenGenerateCenter?: (input: { topic: string; preferredPlatforms: string[] }) => void;
   stateOverride?: AsyncState<DiscoveryResponse>;
 }
 
@@ -208,6 +211,8 @@ const projectInputStyle = {
   background: '#ffffff',
 } as const;
 
+const manualDiscoveryPlatforms = ['facebook-group', 'instagram', 'tiktok', 'xiaohongshu', 'weibo'];
+
 export async function loadDiscoveryPageRequest(projectId?: number): Promise<DiscoveryResponse> {
   if (projectId === undefined) {
     return loadDiscoveryRequest();
@@ -263,15 +268,19 @@ export function DiscoveryPage({
   fetchDiscoveryAction = fetchDiscoverySignalsRequest,
   updateDiscoveryAction,
   updateDiscoveryItemAction,
+  projectIdDraft,
+  onProjectIdDraftChange,
+  onOpenGenerateCenter,
   stateOverride,
 }: DiscoveryPageProps) {
-  const [projectIdDraft, setProjectIdDraft] = useState('');
+  const [localProjectIdDraft, setLocalProjectIdDraft] = useState('');
+  const activeProjectIdDraft = projectIdDraft ?? localProjectIdDraft;
   const [activeSourceFilter, setActiveSourceFilter] = useState('all');
   const [activePlatformFilter, setActivePlatformFilter] = useState('all');
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
   const resolvedUpdateDiscoveryAction =
     updateDiscoveryItemAction ?? updateDiscoveryAction ?? updateDiscoveryItemActionRequest;
-  const projectId = parseProjectId(projectIdDraft);
+  const projectId = parseProjectId(activeProjectIdDraft);
   const currentProjectIdRef = useRef<number | undefined>(projectId);
   currentProjectIdRef.current = projectId;
   const { state, reload } = useAsyncQuery(
@@ -453,7 +462,10 @@ export function DiscoveryPage({
   }
 
   function handleProjectIdDraftChange(value: string) {
-    setProjectIdDraft(value);
+    if (projectIdDraft === undefined) {
+      setLocalProjectIdDraft(value);
+    }
+    onProjectIdDraftChange?.(value);
     currentProjectIdRef.current = parseProjectId(value);
   }
 
@@ -532,6 +544,21 @@ export function DiscoveryPage({
 
   function canMutateDiscoveryItem(item: DiscoveryItem) {
     return String(item.id).startsWith('monitor-');
+  }
+
+  function canOpenGenerateCenter() {
+    return typeof onOpenGenerateCenter === 'function';
+  }
+
+  function handleOpenGenerateCenter(item: DiscoveryItem) {
+    if (!canOpenGenerateCenter()) {
+      return;
+    }
+
+    onOpenGenerateCenter?.({
+      topic: buildDraftTopic(item),
+      preferredPlatforms: manualDiscoveryPlatforms,
+    });
   }
 
   async function handleDiscoveryItemAction(item: DiscoveryItem, action: 'save' | 'ignore') {
@@ -622,7 +649,7 @@ export function DiscoveryPage({
       <label style={{ display: 'grid', gap: '8px', marginBottom: '20px' }}>
         <span style={{ fontWeight: 700 }}>项目 ID（可选）</span>
         <input
-          value={projectIdDraft}
+          value={activeProjectIdDraft}
           onChange={(event) => handleProjectIdDraftChange(event.target.value)}
           placeholder="例如 12"
           style={projectInputStyle}
@@ -881,6 +908,26 @@ export function DiscoveryPage({
                             }}
                           >
                             {selectedItemIds.includes(String(item.id)) ? '已加入批量' : '加入批量'}
+                          </button>
+                        ) : null}
+                        {!canGenerateDraft ? (
+                          <button
+                            type="button"
+                            data-discovery-manual-generate-id={String(item.id)}
+                            disabled={isPreview || !canOpenGenerateCenter()}
+                            onClick={() => handleOpenGenerateCenter(item)}
+                            style={{
+                              borderRadius: '12px',
+                              border: '1px solid #cbd5e1',
+                              background: isPreview || !canOpenGenerateCenter() ? '#e2e8f0' : '#ffffff',
+                              color: isPreview || !canOpenGenerateCenter() ? '#475569' : '#334155',
+                              padding: '12px 16px',
+                              fontWeight: 700,
+                              cursor: isPreview || !canOpenGenerateCenter() ? 'not-allowed' : 'pointer',
+                              opacity: isPreview || !canOpenGenerateCenter() ? 0.8 : 1,
+                            }}
+                          >
+                            改去 Generate Center
                           </button>
                         ) : null}
                         <ActionButton

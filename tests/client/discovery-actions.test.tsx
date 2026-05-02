@@ -927,7 +927,7 @@ describe('Discovery draft actions', () => {
     });
   });
 
-  it('blocks draft generation for non-launch discovery sources and shows a manual handoff message', async () => {
+  it('routes non-launch discovery sources into the manual generate handoff', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
     const { DiscoveryPage } = await import('../../src/client/pages/Discovery');
@@ -954,6 +954,7 @@ describe('Discovery draft actions', () => {
       },
     };
     const generateAction = vi.fn();
+    const openGenerateCenter = vi.fn();
 
     const root = createRoot(container as never);
     await act(async () => {
@@ -962,6 +963,7 @@ describe('Discovery draft actions', () => {
           loadDiscoveryAction: async () => stateOverride.data,
           stateOverride,
           generateAction,
+          onOpenGenerateCenter: openGenerateCenter,
         }),
       );
       await flush();
@@ -977,6 +979,23 @@ describe('Discovery draft actions', () => {
     expect(generateAction).not.toHaveBeenCalled();
     expect(collectText(container)).toContain('当前来源不在首发平台范围内');
     expect(collectText(container)).toContain('请改走人工内容流程');
+
+    const handoffButton = findElement(
+      container,
+      (element) => element.getAttribute('data-discovery-manual-generate-id') === '102',
+    );
+
+    expect(handoffButton).not.toBeNull();
+
+    await act(async () => {
+      handoffButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(openGenerateCenter).toHaveBeenCalledWith({
+      topic: '竞品推出周报模板\n\n竞品把周报模板打包成独立资源，适合做拆解复盘。',
+      preferredPlatforms: ['facebook-group', 'instagram', 'tiktok', 'xiaohongshu', 'weibo'],
+    });
 
     await act(async () => {
       root.unmount();

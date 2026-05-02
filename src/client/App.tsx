@@ -77,11 +77,20 @@ function getRouteFromPathname(pathname: string | null | undefined, fallback: App
   return knownRoutes.has(candidate) ? candidate : fallback;
 }
 
+interface GeneratePrefillState {
+  token: number;
+  topic: string;
+  preferredPlatforms: string[];
+}
+
 function renderRoute(
   route: AppRoute,
   sharedProjectIdDraft: string,
   onProjectIdDraftChange: (value: string) => void,
   onNavigateToRoute: (route: AppRoute) => void,
+  generatePrefillState: GeneratePrefillState | null,
+  onOpenGenerateCenter: (input: { topic: string; preferredPlatforms: string[] }) => void,
+  onGeneratePrefillApplied: () => void,
 ) {
   switch (route) {
     case 'dashboard':
@@ -97,12 +106,22 @@ function renderRoute(
     case 'projects':
       return <ProjectsPage />;
     case 'discovery':
-      return <DiscoveryPage />;
+      return (
+        <DiscoveryPage
+          projectIdDraft={sharedProjectIdDraft}
+          onProjectIdDraftChange={onProjectIdDraftChange}
+          onOpenGenerateCenter={onOpenGenerateCenter}
+        />
+      );
     case 'generate':
       return (
         <GeneratePage
           projectIdDraft={sharedProjectIdDraft}
           onProjectIdDraftChange={onProjectIdDraftChange}
+          prefilledTopic={generatePrefillState?.topic}
+          preferredPlatforms={generatePrefillState?.preferredPlatforms}
+          prefillToken={generatePrefillState?.token}
+          onPrefillApplied={onGeneratePrefillApplied}
         />
       );
     case 'drafts':
@@ -151,6 +170,7 @@ export default function App({ initialRoute = 'dashboard', initialAdminPassword =
       : getRouteFromPathname(window.location.pathname, initialRoute),
   );
   const [sharedProjectIdDraft, setSharedProjectIdDraft] = useState('');
+  const [generatePrefillState, setGeneratePrefillState] = useState<GeneratePrefillState | null>(null);
   const authSyncVersionRef = useRef(0);
   const [authStatus, setAuthStatus] = useState<AuthStatus>(
     typeof window === 'undefined'
@@ -236,6 +256,15 @@ export default function App({ initialRoute = 'dashboard', initialAdminPassword =
     }
   };
 
+  const handleOpenGenerateCenter = (input: { topic: string; preferredPlatforms: string[] }) => {
+    setGeneratePrefillState((currentState) => ({
+      token: (currentState?.token ?? 0) + 1,
+      topic: input.topic,
+      preferredPlatforms: input.preferredPlatforms,
+    }));
+    handleNavigate('generate');
+  };
+
   if (authStatus === 'booting' || authStatus === 'checking') {
     return (
       <section
@@ -299,7 +328,15 @@ export default function App({ initialRoute = 'dashboard', initialAdminPassword =
           });
       }}
     >
-      {renderRoute(activeRoute, sharedProjectIdDraft, setSharedProjectIdDraft, handleNavigate)}
+      {renderRoute(
+        activeRoute,
+        sharedProjectIdDraft,
+        setSharedProjectIdDraft,
+        handleNavigate,
+        generatePrefillState,
+        handleOpenGenerateCenter,
+        () => setGeneratePrefillState(null),
+      )}
     </Layout>
   );
 }
