@@ -1301,7 +1301,7 @@ describe('System Queue actions', () => {
     });
   });
 
-  it('completes a pending inbox reply handoff directly from the prioritized ops queue', async () => {
+  it('completes a pending inbox reply handoff from the prioritized ops queue without requiring a handoff attempt', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
     const { SystemQueuePage } = await import('../../src/client/pages/SystemQueue');
@@ -1328,7 +1328,6 @@ describe('System Queue actions', () => {
       handoffs: [
         {
           channelAccountId: 12,
-          handoffAttempt: 1,
           platform: 'reddit',
           itemId: '88',
           source: 'reddit',
@@ -1416,7 +1415,6 @@ describe('System Queue actions', () => {
 
     expect(completeInboxReplyHandoffAction).toHaveBeenCalledWith({
       artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88.json',
-      handoffAttempt: 1,
       replyStatus: 'sent',
       deliveryUrl: 'https://reddit.com/message/messages/abc123',
       message: 'reply sent manually',

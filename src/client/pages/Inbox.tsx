@@ -245,7 +245,7 @@ export async function requestInboxReplySessionActionRequest(
 
 export interface CompleteInboxReplyHandoffInput {
   artifactPath: string;
-  handoffAttempt: number;
+  handoffAttempt?: number;
   replyStatus: 'sent' | 'failed';
   message?: string;
   deliveryUrl?: string;
@@ -277,7 +277,7 @@ export async function completeInboxReplyHandoffRequest(
     },
     body: JSON.stringify({
       artifactPath: input.artifactPath,
-      handoffAttempt: input.handoffAttempt,
+      ...(input.handoffAttempt !== undefined ? { handoffAttempt: input.handoffAttempt } : {}),
       replyStatus: input.replyStatus,
       message:
         input.message ??
@@ -565,6 +565,14 @@ function readInboxReplyHandoffItemId(handoff: InboxReplyHandoffRecord) {
 
 function readInboxReplyHandoffAttempt(handoff: Pick<InboxReplyHandoffRecord, 'handoffAttempt'>) {
   return readPositiveInteger(handoff.handoffAttempt);
+}
+
+function buildInboxReplyHandoffIdentityKey(itemId: number | null, artifactPath: string | null | undefined, handoffAttempt?: number) {
+  if (itemId === null || !artifactPath) {
+    return null;
+  }
+
+  return `${itemId}:${artifactPath}:${handoffAttempt ?? 'legacy'}`;
 }
 
 function pickNewerInboxReplyHandoff(
@@ -867,12 +875,11 @@ export function InboxPage({
         }
       : immediateReplyBrowserHandoff;
   const activeReplyBrowserHandoffAttempt = readPositiveInteger(activeReplyBrowserHandoff?.handoffAttempt);
-  const activeReplyBrowserHandoffIdentityKey =
-    activeReplyBrowserHandoff?.artifactPath &&
-    activeReplyBrowserHandoffAttempt !== undefined &&
-    activeReplyDeliveryItemId !== null
-      ? `${activeReplyDeliveryItemId}:${activeReplyBrowserHandoff.artifactPath}:${activeReplyBrowserHandoffAttempt}`
-      : null;
+  const activeReplyBrowserHandoffIdentityKey = buildInboxReplyHandoffIdentityKey(
+    activeReplyDeliveryItemId,
+    activeReplyBrowserHandoff?.artifactPath,
+    activeReplyBrowserHandoffAttempt,
+  );
   const showReplyDeliveryFollowUp = (hasCurrentReplyDeliveryFollowUp || persistedReplyHandoff !== null) && !replyDeliveryClosedLocally;
   const shouldShowReplyDeliveryActions = showReplyDeliveryFollowUp;
   const sendReplyFeedback =
@@ -1143,10 +1150,13 @@ export function InboxPage({
   function handleCompleteReplyHandoff(replyStatus: 'sent' | 'failed') {
     if (
       !activeReplyBrowserHandoff?.artifactPath ||
-      !Number.isInteger(activeReplyBrowserHandoff.handoffAttempt) ||
-      activeReplyBrowserHandoff.handoffAttempt <= 0 ||
       activeReplyDeliveryItemId === null
     ) {
+      return;
+    }
+
+    const handoffAttempt = readPositiveInteger(activeReplyBrowserHandoff.handoffAttempt);
+    if (activeReplyBrowserHandoff.handoffAttempt !== undefined && handoffAttempt === undefined) {
       return;
     }
 
@@ -1154,14 +1164,22 @@ export function InboxPage({
     const message = draft?.message.trim();
     const deliveryUrl = draft?.deliveryUrl.trim();
     const completionAttemptId = replyHandoffCompletionAttemptRef.current + 1;
-    const completionIdentityKey = `${activeReplyDeliveryItemId}:${activeReplyBrowserHandoff.artifactPath}:${activeReplyBrowserHandoff.handoffAttempt}`;
+    const completionIdentityKey = buildInboxReplyHandoffIdentityKey(
+      activeReplyDeliveryItemId,
+      activeReplyBrowserHandoff.artifactPath,
+      handoffAttempt,
+    );
+
+    if (completionIdentityKey === null) {
+      return;
+    }
 
     replyHandoffCompletionAttemptRef.current = completionAttemptId;
     setReplyHandoffCompletionItemId(activeReplyDeliveryItemId);
     setReplyHandoffCompletionResult(null);
     void runReplyHandoffCompletion({
       artifactPath: activeReplyBrowserHandoff.artifactPath,
-      handoffAttempt: activeReplyBrowserHandoff.handoffAttempt,
+      handoffAttempt,
       replyStatus,
       ...(message ? { message } : {}),
       ...(deliveryUrl ? { deliveryUrl } : {}),
@@ -1203,7 +1221,7 @@ export function InboxPage({
     : undefined;
   const shouldShowReplyHandoffCompletionActions =
     !!activeReplyBrowserHandoff?.artifactPath &&
-    activeReplyBrowserHandoffAttempt !== undefined &&
+    activeReplyBrowserHandoffIdentityKey !== null &&
     (activeReplyBrowserHandoff.readiness ?? 'ready') === 'ready' &&
     activeReplyBrowserHandoffIdentityKey !== replyHandoffCompletionIdentityKey;
   const shouldShowSessionActionButton =

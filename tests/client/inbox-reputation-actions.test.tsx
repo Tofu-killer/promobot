@@ -3362,10 +3362,25 @@ describe('Inbox action wiring', () => {
     });
   });
 
-  it('does not show inline completion actions for a ready persisted inbox reply handoff without a valid attempt', async () => {
-    const { container } = installMinimalDom();
+  it('completes a ready persisted inbox reply handoff without requiring a handoff attempt', async () => {
+    const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
     const { InboxPage } = await import('../../src/client/pages/Inbox');
+    const completeInboxReplyHandoffAction = vi.fn().mockResolvedValue({
+      ok: true,
+      imported: true,
+      artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-7.json',
+      itemId: 7,
+      itemStatus: 'handled',
+      platform: 'reddit',
+      mode: 'browser',
+      status: 'sent',
+      success: true,
+      deliveryUrl: 'https://reddit.com/message/messages/abc123',
+      externalId: null,
+      message: 'reply sent manually',
+      deliveredAt: '2026-04-23T11:15:00.000Z',
+    });
 
     const root = createRoot(container as never);
     await act(async () => {
@@ -3413,6 +3428,7 @@ describe('Inbox action wiring', () => {
               total: 1,
             },
           } satisfies ApiState<unknown>,
+          completeInboxReplyHandoffAction,
         }),
       );
       await flush();
@@ -3422,8 +3438,42 @@ describe('Inbox action wiring', () => {
     expect(collectText(container)).toContain(
       'Handoff 路径：artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-7.json',
     );
-    expect(findElement(container, (element) => element.tagName === 'BUTTON' && collectText(element).includes('标记已发送'))).toBeNull();
-    expect(findElement(container, (element) => element.getAttribute('data-inbox-reply-handoff-field') === 'deliveryUrl')).toBeNull();
+    const deliveryUrlInput = findElement(
+      container,
+      (element) => element.getAttribute('data-inbox-reply-handoff-field') === 'deliveryUrl',
+    );
+    const messageInput = findElement(
+      container,
+      (element) => element.getAttribute('data-inbox-reply-handoff-field') === 'message',
+    );
+    const markSentButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('标记已发送'),
+    );
+    expect(deliveryUrlInput).not.toBeNull();
+    expect(messageInput).not.toBeNull();
+    expect(markSentButton).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(deliveryUrlInput as never, 'https://reddit.com/message/messages/abc123', window as never);
+      updateFieldValue(messageInput as never, 'reply sent manually', window as never);
+      await flush();
+    });
+
+    await act(async () => {
+      markSentButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(completeInboxReplyHandoffAction).toHaveBeenCalledWith({
+      artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-7.json',
+      replyStatus: 'sent',
+      deliveryUrl: 'https://reddit.com/message/messages/abc123',
+      message: 'reply sent manually',
+    });
+    expect(collectText(container)).toContain('已结单 inbox reply item #7 (handled)');
+    expect(collectText(container)).toContain('reply sent manually');
 
     await act(async () => {
       root.unmount();
