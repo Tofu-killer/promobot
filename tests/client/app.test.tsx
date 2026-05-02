@@ -847,6 +847,16 @@ describe('App shell', () => {
 
     expect((window.location as { pathname?: string }).pathname).toBe('/discovery');
     expect(collectText(container)).toContain('Discovery Pool');
+    const restoredDiscoveryProjectInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    );
+
+    await act(async () => {
+      updateFieldValue(restoredDiscoveryProjectInput as never, '37', window as never);
+      await flush();
+      await flush();
+    });
 
     await act(async () => {
       (window.history as { forward: () => void }).forward();
@@ -858,6 +868,11 @@ describe('App shell', () => {
     expect((topicField() as { value?: string } | null)?.value).toBe(
       'Manual discovery follow-up\n\n适合走人工平台的后续内容整理。',
     );
+    const restoredGenerateProjectInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    );
+    expect((restoredGenerateProjectInput as { value?: string } | null)?.value).toBe('12');
     expect((findGeneratePlatformCheckbox(container, 'facebook-group') as { checked?: boolean } | null)?.checked).toBe(
       true,
     );
@@ -1316,6 +1331,17 @@ describe('App shell', () => {
 
     expect((window.location as { pathname?: string }).pathname).toBe('/reputation');
     expect(collectText(container)).toContain('Brand Signals');
+    const restoredReputationProjectInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    );
+
+    await act(async () => {
+      updateFieldValue(restoredReputationProjectInput as never, '37', window as never);
+      await flush();
+      await flush();
+      await flush();
+    });
 
     await act(async () => {
       (window.history as { forward: () => void }).forward();
@@ -1325,6 +1351,11 @@ describe('App shell', () => {
     });
 
     expect((window.location as { pathname?: string }).pathname).toBe('/inbox');
+    const restoredInboxProjectInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    );
+    expect((restoredInboxProjectInput as { value?: string } | null)?.value).toBe('12');
     expect(collectText(container)).toContain('当前会话：x · support-lead');
     expect(collectText(container)).not.toContain('当前会话：reddit · builder');
 
@@ -1483,6 +1514,81 @@ describe('App shell', () => {
     );
     expect((inboxProjectInput as { value?: string } | null)?.value).toBe('12');
     expect(collectText(container)).toContain('当前会话：x · support-lead');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('keeps the current route when popstate lands on an unknown path', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    installAuthStorage(window, {
+      localStorage: createStorageArea(),
+      sessionStorage: createStorageArea('secret'),
+    });
+    installBrowserHistory(window as never, '/projects');
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+
+        if (url === '/api/auth/probe') {
+          return Promise.resolve(
+            new Response(null, {
+              status: 204,
+            }),
+          );
+        }
+
+        throw new Error(`unexpected fetch request: ${url}`);
+      }),
+    );
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(createElement(App as never, { initialAdminPassword: 'secret' }));
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    expect((window.location as { pathname?: string }).pathname).toBe('/projects');
+    expect(collectText(container)).toContain('Projects');
+    expect(collectText(container)).toContain('Project Context');
+
+    await act(async () => {
+      (window.history as { pushState: (state: unknown, unused: string, url?: string) => void }).pushState(
+        null,
+        '',
+        '/legacy-route',
+      );
+      await flush();
+      await flush();
+    });
+
+    await act(async () => {
+      (window.history as { back: () => void }).back();
+      await flush();
+      await flush();
+    });
+
+    expect((window.location as { pathname?: string }).pathname).toBe('/projects');
+    expect(collectText(container)).toContain('Projects');
+    expect(collectText(container)).toContain('Project Context');
+
+    await act(async () => {
+      (window.history as { forward: () => void }).forward();
+      await flush();
+      await flush();
+    });
+
+    expect((window.location as { pathname?: string }).pathname).toBe('/legacy-route');
+    expect(collectText(container)).toContain('Projects');
+    expect(collectText(container)).toContain('Project Context');
+    expect(collectText(container)).not.toContain('OverviewDashboard');
 
     await act(async () => {
       root.unmount();

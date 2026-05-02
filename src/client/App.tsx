@@ -100,6 +100,7 @@ interface InboxFocusState {
 }
 
 interface AppRouteHistoryState {
+  sharedProjectIdDraft?: string;
   generatePrefillState?: GeneratePrefillState;
   inboxFocusState?: InboxFocusState;
 }
@@ -153,13 +154,17 @@ function readAppRouteHistoryState(value: unknown): AppRouteHistoryState {
   }
 
   const candidate = value as {
+    sharedProjectIdDraft?: unknown;
     generatePrefillState?: unknown;
     inboxFocusState?: unknown;
   };
+  const sharedProjectIdDraft =
+    typeof candidate.sharedProjectIdDraft === 'string' ? candidate.sharedProjectIdDraft : undefined;
   const generatePrefillState = readGeneratePrefillState(candidate.generatePrefillState);
   const inboxFocusState = readInboxFocusState(candidate.inboxFocusState);
 
   return {
+    ...(sharedProjectIdDraft !== undefined ? { sharedProjectIdDraft } : {}),
     ...(generatePrefillState ? { generatePrefillState } : {}),
     ...(inboxFocusState ? { inboxFocusState } : {}),
   };
@@ -168,23 +173,38 @@ function readAppRouteHistoryState(value: unknown): AppRouteHistoryState {
 function createAppRouteHistoryState(
   route: AppRoute,
   input: {
+    sharedProjectIdDraft?: string;
     generatePrefillState?: GeneratePrefillState | null;
     inboxFocusState?: InboxFocusState | null;
   } = {},
+  existingState: unknown = null,
 ) {
-  if (route === 'generate' && input.generatePrefillState) {
-    return {
-      generatePrefillState: input.generatePrefillState,
-    } satisfies AppRouteHistoryState;
+  const previousState = readAppRouteHistoryState(existingState);
+  const baseState = {
+    sharedProjectIdDraft: input.sharedProjectIdDraft ?? previousState.sharedProjectIdDraft ?? '',
+  } satisfies AppRouteHistoryState;
+
+  if (route === 'generate') {
+    const generatePrefillState = input.generatePrefillState ?? previousState.generatePrefillState;
+    return generatePrefillState
+      ? ({
+          ...baseState,
+          generatePrefillState,
+        } satisfies AppRouteHistoryState)
+      : baseState;
   }
 
-  if (route === 'inbox' && input.inboxFocusState) {
-    return {
-      inboxFocusState: input.inboxFocusState,
-    } satisfies AppRouteHistoryState;
+  if (route === 'inbox') {
+    const inboxFocusState = input.inboxFocusState ?? previousState.inboxFocusState;
+    return inboxFocusState
+      ? ({
+          ...baseState,
+          inboxFocusState,
+        } satisfies AppRouteHistoryState)
+      : baseState;
   }
 
-  return null;
+  return baseState;
 }
 
 function renderRoute(
@@ -299,6 +319,8 @@ export default function App({ initialRoute = 'dashboard', initialAdminPassword =
   const [generatePrefillState, setGeneratePrefillState] = useState<GeneratePrefillState | null>(null);
   const [inboxFocusState, setInboxFocusState] = useState<InboxFocusState | null>(null);
   const authSyncVersionRef = useRef(0);
+  const activeRouteRef = useRef(activeRoute);
+  activeRouteRef.current = activeRoute;
   const [authStatus, setAuthStatus] = useState<AuthStatus>(
     typeof window === 'undefined'
       ? initialAdminPassword
@@ -404,30 +426,51 @@ export default function App({ initialRoute = 'dashboard', initialAdminPassword =
   }, []);
 
   useEffect(() => {
-    const syncRouteFromLocation = (nextHistoryState: unknown = window.history?.state) => {
-      const nextRoute = getRouteFromPathname(window.location.pathname, initialRoute);
+    const syncRouteFromLocation = (fallbackRoute: AppRoute, nextHistoryState: unknown = window.history?.state) => {
+      const nextRoute = getRouteFromPathname(window.location.pathname, fallbackRoute);
       const routeHistoryState = readAppRouteHistoryState(nextHistoryState);
 
       setActiveRoute(nextRoute);
+      if ('sharedProjectIdDraft' in routeHistoryState) {
+        setSharedProjectIdDraft(routeHistoryState.sharedProjectIdDraft ?? '');
+      }
       setGeneratePrefillState(nextRoute === 'generate' ? routeHistoryState.generatePrefillState ?? null : null);
       setInboxFocusState(nextRoute === 'inbox' ? routeHistoryState.inboxFocusState ?? null : null);
     };
 
-    syncRouteFromLocation();
+    syncRouteFromLocation(activeRouteRef.current);
     const handlePopState = (event: Event) => {
       const popStateEvent = event as PopStateEvent & { state?: unknown };
-      syncRouteFromLocation(popStateEvent.state);
+      syncRouteFromLocation(activeRouteRef.current, popStateEvent.state);
     };
 
     window.addEventListener('popstate', handlePopState);
     return () => {
       window.removeEventListener('popstate', handlePopState);
     };
-  }, [initialRoute]);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.history?.replaceState !== 'function') {
+      return;
+    }
+
+    const pathname = normalizeRoutePath(window.location.pathname) || routePathById[activeRoute];
+    window.history.replaceState(
+      createAppRouteHistoryState(activeRoute, {
+        sharedProjectIdDraft,
+        generatePrefillState,
+        inboxFocusState,
+      }, window.history.state),
+      '',
+      pathname,
+    );
+  }, [activeRoute, generatePrefillState, inboxFocusState, sharedProjectIdDraft]);
 
   const handleNavigate = (
     route: AppRoute,
     input: {
+      sharedProjectIdDraft?: string;
       generatePrefillState?: GeneratePrefillState | null;
       inboxFocusState?: InboxFocusState | null;
     } = {},
@@ -439,7 +482,11 @@ export default function App({ initialRoute = 'dashboard', initialAdminPassword =
     }
 
     const nextPath = routePathById[route];
-    const nextHistoryState = createAppRouteHistoryState(route, input);
+    const nextHistoryState = createAppRouteHistoryState(route, {
+      sharedProjectIdDraft: input.sharedProjectIdDraft ?? sharedProjectIdDraft,
+      generatePrefillState: input.generatePrefillState,
+      inboxFocusState: input.inboxFocusState,
+    }, window.history.state);
     if (normalizeRoutePath(window.location.pathname) !== nextPath) {
       window.history.pushState(nextHistoryState, '', nextPath);
       return;
@@ -479,6 +526,7 @@ export default function App({ initialRoute = 'dashboard', initialAdminPassword =
     setSharedProjectIdDraft(nextProjectIdDraft);
     setInboxFocusState(nextState);
     handleNavigate('inbox', {
+      sharedProjectIdDraft: nextProjectIdDraft,
       inboxFocusState: nextState,
     });
   };
