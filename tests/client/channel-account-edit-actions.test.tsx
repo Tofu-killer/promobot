@@ -562,6 +562,86 @@ function collectInputs(node: FakeNode): string[] {
   return values;
 }
 
+type SessionActionReceiptExpectation = {
+  heading: string;
+  message?: string;
+  requestedAt?: string;
+  jobStatus?: string;
+  nextStep?: string;
+  artifactPath: string;
+};
+
+function expectSessionActionReceipt(
+  container: FakeNode,
+  {
+    heading,
+    message,
+    requestedAt,
+    jobStatus,
+    nextStep,
+    artifactPath,
+  }: SessionActionReceiptExpectation,
+) {
+  const text = collectText(container);
+
+  expect(text).toContain(heading);
+
+  if (message) {
+    expect(text).toContain(message);
+  }
+
+  if (requestedAt) {
+    expect(text).toContain(`请求时间：${requestedAt}`);
+  }
+
+  if (jobStatus) {
+    expect(text).toContain(`工单状态：${jobStatus}`);
+  }
+
+  if (nextStep) {
+    expect(text).toContain(`下一步：${nextStep}`);
+  }
+
+  expect(text).toContain(`Artifact Path：${artifactPath}`);
+}
+
+type LatestBrowserLaneArtifactSummaryExpectation = {
+  actionLabel: string;
+  jobStatus?: string;
+  requestedAt?: string;
+  resolvedAt?: string;
+  artifactPath: string;
+};
+
+function expectLatestBrowserLaneArtifactSummary(
+  container: FakeNode,
+  {
+    actionLabel,
+    jobStatus,
+    requestedAt,
+    resolvedAt,
+    artifactPath,
+  }: LatestBrowserLaneArtifactSummaryExpectation,
+) {
+  const text = collectText(container);
+
+  expect(text).toContain(`最近创建工单：${actionLabel}`);
+
+  if (jobStatus) {
+    expect(text).toContain(`最近工单状态：${jobStatus}`);
+  }
+
+  if (requestedAt) {
+    expect(text).toContain(`最近工单时间：${requestedAt}`);
+  }
+
+  if (resolvedAt) {
+    expect(text).toContain(`最近工单结单：${resolvedAt}`);
+  }
+
+  expect(text).toContain(`最近工单路径：${artifactPath}`);
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -5913,24 +5993,24 @@ describe('channel account edit actions', () => {
       await flush();
     });
 
-    expect(collectText(container)).toContain('请求登录工单已记录');
-    expect(collectText(container)).toContain(
-      'Browser session request queued. Complete login manually and attach session metadata after the browser lane picks up the job.',
-    );
-    expect(collectText(container)).toContain('请求时间：2026-04-19T03:10:00.000Z');
-    expect(collectText(container)).toContain('工单状态：pending');
-    expect(collectText(container)).toContain('下一步：/api/channel-accounts/7/session');
-    expect(collectText(container)).toContain(
-      'Artifact Path：artifacts/browser-lane-requests/instagram/acct-instagram/request-session-job-19.json',
-    );
+    expectSessionActionReceipt(container, {
+      heading: '请求登录工单已记录',
+      message:
+        'Browser session request queued. Complete login manually and attach session metadata after the browser lane picks up the job.',
+      requestedAt: '2026-04-19T03:10:00.000Z',
+      jobStatus: 'pending',
+      nextStep: '/api/channel-accounts/7/session',
+      artifactPath:
+        'artifacts/browser-lane-requests/instagram/acct-instagram/request-session-job-19.json',
+    });
     expect(collectText(container)).not.toContain(
       'Browser relogin request queued. Refresh login manually and attach updated session metadata after the browser lane picks up the job.',
     );
-    expect(collectText(container)).toContain('最近创建工单：重新登录');
-    expect(collectText(container)).toContain('最近工单时间：2026-04-19T05:00:00.000Z');
-    expect(collectText(container)).toContain(
-      '最近工单路径：artifacts/browser-lane-requests/instagram/acct-instagram/relogin-job-27.json',
-    );
+    expectLatestBrowserLaneArtifactSummary(container, {
+      actionLabel: '重新登录',
+      requestedAt: '2026-04-19T05:00:00.000Z',
+      artifactPath: 'artifacts/browser-lane-requests/instagram/acct-instagram/relogin-job-27.json',
+    });
 
     await act(async () => {
       root.unmount();
@@ -6002,23 +6082,22 @@ describe('channel account edit actions', () => {
       await flush();
     });
 
-    expect(collectText(container)).toContain('重新登录工单已记录');
-    expect(collectText(container)).toContain(
-      'Browser relogin request queued. Refresh login manually and attach updated session metadata after the browser lane picks up the job.',
-    );
-    expect(collectText(container)).toContain('请求时间：2026-04-19T03:10:00.000Z');
-    expect(collectText(container)).toContain('工单状态：pending');
-    expect(collectText(container)).toContain('下一步：/api/channel-accounts/7/session');
-    expect(collectText(container)).toContain(
-      'Artifact Path：artifacts/browser-lane-requests/x/acct-browser/relogin-job-19.json',
-    );
-    expect(collectText(container)).toContain('最近创建工单：重新登录');
-    expect(collectText(container)).toContain('最近工单状态：completed');
-    expect(collectText(container)).toContain('最近工单时间：2026-04-19T05:00:00.000Z');
-    expect(collectText(container)).toContain('最近工单结单：2026-04-19T06:00:00.000Z');
-    expect(collectText(container)).toContain(
-      '最近工单路径：artifacts/browser-lane-requests/x/acct-browser/relogin-job-27.json',
-    );
+    expectSessionActionReceipt(container, {
+      heading: '重新登录工单已记录',
+      message:
+        'Browser relogin request queued. Refresh login manually and attach updated session metadata after the browser lane picks up the job.',
+      requestedAt: '2026-04-19T03:10:00.000Z',
+      jobStatus: 'pending',
+      nextStep: '/api/channel-accounts/7/session',
+      artifactPath: 'artifacts/browser-lane-requests/x/acct-browser/relogin-job-19.json',
+    });
+    expectLatestBrowserLaneArtifactSummary(container, {
+      actionLabel: '重新登录',
+      jobStatus: 'completed',
+      requestedAt: '2026-04-19T05:00:00.000Z',
+      resolvedAt: '2026-04-19T06:00:00.000Z',
+      artifactPath: 'artifacts/browser-lane-requests/x/acct-browser/relogin-job-27.json',
+    });
     expect(collectText(container)).not.toContain(
       'Artifact Path：artifacts/browser-lane-requests/x/acct-browser/relogin-job-27.json',
     );
@@ -6083,12 +6162,17 @@ describe('channel account edit actions', () => {
       await flush();
     });
 
-    expect(collectText(container)).toContain('重新登录工单已记录');
-    expect(collectText(container)).toContain(
-      'Browser relogin request queued. Refresh login manually and attach updated session metadata after the browser lane picks up the job.',
-    );
-    expect(collectText(container)).toContain('最近创建工单：重新登录');
-    expect(collectText(container)).toContain('最近工单时间：2026-04-19T05:00:00.000Z');
+    expectSessionActionReceipt(container, {
+      heading: '重新登录工单已记录',
+      message:
+        'Browser relogin request queued. Refresh login manually and attach updated session metadata after the browser lane picks up the job.',
+      artifactPath: 'artifacts/browser-lane-requests/x/acct-browser/relogin-job-27.json',
+    });
+    expectLatestBrowserLaneArtifactSummary(container, {
+      actionLabel: '重新登录',
+      requestedAt: '2026-04-19T05:00:00.000Z',
+      artifactPath: 'artifacts/browser-lane-requests/x/acct-browser/relogin-job-27.json',
+    });
 
     await act(async () => {
       root.render(
@@ -6142,8 +6226,11 @@ describe('channel account edit actions', () => {
       'Browser relogin request queued. Refresh login manually and attach updated session metadata after the browser lane picks up the job.',
     );
     expect(collectText(container)).not.toContain('下一步：/api/channel-accounts/7/session');
-    expect(collectText(container)).toContain('最近创建工单：重新登录');
-    expect(collectText(container)).toContain('最近工单状态：pending');
+    expectLatestBrowserLaneArtifactSummary(container, {
+      actionLabel: '重新登录',
+      jobStatus: 'pending',
+      artifactPath: 'artifacts/browser-lane-requests/x/acct-browser/relogin-job-27.json',
+    });
     expect(collectText(container)).toContain('发布就绪：已就绪');
 
     await act(async () => {
@@ -6649,14 +6736,15 @@ describe('channel account edit actions', () => {
     expect(requestChannelAccountSessionAction).toHaveBeenCalledWith(7, {
       action: 'request_session',
     });
-    expect(collectText(container)).toContain('请求登录工单已记录');
-    expect(collectText(container)).toContain(
-      'Artifact Path：artifacts/browser-lane-requests/instagram/acct-instagram/request-session-job-19.json',
-    );
-    expect(collectText(container)).toContain('最近创建工单：重新登录');
-    expect(collectText(container)).toContain(
-      '最近工单路径：artifacts/browser-lane-requests/instagram/acct-instagram/relogin-job-27.json',
-    );
+    expectSessionActionReceipt(container, {
+      heading: '请求登录工单已记录',
+      artifactPath:
+        'artifacts/browser-lane-requests/instagram/acct-instagram/request-session-job-19.json',
+    });
+    expectLatestBrowserLaneArtifactSummary(container, {
+      actionLabel: '重新登录',
+      artifactPath: 'artifacts/browser-lane-requests/instagram/acct-instagram/relogin-job-27.json',
+    });
 
     const headerTestConnectionButton = findElement(
       container,
@@ -6673,16 +6761,17 @@ describe('channel account edit actions', () => {
     });
 
     expect(loadChannelAccountsAction).toHaveBeenCalledTimes(2);
-    expect(collectText(container)).toContain('请求登录工单已记录');
-    expect(collectText(container)).toContain('请求时间：2026-04-19T03:10:00.000Z');
-    expect(collectText(container)).toContain('工单状态：pending');
-    expect(collectText(container)).toContain(
-      'Artifact Path：artifacts/browser-lane-requests/instagram/acct-instagram/request-session-job-19.json',
-    );
-    expect(collectText(container)).toContain('最近创建工单：重新登录');
-    expect(collectText(container)).toContain(
-      '最近工单路径：artifacts/browser-lane-requests/instagram/acct-instagram/relogin-job-27.json',
-    );
+    expectSessionActionReceipt(container, {
+      heading: '请求登录工单已记录',
+      requestedAt: '2026-04-19T03:10:00.000Z',
+      jobStatus: 'pending',
+      artifactPath:
+        'artifacts/browser-lane-requests/instagram/acct-instagram/request-session-job-19.json',
+    });
+    expectLatestBrowserLaneArtifactSummary(container, {
+      actionLabel: '重新登录',
+      artifactPath: 'artifacts/browser-lane-requests/instagram/acct-instagram/relogin-job-27.json',
+    });
 
     await act(async () => {
       headerTestConnectionButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
@@ -6816,15 +6905,15 @@ describe('channel account edit actions', () => {
       await flush();
     });
 
-    expect(collectText(container)).toContain('请求登录工单已存在，继续沿用');
-    expect(collectText(container)).toContain(
-      'Artifact Path：artifacts/browser-lane-requests/instagram/acct-instagram/request-session-job-19.json',
-    );
-    expect(collectText(container)).toContain('最近创建工单：重新登录');
-    expect(collectText(container)).toContain('最近工单时间：2026-04-19T05:00:00.000Z');
-    expect(collectText(container)).toContain(
-      '最近工单路径：artifacts/browser-lane-requests/instagram/acct-instagram/relogin-job-27.json',
-    );
+    expectSessionActionReceipt(container, {
+      heading: '请求登录工单已存在，继续沿用',
+      artifactPath: 'artifacts/browser-lane-requests/instagram/acct-instagram/request-session-job-19.json',
+    });
+    expectLatestBrowserLaneArtifactSummary(container, {
+      actionLabel: '重新登录',
+      requestedAt: '2026-04-19T05:00:00.000Z',
+      artifactPath: 'artifacts/browser-lane-requests/instagram/acct-instagram/relogin-job-27.json',
+    });
 
     await act(async () => {
       root.unmount();

@@ -74,6 +74,10 @@ function writeInboxReplyHandoffArtifact(
   );
 }
 
+function matchSessionActionArtifactSummary(expected: Record<string, unknown>) {
+  return expect.objectContaining(expected);
+}
+
 async function requestApp(method: string, url: string, body?: unknown) {
   const app = express();
   app.use(express.json());
@@ -2448,14 +2452,20 @@ describe('channel accounts api', () => {
         expect.objectContaining({
           id: 1,
           activeSessionActionArtifacts: {
-            request_session: expect.objectContaining({
+            request_session: matchSessionActionArtifactSummary({
+              channelAccountId: 1,
+              platform: 'instagram',
+              accountKey: '@promobot.official',
               action: 'request_session',
               jobStatus: 'pending',
               requestedAt: requestSessionBody.job.runAt,
               artifactPath: requestSessionBody.sessionAction.artifactPath,
               resolvedAt: null,
             }),
-            relogin: expect.objectContaining({
+            relogin: matchSessionActionArtifactSummary({
+              channelAccountId: 1,
+              platform: 'instagram',
+              accountKey: '@promobot.official',
               action: 'relogin',
               jobStatus: 'pending',
               requestedAt: reloginBody.job.runAt,
@@ -2463,7 +2473,10 @@ describe('channel accounts api', () => {
               resolvedAt: null,
             }),
           },
-          latestBrowserLaneArtifact: expect.objectContaining({
+          latestBrowserLaneArtifact: matchSessionActionArtifactSummary({
+            channelAccountId: 1,
+            platform: 'instagram',
+            accountKey: '@promobot.official',
             action: 'relogin',
             jobStatus: 'pending',
             requestedAt: reloginBody.job.runAt,
@@ -2479,14 +2492,20 @@ describe('channel accounts api', () => {
           expect.objectContaining({
             id: 1,
             activeSessionActionArtifacts: {
-              request_session: expect.objectContaining({
+              request_session: matchSessionActionArtifactSummary({
+                channelAccountId: 1,
+                platform: 'instagram',
+                accountKey: '@promobot.official',
                 action: 'request_session',
                 jobStatus: 'pending',
                 requestedAt: requestSessionBody.job.runAt,
                 artifactPath: requestSessionBody.sessionAction.artifactPath,
                 resolvedAt: null,
               }),
-              relogin: expect.objectContaining({
+              relogin: matchSessionActionArtifactSummary({
+                channelAccountId: 1,
+                platform: 'instagram',
+                accountKey: '@promobot.official',
                 action: 'relogin',
                 jobStatus: 'pending',
                 requestedAt: reloginBody.job.runAt,
@@ -2494,7 +2513,10 @@ describe('channel accounts api', () => {
                 resolvedAt: null,
               }),
             },
-            latestBrowserLaneArtifact: expect.objectContaining({
+            latestBrowserLaneArtifact: matchSessionActionArtifactSummary({
+              channelAccountId: 1,
+              platform: 'instagram',
+              accountKey: '@promobot.official',
               action: 'relogin',
               jobStatus: 'pending',
               requestedAt: reloginBody.job.runAt,
@@ -3106,7 +3128,7 @@ describe('channel accounts api', () => {
       };
 
       expect(requestSessionBody.channelAccount.latestBrowserLaneArtifact).toEqual(
-        expect.objectContaining({
+        matchSessionActionArtifactSummary({
           channelAccountId: 1,
           platform: 'x',
           accountKey: '@promobot',
@@ -3153,7 +3175,7 @@ describe('channel accounts api', () => {
       };
 
       expect(saveBody.channelAccount.latestBrowserLaneArtifact).toEqual(
-        expect.objectContaining({
+        matchSessionActionArtifactSummary({
           channelAccountId: 1,
           platform: 'x',
           accountKey: '@promobot',
@@ -3209,7 +3231,7 @@ describe('channel accounts api', () => {
       };
 
       expect(reloginBody.channelAccount.latestBrowserLaneArtifact).toEqual(
-        expect.objectContaining({
+        matchSessionActionArtifactSummary({
           channelAccountId: 1,
           platform: 'x',
           accountKey: '@promobot',
@@ -3221,7 +3243,7 @@ describe('channel accounts api', () => {
         }),
       );
       expect(reloginBody.channelAccount.activeSessionActionArtifacts).toEqual({
-        relogin: expect.objectContaining({
+        relogin: matchSessionActionArtifactSummary({
           channelAccountId: 1,
           platform: 'x',
           accountKey: '@promobot',
@@ -3240,7 +3262,7 @@ describe('channel accounts api', () => {
           expect.objectContaining({
             id: 1,
             activeSessionActionArtifacts: {
-              relogin: expect.objectContaining({
+              relogin: matchSessionActionArtifactSummary({
                 channelAccountId: 1,
                 platform: 'x',
                 accountKey: '@promobot',
@@ -3251,7 +3273,7 @@ describe('channel accounts api', () => {
                 resolvedAt: null,
               }),
             },
-            latestBrowserLaneArtifact: expect.objectContaining({
+            latestBrowserLaneArtifact: matchSessionActionArtifactSummary({
               channelAccountId: 1,
               platform: 'x',
               accountKey: '@promobot',
@@ -4212,7 +4234,7 @@ describe('channel accounts api', () => {
               storageStatePath: 'browser-sessions/managed/facebookGroup/launch-campaign.json',
             },
             activeSessionActionArtifacts: {
-              request_session: expect.objectContaining({
+              request_session: matchSessionActionArtifactSummary({
                 channelAccountId: 1,
                 platform: 'facebookGroup',
                 accountKey: 'launch-campaign',
@@ -4223,7 +4245,7 @@ describe('channel accounts api', () => {
                 resolvedAt: null,
               }),
             },
-            latestBrowserLaneArtifact: expect.objectContaining({
+            latestBrowserLaneArtifact: matchSessionActionArtifactSummary({
               channelAccountId: 1,
               platform: 'facebookGroup',
               accountKey: 'launch-campaign',
