@@ -45,7 +45,7 @@ export interface InboxReplyHandoffRecord {
   channelAccountId?: number;
   platform: string;
   itemId: string | number;
-  handoffAttempt?: number;
+  handoffAttempt?: number | string | null;
   source: string;
   title: string | null;
   author: string | null;
@@ -166,7 +166,7 @@ interface BrowserReplyHandoffDetails {
   platform?: string | null;
   channelAccountId?: number | null;
   accountKey?: string | null;
-  handoffAttempt?: number | null;
+  handoffAttempt?: number | string | null;
   readiness?: string | null;
   sessionAction?: string | BrowserReplyHandoffSessionAction | null;
   artifactPath?: string | null;
@@ -463,6 +463,17 @@ function readPositiveInteger(value: unknown) {
   return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined;
 }
 
+function readPositiveIntegerLikeString(value: unknown) {
+  if (typeof value === 'string') {
+    const normalizedValue = value.trim();
+    if (/^[1-9]\d*$/.test(normalizedValue)) {
+      return Number(normalizedValue);
+    }
+  }
+
+  return readPositiveInteger(value);
+}
+
 function readBrowserReplyHandoff(details: SendInboxReplyDetails | undefined) {
   const browserReplyHandoff = asRecord(details?.browserReplyHandoff);
   if (!browserReplyHandoff) {
@@ -488,7 +499,7 @@ function readBrowserReplyHandoff(details: SendInboxReplyDetails | undefined) {
   const platform = readString(browserReplyHandoff.platform);
   const accountKey = readString(browserReplyHandoff.accountKey);
   const channelAccountId = readPositiveInteger(browserReplyHandoff.channelAccountId);
-  const handoffAttempt = readPositiveInteger(browserReplyHandoff.handoffAttempt);
+  const handoffAttempt = readPositiveIntegerLikeString(browserReplyHandoff.handoffAttempt);
 
   if (!readiness && !sessionAction && !artifactPath && !platform && !accountKey && !channelAccountId) {
     return null;
@@ -564,15 +575,26 @@ function readInboxReplyHandoffItemId(handoff: InboxReplyHandoffRecord) {
 }
 
 function readInboxReplyHandoffAttempt(handoff: Pick<InboxReplyHandoffRecord, 'handoffAttempt'>) {
-  return readPositiveInteger(handoff.handoffAttempt);
+  return readPositiveIntegerLikeString(handoff.handoffAttempt);
 }
 
-function buildInboxReplyHandoffIdentityKey(itemId: number | null, artifactPath: string | null | undefined, handoffAttempt?: number) {
+function buildInboxReplyHandoffIdentityKey(
+  itemId: number | null,
+  artifactPath: string | null | undefined,
+  handoffAttempt?: number,
+  legacyScopeKey?: string | null,
+) {
   if (itemId === null || !artifactPath) {
     return null;
   }
 
-  return `${itemId}:${artifactPath}:${handoffAttempt ?? 'legacy'}`;
+  if (handoffAttempt !== undefined) {
+    return `${itemId}:${artifactPath}:${handoffAttempt}`;
+  }
+
+  return legacyScopeKey
+    ? `${itemId}:${artifactPath}:legacy:${legacyScopeKey}`
+    : `${itemId}:${artifactPath}:legacy`;
 }
 
 function pickNewerInboxReplyHandoff(
@@ -874,12 +896,6 @@ export function InboxPage({
           artifactPath: persistedReplyHandoff.artifactPath,
         }
       : immediateReplyBrowserHandoff;
-  const activeReplyBrowserHandoffAttempt = readPositiveInteger(activeReplyBrowserHandoff?.handoffAttempt);
-  const activeReplyBrowserHandoffIdentityKey = buildInboxReplyHandoffIdentityKey(
-    activeReplyDeliveryItemId,
-    activeReplyBrowserHandoff?.artifactPath,
-    activeReplyBrowserHandoffAttempt,
-  );
   const showReplyDeliveryFollowUp = (hasCurrentReplyDeliveryFollowUp || persistedReplyHandoff !== null) && !replyDeliveryClosedLocally;
   const shouldShowReplyDeliveryActions = showReplyDeliveryFollowUp;
   const sendReplyFeedback =
@@ -906,14 +922,30 @@ export function InboxPage({
       : displaySendReplyState.status === 'error'
         ? 'error'
         : null;
+  const persistedReplyHandoffLegacyScopeKey = persistedReplyHandoff
+    ? `${persistedReplyHandoff.updatedAt}:${persistedReplyHandoff.createdAt}`
+    : null;
+  const immediateReplyBrowserHandoffLegacyScopeKey =
+    deliveredReplyFeedback && replyDeliveryItemId !== null
+      ? `${replyDeliveryItemId}:${deliveredReplyFeedback.status}:${deliveredReplyFeedback.message}:${immediateReplyBrowserHandoff?.artifactPath ?? 'none'}:${immediateReplyBrowserHandoff?.handoffAttempt ?? 'none'}`
+      : null;
   const replyDeliveryFeedbackResetKey =
     shouldUsePersistedReplyHandoff && persistedReplyHandoff && activeReplyDeliveryItemId !== null
-      ? `persisted:${activeReplyDeliveryItemId}:${persistedReplyHandoff.artifactPath}:${persistedReplyHandoff.readiness ?? 'ready'}:${readInboxReplyHandoffAttempt(persistedReplyHandoff) ?? 'none'}`
+      ? `persisted:${activeReplyDeliveryItemId}:${persistedReplyHandoff.artifactPath}:${persistedReplyHandoff.readiness ?? 'ready'}:${readInboxReplyHandoffAttempt(persistedReplyHandoff) ?? 'none'}:${persistedReplyHandoffLegacyScopeKey ?? 'none'}`
       : deliveredReplyFeedback && replyDeliveryItemId !== null
-      ? `${replyDeliveryItemId}:${deliveredReplyFeedback.status}:${deliveredReplyFeedback.message}:${immediateReplyBrowserHandoff?.artifactPath ?? 'none'}:${immediateReplyBrowserHandoff?.handoffAttempt ?? 'none'}`
+      ? immediateReplyBrowserHandoffLegacyScopeKey
       : displaySendReplyState.status === 'error' && replyDeliveryItemId !== null
         ? `error:${replyDeliveryItemId}:${displaySendReplyState.error}`
         : null;
+  const activeReplyBrowserHandoffAttempt = readPositiveIntegerLikeString(activeReplyBrowserHandoff?.handoffAttempt);
+  const activeReplyBrowserHandoffIdentityKey = buildInboxReplyHandoffIdentityKey(
+    activeReplyDeliveryItemId,
+    activeReplyBrowserHandoff?.artifactPath,
+    activeReplyBrowserHandoffAttempt,
+    shouldUsePersistedReplyHandoff
+      ? persistedReplyHandoffLegacyScopeKey
+      : immediateReplyBrowserHandoffLegacyScopeKey,
+  );
   const suggestedReply =
     showReplySuggestionForSelectedItem &&
     displayReplySuggestionState.status === 'success' &&
@@ -1155,7 +1187,7 @@ export function InboxPage({
       return;
     }
 
-    const handoffAttempt = readPositiveInteger(activeReplyBrowserHandoff.handoffAttempt);
+    const handoffAttempt = readPositiveIntegerLikeString(activeReplyBrowserHandoff.handoffAttempt);
     if (activeReplyBrowserHandoff.handoffAttempt !== undefined && handoffAttempt === undefined) {
       return;
     }
@@ -1164,11 +1196,7 @@ export function InboxPage({
     const message = draft?.message.trim();
     const deliveryUrl = draft?.deliveryUrl.trim();
     const completionAttemptId = replyHandoffCompletionAttemptRef.current + 1;
-    const completionIdentityKey = buildInboxReplyHandoffIdentityKey(
-      activeReplyDeliveryItemId,
-      activeReplyBrowserHandoff.artifactPath,
-      handoffAttempt,
-    );
+    const completionIdentityKey = activeReplyBrowserHandoffIdentityKey;
 
     if (completionIdentityKey === null) {
       return;

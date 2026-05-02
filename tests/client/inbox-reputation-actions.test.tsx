@@ -3481,6 +3481,125 @@ describe('Inbox action wiring', () => {
     });
   });
 
+  it('uses a numeric-string persisted handoff attempt when completing a ready inbox reply handoff', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+    const completeInboxReplyHandoffAction = vi.fn().mockResolvedValue({
+      ok: true,
+      imported: true,
+      artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-7.json',
+      itemId: 7,
+      itemStatus: 'handled',
+      platform: 'reddit',
+      mode: 'browser',
+      status: 'sent',
+      success: true,
+      deliveryUrl: 'https://reddit.com/message/messages/attempt-2',
+      externalId: null,
+      message: 'reply sent manually from numeric string attempt',
+      deliveredAt: '2026-04-23T11:15:00.000Z',
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(InboxPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              items: [
+                {
+                  id: 7,
+                  source: 'reddit',
+                  status: 'needs_reply',
+                  author: 'user123',
+                  title: 'Need lower latency in APAC',
+                  excerpt: 'Can you share current response times?',
+                  createdAt: '2026-04-19T10:00:00.000Z',
+                },
+              ],
+              total: 1,
+              unread: 1,
+            },
+          } satisfies ApiState<unknown>,
+          replyHandoffsStateOverride: {
+            status: 'success',
+            data: {
+              handoffs: [
+                {
+                  platform: 'reddit',
+                  itemId: 7,
+                  source: 'reddit',
+                  title: 'Need lower latency in APAC',
+                  author: 'user123',
+                  accountKey: 'reddit-main',
+                  channelAccountId: 9,
+                  status: 'pending',
+                  readiness: 'ready',
+                  sessionAction: null,
+                  artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-7.json',
+                  handoffAttempt: '2',
+                  createdAt: '2026-04-24T10:00:00.000Z',
+                  updatedAt: '2026-04-24T10:00:00.000Z',
+                  resolvedAt: null,
+                },
+              ],
+              total: 1,
+            },
+          } satisfies ApiState<unknown>,
+          completeInboxReplyHandoffAction,
+        }),
+      );
+      await flush();
+    });
+
+    const deliveryUrlInput = findElement(
+      container,
+      (element) => element.getAttribute('data-inbox-reply-handoff-field') === 'deliveryUrl',
+    );
+    const messageInput = findElement(
+      container,
+      (element) => element.getAttribute('data-inbox-reply-handoff-field') === 'message',
+    );
+    const markSentButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('标记已发送'),
+    );
+    expect(deliveryUrlInput).not.toBeNull();
+    expect(messageInput).not.toBeNull();
+    expect(markSentButton).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(
+        deliveryUrlInput as never,
+        'https://reddit.com/message/messages/attempt-2',
+        window as never,
+      );
+      updateFieldValue(messageInput as never, 'reply sent manually from numeric string attempt', window as never);
+      await flush();
+    });
+
+    await act(async () => {
+      markSentButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(completeInboxReplyHandoffAction).toHaveBeenCalledWith({
+      artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-7.json',
+      handoffAttempt: 2,
+      replyStatus: 'sent',
+      deliveryUrl: 'https://reddit.com/message/messages/attempt-2',
+      message: 'reply sent manually from numeric string attempt',
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('clears stale inbox reply handoff completion feedback when a new manual-required result arrives for the same item', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
@@ -3649,6 +3768,147 @@ describe('Inbox action wiring', () => {
     });
   });
 
+  it('clears stale inbox reply handoff completion feedback when a new legacy manual-required result arrives for the same item', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    const createReadyRedditReply = () => ({
+      item: {
+        id: 7,
+        source: 'reddit',
+        status: 'needs_reply',
+        author: 'user123',
+        title: 'Need lower latency in APAC',
+        excerpt: 'Can you share current response times?',
+        createdAt: '2026-04-19T10:00:00.000Z',
+      },
+      delivery: {
+        success: false,
+        status: 'manual_required',
+        mode: 'browser',
+        message: 'Reddit reply is ready for manual browser handoff with the saved session.',
+        reply: 'Manual follow-up reply.',
+        details: {
+          browserReplyHandoff: {
+            platform: 'reddit',
+            channelAccountId: 9,
+            accountKey: 'reddit-main',
+            readiness: 'ready',
+            artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-7.json',
+          },
+        },
+      },
+    });
+    const sendReplyAction = vi.fn().mockImplementation(async () => createReadyRedditReply());
+    const completeInboxReplyHandoffAction = vi.fn().mockResolvedValue({
+      ok: true,
+      imported: true,
+      artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-7.json',
+      itemId: 7,
+      itemStatus: 'handled',
+      platform: 'reddit',
+      mode: 'browser',
+      status: 'sent',
+      success: true,
+      deliveryUrl: 'https://reddit.com/message/messages/legacy',
+      externalId: null,
+      message: 'reply sent manually',
+      deliveredAt: '2026-04-23T11:15:00.000Z',
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(InboxPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              items: [
+                {
+                  id: 7,
+                  source: 'reddit',
+                  status: 'needs_reply',
+                  author: 'user123',
+                  title: 'Need lower latency in APAC',
+                  excerpt: 'Can you share current response times?',
+                  createdAt: '2026-04-19T10:00:00.000Z',
+                },
+              ],
+              total: 1,
+              unread: 1,
+            },
+          } satisfies ApiState<unknown>,
+          sendReplyAction,
+          completeInboxReplyHandoffAction,
+        }),
+      );
+      await flush();
+    });
+
+    const replyDraftField = findElement(container, (element) => element.tagName === 'TEXTAREA');
+    const sendReplyButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('发送回复'),
+    );
+    expect(replyDraftField).not.toBeNull();
+    expect(sendReplyButton).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(replyDraftField, 'Manual follow-up reply.', window);
+      await flush();
+    });
+
+    await act(async () => {
+      sendReplyButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    const markSentButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('标记已发送'),
+    );
+    expect(markSentButton).not.toBeNull();
+
+    await act(async () => {
+      markSentButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('已结单 inbox reply item #7 (handled)');
+    expect(collectText(container)).toContain('reply sent manually');
+
+    await act(async () => {
+      sendReplyButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    const freshMarkSentButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('标记已发送'),
+    );
+    expect(sendReplyAction).toHaveBeenCalledTimes(2);
+    expect(completeInboxReplyHandoffAction).toHaveBeenCalledTimes(1);
+    expect(freshMarkSentButton).not.toBeNull();
+    expect(collectText(container)).not.toContain('已结单 inbox reply item #7 (handled)');
+    expect(collectText(container)).not.toContain('reply sent manually');
+
+    await act(async () => {
+      freshMarkSentButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(completeInboxReplyHandoffAction).toHaveBeenNthCalledWith(2, {
+      artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-7.json',
+      replyStatus: 'sent',
+    });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('restores a new persisted inbox reply handoff attempt after local completion without keeping the old completion state', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
@@ -3796,6 +4056,175 @@ describe('Inbox action wiring', () => {
                   sessionAction: null,
                   artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-7.json',
                   handoffAttempt: 2,
+                  createdAt: '2026-04-24T10:00:00.000Z',
+                  updatedAt: '2026-04-24T10:05:00.000Z',
+                  resolvedAt: null,
+                },
+              ],
+              total: 1,
+            },
+          } satisfies ApiState<unknown>,
+        }),
+      );
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('发现待处理的 Inbox reply handoff，可以直接结单。');
+    expect(collectText(container)).not.toContain('已结单 inbox reply item #7 (handled)');
+    expect(collectText(container)).not.toContain('reply sent manually');
+    expect(findElement(container, (element) => element.tagName === 'BUTTON' && collectText(element).includes('标记已发送'))).not.toBeNull();
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('restores a new persisted legacy inbox reply handoff after local completion without keeping the old completion state', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    const sendReplyAction = vi.fn().mockResolvedValue({
+      item: {
+        id: 7,
+        source: 'reddit',
+        status: 'needs_reply',
+        author: 'user123',
+        title: 'Need lower latency in APAC',
+        excerpt: 'Can you share current response times?',
+        createdAt: '2026-04-19T10:00:00.000Z',
+      },
+      delivery: {
+        success: false,
+        status: 'manual_required',
+        mode: 'browser',
+        message: 'Reddit reply is ready for manual browser handoff with the saved session.',
+        reply: 'Manual follow-up reply.',
+        details: {
+          browserReplyHandoff: {
+            platform: 'reddit',
+            channelAccountId: 9,
+            accountKey: 'reddit-main',
+            readiness: 'ready',
+            artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-7.json',
+          },
+        },
+      },
+    });
+    const completeInboxReplyHandoffAction = vi.fn().mockResolvedValue({
+      ok: true,
+      imported: true,
+      artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-7.json',
+      itemId: 7,
+      itemStatus: 'handled',
+      platform: 'reddit',
+      mode: 'browser',
+      status: 'sent',
+      success: true,
+      deliveryUrl: 'https://reddit.com/message/messages/abc123',
+      externalId: null,
+      message: 'reply sent manually',
+      deliveredAt: '2026-04-23T11:15:00.000Z',
+    });
+
+    const root = createRoot(container as never);
+    const baseProps = {
+      stateOverride: {
+        status: 'success',
+        data: {
+          items: [
+            {
+              id: 7,
+              source: 'reddit',
+              status: 'needs_reply',
+              author: 'user123',
+              title: 'Need lower latency in APAC',
+              excerpt: 'Can you share current response times?',
+              createdAt: '2026-04-19T10:00:00.000Z',
+            },
+          ],
+          total: 1,
+          unread: 1,
+        },
+      } satisfies ApiState<unknown>,
+      sendReplyAction,
+      completeInboxReplyHandoffAction,
+    };
+
+    await act(async () => {
+      root.render(createElement(InboxPage as never, baseProps));
+      await flush();
+    });
+
+    const replyDraftField = findElement(container, (element) => element.tagName === 'TEXTAREA');
+    const sendReplyButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('发送回复'),
+    );
+    expect(replyDraftField).not.toBeNull();
+    expect(sendReplyButton).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(replyDraftField, 'Manual follow-up reply.', window);
+      await flush();
+    });
+
+    await act(async () => {
+      sendReplyButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    const deliveryUrlInput = findElement(
+      container,
+      (element) => element.getAttribute('data-inbox-reply-handoff-field') === 'deliveryUrl',
+    );
+    const messageInput = findElement(
+      container,
+      (element) => element.getAttribute('data-inbox-reply-handoff-field') === 'message',
+    );
+    const markSentButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('标记已发送'),
+    );
+    expect(deliveryUrlInput).not.toBeNull();
+    expect(messageInput).not.toBeNull();
+    expect(markSentButton).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(deliveryUrlInput as never, 'https://reddit.com/message/messages/abc123', window as never);
+      updateFieldValue(messageInput as never, 'reply sent manually', window as never);
+      await flush();
+    });
+
+    await act(async () => {
+      markSentButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('已结单 inbox reply item #7 (handled)');
+    expect(collectText(container)).toContain('reply sent manually');
+
+    await act(async () => {
+      root.render(
+        createElement(InboxPage as never, {
+          ...baseProps,
+          replyHandoffsStateOverride: {
+            status: 'success',
+            data: {
+              handoffs: [
+                {
+                  platform: 'reddit',
+                  itemId: 7,
+                  source: 'reddit',
+                  title: 'Need lower latency in APAC',
+                  author: 'user123',
+                  accountKey: 'reddit-main',
+                  channelAccountId: 9,
+                  status: 'pending',
+                  readiness: 'ready',
+                  sessionAction: null,
+                  artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-7.json',
                   createdAt: '2026-04-24T10:00:00.000Z',
                   updatedAt: '2026-04-24T10:05:00.000Z',
                   resolvedAt: null,
