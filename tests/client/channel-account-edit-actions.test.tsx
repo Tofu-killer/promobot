@@ -642,6 +642,181 @@ function expectLatestBrowserLaneArtifactSummary(
   expect(text).toContain(`最近工单路径：${artifactPath}`);
 }
 
+type SessionActionFixtureName = 'request_session' | 'relogin';
+
+type BrowserLaneArtifactFixture = {
+  action: SessionActionFixtureName;
+  jobStatus: string;
+  requestedAt: string;
+  artifactPath: string;
+  resolvedAt: string | null;
+};
+
+type BrowserLaneArtifactFixtureOptions = {
+  platform?: string;
+  accountKey?: string;
+  action?: SessionActionFixtureName;
+  jobStatus?: string;
+  requestedAt?: string;
+  jobId?: number;
+  resolvedAt?: string | null;
+};
+
+function buildBrowserLaneArtifactFixture({
+  platform = 'x',
+  accountKey = 'acct-browser',
+  action = 'relogin',
+  jobStatus = 'pending',
+  requestedAt = '2026-04-19T05:00:00.000Z',
+  jobId = action === 'request_session' ? 19 : 27,
+  resolvedAt = null,
+}: BrowserLaneArtifactFixtureOptions = {}): BrowserLaneArtifactFixture {
+  const jobSlug = action === 'request_session' ? 'request-session' : action;
+
+  return {
+    action,
+    jobStatus,
+    requestedAt,
+    artifactPath: `artifacts/browser-lane-requests/${platform}/${accountKey}/${jobSlug}-job-${jobId}.json`,
+    resolvedAt,
+  };
+}
+
+type BrowserAccountFixtureOverrides = {
+  id?: number;
+  platform?: string;
+  accountKey?: string;
+  displayName?: string;
+  status?: string;
+  metadata?: Record<string, unknown>;
+  session?: {
+    hasSession: boolean;
+    status: string;
+    validatedAt: string | null;
+    storageStatePath: string | null;
+    id: string;
+  };
+  latestBrowserLaneArtifact?: BrowserLaneArtifactFixture;
+  activeSessionActionArtifacts?: Partial<Record<SessionActionFixtureName, BrowserLaneArtifactFixture>>;
+  publishReadiness?: {
+    platform: string;
+    ready: boolean;
+    mode: 'browser';
+    status: string;
+    message: string;
+    action?: SessionActionFixtureName;
+  };
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+function buildBrowserAccountFixture({
+  id = 7,
+  platform = 'x',
+  accountKey = 'acct-browser',
+  displayName = platform === 'instagram' ? 'Instagram Ops' : 'Browser X',
+  status = 'healthy',
+  metadata = {},
+  session = {
+    hasSession: true,
+    status: 'expired',
+    validatedAt: '2026-04-19T02:00:00.000Z',
+    storageStatePath: `artifacts/browser-sessions/${accountKey}.json`,
+    id: `${platform}:${accountKey}`,
+  },
+  latestBrowserLaneArtifact,
+  activeSessionActionArtifacts,
+  publishReadiness = {
+    platform,
+    ready: false,
+    mode: 'browser',
+    status: 'needs_relogin',
+    message: '已有 X 浏览器 session，但需要重新登录刷新。',
+    action: 'relogin',
+  },
+  createdAt = '2026-04-19T00:00:00.000Z',
+  updatedAt = createdAt,
+}: BrowserAccountFixtureOverrides = {}) {
+  return {
+    id,
+    platform,
+    accountKey,
+    displayName,
+    authType: 'browser',
+    status,
+    metadata,
+    session,
+    ...(latestBrowserLaneArtifact === undefined ? {} : { latestBrowserLaneArtifact }),
+    ...(activeSessionActionArtifacts === undefined ? {} : { activeSessionActionArtifacts }),
+    publishReadiness,
+    createdAt,
+    updatedAt,
+  };
+}
+
+type SessionActionResultFixtureOptions = {
+  action?: SessionActionFixtureName;
+  accountId?: number;
+  platform?: string;
+  accountKey?: string;
+  requestedAt?: string;
+  message?: string;
+  nextStep?: string;
+  jobId?: number;
+  jobStatus?: string;
+  status?: string;
+  reused?: boolean;
+  artifactPath?: string;
+  channelAccount?: ReturnType<typeof buildBrowserAccountFixture>;
+};
+
+function buildSessionActionResult({
+  action = 'relogin',
+  accountId = 7,
+  platform = 'x',
+  accountKey = 'acct-browser',
+  requestedAt = action === 'request_session' ? '2026-04-19T03:10:00.000Z' : '2026-04-19T05:00:00.000Z',
+  message = action === 'request_session'
+    ? 'Browser session request queued. Complete login manually and attach session metadata after the browser lane picks up the job.'
+    : 'Browser relogin request queued. Refresh login manually and attach updated session metadata after the browser lane picks up the job.',
+  nextStep = `/api/channel-accounts/${accountId}/session`,
+  jobId = action === 'request_session' ? 19 : 27,
+  jobStatus = 'pending',
+  status = 'pending',
+  reused,
+  artifactPath,
+  channelAccount = buildBrowserAccountFixture({
+    platform,
+    accountKey,
+  }),
+}: SessionActionResultFixtureOptions = {}) {
+  const browserLaneArtifact = buildBrowserLaneArtifactFixture({
+    platform,
+    accountKey,
+    action,
+    requestedAt,
+    jobId,
+    jobStatus,
+  });
+
+  return {
+    ok: true,
+    sessionAction: {
+      action,
+      accountId,
+      status,
+      requestedAt,
+      message,
+      nextStep,
+      jobId,
+      jobStatus,
+      artifactPath: artifactPath ?? browserLaneArtifact.artifactPath,
+      ...(reused === undefined ? {} : { reused }),
+    },
+    channelAccount,
+  };
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -5924,6 +6099,43 @@ describe('channel account edit actions', () => {
     const { container } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
     const { ChannelAccountsPage } = await import('../../src/client/pages/ChannelAccounts');
+    const requestSessionArtifact = buildBrowserLaneArtifactFixture({
+      platform: 'instagram',
+      accountKey: 'acct-instagram',
+      action: 'request_session',
+      requestedAt: '2026-04-19T03:10:00.000Z',
+      jobId: 19,
+    });
+    const reloginArtifact = buildBrowserLaneArtifactFixture({
+      platform: 'instagram',
+      accountKey: 'acct-instagram',
+    });
+    const channelAccount = buildBrowserAccountFixture({
+      platform: 'instagram',
+      accountKey: 'acct-instagram',
+      displayName: 'Instagram Ops',
+      session: {
+        hasSession: false,
+        status: 'missing',
+        validatedAt: null,
+        storageStatePath: null,
+        id: 'instagram:acct-instagram',
+      },
+      latestBrowserLaneArtifact: reloginArtifact,
+      activeSessionActionArtifacts: {
+        request_session: requestSessionArtifact,
+        relogin: reloginArtifact,
+      },
+      publishReadiness: {
+        platform: 'instagram',
+        ready: false,
+        mode: 'browser',
+        status: 'needs_session',
+        message: 'Instagram 浏览器登录态缺失，请先完成登录。',
+        action: 'request_session',
+      },
+      updatedAt: '2026-04-19T05:00:00.000Z',
+    });
 
     const root = createRoot(container as never);
     await act(async () => {
@@ -5932,60 +6144,7 @@ describe('channel account edit actions', () => {
           stateOverride: {
             status: 'success',
             data: {
-              channelAccounts: [
-                {
-                  id: 7,
-                  platform: 'instagram',
-                  accountKey: 'acct-instagram',
-                  displayName: 'Instagram Ops',
-                  authType: 'browser',
-                  status: 'healthy',
-                  metadata: {},
-                  session: {
-                    hasSession: false,
-                    status: 'missing',
-                    validatedAt: null,
-                    storageStatePath: null,
-                    id: 'instagram:acct-instagram',
-                  },
-                  latestBrowserLaneArtifact: {
-                    action: 'relogin',
-                    jobStatus: 'pending',
-                    requestedAt: '2026-04-19T05:00:00.000Z',
-                    artifactPath:
-                      'artifacts/browser-lane-requests/instagram/acct-instagram/relogin-job-27.json',
-                    resolvedAt: null,
-                  },
-                  activeSessionActionArtifacts: {
-                    request_session: {
-                      action: 'request_session',
-                      jobStatus: 'pending',
-                      requestedAt: '2026-04-19T03:10:00.000Z',
-                      artifactPath:
-                        'artifacts/browser-lane-requests/instagram/acct-instagram/request-session-job-19.json',
-                      resolvedAt: null,
-                    },
-                    relogin: {
-                      action: 'relogin',
-                      jobStatus: 'pending',
-                      requestedAt: '2026-04-19T05:00:00.000Z',
-                      artifactPath:
-                        'artifacts/browser-lane-requests/instagram/acct-instagram/relogin-job-27.json',
-                      resolvedAt: null,
-                    },
-                  },
-                  publishReadiness: {
-                    platform: 'instagram',
-                    ready: false,
-                    mode: 'browser',
-                    status: 'needs_session',
-                    message: 'Instagram 浏览器登录态缺失，请先完成登录。',
-                    action: 'request_session',
-                  },
-                  createdAt: '2026-04-19T00:00:00.000Z',
-                  updatedAt: '2026-04-19T05:00:00.000Z',
-                },
-              ],
+              channelAccounts: [channelAccount],
             },
           },
         }),
@@ -6022,6 +6181,24 @@ describe('channel account edit actions', () => {
     const { container } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
     const { ChannelAccountsPage } = await import('../../src/client/pages/ChannelAccounts');
+    const currentActionArtifact = buildBrowserLaneArtifactFixture({
+      action: 'relogin',
+      requestedAt: '2026-04-19T03:10:00.000Z',
+      jobId: 19,
+    });
+    const latestResolvedArtifact = buildBrowserLaneArtifactFixture({
+      action: 'relogin',
+      jobStatus: 'completed',
+      requestedAt: '2026-04-19T05:00:00.000Z',
+      resolvedAt: '2026-04-19T06:00:00.000Z',
+    });
+    const channelAccount = buildBrowserAccountFixture({
+      latestBrowserLaneArtifact: latestResolvedArtifact,
+      activeSessionActionArtifacts: {
+        relogin: currentActionArtifact,
+      },
+      updatedAt: '2026-04-19T06:00:00.000Z',
+    });
 
     const root = createRoot(container as never);
     await act(async () => {
@@ -6030,51 +6207,7 @@ describe('channel account edit actions', () => {
           stateOverride: {
             status: 'success',
             data: {
-              channelAccounts: [
-                {
-                  id: 7,
-                  platform: 'x',
-                  accountKey: 'acct-browser',
-                  displayName: 'Browser X',
-                  authType: 'browser',
-                  status: 'healthy',
-                  metadata: {},
-                  session: {
-                    hasSession: true,
-                    status: 'expired',
-                    validatedAt: '2026-04-19T02:00:00.000Z',
-                    storageStatePath: 'artifacts/browser-sessions/acct-browser.json',
-                    id: 'x:acct-browser',
-                  },
-                  latestBrowserLaneArtifact: {
-                    action: 'relogin',
-                    jobStatus: 'completed',
-                    requestedAt: '2026-04-19T05:00:00.000Z',
-                    artifactPath: 'artifacts/browser-lane-requests/x/acct-browser/relogin-job-27.json',
-                    resolvedAt: '2026-04-19T06:00:00.000Z',
-                  },
-                  activeSessionActionArtifacts: {
-                    relogin: {
-                      action: 'relogin',
-                      jobStatus: 'pending',
-                      requestedAt: '2026-04-19T03:10:00.000Z',
-                      artifactPath:
-                        'artifacts/browser-lane-requests/x/acct-browser/relogin-job-19.json',
-                      resolvedAt: null,
-                    },
-                  },
-                  publishReadiness: {
-                    platform: 'x',
-                    ready: false,
-                    mode: 'browser',
-                    status: 'needs_relogin',
-                    message: '已有 X 浏览器 session，但需要重新登录刷新。',
-                    action: 'relogin',
-                  },
-                  createdAt: '2026-04-19T00:00:00.000Z',
-                  updatedAt: '2026-04-19T06:00:00.000Z',
-                },
-              ],
+              channelAccounts: [channelAccount],
             },
           },
         }),
@@ -6112,6 +6245,28 @@ describe('channel account edit actions', () => {
     const { container } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
     const { ChannelAccountsPage } = await import('../../src/client/pages/ChannelAccounts');
+    const reloginArtifact = buildBrowserLaneArtifactFixture();
+    const staleAccount = buildBrowserAccountFixture({
+      latestBrowserLaneArtifact: reloginArtifact,
+    });
+    const readyAccount = buildBrowserAccountFixture({
+      session: {
+        hasSession: true,
+        status: 'active',
+        validatedAt: '2026-04-19T05:20:00.000Z',
+        storageStatePath: 'artifacts/browser-sessions/acct-browser.json',
+        id: 'x:acct-browser',
+      },
+      latestBrowserLaneArtifact: reloginArtifact,
+      publishReadiness: {
+        platform: 'x',
+        ready: true,
+        mode: 'browser',
+        status: 'ready',
+        message: 'X 浏览器发布链路已具备可用 session。',
+      },
+      updatedAt: '2026-04-19T05:20:00.000Z',
+    });
 
     const root = createRoot(container as never);
     await act(async () => {
@@ -6120,41 +6275,7 @@ describe('channel account edit actions', () => {
           stateOverride: {
             status: 'success',
             data: {
-              channelAccounts: [
-                {
-                  id: 7,
-                  platform: 'x',
-                  accountKey: 'acct-browser',
-                  displayName: 'Browser X',
-                  authType: 'browser',
-                  status: 'healthy',
-                  metadata: {},
-                  session: {
-                    hasSession: true,
-                    status: 'expired',
-                    validatedAt: '2026-04-19T02:00:00.000Z',
-                    storageStatePath: 'artifacts/browser-sessions/acct-browser.json',
-                    id: 'x:acct-browser',
-                  },
-                  latestBrowserLaneArtifact: {
-                    action: 'relogin',
-                    jobStatus: 'pending',
-                    requestedAt: '2026-04-19T05:00:00.000Z',
-                    artifactPath: 'artifacts/browser-lane-requests/x/acct-browser/relogin-job-27.json',
-                    resolvedAt: null,
-                  },
-                  publishReadiness: {
-                    platform: 'x',
-                    ready: false,
-                    mode: 'browser',
-                    status: 'needs_relogin',
-                    message: '已有 X 浏览器 session，但需要重新登录刷新。',
-                    action: 'relogin',
-                  },
-                  createdAt: '2026-04-19T00:00:00.000Z',
-                  updatedAt: '2026-04-19T00:00:00.000Z',
-                },
-              ],
+              channelAccounts: [staleAccount],
             },
           },
         }),
@@ -6180,40 +6301,7 @@ describe('channel account edit actions', () => {
           stateOverride: {
             status: 'success',
             data: {
-              channelAccounts: [
-                {
-                  id: 7,
-                  platform: 'x',
-                  accountKey: 'acct-browser',
-                  displayName: 'Browser X',
-                  authType: 'browser',
-                  status: 'healthy',
-                  metadata: {},
-                  session: {
-                    hasSession: true,
-                    status: 'active',
-                    validatedAt: '2026-04-19T05:20:00.000Z',
-                    storageStatePath: 'artifacts/browser-sessions/acct-browser.json',
-                    id: 'x:acct-browser',
-                  },
-                  latestBrowserLaneArtifact: {
-                    action: 'relogin',
-                    jobStatus: 'pending',
-                    requestedAt: '2026-04-19T05:00:00.000Z',
-                    artifactPath: 'artifacts/browser-lane-requests/x/acct-browser/relogin-job-27.json',
-                    resolvedAt: null,
-                  },
-                  publishReadiness: {
-                    platform: 'x',
-                    ready: true,
-                    mode: 'browser',
-                    status: 'ready',
-                    message: 'X 浏览器发布链路已具备可用 session。',
-                  },
-                  createdAt: '2026-04-19T00:00:00.000Z',
-                  updatedAt: '2026-04-19T05:20:00.000Z',
-                },
-              ],
+              channelAccounts: [readyAccount],
             },
           },
         }),
@@ -6312,54 +6400,14 @@ describe('channel account edit actions', () => {
           },
         ],
       });
-    const requestChannelAccountSessionAction = vi.fn().mockResolvedValue({
-      ok: true,
-      sessionAction: {
-        action: 'relogin',
-        accountId: 7,
-        status: 'pending',
-        requestedAt: '2026-04-19T05:00:00.000Z',
-        message:
-          'Browser relogin request queued. Refresh login manually and attach updated session metadata after the browser lane picks up the job.',
-        nextStep: '/api/channel-accounts/7/session',
-        jobId: 27,
-        jobStatus: 'pending',
-        artifactPath: 'artifacts/browser-lane-requests/x/acct-browser/relogin-job-27.json',
-      },
-      channelAccount: {
-        id: 7,
-        platform: 'x',
-        accountKey: 'acct-browser',
-        displayName: 'Browser X',
-        authType: 'browser',
-        status: 'healthy',
-        metadata: {},
-        session: {
-          hasSession: true,
-          status: 'expired',
-          validatedAt: '2026-04-19T02:00:00.000Z',
-          storageStatePath: 'artifacts/browser-sessions/acct-browser.json',
-          id: 'x:acct-browser',
-        },
-        latestBrowserLaneArtifact: {
-          action: 'relogin',
-          jobStatus: 'pending',
-          requestedAt: '2026-04-19T05:00:00.000Z',
-          artifactPath: 'artifacts/browser-lane-requests/x/acct-browser/relogin-job-27.json',
-          resolvedAt: null,
-        },
-        publishReadiness: {
-          platform: 'x',
-          ready: false,
-          mode: 'browser',
-          status: 'needs_relogin',
-          message: '已有 X 浏览器 session，但需要重新登录刷新。',
-          action: 'relogin',
-        },
-        createdAt: '2026-04-19T00:00:00.000Z',
-        updatedAt: '2026-04-19T05:00:00.000Z',
-      },
-    });
+    const requestChannelAccountSessionAction = vi.fn().mockResolvedValue(
+      buildSessionActionResult({
+        channelAccount: buildBrowserAccountFixture({
+          latestBrowserLaneArtifact: buildBrowserLaneArtifactFixture(),
+          updatedAt: '2026-04-19T05:00:00.000Z',
+        }),
+      }),
+    );
     const testChannelAccountAction = vi.fn().mockResolvedValue({
       ok: true,
       test: {
@@ -6801,6 +6849,39 @@ describe('channel account edit actions', () => {
     const { container } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
     const { ChannelAccountsPage } = await import('../../src/client/pages/ChannelAccounts');
+    const requestSessionArtifact = buildBrowserLaneArtifactFixture({
+      platform: 'instagram',
+      accountKey: 'acct-instagram',
+      action: 'request_session',
+      requestedAt: '2026-04-19T03:10:00.000Z',
+      jobId: 19,
+    });
+    const reloginArtifact = buildBrowserLaneArtifactFixture({
+      platform: 'instagram',
+      accountKey: 'acct-instagram',
+    });
+    const channelAccount = buildBrowserAccountFixture({
+      platform: 'instagram',
+      accountKey: 'acct-instagram',
+      displayName: 'Instagram Ops',
+      session: {
+        hasSession: false,
+        status: 'missing',
+        validatedAt: null,
+        storageStatePath: null,
+        id: 'instagram:acct-instagram',
+      },
+      latestBrowserLaneArtifact: reloginArtifact,
+      publishReadiness: {
+        platform: 'instagram',
+        ready: false,
+        mode: 'browser',
+        status: 'needs_session',
+        message: 'Instagram 浏览器登录态缺失，请先完成登录。',
+        action: 'request_session',
+      },
+      updatedAt: '2026-04-19T05:00:00.000Z',
+    });
 
     const root = createRoot(container as never);
     await act(async () => {
@@ -6809,96 +6890,23 @@ describe('channel account edit actions', () => {
           stateOverride: {
             status: 'success',
             data: {
-              channelAccounts: [
-                {
-                  id: 7,
-                  platform: 'instagram',
-                  accountKey: 'acct-instagram',
-                  displayName: 'Instagram Ops',
-                  authType: 'browser',
-                  status: 'healthy',
-                  metadata: {},
-                  session: {
-                    hasSession: false,
-                    status: 'missing',
-                    validatedAt: null,
-                    storageStatePath: null,
-                    id: 'instagram:acct-instagram',
-                  },
-                  latestBrowserLaneArtifact: {
-                    action: 'relogin',
-                    jobStatus: 'pending',
-                    requestedAt: '2026-04-19T05:00:00.000Z',
-                    artifactPath: 'artifacts/browser-lane-requests/instagram/acct-instagram/relogin-job-27.json',
-                    resolvedAt: null,
-                  },
-                  publishReadiness: {
-                    platform: 'instagram',
-                    ready: false,
-                    mode: 'browser',
-                    status: 'needs_session',
-                    message: 'Instagram 浏览器登录态缺失，请先完成登录。',
-                    action: 'request_session',
-                  },
-                  createdAt: '2026-04-19T00:00:00.000Z',
-                  updatedAt: '2026-04-19T05:00:00.000Z',
-                },
-              ],
+              channelAccounts: [channelAccount],
             },
           },
           sessionActionStateOverride: {
             status: 'success',
-            data: {
-              ok: true,
-              sessionAction: {
-                action: 'request_session',
-                accountId: 7,
-                status: 'pending',
-                requestedAt: '2026-04-19T03:10:00.000Z',
-                message:
-                  'An unresolved browser session request already exists. Reuse the current browser lane work order and attach session metadata after login is complete.',
-                nextStep: '/api/channel-accounts/7/session',
-                jobId: 19,
-                jobStatus: 'pending',
-                artifactPath:
-                  'artifacts/browser-lane-requests/instagram/acct-instagram/request-session-job-19.json',
-                reused: true,
-              },
-              channelAccount: {
-                id: 7,
-                platform: 'instagram',
-                accountKey: 'acct-instagram',
-                displayName: 'Instagram Ops',
-                authType: 'browser',
-                status: 'healthy',
-                metadata: {},
-                session: {
-                  hasSession: false,
-                  status: 'missing',
-                  validatedAt: null,
-                  storageStatePath: null,
-                  id: 'instagram:acct-instagram',
-                },
-                latestBrowserLaneArtifact: {
-                  action: 'relogin',
-                  jobStatus: 'pending',
-                  requestedAt: '2026-04-19T05:00:00.000Z',
-                  artifactPath:
-                    'artifacts/browser-lane-requests/instagram/acct-instagram/relogin-job-27.json',
-                  resolvedAt: null,
-                },
-                publishReadiness: {
-                  platform: 'instagram',
-                  ready: false,
-                  mode: 'browser',
-                  status: 'needs_session',
-                  message: 'Instagram 浏览器登录态缺失，请先完成登录。',
-                  action: 'request_session',
-                },
-                createdAt: '2026-04-19T00:00:00.000Z',
-                updatedAt: '2026-04-19T05:00:00.000Z',
-              },
-            },
+            data: buildSessionActionResult({
+              action: 'request_session',
+              platform: 'instagram',
+              accountKey: 'acct-instagram',
+              requestedAt: '2026-04-19T03:10:00.000Z',
+              message:
+                'An unresolved browser session request already exists. Reuse the current browser lane work order and attach session metadata after login is complete.',
+              jobId: 19,
+              reused: true,
+              artifactPath: requestSessionArtifact.artifactPath,
+              channelAccount,
+            }),
           },
         }),
       );
