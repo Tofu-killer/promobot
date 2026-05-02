@@ -4168,6 +4168,84 @@ describe('channel accounts api', () => {
     }
   });
 
+  it('keeps unresolved session-request artifacts visible when a managed facebookGroup session is restored from disk', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'facebookGroup',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB Group',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      const requestSessionResponse = await requestApp(
+        'POST',
+        '/api/channel-accounts/1/session/request',
+      );
+      expect(requestSessionResponse.status).toBe(200);
+
+      const requestSessionBody = JSON.parse(requestSessionResponse.body) as {
+        job: {
+          runAt: string;
+        };
+        sessionAction: {
+          artifactPath: string;
+        };
+      };
+
+      writeStorageStateFile(
+        rootDir,
+        'browser-sessions/managed/facebookGroup/launch-campaign.json',
+      );
+
+      const listed = await requestApp('GET', '/api/channel-accounts');
+      expect(listed.status).toBe(200);
+      expect(JSON.parse(listed.body)).toEqual({
+        channelAccounts: [
+          expect.objectContaining({
+            session: {
+              hasSession: true,
+              id: 'facebookGroup:launch-campaign',
+              status: 'active',
+              validatedAt: expect.any(String),
+              storageStatePath: 'browser-sessions/managed/facebookGroup/launch-campaign.json',
+            },
+            activeSessionActionArtifacts: {
+              request_session: expect.objectContaining({
+                channelAccountId: 1,
+                platform: 'facebookGroup',
+                accountKey: 'launch-campaign',
+                action: 'request_session',
+                jobStatus: 'pending',
+                requestedAt: requestSessionBody.job.runAt,
+                artifactPath: requestSessionBody.sessionAction.artifactPath,
+                resolvedAt: null,
+              }),
+            },
+            latestBrowserLaneArtifact: expect.objectContaining({
+              channelAccountId: 1,
+              platform: 'facebookGroup',
+              accountKey: 'launch-campaign',
+              action: 'request_session',
+              jobStatus: 'pending',
+              requestedAt: requestSessionBody.job.runAt,
+              artifactPath: requestSessionBody.sessionAction.artifactPath,
+              resolvedAt: null,
+            }),
+            publishReadiness: expect.objectContaining({
+              platform: 'facebookGroup',
+              ready: true,
+              status: 'ready',
+            }),
+          }),
+        ],
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('re-restores a managed facebookGroup session in channel account listings after a missing downgrade', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
