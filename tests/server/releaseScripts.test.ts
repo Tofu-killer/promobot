@@ -1411,6 +1411,7 @@ describe('release shell wrappers', () => {
         'dist/server/cli/browserHandoffComplete.js',
         'dist/server/cli/inboxReplyHandoffComplete.js',
         'ops/deploy-release.sh',
+        'ops/preflight-promobot.sh',
         'ops/rollback-promobot.sh',
         'ops/verify-downloaded-release.sh',
         'ops/verify-release.sh',
@@ -1458,6 +1459,7 @@ describe('release shell wrappers', () => {
         'dist/server/cli/browserHandoffComplete.js',
         'dist/server/cli/inboxReplyHandoffComplete.js',
         'ops/deploy-release.sh',
+        'ops/preflight-promobot.sh',
         'ops/rollback-promobot.sh',
         'ops/verify-downloaded-release.sh',
         'ops/verify-release.sh',
@@ -1538,9 +1540,26 @@ exit 99
     expect(result.stderr).toContain('Extracted bundle is missing dist/server/cli/releaseVerify.js');
   });
 
+  it('reports checksum mismatch warnings from the bundled release verifier when extracted bundle files are tampered', async () => {
+    const fixture = await createDownloadedReleaseFixture({
+      mutateBundleSourceDir: (bundleSourceDir) => {
+        fs.writeFileSync(path.join(bundleSourceDir, 'dist/server/index.js'), 'console.log("tampered");\n', 'utf8');
+      },
+    });
+
+    const result = runScript(fixture.scriptPath, ['--archive-file', fixture.archivePath], {
+      cwd: fixture.rootDir,
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain('"code": "checksum-mismatch"');
+    expect(result.stdout).toContain('"name": "dist/server/index.js"');
+  });
+
   it.each([
     'dist/server/cli/preflightPromobot.js',
     'dist/server/cli/runtimeRestore.js',
+    'ops/preflight-promobot.sh',
     'ops/rollback-promobot.sh',
   ])(
     'reports missing extracted bundle helper %s via the bundled release verifier',
