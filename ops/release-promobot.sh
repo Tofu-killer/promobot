@@ -16,7 +16,9 @@ usage() {
   cat <<'EOF'
 Usage: ops/release-promobot.sh [options]
 
-Runs the release packaging flow from the repository root.
+Runs pnpm build by default, then packages a local release bundle from the repository root.
+Also writes a tar.gz archive, .sha256 checksum sidecar, .metadata.json sidecar, and verify-downloaded-release.sh helper next to the bundle output.
+Self-verifies the generated archive with the staged helper before exiting.
 
 Options:
   --output-dir <path>          Release output directory (default: release)
