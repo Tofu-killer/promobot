@@ -5938,6 +5938,97 @@ describe('channel account edit actions', () => {
     });
   });
 
+  it('restores the current action receipt from the unresolved same-action artifact even when a newer same-action work order has resolved', async () => {
+    const { container } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ChannelAccountsPage } = await import('../../src/client/pages/ChannelAccounts');
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ChannelAccountsPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              channelAccounts: [
+                {
+                  id: 7,
+                  platform: 'x',
+                  accountKey: 'acct-browser',
+                  displayName: 'Browser X',
+                  authType: 'browser',
+                  status: 'healthy',
+                  metadata: {},
+                  session: {
+                    hasSession: true,
+                    status: 'expired',
+                    validatedAt: '2026-04-19T02:00:00.000Z',
+                    storageStatePath: 'artifacts/browser-sessions/acct-browser.json',
+                    id: 'x:acct-browser',
+                  },
+                  latestBrowserLaneArtifact: {
+                    action: 'relogin',
+                    jobStatus: 'completed',
+                    requestedAt: '2026-04-19T05:00:00.000Z',
+                    artifactPath: 'artifacts/browser-lane-requests/x/acct-browser/relogin-job-27.json',
+                    resolvedAt: '2026-04-19T06:00:00.000Z',
+                  },
+                  activeSessionActionArtifacts: {
+                    relogin: {
+                      action: 'relogin',
+                      jobStatus: 'pending',
+                      requestedAt: '2026-04-19T03:10:00.000Z',
+                      artifactPath:
+                        'artifacts/browser-lane-requests/x/acct-browser/relogin-job-19.json',
+                      resolvedAt: null,
+                    },
+                  },
+                  publishReadiness: {
+                    platform: 'x',
+                    ready: false,
+                    mode: 'browser',
+                    status: 'needs_relogin',
+                    message: '已有 X 浏览器 session，但需要重新登录刷新。',
+                    action: 'relogin',
+                  },
+                  createdAt: '2026-04-19T00:00:00.000Z',
+                  updatedAt: '2026-04-19T06:00:00.000Z',
+                },
+              ],
+            },
+          },
+        }),
+      );
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('重新登录工单已记录');
+    expect(collectText(container)).toContain(
+      'Browser relogin request queued. Refresh login manually and attach updated session metadata after the browser lane picks up the job.',
+    );
+    expect(collectText(container)).toContain('请求时间：2026-04-19T03:10:00.000Z');
+    expect(collectText(container)).toContain('工单状态：pending');
+    expect(collectText(container)).toContain('下一步：/api/channel-accounts/7/session');
+    expect(collectText(container)).toContain(
+      'Artifact Path：artifacts/browser-lane-requests/x/acct-browser/relogin-job-19.json',
+    );
+    expect(collectText(container)).toContain('最近创建工单：重新登录');
+    expect(collectText(container)).toContain('最近工单状态：completed');
+    expect(collectText(container)).toContain('最近工单时间：2026-04-19T05:00:00.000Z');
+    expect(collectText(container)).toContain('最近工单结单：2026-04-19T06:00:00.000Z');
+    expect(collectText(container)).toContain(
+      '最近工单路径：artifacts/browser-lane-requests/x/acct-browser/relogin-job-27.json',
+    );
+    expect(collectText(container)).not.toContain(
+      'Artifact Path：artifacts/browser-lane-requests/x/acct-browser/relogin-job-27.json',
+    );
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('drops persisted session-action receipts after reload when readiness no longer requests a login action', async () => {
     const { container } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
