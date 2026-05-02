@@ -1114,10 +1114,14 @@ exit 99
     expect(result.stderr).toContain('Archive entry escaped metadata bundle_dir_name');
   });
 
-  it('fails verify-downloaded-release when the extracted bundle is missing releaseVerify.js', async () => {
+  it.each([
+    'dist/server/cli/releaseVerify.js',
+    'dist/server/cli/preflightPromobot.js',
+    'dist/server/cli/runtimeRestore.js',
+  ])('fails verify-downloaded-release when the extracted bundle is missing %s', async (missingFile) => {
     const fixture = await createDownloadedReleaseFixture({
       mutateBundleSourceDir: (bundleSourceDir) => {
-        fs.rmSync(path.join(bundleSourceDir, 'dist/server/cli/releaseVerify.js'));
+        fs.rmSync(path.join(bundleSourceDir, missingFile));
       },
     });
 
@@ -1126,7 +1130,7 @@ exit 99
     });
 
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain('Extracted bundle is missing dist/server/cli/releaseVerify.js');
+    expect(result.stderr).toContain(`Extracted bundle is missing ${missingFile}`);
   });
 });
 

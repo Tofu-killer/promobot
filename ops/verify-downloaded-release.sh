@@ -12,6 +12,13 @@ fail() {
   exit 1
 }
 
+require_extracted_bundle_file() {
+  local bundle_dir="$1"
+  local relative_path="$2"
+
+  [ -f "${bundle_dir}/${relative_path}" ] || fail "Extracted bundle is missing ${relative_path}"
+}
+
 usage() {
   cat <<'EOF'
 Usage: ops/verify-downloaded-release.sh --archive-file <path> [options]
@@ -346,7 +353,9 @@ main() {
 
   extracted_bundle_dir="${EXTRACTED_ROOT}/${bundle_dir_name}"
   [ -d "$extracted_bundle_dir" ] || fail "Expected extracted bundle directory not found: ${extracted_bundle_dir}"
-  [ -f "${extracted_bundle_dir}/dist/server/cli/releaseVerify.js" ] || fail "Extracted bundle is missing dist/server/cli/releaseVerify.js"
+  require_extracted_bundle_file "$extracted_bundle_dir" 'dist/server/cli/releaseVerify.js'
+  require_extracted_bundle_file "$extracted_bundle_dir" 'dist/server/cli/preflightPromobot.js'
+  require_extracted_bundle_file "$extracted_bundle_dir" 'dist/server/cli/runtimeRestore.js'
 
   log "Running extracted bundle release verifier"
   node "${extracted_bundle_dir}/dist/server/cli/releaseVerify.js" --input-dir "$extracted_bundle_dir"
