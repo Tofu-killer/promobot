@@ -4,7 +4,12 @@ import { generateFacebookGroupDraft } from '../services/generators/facebookGroup
 import { generateInstagramDraft } from '../services/generators/instagram.js';
 import { generateRedditDraft } from '../services/generators/reddit.js';
 import { generateTiktokDraft } from '../services/generators/tiktok.js';
-import type { GenerateDraftInput, GeneratedDraft, SiteContext } from '../services/generators/types.js';
+import type {
+  DraftTone,
+  GenerateDraftInput,
+  GeneratedDraft,
+  SiteContext,
+} from '../services/generators/types.js';
 import { generateWeiboDraft } from '../services/generators/weibo.js';
 import { generateXDraft } from '../services/generators/x.js';
 import { generateXiaohongshuDraft } from '../services/generators/xiaohongshu.js';
@@ -44,14 +49,58 @@ function parseOptionalProjectId(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined;
 }
 
-function parseSiteContext(value: unknown): SiteContext | undefined {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return undefined;
+function hasOwnProperty(target: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(target, key);
+}
+
+function hasInvalidOptionalStringField(
+  target: Record<string, unknown>,
+  key: string,
+): boolean {
+  return hasOwnProperty(target, key) && typeof target[key] !== 'string';
+}
+
+function hasInvalidOptionalStringArrayField(
+  target: Record<string, unknown>,
+  key: string,
+): boolean {
+  if (!hasOwnProperty(target, key)) {
+    return false;
+  }
+
+  const value = target[key];
+  return !Array.isArray(value) || value.some((entry: unknown) => typeof entry !== 'string');
+}
+
+function isValidDraftTone(value: unknown): value is DraftTone {
+  return value === 'professional' || value === 'casual' || value === 'exciting';
+}
+
+function parseSiteContext(
+  value: unknown,
+): { ok: true; value: SiteContext | undefined } | { ok: false } {
+  if (value === undefined) {
+    return { ok: true, value: undefined };
+  }
+
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return { ok: false };
   }
 
   const raw = value as Record<string, unknown>;
 
-  return {
+  if (
+    hasInvalidOptionalStringField(raw, 'siteName') ||
+    hasInvalidOptionalStringField(raw, 'siteUrl') ||
+    hasInvalidOptionalStringField(raw, 'siteDescription') ||
+    hasInvalidOptionalStringField(raw, 'brandVoice') ||
+    hasInvalidOptionalStringArrayField(raw, 'sellingPoints') ||
+    hasInvalidOptionalStringArrayField(raw, 'ctas')
+  ) {
+    return { ok: false };
+  }
+
+  return { ok: true, value: {
     ...(typeof raw.siteName === 'string' ? { siteName: raw.siteName } : {}),
     ...(typeof raw.siteUrl === 'string' ? { siteUrl: raw.siteUrl } : {}),
     ...(typeof raw.siteDescription === 'string'
@@ -70,7 +119,7 @@ function parseSiteContext(value: unknown): SiteContext | undefined {
           ctas: raw.ctas.filter((value): value is string => typeof value === 'string'),
         }
       : {}),
-  };
+  } };
 }
 
 function getProjectSiteContext(project: ProjectRecord | undefined): SiteContext | undefined {
@@ -113,17 +162,32 @@ export function createContentRouter(
   const contentRouter = Router();
 
   contentRouter.post('/generate', async (request, response) => {
+    const body =
+      request.body !== null && typeof request.body === 'object'
+        ? (request.body as Record<string, unknown>)
+        : {};
+
     if (
-      Array.isArray(request.body?.platforms) &&
-      request.body.platforms.some((platform: unknown) => typeof platform !== 'string')
+      (hasOwnProperty(body, 'topic') && typeof body.topic !== 'string') ||
+      (hasOwnProperty(body, 'platforms') &&
+        (!Array.isArray(body.platforms) ||
+          body.platforms.some((platform: unknown) => typeof platform !== 'string'))) ||
+      (hasOwnProperty(body, 'tone') && !isValidDraftTone(body.tone)) ||
+      (hasOwnProperty(body, 'saveAsDraft') && body.saveAsDraft !== true && body.saveAsDraft !== false)
     ) {
       response.status(400).json({ error: 'invalid content payload' });
       return;
     }
 
-    const topic = typeof request.body?.topic === 'string' ? request.body.topic.trim() : '';
-    const platforms = Array.isArray(request.body?.platforms)
-      ? request.body.platforms.filter((platform: unknown): platform is string => typeof platform === 'string')
+    const parsedSiteContext = parseSiteContext(body.siteContext);
+    if (!parsedSiteContext.ok) {
+      response.status(400).json({ error: 'invalid content payload' });
+      return;
+    }
+
+    const topic = typeof body.topic === 'string' ? body.topic.trim() : '';
+    const platforms = Array.isArray(body.platforms)
+      ? body.platforms.filter((platform: unknown): platform is string => typeof platform === 'string')
       : [];
 
     if (!topic || platforms.length === 0) {
@@ -142,9 +206,13 @@ export function createContentRouter(
       return;
     }
 
-    const parsedProjectId = parseOptionalProjectId(request.body?.projectId);
+    const supportedPlatforms = platforms.filter((platform): platform is SupportedPlatform =>
+      isSupportedPlatform(platform),
+    );
 
-    if (request.body?.projectId !== undefined && parsedProjectId === undefined) {
+    const parsedProjectId = parseOptionalProjectId(body.projectId);
+
+    if (body.projectId !== undefined && parsedProjectId === undefined) {
       response.status(400).json({ error: 'invalid project id' });
       return;
     }
@@ -157,18 +225,17 @@ export function createContentRouter(
       return;
     }
 
-    const requestSiteContext = parseSiteContext(request.body?.siteContext);
     const projectSiteContext = getProjectSiteContext(scopedProject);
     const input: GenerateDraftInput = {
       topic,
-      tone: request.body?.tone,
-      siteContext: mergeSiteContext(projectSiteContext, requestSiteContext),
+      tone: body.tone as DraftTone | undefined,
+      siteContext: mergeSiteContext(projectSiteContext, parsedSiteContext.value),
     };
-    const shouldSaveAsDraft = request.body?.saveAsDraft === true;
+    const shouldSaveAsDraft = body.saveAsDraft === true;
     const projectId = shouldSaveAsDraft ? parsedProjectId : undefined;
 
     const results = await Promise.all(
-      platforms.map(async (platform: SupportedPlatform) => {
+      supportedPlatforms.map(async (platform) => {
         const generatedDraft = await platformGenerators[platform](input);
 
         if (!shouldSaveAsDraft) {

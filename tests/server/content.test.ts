@@ -340,6 +340,54 @@ describe('content generation api', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('rejects generation when request metadata fields contain invalid types', async () => {
+    const invalidBodies = [
+      {
+        topic: 'Invalid tone payload',
+        platforms: ['x'],
+        tone: 'urgent',
+      },
+      {
+        topic: 'Invalid saveAsDraft payload',
+        platforms: ['x'],
+        saveAsDraft: 'yes',
+      },
+      {
+        topic: 'Invalid site context payload',
+        platforms: ['x'],
+        siteContext: 'not-an-object',
+      },
+      {
+        topic: 'Invalid site context siteName payload',
+        platforms: ['x'],
+        siteContext: { siteName: 42 },
+      },
+      {
+        topic: 'Invalid site context selling points payload',
+        platforms: ['x'],
+        siteContext: { sellingPoints: ['Fast routing', 42] },
+      },
+      {
+        topic: 'Invalid site context ctas payload',
+        platforms: ['x'],
+        siteContext: { ctas: ['Start free', 42] },
+      },
+    ];
+
+    for (const body of invalidBodies) {
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+
+      const response = await requestApp('POST', '/api/content/generate', body);
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'invalid content payload',
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    }
+  });
+
   it('hydrates site context from the saved project when projectId is provided', async () => {
     const projectCreateResponse = await requestApp('POST', '/api/projects', {
       name: 'Context Project',
