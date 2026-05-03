@@ -415,6 +415,102 @@ describe('settings api', () => {
     }
   });
 
+  it('rejects allowlist fields with invalid types without mutating settings or reloading runtime', async () => {
+    const { rootDir } = createTestDatabasePath();
+    const calls: string[] = [];
+    const allowlistUpdates: string[][] = [];
+    const schedulerRuntime = {
+      getStatus() {
+        calls.push('getStatus');
+        return {
+          available: true,
+          started: true,
+          schedulerIntervalMinutes: 15,
+          pollMs: 900000,
+          bootedAt: '2026-04-19T12:00:00.000Z',
+          lastTickAt: null,
+          lastTickResults: [],
+          lastError: null,
+          recoveredRunningJobs: 0,
+          handlers: [],
+          queue: {
+            pending: 0,
+            running: 0,
+            done: 0,
+            failed: 0,
+            duePending: 0,
+          },
+          recentJobs: [],
+        };
+      },
+      reload() {
+        calls.push('reload');
+        return {
+          available: true,
+          started: true,
+          schedulerIntervalMinutes: 15,
+          pollMs: 900000,
+          bootedAt: '2026-04-19T12:00:00.000Z',
+          lastTickAt: null,
+          lastTickResults: [],
+          lastError: null,
+          recoveredRunningJobs: 0,
+          handlers: [],
+          queue: {
+            pending: 0,
+            running: 0,
+            done: 0,
+            failed: 0,
+            duePending: 0,
+          },
+          recentJobs: [],
+        };
+      },
+    };
+
+    try {
+      const app = createApp({
+        allowedIps: ['127.0.0.1'],
+        adminPassword: 'secret',
+        schedulerRuntime,
+        onAllowlistUpdated(allowlist) {
+          allowlistUpdates.push(allowlist);
+        },
+      });
+
+      const baseline = await requestApp('PATCH', '/api/settings', {
+        allowlist: ['127.0.0.1'],
+      });
+
+      expect(baseline.status).toBe(200);
+      calls.length = 0;
+      allowlistUpdates.length = 0;
+
+      const response = await requestApp('PATCH', '/api/settings', {
+        allowlist: '10.0.0.0/24',
+      });
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'invalid settings payload',
+      });
+      expect(allowlistUpdates).toEqual([]);
+      expect(calls).toEqual([]);
+
+      const loaded = await requestApp('GET', '/api/settings');
+
+      expect(loaded.status).toBe(200);
+      expect(JSON.parse(loaded.body)).toEqual({
+        settings: expect.objectContaining({
+          allowlist: ['127.0.0.1'],
+        }),
+        platforms: expect.any(Array),
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('rejects non-object patch bodies without mutating settings or reloading runtime', async () => {
     const { rootDir } = createTestDatabasePath();
     const calls: string[] = [];

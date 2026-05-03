@@ -31,6 +31,10 @@ export function createSettingsRouter(dependencies: SettingsRouteDependencies = {
     }
 
     const input = request.body ?? {};
+    if (hasInvalidOptionalStringArray(input, 'allowlist')) {
+      response.status(400).json({ error: 'invalid settings payload' });
+      return;
+    }
     const schedulerIntervalMinutes = parseSchedulerIntervalMinutes(input.schedulerIntervalMinutes);
     if (input.schedulerIntervalMinutes !== undefined && schedulerIntervalMinutes === undefined) {
       response.status(400).json({ error: 'invalid scheduler interval' });
@@ -85,6 +89,13 @@ export function createSettingsRouter(dependencies: SettingsRouteDependencies = {
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function hasInvalidOptionalStringArray(value: Record<string, unknown>, key: string) {
+  return (
+    Object.hasOwn(value, key) &&
+    (!Array.isArray(value[key]) || value[key].some((entry: unknown) => typeof entry !== 'string'))
+  );
 }
 
 function parseSchedulerIntervalMinutes(value: unknown) {
