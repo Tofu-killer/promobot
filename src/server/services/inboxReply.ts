@@ -1012,9 +1012,6 @@ function buildManualReplyAssistant(input: {
   }
 
   const sourceUrl = resolveSourceUrl(input.item);
-  if (!sourceUrl) {
-    return null;
-  }
 
   return {
     platform: input.platform,
@@ -1030,7 +1027,11 @@ function buildManualReplyAssistantMessage(assistant: ManualReplyAssistantDetails
     return null;
   }
 
-  return `${assistant.label} reply is ready for assisted manual delivery. Copy the reply and open the topic.`;
+  if (assistant.openUrl || assistant.sourceUrl) {
+    return `${assistant.label} reply is ready for assisted manual delivery. Copy the reply and open the topic.`;
+  }
+
+  return `${assistant.label} reply is ready for assisted manual delivery. Copy the reply and deliver it manually.`;
 }
 
 function buildBrowserReplyHandoff(input: {

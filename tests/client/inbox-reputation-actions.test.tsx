@@ -5385,11 +5385,22 @@ describe('Inbox action wiring', () => {
     expect(collectText(container)).toContain('微博 reply is ready for assisted manual delivery. Copy the reply and open the topic.');
     expect(collectText(container)).toContain('手工回复辅助：微博');
     expect(collectText(container)).toContain('复制回复');
-    expect(collectText(container)).toContain('打开原帖');
+    expect(
+      findAllElements(
+        container,
+        (element) =>
+          element.tagName === 'BUTTON' &&
+          collectText(element) === '打开原帖' &&
+          !hasAncestorTag(element, 'ARTICLE'),
+      ),
+    ).toHaveLength(1);
 
     const openPostButton = findElement(
       container,
-      (element) => element.tagName === 'BUTTON' && collectText(element).includes('打开原帖'),
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        collectText(element) === '打开原帖' &&
+        !hasAncestorTag(element, 'ARTICLE'),
     );
     expect(openPostButton).not.toBeNull();
 
@@ -5404,6 +5415,109 @@ describe('Inbox action wiring', () => {
       root.unmount();
       await flush();
     });
+  });
+
+  it('shows copy-only manual reply assistant actions when the send-reply feedback has no source URL', async () => {
+    const { container, window } = installMinimalDom();
+    const openWindow = vi.fn();
+    window.open = openWindow as never;
+    const { createRoot } = await import('react-dom/client');
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    const sendReplyAction = vi.fn().mockResolvedValue({
+      item: {
+        id: 9,
+        source: 'weibo',
+        status: 'needs_reply',
+        author: 'ops-user',
+        title: 'Need lower latency in APAC',
+        excerpt: 'Can you share current response times?',
+        createdAt: '2026-04-19T10:02:00.000Z',
+      },
+      delivery: {
+        success: false,
+        status: 'manual_required',
+        mode: 'manual',
+        message: '微博 reply is ready for assisted manual delivery. Copy the reply and deliver it manually.',
+        reply: 'Manual weibo follow-up.',
+        details: {
+          manualReplyAssistant: {
+            platform: 'weibo',
+            label: '微博',
+            copyText: 'Manual weibo follow-up.',
+            title: 'Need lower latency in APAC',
+          },
+        },
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(InboxPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              items: [
+                {
+                  id: 9,
+                  source: 'weibo',
+                  status: 'needs_reply',
+                  author: 'ops-user',
+                  title: 'Need lower latency in APAC',
+                  excerpt: 'Can you share current response times?',
+                  createdAt: '2026-04-19T10:02:00.000Z',
+                },
+              ],
+              total: 1,
+              unread: 1,
+            },
+          } satisfies ApiState<unknown>,
+          sendReplyAction,
+        }),
+      );
+      await flush();
+    });
+
+    const replyDraftField = findElement(container, (element) => element.tagName === 'TEXTAREA');
+    expect(replyDraftField).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(replyDraftField, 'Manual weibo follow-up.', window);
+      await flush();
+    });
+
+    const sendReplyButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('发送回复'),
+    );
+    expect(sendReplyButton).not.toBeNull();
+
+    await act(async () => {
+      sendReplyButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(sendReplyAction).toHaveBeenCalledWith(9, 'Manual weibo follow-up.');
+    expect(collectText(container)).toContain('微博 reply is ready for assisted manual delivery. Copy the reply and deliver it manually.');
+    expect(collectText(container)).toContain('手工回复辅助：微博');
+    expect(collectText(container)).toContain('复制回复');
+    expect(
+      findAllElements(
+        container,
+        (element) =>
+          element.tagName === 'BUTTON' &&
+          collectText(element) === '打开原帖' &&
+          !hasAncestorTag(element, 'ARTICLE'),
+      ),
+    ).toHaveLength(0);
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+
+    expect(openWindow).not.toHaveBeenCalled();
   });
 
   it('drops unsafe manual reply assistant open URLs from send-reply feedback', async () => {

@@ -1588,7 +1588,7 @@ describe('inbox api', () => {
     }
   });
 
-  it('returns manual_required without assistant details when unsupported platforms have no source URL', async () => {
+  it('returns copy-only manual reply assistance when unsupported platforms have no source URL', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
       const inboxStore = createInboxStore();
@@ -1603,12 +1603,9 @@ describe('inbox api', () => {
       const response = await requestApp('POST', '/api/inbox/1/send-reply', {
         reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
       });
-      const body = JSON.parse(response.body) as {
-        delivery: { details?: { manualReplyAssistant?: unknown } };
-      };
 
       expect(response.status).toBe(200);
-      expect(body).toEqual({
+      expect(JSON.parse(response.body)).toEqual({
         item: expect.objectContaining({
           id: 1,
           status: 'needs_review',
@@ -1617,13 +1614,20 @@ describe('inbox api', () => {
           success: false,
           status: 'manual_required',
           mode: 'manual',
-          message: 'Reply requires manual delivery.',
+          message: '微博 reply is ready for assisted manual delivery. Copy the reply and deliver it manually.',
           reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
           deliveryUrl: null,
           externalId: null,
+          details: expect.objectContaining({
+            manualReplyAssistant: {
+              platform: 'weibo',
+              label: '微博',
+              copyText: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+              title: 'Need lower latency in APAC',
+            },
+          }),
         }),
       });
-      expect(body.delivery.details?.manualReplyAssistant).toBeUndefined();
     } finally {
       cleanupTestDatabasePath(rootDir);
     }
