@@ -1703,7 +1703,151 @@ describe('system runtime api', () => {
       error: 'invalid job runAt',
     });
 
+    const invalidMonitorProjectIdResponse = await requestApp({
+      remoteAddress: '127.0.0.1',
+      method: 'POST',
+      url: '/api/system/jobs',
+      body: {
+        type: 'monitor_fetch',
+        payload: { projectId: 'bad' },
+      },
+      dependencies: { schedulerRuntime },
+    });
+
+    expect(invalidMonitorProjectIdResponse.status).toBe(400);
+    expect(JSON.parse(invalidMonitorProjectIdResponse.body)).toEqual({
+      error: 'invalid job payload',
+    });
+
+    const invalidInboxProjectIdResponse = await requestApp({
+      remoteAddress: '127.0.0.1',
+      method: 'POST',
+      url: '/api/system/jobs',
+      body: {
+        type: 'inbox_fetch',
+        payload: { projectId: 0 },
+      },
+      dependencies: { schedulerRuntime },
+    });
+
+    expect(invalidInboxProjectIdResponse.status).toBe(400);
+    expect(JSON.parse(invalidInboxProjectIdResponse.body)).toEqual({
+      error: 'invalid job payload',
+    });
+
+    const invalidReputationProjectIdResponse = await requestApp({
+      remoteAddress: '127.0.0.1',
+      method: 'POST',
+      url: '/api/system/jobs',
+      body: {
+        type: 'reputation_fetch',
+        payload: { projectId: 1.5 },
+      },
+      dependencies: { schedulerRuntime },
+    });
+
+    expect(invalidReputationProjectIdResponse.status).toBe(400);
+    expect(JSON.parse(invalidReputationProjectIdResponse.body)).toEqual({
+      error: 'invalid job payload',
+    });
+
     expect(seen).toEqual([]);
+  });
+
+  it('accepts system fetch jobs when projectId is a positive integer', async () => {
+    const seen: Array<{ type: string; payload?: Record<string, unknown>; runAt: string }> = [];
+    const schedulerRuntime = {
+      getStatus() {
+        return {
+          available: true,
+          started: true,
+          schedulerIntervalMinutes: 15,
+          pollMs: 900000,
+          bootedAt: null,
+          lastTickAt: null,
+          lastTickResults: [],
+          lastError: null,
+          recoveredRunningJobs: 0,
+          handlers: [],
+          queue: {
+            pending: 0,
+            running: 0,
+            done: 0,
+            failed: 0,
+            canceled: 0,
+            duePending: 0,
+          },
+          recentJobs: [],
+        };
+      },
+      listJobs() {
+        return {
+          jobs: [],
+          queue: {
+            pending: 0,
+            running: 0,
+            done: 0,
+            failed: 0,
+            canceled: 0,
+            duePending: 0,
+          },
+          recentJobs: [],
+        };
+      },
+      getJob() {
+        return undefined;
+      },
+      reload() {
+        return this.getStatus();
+      },
+      async tickNow() {
+        return [];
+      },
+      enqueueJob(input: { type: string; payload?: Record<string, unknown>; runAt: string }) {
+        seen.push(input);
+        return {
+          id: 5,
+          type: input.type,
+          payload: JSON.stringify(input.payload ?? {}),
+          status: 'pending',
+          runAt: input.runAt,
+          attempts: 0,
+          createdAt: '2026-04-19T12:12:00.000Z',
+          updatedAt: '2026-04-19T12:12:00.000Z',
+        };
+      },
+      stop() {},
+    };
+
+    const response = await requestApp({
+      remoteAddress: '127.0.0.1',
+      method: 'POST',
+      url: '/api/system/jobs',
+      body: {
+        type: 'monitor_fetch',
+        payload: { projectId: 7 },
+      },
+      dependencies: { schedulerRuntime },
+    });
+
+    expect(response.status).toBe(201);
+    expect(seen).toEqual([
+      {
+        type: 'monitor_fetch',
+        payload: { projectId: 7 },
+        runAt: expect.any(String),
+      },
+    ]);
+    expect(JSON.parse(response.body)).toEqual({
+      job: expect.objectContaining({
+        id: 5,
+        type: 'monitor_fetch',
+        status: 'pending',
+      }),
+      runtime: expect.objectContaining({
+        available: true,
+      }),
+    });
   });
 
   it('lists, retries, and cancels jobs through the system api', async () => {

@@ -89,6 +89,11 @@ export function createSystemRouter(dependencies: SystemRouteDependencies = {}) {
       return;
     }
 
+    if (hasInvalidProjectScopedFetchPayload(type, payload)) {
+      response.status(400).json({ error: 'invalid job payload' });
+      return;
+    }
+
     if (
       runAt !== undefined &&
       (typeof runAt !== 'string' || !isValidJobRunAt(runAt))
@@ -513,4 +518,20 @@ function isValidJobRunAt(value: string) {
   }
 
   return true;
+}
+
+function isProjectScopedFetchJobType(value: string) {
+  return value === 'monitor_fetch' || value === 'inbox_fetch' || value === 'reputation_fetch';
+}
+
+function hasInvalidProjectScopedFetchPayload(type: string, payload: unknown) {
+  if (!isProjectScopedFetchJobType(type) || !isPlainObject(payload)) {
+    return false;
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(payload, 'projectId')) {
+    return false;
+  }
+
+  return parseOptionalPositiveInteger(payload.projectId) === undefined;
 }
