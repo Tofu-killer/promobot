@@ -3,6 +3,7 @@ set -euo pipefail
 
 SMOKE_RETRY_ATTEMPTS=10
 SMOKE_RETRY_DELAY_SECONDS=3
+PNPM_CMD=""
 
 log() {
   printf '[deploy-release] %s\n' "$*"
@@ -43,8 +44,49 @@ require_command() {
   fi
 }
 
+resolve_pnpm_command() {
+  if command -v pnpm >/dev/null 2>&1; then
+    printf 'pnpm'
+    return 0
+  fi
+
+  if command -v corepack >/dev/null 2>&1; then
+    printf 'corepack pnpm'
+    return 0
+  fi
+
+  fail "Missing required command: pnpm (or corepack)"
+}
+
+generate_admin_password() {
+  if command -v openssl >/dev/null 2>&1; then
+    openssl rand -hex 24
+    return 0
+  fi
+
+  node -e 'console.log(require("node:crypto").randomBytes(24).toString("hex"))'
+}
+
+initialize_env_file_if_missing() {
+  local env_file="$1"
+  local env_example_file="$2"
+  local generated_password
+
+  [ -f "$env_file" ] && return 0
+  [ -f "$env_example_file" ] || return 0
+
+  log "Initializing bundle-root .env from .env.example"
+  cp "$env_example_file" "$env_file"
+
+  if grep -q '^ADMIN_PASSWORD=change-me$' "$env_file"; then
+    generated_password="$(generate_admin_password)"
+    perl -0pi -e "s/^ADMIN_PASSWORD=change-me\$/ADMIN_PASSWORD=${generated_password}/m" "$env_file"
+    log "Generated ADMIN_PASSWORD in ${env_file}"
+  fi
+}
+
 run_pm2() {
-  if ! pnpm exec pm2 "$@"; then
+  if ! ${PNPM_CMD} exec pm2 "$@"; then
     fail "Local pm2 is unavailable; run pnpm install --frozen-lockfile before starting the release bundle"
   fi
 }
@@ -95,6 +137,7 @@ main() {
   local script_dir
   local bundle_root
   local env_file
+  local env_example_file
   local resolved_port
   local attempt
 
@@ -150,6 +193,7 @@ main() {
   script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
   bundle_root="$(cd -- "${script_dir}/.." >/dev/null 2>&1 && pwd)"
   env_file="${bundle_root}/.env"
+  env_example_file="${bundle_root}/.env.example"
 
   cd "${bundle_root}"
 
@@ -162,17 +206,18 @@ main() {
   [ -f "dist/server/cli/deploymentSmoke.js" ] || fail "dist/server/cli/deploymentSmoke.js not found in ${bundle_root}"
   [ -f "dist/server/cli/releaseVerify.js" ] || fail "dist/server/cli/releaseVerify.js not found in ${bundle_root}"
 
-  require_command pnpm
   require_command node
+  PNPM_CMD="$(resolve_pnpm_command)"
+  initialize_env_file_if_missing "${env_file}" "${env_example_file}"
 
   log "Verifying release bundle integrity"
   node dist/server/cli/releaseVerify.js --input-dir "${bundle_root}"
 
   if [ "${skip_install}" -eq 0 ]; then
     log "Running pnpm install --frozen-lockfile"
-    pnpm install --frozen-lockfile
+    ${PNPM_CMD} install --frozen-lockfile
     log "Rebuilding native dependencies"
-    pnpm rebuild better-sqlite3
+    ${PNPM_CMD} rebuild better-sqlite3
   else
     log "Skipping pnpm install"
   fi

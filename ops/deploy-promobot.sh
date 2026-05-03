@@ -3,6 +3,7 @@ set -euo pipefail
 
 SMOKE_RETRY_ATTEMPTS=10
 SMOKE_RETRY_DELAY_SECONDS=3
+PNPM_CMD=""
 
 log() {
   printf '[deploy-promobot] %s\n' "$*"
@@ -42,8 +43,59 @@ require_command() {
   fi
 }
 
+resolve_pnpm_command() {
+  if command -v pnpm >/dev/null 2>&1; then
+    printf 'pnpm'
+    return 0
+  fi
+
+  if command -v corepack >/dev/null 2>&1; then
+    printf 'corepack pnpm'
+    return 0
+  fi
+
+  fail "Missing required command: pnpm (or corepack)"
+}
+
+generate_admin_password() {
+  if command -v openssl >/dev/null 2>&1; then
+    openssl rand -hex 24
+    return 0
+  fi
+
+  node -e 'console.log(require("node:crypto").randomBytes(24).toString("hex"))'
+}
+
+initialize_env_file_if_missing() {
+  local env_file="$1"
+  local env_example_file="$2"
+  local generated_password
+
+  [ -f "$env_file" ] && return 0
+  [ -f "$env_example_file" ] || return 0
+
+  log "Initializing repo-root .env from .env.example"
+  cp "$env_example_file" "$env_file"
+
+  if grep -q '^ADMIN_PASSWORD=change-me$' "$env_file"; then
+    generated_password="$(generate_admin_password)"
+    perl -0pi -e "s/^ADMIN_PASSWORD=change-me\$/ADMIN_PASSWORD=${generated_password}/m" "$env_file"
+    log "Generated ADMIN_PASSWORD in ${env_file}"
+  fi
+}
+
+run_pm2() {
+  ${PNPM_CMD} exec pm2 "$@"
+}
+
+ensure_pm2_available() {
+  if ! ${PNPM_CMD} exec pm2 --version >/dev/null 2>&1; then
+    fail "Local pm2 is unavailable; run pnpm install --frozen-lockfile before starting the source checkout"
+  fi
+}
+
 pm2_process_exists() {
-  pm2 jlist | grep -q '"name":"promobot"'
+  run_pm2 jlist | grep -q '"name":"promobot"'
 }
 
 read_env_file_value() {
@@ -88,6 +140,7 @@ main() {
   local script_dir
   local repo_root
   local env_file
+  local env_example_file
   local resolved_port
   local attempt
 
@@ -143,6 +196,14 @@ main() {
   script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
   repo_root="$(cd -- "${script_dir}/.." >/dev/null 2>&1 && pwd)"
   env_file="${repo_root}/.env"
+  env_example_file="${repo_root}/.env.example"
+
+  cd "${repo_root}"
+
+  [ -f "package.json" ] || fail "package.json not found in ${repo_root}"
+  [ -f "pnpm-lock.yaml" ] || fail "pnpm-lock.yaml not found in ${repo_root}"
+  [ -f "pm2.config.js" ] || fail "pm2.config.js not found in ${repo_root}"
+  [ -f "src/server/index.ts" ] || fail "src/server/index.ts not found in ${repo_root}"
 
   if [ -z "$base_url" ]; then
     base_url="${PROMOBOT_BASE_URL:-}"
@@ -165,42 +226,50 @@ main() {
     admin_password="$(read_env_file_value "$env_file" ADMIN_PASSWORD 2>/dev/null || true)"
   fi
 
+  require_command node
+  PNPM_CMD="$(resolve_pnpm_command)"
+  initialize_env_file_if_missing "${env_file}" "${env_example_file}"
+
+  if [ -z "$admin_password" ]; then
+    admin_password="$(read_env_file_value "$env_file" PROMOBOT_ADMIN_PASSWORD 2>/dev/null || true)"
+  fi
+
+  if [ -z "$admin_password" ]; then
+    admin_password="$(read_env_file_value "$env_file" ADMIN_PASSWORD 2>/dev/null || true)"
+  fi
+
+  if [ -n "${admin_password}" ] && [ -z "${ADMIN_PASSWORD:-}" ]; then
+    export ADMIN_PASSWORD="${admin_password}"
+  fi
+
   if [ "$skip_smoke" -eq 0 ] && [ -z "$admin_password" ]; then
     fail "Smoke check requires --admin-password, PROMOBOT_ADMIN_PASSWORD, ADMIN_PASSWORD, or repo-root .env ADMIN_PASSWORD; use --skip-smoke to disable it"
   fi
-
-  # Run from the repository root so pnpm and PM2 resolve the expected files.
-  cd "${repo_root}"
-
-  [ -f "package.json" ] || fail "package.json not found in ${repo_root}"
-  [ -f "pnpm-lock.yaml" ] || fail "pnpm-lock.yaml not found in ${repo_root}"
-  [ -f "pm2.config.js" ] || fail "pm2.config.js not found in ${repo_root}"
-
-  require_command pnpm
-  require_command pm2
 
   log "Ensuring logs/ and data/ directories exist"
   mkdir -p logs data
 
   if [ "$skip_install" -eq 0 ]; then
     log "Running pnpm install --frozen-lockfile"
-    pnpm install --frozen-lockfile
+    ${PNPM_CMD} install --frozen-lockfile
   else
     log "Skipping pnpm install"
   fi
 
   log "Running pnpm build"
-  pnpm build
+  ${PNPM_CMD} build
+
+  ensure_pm2_available
 
   if pm2_process_exists; then
     log "Reloading PM2 app from pm2.config.js"
-    if ! pm2 reload pm2.config.js --update-env; then
+    if ! run_pm2 reload pm2.config.js --update-env; then
       log "PM2 reload failed, trying a fresh start"
-      pm2 start pm2.config.js --update-env
+      run_pm2 start pm2.config.js --update-env
     fi
   else
     log "Starting PM2 app from pm2.config.js"
-    pm2 start pm2.config.js --update-env
+    run_pm2 start pm2.config.js --update-env
   fi
 
   if [ "$skip_smoke" -eq 1 ]; then
@@ -211,7 +280,7 @@ main() {
   attempt=1
   while true; do
     log "Running smoke check against ${base_url} (attempt ${attempt}/${SMOKE_RETRY_ATTEMPTS})"
-    if PROMOBOT_ADMIN_PASSWORD="${admin_password}" pnpm smoke:server -- --base-url "${base_url}"; then
+    if PROMOBOT_ADMIN_PASSWORD="${admin_password}" ${PNPM_CMD} smoke:server -- --base-url "${base_url}"; then
       break
     fi
 

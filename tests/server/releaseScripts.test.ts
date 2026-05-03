@@ -164,6 +164,37 @@ describe('release shell wrappers', () => {
     });
   });
 
+  it('stages quickstart helpers inside the release bundle contract', () => {
+    const fixture = createReleasePromobotFixture();
+    const result = runScript(
+      fixture.scriptPath,
+      ['--skip-build', '--output-dir', fixture.bundleDir],
+      {
+        cwd: fixture.rootDir,
+        env: {
+          ...process.env,
+          PATH: `${fixture.binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+        },
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(fs.existsSync(path.join(fixture.bundleDir, 'start-promobot.sh'))).toBe(true);
+    expect(fs.statSync(path.join(fixture.bundleDir, 'start-promobot.sh')).mode & 0o111).not.toBe(0);
+    expect(fs.existsSync(path.join(fixture.bundleDir, 'ops/deploy-release.sh'))).toBe(true);
+    expect(fs.existsSync(path.join(fixture.bundleDir, '.env.example'))).toBe(true);
+    expect(fs.readFileSync(path.join(fixture.bundleDir, '.env.example'), 'utf8')).toContain(
+      'ALLOWED_IPS=*',
+    );
+  });
+
+  it('keeps first-run quickstart assets repo-ready', () => {
+    expect(fs.statSync(path.resolve(repoRoot, 'start-promobot.sh')).mode & 0o111).not.toBe(0);
+    expect(fs.readFileSync(path.resolve(repoRoot, '.env.example'), 'utf8')).toContain(
+      'ALLOWED_IPS=*',
+    );
+  });
+
   it('runs pnpm build before packaging when release-promobot uses the default build path', () => {
     const fixture = createReleasePromobotFixture();
     const result = runScript(
@@ -489,11 +520,12 @@ describe('release shell wrappers', () => {
       PATH: `${fixture.binDir}${path.delimiter}${process.env.PATH ?? ''}`,
     };
 
+    fs.rmSync(path.join(fixture.rootDir, '.env.example'));
     delete env.PROMOBOT_ADMIN_PASSWORD;
     delete env.ADMIN_PASSWORD;
     delete env.PROMOBOT_BASE_URL;
 
-    const result = runScript(fixture.scriptPath, ['--skip-install'], {
+    const result = runScript(fixture.scriptPath, [], {
       cwd: fixture.rootDir,
       env,
     });
@@ -516,7 +548,7 @@ describe('release shell wrappers', () => {
     delete env.ADMIN_PASSWORD;
     delete env.PROMOBOT_BASE_URL;
 
-    const result = runScript(fixture.scriptPath, ['--skip-install'], {
+    const result = runScript(fixture.scriptPath, [], {
       cwd: fixture.rootDir,
       env,
     });
@@ -525,6 +557,85 @@ describe('release shell wrappers', () => {
     expect(result.stdout).toContain('Starting PM2 app from pm2.config.js');
     expect(result.stdout).toContain('Release deployment completed');
     expect(result.stderr).not.toContain('ADMIN_PASSWORD missing');
+  });
+
+  it('bootstraps bundle-root .env from .env.example before deploying a release bundle', () => {
+    const fixture = createDeployReleaseFixture({ installLocalPm2: true });
+    const env = {
+      ...process.env,
+      PATH: `${fixture.binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+    };
+
+    delete env.ADMIN_PASSWORD;
+    delete env.PROMOBOT_ADMIN_PASSWORD;
+    delete env.PROMOBOT_BASE_URL;
+
+    expect(fs.existsSync(path.join(fixture.rootDir, '.env'))).toBe(false);
+
+    const result = runScript(fixture.scriptPath, [], {
+      cwd: fixture.rootDir,
+      env,
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Initializing bundle-root .env from .env.example');
+    const envFile = fs.readFileSync(path.join(fixture.rootDir, '.env'), 'utf8');
+    expect(envFile).toContain('ALLOWED_IPS=*');
+    expect(envFile).toContain('ADMIN_PASSWORD=');
+    expect(envFile).not.toContain('ADMIN_PASSWORD=change-me');
+  });
+
+  it('offers a one-command start helper from the release bundle root', () => {
+    const fixture = createDeployReleaseFixture({ installLocalPm2: true });
+    const helperPath = path.join(fixture.rootDir, 'start-promobot.sh');
+    fs.copyFileSync(path.resolve(repoRoot, 'start-promobot.sh'), helperPath);
+    fs.chmodSync(helperPath, 0o755);
+
+    const env = {
+      ...process.env,
+      PATH: `${fixture.binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+    };
+
+    delete env.ADMIN_PASSWORD;
+    delete env.PROMOBOT_ADMIN_PASSWORD;
+    delete env.PROMOBOT_BASE_URL;
+
+    const result = runScript(helperPath, [], {
+      cwd: fixture.rootDir,
+      env,
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Delegating to ops/deploy-release.sh');
+    expect(fs.readFileSync(fixture.sequenceMarkerPath, 'utf8')).toContain(
+      'pm2:start pm2.config.js --update-env',
+    );
+  });
+
+  it('offers a one-command start helper from a source checkout root', () => {
+    const fixture = createDeployPromobotFixture();
+    const helperPath = path.join(fixture.rootDir, 'start-promobot.sh');
+    fs.copyFileSync(path.resolve(repoRoot, 'start-promobot.sh'), helperPath);
+    fs.chmodSync(helperPath, 0o755);
+
+    const env = {
+      ...process.env,
+      PATH: `${fixture.binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+    };
+
+    delete env.ADMIN_PASSWORD;
+    delete env.PROMOBOT_ADMIN_PASSWORD;
+    delete env.PROMOBOT_BASE_URL;
+
+    const result = runScript(helperPath, ['--skip-install'], {
+      cwd: fixture.rootDir,
+      env,
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Delegating to ops/deploy-promobot.sh');
+    expect(fs.readFileSync(fixture.pm2MarkerPath, 'utf8')).toContain('start pm2.config.js --update-env');
+    expect(fs.readFileSync(path.join(fixture.rootDir, '.env'), 'utf8')).toContain('ADMIN_PASSWORD=');
   });
 
   it('retries deploy-release smoke once before succeeding', () => {
@@ -732,6 +843,7 @@ describe('release shell wrappers', () => {
       PATH: `${fixture.binDir}${path.delimiter}${process.env.PATH ?? ''}`,
     };
 
+    fs.rmSync(path.join(fixture.rootDir, '.env.example'));
     delete env.PROMOBOT_ADMIN_PASSWORD;
     delete env.ADMIN_PASSWORD;
     delete env.PROMOBOT_BASE_URL;
@@ -748,6 +860,35 @@ describe('release shell wrappers', () => {
     );
     expect(fs.existsSync(fixture.pnpmMarkerPath)).toBe(false);
     expect(fs.existsSync(fixture.pm2MarkerPath)).toBe(false);
+  });
+
+  it('bootstraps repo-root .env from .env.example before deploying from a source checkout', () => {
+    const fixture = createDeployPromobotFixture();
+    const env = {
+      ...process.env,
+      PATH: `${fixture.binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+    };
+
+    delete env.PROMOBOT_ADMIN_PASSWORD;
+    delete env.ADMIN_PASSWORD;
+    delete env.PROMOBOT_BASE_URL;
+    delete env.PORT;
+
+    expect(fs.existsSync(path.join(fixture.rootDir, '.env'))).toBe(false);
+
+    const result = runScript(fixture.scriptPath, ['--skip-install'], {
+      cwd: fixture.rootDir,
+      env,
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Initializing repo-root .env from .env.example');
+    expect(result.stdout).toContain('Generated ADMIN_PASSWORD in');
+    const envFile = fs.readFileSync(path.join(fixture.rootDir, '.env'), 'utf8');
+    expect(envFile).toContain('ALLOWED_IPS=*');
+    expect(envFile).toContain('ADMIN_PASSWORD=');
+    expect(envFile).not.toContain('ADMIN_PASSWORD=change-me');
+    expect(fs.readFileSync(fixture.pnpmMarkerPath, 'utf8')).toContain('exec pm2 start pm2.config.js --update-env');
   });
 
   it('uses repo-root .env defaults when deploy-promobot runs smoke checks', () => {
@@ -1742,6 +1883,7 @@ function createDeployReleaseFixture(
   writeFile(rootDir, 'package.json', '{}\n');
   writeFile(rootDir, 'pnpm-lock.yaml', 'lockfileVersion: 9\n');
   writeFile(rootDir, 'pm2.config.js', 'export default {};\n');
+  writeFile(rootDir, '.env.example', 'PORT=3001\nALLOWED_IPS=*\nADMIN_PASSWORD=change-me\n');
   writeFile(rootDir, 'database/schema.sql', 'create table drafts (id integer primary key);\n');
   writeFile(rootDir, 'dist/server/index.js', 'console.log("server");\n');
   writeFile(rootDir, 'dist/client/index.html', '<!doctype html>\n');
@@ -1916,6 +2058,8 @@ function createDeployPromobotFixture(
   writeFile(rootDir, 'package.json', '{}\n');
   writeFile(rootDir, 'pnpm-lock.yaml', 'lockfileVersion: 9\n');
   writeFile(rootDir, 'pm2.config.js', 'export default {};\n');
+  writeFile(rootDir, '.env.example', 'PORT=3001\nALLOWED_IPS=*\nADMIN_PASSWORD=change-me\n');
+  writeFile(rootDir, 'src/server/index.ts', 'console.log("server");\n');
   writeFile(rootDir, path.relative(rootDir, smokeAttemptPath), '0\n');
 
   if (options.envFileContent) {
@@ -1923,10 +2067,34 @@ function createDeployPromobotFixture(
   }
 
   writeExecutable(
+    rootDir,
+    'node_modules/.bin/pm2',
+    `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${pm2MarkerPath}"
+if [ "\${1:-}" = "jlist" ]; then
+  if [ "${options.existingPm2Process ? '1' : '0'}" = "1" ]; then
+    printf '[{"name":"promobot"}]\\n'
+  else
+    printf '[]\\n'
+  fi
+  exit 0
+fi
+if [ "\${1:-}" = "reload" ] && [ "${options.failReload ? '1' : '0'}" = "1" ]; then
+  exit 1
+fi
+exit 0
+`,
+  );
+
+  writeExecutable(
     binDir,
     'pnpm',
     `#!/usr/bin/env bash
 printf '%s\\n' "$*" >> "${pnpmMarkerPath}"
+if [ "\${1:-}" = "exec" ] && [ "\${2:-}" = "pm2" ]; then
+  shift 2
+  exec "$PWD/node_modules/.bin/pm2" "$@"
+fi
 if [ "\${1:-}" = "smoke:server" ]; then
   current_attempt="$(cat "${smokeAttemptPath}")"
   next_attempt=$((current_attempt + 1))
@@ -1947,26 +2115,6 @@ exit 0
     'sleep',
     `#!/usr/bin/env bash
 printf '%s\\n' "$*" >> "${sleepMarkerPath}"
-exit 0
-`,
-  );
-
-  writeExecutable(
-    binDir,
-    'pm2',
-    `#!/usr/bin/env bash
-printf '%s\\n' "$*" >> "${pm2MarkerPath}"
-if [ "\${1:-}" = "jlist" ]; then
-  if [ "${options.existingPm2Process ? '1' : '0'}" = "1" ]; then
-    printf '[{"name":"promobot"}]\\n'
-  else
-    printf '[]\\n'
-  fi
-  exit 0
-fi
-if [ "\${1:-}" = "reload" ] && [ "${options.failReload ? '1' : '0'}" = "1" ]; then
-  exit 1
-fi
 exit 0
 `,
   );
@@ -2379,7 +2527,8 @@ function seedValidReleaseBundleRepoRoot(rootDir: string) {
   writeFile(rootDir, 'package.json', '{ "name": "promobot-fixture", "type": "module" }\n');
   writeFile(rootDir, 'pnpm-lock.yaml', 'lockfileVersion: 9\n');
   writeFile(rootDir, 'pm2.config.js', 'export default {};\n');
-  writeFile(rootDir, '.env.example', 'ADMIN_PASSWORD=change-me\n');
+  writeFile(rootDir, '.env.example', 'ALLOWED_IPS=*\nADMIN_PASSWORD=change-me\n');
+  writeExecutable(rootDir, 'start-promobot.sh', '#!/usr/bin/env bash\n');
   writeFile(rootDir, 'database/schema.sql', 'create table drafts (id integer primary key);\n');
   writeFile(rootDir, 'docs/DEPLOYMENT.md', '# Deploy\n');
   writeFile(rootDir, 'dist/server/index.js', 'console.log("server");\n');

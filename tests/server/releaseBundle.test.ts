@@ -166,6 +166,7 @@ describe('release bundle cli', () => {
         'dist/client/**',
         'pnpm-lock.yaml',
         'pm2.config.js',
+        'start-promobot.sh',
         'dist/server/cli/deploymentSmoke.js',
         'dist/server/cli/browserHandoffComplete.js',
         'dist/server/cli/inboxReplyHandoffComplete.js',
@@ -207,6 +208,7 @@ describe('release bundle cli', () => {
     writeFile(repoRoot, 'docs/DEPLOYMENT.md', '# Deploy\n');
     writeFile(repoRoot, 'dist/server/index.js', 'console.log("server");\n');
     writeFile(repoRoot, 'dist/client/index.html', '<!doctype html>\n');
+    writeFile(repoRoot, 'start-promobot.sh', '#!/usr/bin/env bash\n');
     writeFile(repoRoot, 'ops/deploy-release.sh', '#!/usr/bin/env bash\n');
     writeFile(repoRoot, 'ops/deploy-promobot.sh', '#!/usr/bin/env bash\n');
 
@@ -263,6 +265,7 @@ describe('release bundle cli', () => {
     writeFile(repoRoot, 'dist/server/cli/releaseVerify.js', 'console.log("verify");\n');
     writeFile(repoRoot, 'dist/server/cli/runtimeRestore.js', 'console.log("restore");\n');
     writeFile(repoRoot, 'dist/client/index.html', '<!doctype html>\n');
+    writeFile(repoRoot, 'start-promobot.sh', '#!/usr/bin/env bash\n');
     writeFile(repoRoot, 'ops/deploy-release.sh', '#!/usr/bin/env bash\n');
     writeFile(repoRoot, 'ops/deploy-promobot.sh', '#!/usr/bin/env bash\n');
     writeFile(repoRoot, 'ops/verify-release.sh', '#!/usr/bin/env bash\n');
@@ -313,6 +316,7 @@ describe('release bundle cli', () => {
     writeFile(repoRoot, 'dist/server/cli/releaseVerify.js', 'console.log("verify");\n');
     writeFile(repoRoot, 'dist/server/cli/runtimeRestore.js', 'console.log("restore");\n');
     writeFile(repoRoot, 'dist/client/index.html', '<!doctype html>\n');
+    writeFile(repoRoot, 'start-promobot.sh', '#!/usr/bin/env bash\n');
     writeFile(repoRoot, 'ops/deploy-release.sh', '#!/usr/bin/env bash\n');
     writeFile(repoRoot, 'ops/deploy-promobot.sh', '#!/usr/bin/env bash\n');
     writeFile(repoRoot, 'ops/preflight-promobot.sh', '#!/usr/bin/env bash\n');
@@ -360,6 +364,7 @@ describe('release bundle cli', () => {
     writeFile(repoRoot, 'dist/server/cli/preflightPromobot.js', 'console.log("preflight");\n');
     writeFile(repoRoot, 'dist/server/cli/releaseVerify.js', 'console.log("verify");\n');
     writeFile(repoRoot, 'dist/server/cli/runtimeRestore.js', 'console.log("restore");\n');
+    writeFile(repoRoot, 'start-promobot.sh', '#!/usr/bin/env bash\n');
     writeFile(repoRoot, 'ops/verify-release.sh', '#!/usr/bin/env bash\n');
 
     const outputDir = path.join(repoRoot, 'artifacts', 'release-bundle');
@@ -414,6 +419,7 @@ describe('release bundle cli', () => {
     writeFile(repoRoot, 'dist/server/cli/runtimeRestore.js', 'console.log("restore");\n');
     writeFile(repoRoot, 'dist/client/index.html', '<!doctype html>\n');
     writeFile(repoRoot, 'dist/client/assets/app.js', 'console.log("client");\n');
+    writeFile(repoRoot, 'start-promobot.sh', '#!/usr/bin/env bash\n');
     writeFile(repoRoot, 'ops/deploy-release.sh', '#!/usr/bin/env bash\n');
     writeFile(repoRoot, 'ops/deploy-promobot.sh', '#!/usr/bin/env bash\n');
     writeFile(repoRoot, 'ops/preflight-promobot.sh', '#!/usr/bin/env bash\n');
@@ -460,6 +466,7 @@ describe('release bundle cli', () => {
         'package.json',
         'pm2.config.js',
         'pnpm-lock.yaml',
+        'start-promobot.sh',
       ],
       missing: [],
       checksums: {
@@ -469,6 +476,7 @@ describe('release bundle cli', () => {
         'dist/server/index.js': sha256Hex('console.log("server");\n'),
         'ops/rollback-promobot.sh': sha256Hex('#!/usr/bin/env bash\n'),
         'package.json': sha256Hex('{ "name": "promobot" }\n'),
+        'start-promobot.sh': sha256Hex('#!/usr/bin/env bash\n'),
       },
     });
     expect(Object.keys(summary.checksums).sort()).toEqual(
@@ -557,6 +565,7 @@ describe('release bundle cli', () => {
     writeFile(repoRoot, 'dist/server/cli/releaseVerify.js', 'console.log("verify");\n');
     writeFile(repoRoot, 'dist/server/cli/runtimeRestore.js', 'console.log("restore");\n');
     writeFile(repoRoot, 'dist/client/index.html', '<!doctype html>\n');
+    writeFile(repoRoot, 'start-promobot.sh', '#!/usr/bin/env bash\n');
     writeFile(repoRoot, 'ops/deploy-release.sh', '#!/usr/bin/env bash\n');
     writeFile(repoRoot, 'ops/deploy-promobot.sh', '#!/usr/bin/env bash\n');
     writeFile(repoRoot, 'ops/preflight-promobot.sh', '#!/usr/bin/env bash\n');
@@ -611,6 +620,7 @@ describe('release bundle cli', () => {
     writeFile(repoRoot, 'dist/server/cli/releaseVerify.js', 'console.log("verify");\n');
     writeFile(repoRoot, 'dist/server/cli/runtimeRestore.js', 'console.log("restore");\n');
     writeFile(repoRoot, 'dist/client/index.html', '<!doctype html>\n');
+    writeFile(repoRoot, 'start-promobot.sh', '#!/usr/bin/env bash\n');
     writeFile(repoRoot, 'ops/deploy-release.sh', '#!/usr/bin/env bash\n');
     writeFile(repoRoot, 'ops/deploy-promobot.sh', '#!/usr/bin/env bash\n');
     writeFile(repoRoot, 'ops/preflight-promobot.sh', '#!/usr/bin/env bash\n');
@@ -667,6 +677,7 @@ describe('release bundle cli', () => {
     writeFile(repoRoot, 'dist/server/cli/releaseVerify.js', 'console.log("verify");\n');
     writeFile(repoRoot, 'dist/server/cli/runtimeRestore.js', 'console.log("restore");\n');
     writeFile(repoRoot, 'dist/client/index.html', '<!doctype html>\n');
+    writeFile(repoRoot, 'start-promobot.sh', '#!/usr/bin/env bash\n');
     writeFile(repoRoot, 'ops/deploy-release.sh', '#!/usr/bin/env bash\n');
     writeFile(repoRoot, 'ops/deploy-promobot.sh', '#!/usr/bin/env bash\n');
     writeFile(repoRoot, 'ops/rollback-promobot.sh', '#!/usr/bin/env bash\n');

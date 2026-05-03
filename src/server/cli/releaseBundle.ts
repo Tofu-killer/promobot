@@ -50,6 +50,7 @@ const REQUIRED_FILES = [
   'package.json',
   'pnpm-lock.yaml',
   'pm2.config.js',
+  'start-promobot.sh',
   path.join('database', 'schema.sql'),
   path.join('docs', 'DEPLOYMENT.md'),
   '.env.example',
@@ -259,8 +260,7 @@ function copyRequiredFile(input: {
     return;
   }
 
-  fs.mkdirSync(path.dirname(input.destinationPath), { recursive: true });
-  fs.copyFileSync(input.sourcePath, input.destinationPath);
+  copyFileWithMode(input.sourcePath, input.destinationPath);
   input.copiedFiles.add(toPosixPath(input.destinationRelativePath));
 }
 
@@ -283,9 +283,15 @@ function copyRequiredOpsScripts(input: {
     }
 
     const destinationPath = path.join(path.dirname(input.destinationDir), relativePath);
-    fs.copyFileSync(sourcePath, destinationPath);
+    copyFileWithMode(sourcePath, destinationPath);
     input.copiedFiles.add(toPosixPath(relativePath));
   }
+}
+
+function copyFileWithMode(sourcePath: string, destinationPath: string) {
+  fs.mkdirSync(path.dirname(destinationPath), { recursive: true });
+  fs.copyFileSync(sourcePath, destinationPath);
+  fs.chmodSync(destinationPath, fs.statSync(sourcePath).mode);
 }
 
 function listFilesRecursively(targetPath: string): string[] {

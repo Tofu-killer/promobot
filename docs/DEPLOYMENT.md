@@ -19,7 +19,7 @@
 ## 前置条件
 
 - Node.js 22+
-- `pnpm`
+- `pnpm` 或 `corepack`
 - 仓库目录写权限
 
 ## 环境变量
@@ -34,6 +34,13 @@
 ```bash
 cp .env.example .env
 ```
+
+如果你拿到的是已构建好的 release bundle，可以不手动先复制 `.env`。bundle 根目录的 `start-promobot.sh` / `ops/deploy-release.sh` 会在首次启动时自动完成这两件事：
+
+- 当 `.env` 不存在时，从 `.env.example` 初始化一份
+- 当 `ADMIN_PASSWORD=change-me` 时，自动生成随机密码并写回 `.env`
+
+这让下载方至少可以先把服务拉起来，再按需细调配置；但首次启动后仍应尽快轮换自动生成的管理员密码。
 
 关键行为如下：
 
@@ -189,6 +196,7 @@ node dist/server/index.js
   - 面向“目标机只拿到目录型 release bundle”的部署
   - 该入口依赖 `release:bundle` / `release:local` 产出的 bundle 内容；bundle 自带 `package.json`、`dist/**`、`pm2.config.js`、部署文档和 `ops/deploy-release.sh`
   - bundle 解压后应在 bundle 根目录执行，而不是回到源码仓库里再跑一遍源码部署脚本
+  - 对下载方来说，bundle 根目录的 `start-promobot.sh` 是最短的一条命令入口
 
 如果你要在本机执行一条可重复的部署链路，而不是手动敲 install/build/pm2/smoke，可以直接运行：
 
@@ -269,6 +277,7 @@ release bundle 当前会包含以下 bundle-safe 文件：
 - `package.json`
 - `pnpm-lock.yaml`
 - `pm2.config.js`
+- `start-promobot.sh`
 - `ops/deploy-promobot.sh`
 - `ops/deploy-release.sh`
 - `ops/preflight-promobot.sh`
@@ -317,6 +326,22 @@ bash ./verify-downloaded-release.sh --archive-file /tmp/promobot-release-bundle-
 这里的 standalone helper 和仓库内的 `pnpm verify:downloaded-release` 是同一条校验链的两种入口：前者面向“只下载 release asset、不 checkout 仓库”的场景，后者只是对仓库里 `ops/verify-downloaded-release.sh` 的 `pnpm` 包装，适合已经有源码 checkout 的构建机或运维机。两者都会先核对本地 `archive + .sha256 + .metadata.json`，再复用解压后 bundle 自带的目录校验 CLI，不会引入第二套规则。
 
 如果目标机不保留源码仓库，而是只接收 bundle 目录，可在 bundle 解压后直接部署：
+
+```bash
+cd /tmp/promobot-release
+bash ./start-promobot.sh
+```
+
+这条一键入口的真实行为是：
+
+- 先校验 bundle 完整性
+- 若 bundle 根目录还没有 `.env`，自动从 `.env.example` 初始化
+- 若 `.env` 中仍是 `ADMIN_PASSWORD=change-me`，自动生成随机密码
+- 安装依赖；若没有全局 `pnpm`，则自动回退到 `corepack pnpm`
+- 使用 PM2 reload / start `pm2.config.js`
+- 默认执行一次 smoke check
+
+如果你想显式走原始 deploy wrapper，下面这条也仍然可用：
 
 ```bash
 cd /tmp/promobot-release
@@ -429,7 +454,7 @@ pnpm verify:release -- --input-dir /tmp/promobot-release
 
 # 先把 /tmp/promobot-release 复制到目标机
 cd /tmp/promobot-release
-pnpm release:deploy -- --skip-smoke
+bash ./start-promobot.sh --skip-smoke
 node dist/server/cli/deploymentSmoke.js --base-url http://127.0.0.1:3001
 ```
 
