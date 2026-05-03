@@ -68,20 +68,46 @@ discoveryRouter.patch('/:id', (request, response) => {
     return;
   }
 
-  if (parsedId.kind !== 'monitor') {
-    response.status(400).json({ error: 'unsupported discovery item action' });
+  if (parsedId.kind === 'monitor') {
+    const currentItem = monitorStore.getById(parsedId.id);
+    if (!currentItem || (projectId !== undefined && currentItem.projectId !== projectId)) {
+      response.status(404).json({ error: 'discovery item not found' });
+      return;
+    }
+
+    const updatedItem = monitorStore.updateStatus(
+      parsedId.id,
+      action === 'save' ? 'saved' : 'ignored',
+    );
+
+    if (!updatedItem) {
+      response.status(404).json({ error: 'discovery item not found' });
+      return;
+    }
+
+    response.json({
+      item: {
+        id: `monitor-${updatedItem.id}`,
+        source: updatedItem.source,
+        type: 'monitor',
+        title: updatedItem.title,
+        detail: updatedItem.detail,
+        status: updatedItem.status,
+        createdAt: updatedItem.createdAt,
+      } satisfies DiscoveryItemRecord,
+    });
     return;
   }
 
-  const currentItem = monitorStore.getById(parsedId.id);
+  const currentItem = inboxStore.list().find((item) => item.id === parsedId.id);
   if (!currentItem || (projectId !== undefined && currentItem.projectId !== projectId)) {
     response.status(404).json({ error: 'discovery item not found' });
     return;
   }
 
-  const updatedItem = monitorStore.updateStatus(
+  const updatedItem = inboxStore.updateStatus(
     parsedId.id,
-    action === 'save' ? 'saved' : 'ignored',
+    action === 'save' ? 'needs_review' : 'ignored',
   );
 
   if (!updatedItem) {
@@ -91,11 +117,11 @@ discoveryRouter.patch('/:id', (request, response) => {
 
   response.json({
     item: {
-      id: `monitor-${updatedItem.id}`,
+      id: `inbox-${updatedItem.id}`,
       source: updatedItem.source,
-      type: 'monitor',
+      type: 'inbox',
       title: updatedItem.title,
-      detail: updatedItem.detail,
+      detail: updatedItem.excerpt,
       status: updatedItem.status,
       createdAt: updatedItem.createdAt,
     } satisfies DiscoveryItemRecord,

@@ -725,7 +725,7 @@ describe('Discovery draft actions', () => {
             id: 'inbox-3',
             source: 'Reddit',
             title: 'Inbox lead',
-            summary: '需要回复，但不支持 Discovery save/ignore。',
+            summary: '需要回复，这条信号也应该支持 Discovery 保存/忽略。',
             status: 'needs_review',
             score: 72,
             createdAt: '2026-04-19T09:10:00.000Z',
@@ -761,6 +761,17 @@ describe('Discovery draft actions', () => {
           status: 'ignored',
           createdAt: '2026-04-19T09:05:00.000Z',
         },
+      })
+      .mockResolvedValueOnce({
+        item: {
+          id: 'inbox-3',
+          source: 'Reddit',
+          type: 'inbox',
+          title: 'Inbox lead',
+          detail: '需要回复，这条信号也应该支持 Discovery 保存/忽略。',
+          status: 'ignored',
+          createdAt: '2026-04-19T09:10:00.000Z',
+        },
       });
 
     const root = createRoot(container as never);
@@ -786,10 +797,15 @@ describe('Discovery draft actions', () => {
       container,
       (element) => element.getAttribute('data-discovery-save-id') === 'inbox-3',
     );
+    const inboxIgnoreButton = findElement(
+      container,
+      (element) => element.getAttribute('data-discovery-ignore-id') === 'inbox-3',
+    );
 
     expect(saveButton).not.toBeNull();
     expect(ignoreButton).not.toBeNull();
-    expect(inboxSaveButton).toBeNull();
+    expect(inboxSaveButton).not.toBeNull();
+    expect(inboxIgnoreButton).not.toBeNull();
 
     await act(async () => {
       saveButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
@@ -809,6 +825,15 @@ describe('Discovery draft actions', () => {
     expect(collectText(container)).toContain('已保存到发现池。');
     expect(collectText(container)).toContain('已忽略该条发现。');
     expect(collectText(container)).toContain('Reddit · ignored · 2026-04-19T09:05:00.000Z');
+
+    await act(async () => {
+      inboxIgnoreButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(updateDiscoveryItemAction).toHaveBeenNthCalledWith(3, 'inbox-3', 'ignore');
+    expect(collectText(container)).toContain('Inbox lead');
+    expect(collectText(container)).toContain('Reddit · ignored · 2026-04-19T09:10:00.000Z');
 
     await act(async () => {
       root.unmount();
@@ -1923,7 +1948,7 @@ describe('Discovery draft actions', () => {
     });
   });
 
-  it('keeps discovery save/ignore disabled for inbox-derived items', async () => {
+  it('enables discovery save/ignore for inbox-derived items with canonical ids', async () => {
     const { DiscoveryPage } = await import('../../src/client/pages/Discovery');
 
     const html = renderToStaticMarkup(
@@ -1953,9 +1978,11 @@ describe('Discovery draft actions', () => {
       }),
     );
 
-    expect(html).toContain('来源于 inbox 的聚合项暂不支持保存 / 忽略动作');
-    expect(html).toMatch(/data-discovery-item-action=\"save-inbox-9\"[^>]*disabled=\"\"/);
-    expect(html).toMatch(/data-discovery-item-action=\"ignore-inbox-9\"[^>]*disabled=\"\"/);
+    expect(html).toContain('data-discovery-save-id="inbox-9"');
+    expect(html).toContain('data-discovery-ignore-id="inbox-9"');
+    expect(html).not.toContain('来源于 inbox 的聚合项暂不支持保存 / 忽略动作');
+    expect(html).not.toMatch(/data-discovery-item-action=\"save-inbox-9\"[^>]*disabled=\"\"/);
+    expect(html).not.toMatch(/data-discovery-item-action=\"ignore-inbox-9\"[^>]*disabled=\"\"/);
   });
 
   it('normalizes numeric monitor ids before dispatching discovery save actions', async () => {
@@ -2051,7 +2078,7 @@ describe('Discovery draft actions', () => {
                 id: 'lead-8',
                 source: 'Reddit',
                 type: 'inbox',
-                title: 'Type-driven inbox item',
+                title: 'Type-driven inbox item with invalid id',
                 summary: '这条 inbox 项应该保持禁用。',
                 status: 'needs_review',
                 score: 74,
@@ -2126,7 +2153,7 @@ describe('Discovery draft actions', () => {
     expect(html).toMatch(/data-discovery-item-action=\"ignore-discovery-2\"[^>]*disabled=\"\"/);
   });
 
-  it('keeps discovery save and ignore disabled when a prefixed inbox id conflicts with monitor type', async () => {
+  it('treats prefixed inbox ids as actionable inbox items even when type says monitor', async () => {
     const { DiscoveryPage } = await import('../../src/client/pages/Discovery');
 
     const html = renderToStaticMarkup(
@@ -2140,7 +2167,7 @@ describe('Discovery draft actions', () => {
                 source: 'Reddit',
                 type: 'monitor',
                 title: 'Conflicting discovery item',
-                summary: '前缀化 inbox id 必须压过错误的 monitor type，不能放开 save/ignore。',
+                summary: '前缀化 inbox id 必须压过错误的 monitor type，并走 inbox 动作。',
                 status: 'needs_review',
                 score: 74,
                 createdAt: '2026-04-19T09:05:00.000Z',
@@ -2156,10 +2183,10 @@ describe('Discovery draft actions', () => {
       }),
     );
 
-    expect(html).not.toContain('data-discovery-save-id="inbox-9"');
-    expect(html).not.toContain('data-discovery-ignore-id="inbox-9"');
-    expect(html).toMatch(/data-discovery-item-action=\"save-inbox-9\"[^>]*disabled=\"\"/);
-    expect(html).toMatch(/data-discovery-item-action=\"ignore-inbox-9\"[^>]*disabled=\"\"/);
-    expect(html).toContain('来源于 inbox 的聚合项暂不支持保存 / 忽略动作');
+    expect(html).toContain('data-discovery-save-id="inbox-9"');
+    expect(html).toContain('data-discovery-ignore-id="inbox-9"');
+    expect(html).not.toMatch(/data-discovery-item-action=\"save-inbox-9\"[^>]*disabled=\"\"/);
+    expect(html).not.toMatch(/data-discovery-item-action=\"ignore-inbox-9\"[^>]*disabled=\"\"/);
+    expect(html).not.toContain('来源于 inbox 的聚合项暂不支持保存 / 忽略动作');
   });
 });

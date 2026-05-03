@@ -3326,7 +3326,7 @@ describe('client API page wiring', () => {
             id: 'inbox-1',
             source: 'Reddit',
             title: 'Prospect asking for APAC latency proof',
-            summary: '需要回复，但不支持 Discovery save/ignore。',
+            summary: '需要回复，也应该支持 Discovery save/ignore。',
             status: 'needs_review',
             score: 73,
             createdAt: '2026-04-19T00:05:00.000Z',
@@ -3344,7 +3344,8 @@ describe('client API page wiring', () => {
     expect(html).toContain('Competitor onboarding teardown');
     expect(html).toContain('data-discovery-save-id="monitor-1"');
     expect(html).toContain('data-discovery-ignore-id="monitor-1"');
-    expect(html).not.toContain('data-discovery-save-id="inbox-1"');
+    expect(html).toContain('data-discovery-save-id="inbox-1"');
+    expect(html).toContain('data-discovery-ignore-id="inbox-1"');
     expect(html).toContain('项目 ID（可选）');
   });
 

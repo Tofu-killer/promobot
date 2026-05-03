@@ -342,13 +342,14 @@ describe('discovery api', () => {
     }
   });
 
-  it('rejects unsupported discovery item kinds for status updates', async () => {
+  it('saves an inbox-derived discovery item by reopening it for review', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
       const inboxStore = createInboxStore();
       inboxStore.create({
+        projectId: 1,
         source: 'reddit',
-        status: 'needs_review',
+        status: 'ignored',
         author: 'prospect-1',
         title: 'Users asking for SOC 2 proof',
         excerpt: 'Several buyers want a compliance checklist.',
@@ -359,10 +360,92 @@ describe('discovery api', () => {
         projectId: 1,
       });
 
-      expect(response.status).toBe(400);
+      expect(response.status).toBe(200);
       expect(JSON.parse(response.body)).toEqual({
-        error: 'unsupported discovery item action',
+        item: expect.objectContaining({
+          id: 'inbox-1',
+          type: 'inbox',
+          title: 'Users asking for SOC 2 proof',
+          status: 'needs_review',
+        }),
       });
+      expect(inboxStore.list(1)).toEqual([
+        expect.objectContaining({
+          id: 1,
+          status: 'needs_review',
+        }),
+      ]);
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('ignores an inbox-derived discovery item and returns the updated discovery record', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const inboxStore = createInboxStore();
+      inboxStore.create({
+        projectId: 1,
+        source: 'reddit',
+        status: 'needs_reply',
+        author: 'prospect-2',
+        title: 'Buyers asking for APAC latency proof',
+        excerpt: 'A follow-up is needed before pricing review.',
+      });
+
+      const response = await requestApp('PATCH', '/api/discovery/inbox-1', {
+        action: 'ignore',
+        projectId: 1,
+      });
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        item: expect.objectContaining({
+          id: 'inbox-1',
+          type: 'inbox',
+          title: 'Buyers asking for APAC latency proof',
+          status: 'ignored',
+        }),
+      });
+      expect(inboxStore.list(1)).toEqual([
+        expect.objectContaining({
+          id: 1,
+          status: 'ignored',
+        }),
+      ]);
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('does not allow inbox-derived discovery item actions to cross project scope', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const inboxStore = createInboxStore();
+      inboxStore.create({
+        projectId: 1,
+        source: 'reddit',
+        status: 'needs_review',
+        author: 'project-one',
+        title: 'Project 1 inbox item',
+        excerpt: 'Only project 1 should mutate this.',
+      });
+
+      const response = await requestApp('PATCH', '/api/discovery/inbox-1', {
+        action: 'ignore',
+        projectId: 2,
+      });
+
+      expect(response.status).toBe(404);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'discovery item not found',
+      });
+      expect(inboxStore.list(1)).toEqual([
+        expect.objectContaining({
+          id: 1,
+          status: 'needs_review',
+        }),
+      ]);
     } finally {
       cleanupTestDatabasePath(rootDir);
     }

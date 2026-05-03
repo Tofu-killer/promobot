@@ -104,13 +104,19 @@ export function normalizeDiscoveryItemId(
   return coerceDiscoveryItemId(id, type) ?? stringifyDiscoveryItemId(id) ?? `discovery-${fallbackIndex + 1}`;
 }
 
-export function resolveDiscoveryMonitorActionId(item: DiscoveryItemLike): string | null {
+export function resolveDiscoveryActionId(item: DiscoveryItemLike): string | null {
   const parsedId = parseDiscoveryItemId(item.id);
   if (parsedId) {
-    return parsedId.type === 'monitor' ? `monitor-${parsedId.numericId}` : null;
+    return `${parsedId.type}-${parsedId.numericId}`;
   }
 
-  return asDiscoveryItemType(item.type) === 'monitor' ? coerceDiscoveryItemId(item.id, 'monitor') : null;
+  const discoveryItemType = asDiscoveryItemType(item.type);
+  return discoveryItemType ? coerceDiscoveryItemId(item.id, discoveryItemType) : null;
+}
+
+export function resolveDiscoveryMonitorActionId(item: DiscoveryItemLike): string | null {
+  const actionableId = resolveDiscoveryActionId(item);
+  return actionableId?.startsWith('monitor-') ? actionableId : null;
 }
 
 function normalizeDiscoveryItem(value: unknown, index: number): DiscoveryItem {

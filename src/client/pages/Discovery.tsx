@@ -3,8 +3,8 @@ import {
   loadDiscoveryRequest,
   normalizeDiscoveryItemId,
   normalizeDiscoveryResponse,
+  resolveDiscoveryActionId,
   resolveDiscoveryItemType,
-  resolveDiscoveryMonitorActionId,
   type DiscoveryItem,
   type DiscoveryResponse,
 } from '../lib/discovery';
@@ -590,7 +590,7 @@ export function DiscoveryPage({
   }
 
   function canMutateDiscoveryItem(item: DiscoveryItem) {
-    return !isPreview && resolveDiscoveryMonitorActionId(item) !== null;
+    return !isPreview && resolveDiscoveryActionId(item) !== null;
   }
 
   function canOpenGenerateCenter() {
@@ -609,7 +609,7 @@ export function DiscoveryPage({
   }
 
   async function handleDiscoveryItemAction(item: DiscoveryItem, action: 'save' | 'ignore') {
-    const actionableId = resolveDiscoveryMonitorActionId(item);
+    const actionableId = resolveDiscoveryActionId(item);
     if (isPreview || actionableId === null) {
       return;
     }
@@ -878,9 +878,8 @@ export function DiscoveryPage({
               const discoveryItemActionState = getDiscoveryItemActionState(item.id);
               const draftPlatform = resolveDraftPlatform(item.source);
               const canGenerateDraft = draftPlatform !== null;
-              const actionableDiscoveryItemId = resolveDiscoveryMonitorActionId(item);
+              const actionableDiscoveryItemId = resolveDiscoveryActionId(item);
               const canMutateItem = canMutateDiscoveryItem(item);
-              const isInboxDerivedItem = resolveDiscoveryItemType(item) === 'inbox';
               const isMutatingItem = discoveryItemActionState.status === 'loading';
 
               return (
@@ -1021,11 +1020,6 @@ export function DiscoveryPage({
                       {discoveryItemActionState.status === 'error' ? (
                         <p style={{ margin: 0, color: '#b91c1c', fontWeight: 700 }}>
                           发现条目动作失败：{discoveryItemActionState.error}
-                        </p>
-                      ) : null}
-                      {isInboxDerivedItem ? (
-                        <p style={{ margin: 0, color: '#92400e', fontWeight: 700 }}>
-                          来源于 inbox 的聚合项暂不支持保存 / 忽略动作
                         </p>
                       ) : null}
                     </div>
