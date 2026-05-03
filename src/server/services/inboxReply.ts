@@ -93,7 +93,7 @@ interface BrowserReplyHandoffDetails {
 }
 
 interface ManualReplyAssistantDetails {
-  platform: 'v2ex';
+  platform: ReplyPlatform;
   label: string;
   copyText: string;
   sourceUrl?: string;
@@ -175,7 +175,6 @@ export function createInboxReplyService(
     async deliver({ item, reply }) {
       const platform = normalizeReplyPlatform(item.source);
       const resolution = resolveReplyContext(channelAccountStore.list(), item, platform);
-      const manualReplyAssistant = buildManualReplyAssistant({ item, reply, platform });
 
       if ('failure' in resolution) {
         return createAccountResolutionFailure(reply, resolution.failure);
@@ -223,12 +222,10 @@ export function createInboxReplyService(
           mode: context.readiness.mode,
           message:
             browserReplyHandoff?.message ??
-            buildManualReplyAssistantMessage(manualReplyAssistant) ??
             buildManualRequiredMessage(platform, context),
           details: buildReplyDetails({
             context,
             browserReplyHandoff: browserReplyHandoff?.details,
-            manualReplyAssistant,
           }),
         });
       }
@@ -241,6 +238,7 @@ export function createInboxReplyService(
         return await sendRedditReply({ item, reply, context });
       }
 
+      const manualReplyAssistant = buildManualReplyAssistant({ item, reply, platform });
       return createManualRequiredDelivery({
         reply,
         mode: 'manual',
@@ -1009,15 +1007,18 @@ function buildManualReplyAssistant(input: {
   reply: string;
   platform: ReplyPlatform;
 }): ManualReplyAssistantDetails | null {
-  if (input.platform !== 'v2ex') {
+  if (input.platform === 'manual') {
     return null;
   }
 
   const sourceUrl = resolveSourceUrl(input.item);
+  if (!sourceUrl) {
+    return null;
+  }
 
   return {
-    platform: 'v2ex',
-    label: 'V2EX',
+    platform: input.platform,
+    label: formatReplyPlatformLabel(input.platform),
     copyText: input.reply,
     ...(sourceUrl ? { sourceUrl, openUrl: sourceUrl } : {}),
     ...(input.item.title.trim().length > 0 ? { title: input.item.title } : {}),

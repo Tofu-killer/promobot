@@ -5298,6 +5298,114 @@ describe('Inbox action wiring', () => {
     });
   });
 
+  it('shows manual reply assistant actions for non-v2ex manual delivery follow-up', async () => {
+    const { container, window } = installMinimalDom();
+    const openWindow = vi.fn();
+    window.open = openWindow as never;
+    const { createRoot } = await import('react-dom/client');
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    const sendReplyAction = vi.fn().mockResolvedValue({
+      item: {
+        id: 9,
+        source: 'weibo',
+        status: 'needs_reply',
+        author: 'ops-user',
+        title: 'Need lower latency in APAC',
+        excerpt: 'Can you share current response times?',
+        createdAt: '2026-04-19T10:02:00.000Z',
+      },
+      delivery: {
+        success: false,
+        status: 'manual_required',
+        mode: 'manual',
+        message: '微博 reply is ready for assisted manual delivery. Copy the reply and open the topic.',
+        reply: 'Manual weibo follow-up.',
+        details: {
+          manualReplyAssistant: {
+            platform: 'weibo',
+            label: '微博',
+            copyText: 'Manual weibo follow-up.',
+            sourceUrl: 'https://weibo.test/post/1',
+            openUrl: 'https://weibo.test/post/1',
+            title: 'Need lower latency in APAC',
+          },
+        },
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(InboxPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              items: [
+                {
+                  id: 9,
+                  source: 'weibo',
+                  status: 'needs_reply',
+                  author: 'ops-user',
+                  title: 'Need lower latency in APAC',
+                  excerpt: 'Can you share current response times?',
+                  createdAt: '2026-04-19T10:02:00.000Z',
+                },
+              ],
+              total: 1,
+              unread: 1,
+            },
+          } satisfies ApiState<unknown>,
+          sendReplyAction,
+        }),
+      );
+      await flush();
+    });
+
+    const replyDraftField = findElement(container, (element) => element.tagName === 'TEXTAREA');
+    expect(replyDraftField).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(replyDraftField, 'Manual weibo follow-up.', window);
+      await flush();
+    });
+
+    const sendReplyButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('发送回复'),
+    );
+    expect(sendReplyButton).not.toBeNull();
+
+    await act(async () => {
+      sendReplyButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(sendReplyAction).toHaveBeenCalledWith(9, 'Manual weibo follow-up.');
+    expect(collectText(container)).toContain('微博 reply is ready for assisted manual delivery. Copy the reply and open the topic.');
+    expect(collectText(container)).toContain('手工回复辅助：微博');
+    expect(collectText(container)).toContain('复制回复');
+    expect(collectText(container)).toContain('打开原帖');
+
+    const openPostButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('打开原帖'),
+    );
+    expect(openPostButton).not.toBeNull();
+
+    await act(async () => {
+      openPostButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(openWindow).toHaveBeenCalledWith('https://weibo.test/post/1', '_blank', 'noopener,noreferrer');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('drops unsafe manual reply assistant open URLs from send-reply feedback', async () => {
     const { container, window } = installMinimalDom();
     const openWindow = vi.fn();

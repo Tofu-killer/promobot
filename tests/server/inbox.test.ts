@@ -1588,7 +1588,7 @@ describe('inbox api', () => {
     }
   });
 
-  it('returns manual_required for unsupported platforms and keeps the inbox item pending', async () => {
+  it('returns manual_required without assistant details when unsupported platforms have no source URL', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
       const inboxStore = createInboxStore();
@@ -1604,9 +1604,8 @@ describe('inbox api', () => {
         reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
       });
       const body = JSON.parse(response.body) as {
-        delivery: { details?: { browserReplyHandoff?: { artifactPath?: string } } };
+        delivery: { details?: { manualReplyAssistant?: unknown } };
       };
-      const artifactPath = body.delivery.details?.browserReplyHandoff?.artifactPath;
 
       expect(response.status).toBe(200);
       expect(body).toEqual({
@@ -1622,6 +1621,57 @@ describe('inbox api', () => {
           reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
           deliveryUrl: null,
           externalId: null,
+        }),
+      });
+      expect(body.delivery.details?.manualReplyAssistant).toBeUndefined();
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('returns manual reply assistance for manual-only platforms with a source URL and keeps the inbox item pending', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const inboxStore = createInboxStore();
+      inboxStore.create({
+        source: 'weibo',
+        status: 'needs_review',
+        author: 'ops-user',
+        title: 'Need lower latency in APAC',
+        excerpt: 'Can you share current response times?',
+        metadata: {
+          sourceUrl: 'https://weibo.test/post/1',
+        },
+      });
+
+      const response = await requestApp('POST', '/api/inbox/1/send-reply', {
+        reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+      });
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        item: expect.objectContaining({
+          id: 1,
+          status: 'needs_review',
+        }),
+        delivery: expect.objectContaining({
+          success: false,
+          status: 'manual_required',
+          mode: 'manual',
+          message: '微博 reply is ready for assisted manual delivery. Copy the reply and open the topic.',
+          reply: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+          deliveryUrl: null,
+          externalId: null,
+          details: expect.objectContaining({
+            manualReplyAssistant: {
+              platform: 'weibo',
+              label: '微博',
+              copyText: 'Thanks for reaching out. We can share current APAC latency benchmarks.',
+              sourceUrl: 'https://weibo.test/post/1',
+              openUrl: 'https://weibo.test/post/1',
+              title: 'Need lower latency in APAC',
+            },
+          }),
         }),
       });
     } finally {
@@ -1776,6 +1826,7 @@ describe('inbox api', () => {
           }),
         }),
       });
+      expect(responseBody.delivery.details?.manualReplyAssistant).toBeUndefined();
       const artifactPath = responseBody.delivery.details?.browserReplyHandoff?.artifactPath;
       expect(artifactPath).toBe('artifacts/inbox-reply-handoffs/x/x-browser-main/x-inbox-item-1.json');
       expect(
