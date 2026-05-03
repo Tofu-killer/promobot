@@ -27,6 +27,11 @@ monitorRouter.get('/feed', (request, response) => {
 });
 
 monitorRouter.post('/fetch', async (request, response, next) => {
+  if (request.body !== undefined && !isPlainObject(request.body)) {
+    response.status(400).json({ error: 'invalid project id' });
+    return;
+  }
+
   const projectId = parseOptionalProjectId(request.body?.projectId);
 
   if (request.body?.projectId !== undefined && projectId === undefined) {
@@ -148,4 +153,12 @@ function normalizeFollowUpPlatformCandidate(value: string) {
   }
 
   return null;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  return Object.getPrototypeOf(value) === Object.prototype;
 }

@@ -943,6 +943,33 @@ describe('monitor api', () => {
     }
   }, 10000);
 
+  it('rejects non-object fetch bodies instead of falling back to a global monitor fetch', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      delete process.env.X_ACCESS_TOKEN;
+      delete process.env.X_BEARER_TOKEN;
+      delete process.env.MONITOR_X_QUERIES;
+      process.env.MONITOR_X_SEARCH_SEEDS = JSON.stringify([
+        {
+          id: '1001',
+          query: 'project one query',
+          title: 'Project 1 X signal',
+          text: 'Project 1 content.',
+          author: 'projectone',
+          url: 'https://x.com/projectone/status/1001',
+        },
+      ]);
+
+      const response = await requestApp('POST', '/api/monitor/fetch', []);
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({ error: 'invalid project id' });
+      expect(createMonitorStore().list()).toEqual([]);
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('falls back to configured x search seeds when no x token is available', async () => {
     delete process.env.X_ACCESS_TOKEN;
     delete process.env.X_BEARER_TOKEN;

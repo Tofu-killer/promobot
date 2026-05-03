@@ -719,6 +719,16 @@ describe('reputation api', () => {
     ]);
   });
 
+  it('rejects non-object fetch bodies instead of falling back to a global reputation fetch', async () => {
+    installReputationSearchFixtures();
+
+    const response = await requestApp('POST', '/api/reputation/fetch', []);
+
+    expect(response.status).toBe(400);
+    expect(JSON.parse(response.body)).toEqual({ error: 'invalid project id' });
+    expect(createReputationStore().getStats().items).toEqual([]);
+  });
+
   it('filters reputation stats by optional projectId without breaking legacy rows', async () => {
     const reputationStore = createReputationStore();
     reputationStore.create({

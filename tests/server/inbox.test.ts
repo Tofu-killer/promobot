@@ -1374,6 +1374,21 @@ describe('inbox api', () => {
     }
   });
 
+  it('rejects non-object fetch bodies instead of falling back to a global inbox fetch', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      installCommunitySearchFixtures();
+
+      const response = await requestApp('POST', '/api/inbox/fetch', []);
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({ error: 'invalid project id' });
+      expect(createInboxStore().list()).toEqual([]);
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('returns inbox items with total and unread counts from SQLite', async () => {
     const { rootDir } = createTestDatabasePath();
     try {

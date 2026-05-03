@@ -37,6 +37,11 @@ reputationRouter.get('/stats', (request, response) => {
 });
 
 reputationRouter.post('/fetch', async (request, response, next) => {
+  if (request.body !== undefined && !isPlainObject(request.body)) {
+    response.status(400).json({ error: 'invalid project id' });
+    return;
+  }
+
   const projectId = parseOptionalProjectId(request.body?.projectId);
 
   if (request.body?.projectId !== undefined && projectId === undefined) {
@@ -106,4 +111,12 @@ function parseProjectIdQuery(value: unknown) {
 
 function parseOptionalProjectId(value: unknown) {
   return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  return Object.getPrototypeOf(value) === Object.prototype;
 }
