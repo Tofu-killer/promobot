@@ -114,6 +114,13 @@ export function createDraftsRouter(
       return;
     }
 
+    const projectId = parseProjectIdBodyValue(request.body?.projectId);
+
+    if (request.body?.projectId !== undefined && projectId === undefined) {
+      response.status(400).json({ error: 'invalid project id' });
+      return;
+    }
+
     if (typeof request.body?.title === 'string') {
       patch.title = request.body.title;
     }
@@ -126,8 +133,8 @@ export function createDraftsRouter(
     if (isPlainObject(request.body?.metadata)) {
       patch.metadata = request.body.metadata;
     }
-    if (Number.isInteger(request.body?.projectId) && request.body.projectId > 0) {
-      patch.projectId = request.body.projectId;
+    if (projectId !== undefined) {
+      patch.projectId = projectId;
     }
     if (Array.isArray(request.body?.hashtags)) {
       patch.hashtags = request.body.hashtags.filter(
@@ -189,6 +196,10 @@ function parseProjectIdQuery(value: unknown) {
 
   const projectId = Number(value);
   return Number.isInteger(projectId) && projectId > 0 ? projectId : undefined;
+}
+
+function parseProjectIdBodyValue(value: unknown) {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined;
 }
 
 function syncDraftSchedule(

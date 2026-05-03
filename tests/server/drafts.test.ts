@@ -383,6 +383,36 @@ describe('drafts api', () => {
     });
   });
 
+  it('rejects explicit invalid projectId values when patching drafts', async () => {
+    const store = createSQLiteDraftStore();
+    store.create({
+      platform: 'reddit',
+      content: 'original-draft-content',
+      projectId: 12,
+      title: 'Original Draft',
+    });
+    const app = createApp({
+      allowedIps: ['127.0.0.1'],
+      adminPassword: 'secret',
+    });
+
+    const response = await requestApp(app, 'PATCH', '/api/drafts/1', {
+      title: 'Should not persist',
+      projectId: 'bad',
+    });
+
+    expect(response.status).toBe(400);
+    expect(JSON.parse(response.body)).toEqual({ error: 'invalid project id' });
+    expect(store.getById(1)).toEqual(
+      expect.objectContaining({
+        id: 1,
+        title: 'Original Draft',
+        content: 'original-draft-content',
+        projectId: 12,
+      }),
+    );
+  });
+
   it('updates draft scheduledAt and enqueues a publish job', async () => {
     installFetchStub();
     const app = createApp({
