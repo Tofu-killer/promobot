@@ -141,10 +141,15 @@ export function createDraftsRouter(
     if (projectId !== undefined) {
       patch.projectId = projectId;
     }
-    if (Array.isArray(request.body?.hashtags)) {
-      patch.hashtags = request.body.hashtags.filter(
-        (hashtag: unknown): hashtag is string => typeof hashtag === 'string',
-      );
+    if (request.body && Object.hasOwn(request.body, 'hashtags')) {
+      if (
+        !Array.isArray(request.body.hashtags) ||
+        request.body.hashtags.some((hashtag: unknown) => typeof hashtag !== 'string')
+      ) {
+        response.status(400).json({ error: 'invalid draft payload' });
+        return;
+      }
+      patch.hashtags = request.body.hashtags;
     }
     if (typeof request.body?.status === 'string') {
       if (!isDraftStatus(request.body.status)) {

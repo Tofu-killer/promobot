@@ -441,6 +441,38 @@ describe('drafts api', () => {
     expect(readJobQueue()).toEqual([]);
   });
 
+  it('rejects hashtag arrays with non-string entries without mutating the draft or scheduling jobs', async () => {
+    const store = createSQLiteDraftStore();
+    store.create({
+      platform: 'reddit',
+      content: 'original-draft-content',
+      title: 'Original Draft',
+      hashtags: ['#launch'],
+      status: 'review',
+    });
+    const app = createApp({
+      allowedIps: ['127.0.0.1'],
+      adminPassword: 'secret',
+    });
+
+    const response = await requestApp(app, 'PATCH', '/api/drafts/1', {
+      hashtags: ['#launch', 42],
+    });
+
+    expect(response.status).toBe(400);
+    expect(JSON.parse(response.body)).toEqual({ error: 'invalid draft payload' });
+    expect(store.getById(1)).toEqual(
+      expect.objectContaining({
+        id: 1,
+        title: 'Original Draft',
+        content: 'original-draft-content',
+        hashtags: ['#launch'],
+        status: 'review',
+      }),
+    );
+    expect(readJobQueue()).toEqual([]);
+  });
+
   it('updates draft scheduledAt and enqueues a publish job', async () => {
     installFetchStub();
     const app = createApp({
