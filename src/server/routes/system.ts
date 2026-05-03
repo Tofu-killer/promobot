@@ -83,6 +83,12 @@ export function createSystemRouter(dependencies: SystemRouteDependencies = {}) {
       response.status(400).json({ error: 'invalid job type' });
       return;
     }
+    const normalizedType = type.trim();
+
+    if (!hasRegisteredJobHandler(schedulerRuntime, normalizedType)) {
+      response.status(400).json({ error: 'invalid job type' });
+      return;
+    }
 
     if (payload !== undefined && !isPlainObject(payload)) {
       response.status(400).json({ error: 'invalid job payload' });
@@ -108,7 +114,7 @@ export function createSystemRouter(dependencies: SystemRouteDependencies = {}) {
         : new Date().toISOString();
 
     const job = schedulerRuntime.enqueueJob({
-      type: type.trim(),
+      type: normalizedType,
       payload: isPlainObject(payload) ? payload : {},
       runAt: normalizedRunAt,
     });
@@ -488,6 +494,10 @@ function parseJobId(value: unknown): number | undefined {
 
 function readHealthNumber(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+function hasRegisteredJobHandler(schedulerRuntime: SchedulerRuntime, type: string) {
+  return schedulerRuntime.getStatus().handlers.includes(type);
 }
 
 function isValidJobRunAt(value: string) {

@@ -1429,7 +1429,7 @@ describe('system runtime api', () => {
           lastTickResults: [],
           lastError: null,
           recoveredRunningJobs: 0,
-          handlers: [],
+          handlers: ['monitor_fetch'],
           queue: {
             pending: 1,
             running: 0,
@@ -1512,6 +1512,88 @@ describe('system runtime api', () => {
     });
   });
 
+  it('rejects system job creation when the type has no registered handler', async () => {
+    const seen: Array<{ type: string; payload?: Record<string, unknown>; runAt: string }> = [];
+    const schedulerRuntime = {
+      getStatus() {
+        return {
+          available: true,
+          started: true,
+          schedulerIntervalMinutes: 15,
+          pollMs: 900000,
+          bootedAt: null,
+          lastTickAt: null,
+          lastTickResults: [],
+          lastError: null,
+          recoveredRunningJobs: 0,
+          handlers: ['publish', 'monitor_fetch'],
+          queue: {
+            pending: 0,
+            running: 0,
+            done: 0,
+            failed: 0,
+            canceled: 0,
+            duePending: 0,
+          },
+          recentJobs: [],
+        };
+      },
+      listJobs() {
+        return {
+          jobs: [],
+          queue: {
+            pending: 0,
+            running: 0,
+            done: 0,
+            failed: 0,
+            canceled: 0,
+            duePending: 0,
+          },
+          recentJobs: [],
+        };
+      },
+      getJob() {
+        return undefined;
+      },
+      reload() {
+        return this.getStatus();
+      },
+      async tickNow() {
+        return [];
+      },
+      enqueueJob(input: { type: string; payload?: Record<string, unknown>; runAt: string }) {
+        seen.push(input);
+        return {
+          id: 4,
+          type: input.type,
+          payload: JSON.stringify(input.payload ?? {}),
+          status: 'pending',
+          runAt: input.runAt,
+          attempts: 0,
+          createdAt: '2026-04-19T12:10:00.000Z',
+          updatedAt: '2026-04-19T12:10:00.000Z',
+        };
+      },
+      stop() {},
+    };
+
+    const response = await requestApp({
+      remoteAddress: '127.0.0.1',
+      method: 'POST',
+      url: '/api/system/jobs',
+      body: {
+        type: 'unknown_job',
+      },
+      dependencies: { schedulerRuntime },
+    });
+
+    expect(response.status).toBe(400);
+    expect(JSON.parse(response.body)).toEqual({
+      error: 'invalid job type',
+    });
+    expect(seen).toEqual([]);
+  });
+
   it('rejects system job creation when payload is not an object or runAt is invalid', async () => {
     const seen: Array<{ type: string; payload?: Record<string, unknown>; runAt: string }> = [];
     const schedulerRuntime = {
@@ -1526,7 +1608,7 @@ describe('system runtime api', () => {
           lastTickResults: [],
           lastError: null,
           recoveredRunningJobs: 0,
-          handlers: [],
+          handlers: ['inbox_fetch', 'monitor_fetch', 'reputation_fetch'],
           queue: {
             pending: 0,
             running: 0,
@@ -1768,7 +1850,7 @@ describe('system runtime api', () => {
           lastTickResults: [],
           lastError: null,
           recoveredRunningJobs: 0,
-          handlers: [],
+          handlers: ['monitor_fetch'],
           queue: {
             pending: 0,
             running: 0,
