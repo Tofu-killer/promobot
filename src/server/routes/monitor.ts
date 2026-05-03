@@ -60,6 +60,11 @@ monitorRouter.post('/:id/generate-follow-up', (request, response) => {
     return;
   }
 
+  if (request.body !== undefined && !isPlainObject(request.body)) {
+    response.status(400).json({ error: 'invalid follow-up payload' });
+    return;
+  }
+
   const item = monitorStore.getById(id);
   if (!item) {
     response.status(404).json({ error: 'monitor item not found' });
