@@ -31,6 +31,11 @@ export function createSettingsRouter(dependencies: SettingsRouteDependencies = {
     }
 
     const input = request.body ?? {};
+    const schedulerIntervalMinutes = parseSchedulerIntervalMinutes(input.schedulerIntervalMinutes);
+    if (input.schedulerIntervalMinutes !== undefined && schedulerIntervalMinutes === undefined) {
+      response.status(400).json({ error: 'invalid scheduler interval' });
+      return;
+    }
     const allowlist =
       Array.isArray(input.allowlist)
         ? input.allowlist.filter((value: unknown): value is string => typeof value === 'string')
@@ -43,12 +48,7 @@ export function createSettingsRouter(dependencies: SettingsRouteDependencies = {
 
     const settings = settingsStore.update({
       allowlist,
-      schedulerIntervalMinutes:
-        typeof input.schedulerIntervalMinutes === 'number'
-          ? input.schedulerIntervalMinutes
-          : typeof input.schedulerIntervalMinutes === 'string' && input.schedulerIntervalMinutes.trim()
-            ? Number(input.schedulerIntervalMinutes)
-            : undefined,
+      schedulerIntervalMinutes,
       rssDefaults: Array.isArray(input.rssDefaults)
         ? input.rssDefaults.filter((value: unknown): value is string => typeof value === 'string')
         : undefined,
@@ -85,4 +85,19 @@ export function createSettingsRouter(dependencies: SettingsRouteDependencies = {
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function parseSchedulerIntervalMinutes(value: unknown) {
+  const parsed =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string' && value.trim()
+        ? Number(value)
+        : undefined;
+
+  if (typeof parsed !== 'number' || !Number.isInteger(parsed) || parsed <= 0) {
+    return undefined;
+  }
+
+  return parsed;
 }

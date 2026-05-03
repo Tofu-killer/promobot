@@ -528,6 +528,121 @@ describe('settings api', () => {
     }
   });
 
+  it.each([
+    ['non-numeric string', 'abc'],
+    ['non-positive number', 0],
+    ['fractional number', 1.5],
+  ] as const)(
+    'rejects an invalid scheduler interval (%s) without mutating settings or reloading runtime',
+    async (_label, schedulerIntervalMinutes) => {
+      const { rootDir } = createTestDatabasePath();
+      const calls: string[] = [];
+      const schedulerRuntime = {
+        getStatus() {
+          calls.push('getStatus');
+          return {
+            available: true,
+            started: true,
+            schedulerIntervalMinutes: 15,
+            pollMs: 900000,
+            bootedAt: '2026-04-19T12:00:00.000Z',
+            lastTickAt: null,
+            lastTickResults: [],
+            lastError: null,
+            recoveredRunningJobs: 0,
+            handlers: [],
+            queue: {
+              pending: 0,
+              running: 0,
+              done: 0,
+              failed: 0,
+              duePending: 0,
+            },
+            recentJobs: [],
+          };
+        },
+        reload() {
+          calls.push('reload');
+          return {
+            available: true,
+            started: true,
+            schedulerIntervalMinutes: 30,
+            pollMs: 1800000,
+            bootedAt: '2026-04-19T12:00:00.000Z',
+            lastTickAt: null,
+            lastTickResults: [],
+            lastError: null,
+            recoveredRunningJobs: 0,
+            handlers: [],
+            queue: {
+              pending: 0,
+              running: 0,
+              done: 0,
+              failed: 0,
+              duePending: 0,
+            },
+            recentJobs: [],
+          };
+        },
+        async tickNow() {
+          return [];
+        },
+        enqueueJob() {
+          throw new Error('not implemented');
+        },
+        stop() {},
+      };
+
+      try {
+        const seeded = await requestApp(
+          'PATCH',
+          '/api/settings',
+          {
+            allowlist: ['127.0.0.1'],
+            schedulerIntervalMinutes: 30,
+          },
+          {
+            schedulerRuntime,
+          },
+        );
+        expect(seeded.status).toBe(200);
+        expect(calls).toEqual(['reload']);
+
+        calls.length = 0;
+
+        const response = await requestApp(
+          'PATCH',
+          '/api/settings',
+          {
+            schedulerIntervalMinutes,
+          },
+          {
+            schedulerRuntime,
+          },
+        );
+
+        expect(response.status).toBe(400);
+        expect(JSON.parse(response.body)).toEqual({
+          error: 'invalid scheduler interval',
+        });
+        expect(calls).toEqual([]);
+
+        const loaded = await requestApp('GET', '/api/settings');
+
+        expect(loaded.status).toBe(200);
+        expect(JSON.parse(loaded.body)).toEqual({
+          settings: expect.objectContaining({
+            allowlist: ['127.0.0.1'],
+            schedulerIntervalMinutes: 30,
+          }),
+          platforms: expect.any(Array),
+        });
+      } finally {
+        cleanupTestDatabasePath(rootDir);
+      }
+    },
+  );
+
   it('includes runtime status and reloads scheduler when runtime is provided', async () => {
     const { rootDir } = createTestDatabasePath();
     const calls: string[] = [];
