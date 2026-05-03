@@ -56,6 +56,16 @@ function parseProjectId(value: string) {
   return Number.isInteger(projectId) && projectId > 0 ? projectId : undefined;
 }
 
+function getProjectIdValidationError(value: string) {
+  const normalizedValue = value.trim();
+
+  if (normalizedValue.length === 0) {
+    return null;
+  }
+
+  return parseProjectId(value) === undefined ? '项目 ID 必须是大于 0 的整数' : null;
+}
+
 function buildProjectScopedPath(path: string, projectId?: number) {
   return projectId === undefined ? path : `${path}?projectId=${projectId}`;
 }
@@ -211,9 +221,16 @@ export function ReputationPage({
   const [localProjectIdDraft, setLocalProjectIdDraft] = useState('');
   const activeProjectIdDraft = projectIdDraft ?? localProjectIdDraft;
   const projectId = parseProjectId(activeProjectIdDraft);
+  const projectIdValidationError = getProjectIdValidationError(activeProjectIdDraft);
   const { state, reload } = useAsyncQuery(
-    () => (projectId === undefined ? loadReputationAction() : loadReputationAction(projectId)),
-    [loadReputationAction, projectId],
+    () => {
+      if (projectIdValidationError) {
+        return Promise.reject(new Error(projectIdValidationError));
+      }
+
+      return projectId === undefined ? loadReputationAction() : loadReputationAction(projectId);
+    },
+    [loadReputationAction, projectId, projectIdValidationError],
   );
   const { state: fetchState, run: runFetchReputation } = useAsyncAction((nextProjectId?: number) =>
     nextProjectId === undefined ? fetchReputationAction() : fetchReputationAction(nextProjectId),
@@ -254,11 +271,16 @@ export function ReputationPage({
       },
     ],
   };
+  const showLoadError = displayState.status === 'error' && displayState.error !== projectIdValidationError;
+  const shouldShowFetchFeedback = projectIdValidationError === null;
+  const shouldShowEnqueueFeedback = projectIdValidationError === null;
   const hasLiveData =
     typeof displayState.data === 'object' &&
     displayState.data !== null &&
     Array.isArray((displayState.data as ReputationStatsResponse).items);
   const isPreview = !hasLiveData;
+  const shouldShowReputationSurface =
+    hasLiveData || displayState.status === 'idle' || projectIdValidationError !== null;
   const viewData = hasLiveData ? (displayState.data as ReputationStatsResponse) : fallbackData;
   const displayItems = viewData.items.map((item) => {
     const localMutationState = reputationUpdateStateById[item.id];
@@ -375,6 +397,10 @@ export function ReputationPage({
   }
 
   function handleFetchReputation() {
+    if (projectIdValidationError) {
+      return;
+    }
+
     void runFetchReputation(projectId)
       .then(() => {
         reload();
@@ -383,6 +409,10 @@ export function ReputationPage({
   }
 
   function handleEnqueueReputationFetch() {
+    if (projectIdValidationError) {
+      return;
+    }
+
     const runAt = enqueueRunAtDraft.trim().length > 0 ? enqueueRunAtDraft.trim() : undefined;
 
     void runEnqueueFetchJob({ runAt, projectId })
@@ -404,10 +434,12 @@ export function ReputationPage({
             <ActionButton label="刷新口碑数据" onClick={reload} />
             <ActionButton
               label={displayFetchState.status === 'loading' ? '正在抓取口碑...' : '抓取新口碑'}
+              disabled={projectIdValidationError !== null}
               onClick={handleFetchReputation}
             />
             <ActionButton
               label={displayEnqueueState.status === 'loading' ? '正在提交抓取队列...' : '加入队列 / 定时抓取'}
+              disabled={projectIdValidationError !== null}
               onClick={handleEnqueueReputationFetch}
             />
             <ActionButton
@@ -427,7 +459,8 @@ export function ReputationPage({
       />
 
       {displayState.status === 'loading' ? <p style={{ color: '#334155' }}>正在加载口碑数据...</p> : null}
-      {displayState.status === 'error' ? <p style={{ color: '#b91c1c' }}>口碑数据加载失败：{displayState.error}</p> : null}
+      {projectIdValidationError ? <p style={{ color: '#b91c1c', fontWeight: 700 }}>{projectIdValidationError}</p> : null}
+      {showLoadError ? <p style={{ color: '#b91c1c' }}>口碑数据加载失败：{displayState.error}</p> : null}
       {displayState.status === 'idle' ? (
         <p style={{ ...feedbackStyle, margin: '0 0 16px', background: '#fffbeb', color: '#92400e' }}>
           当前展示的是预览数据，真实口碑数据加载完成后会自动替换。
@@ -438,12 +471,12 @@ export function ReputationPage({
           预览数据不可回写口碑状态或转入 Social Inbox。
         </p>
       ) : null}
-      {displayFetchState.status === 'success' && displayFetchState.data ? (
+      {shouldShowFetchFeedback && displayFetchState.status === 'success' && displayFetchState.data ? (
         <p style={{ ...feedbackStyle, margin: '0 0 16px', background: '#eff6ff', color: '#1d4ed8' }}>
           已抓取 {displayFetchState.data.inserted} 条口碑提及，当前总数 {displayFetchState.data.total}
         </p>
       ) : null}
-      {displayFetchState.status === 'error' ? (
+      {shouldShowFetchFeedback && displayFetchState.status === 'error' ? (
         <p
           style={{
             ...feedbackStyle,
@@ -455,12 +488,12 @@ export function ReputationPage({
           口碑抓取失败：{displayFetchState.error}
         </p>
       ) : null}
-      {displayEnqueueState.status === 'success' && displayEnqueueState.data ? (
+      {shouldShowEnqueueFeedback && displayEnqueueState.status === 'success' && displayEnqueueState.data ? (
         <p style={{ ...feedbackStyle, margin: '0 0 16px', background: '#eff6ff', color: '#1d4ed8' }}>
           已将口碑抓取加入队列，job #{displayEnqueueState.data.job.id}，执行时间 {displayEnqueueState.data.job.runAt}
         </p>
       ) : null}
-      {displayEnqueueState.status === 'error' ? (
+      {shouldShowEnqueueFeedback && displayEnqueueState.status === 'error' ? (
         <p
           style={{
             ...feedbackStyle,
@@ -485,7 +518,7 @@ export function ReputationPage({
         </p>
       ) : null}
 
-      {displayState.status === 'success' || displayState.status === 'idle' ? (
+      {shouldShowReputationSurface ? (
         <>
           <SectionCard title="抓取排程" description="留空表示立即入队，也可以填写 ISO 时间，让口碑抓取按计划执行。">
             <div style={{ display: 'grid', gap: '16px' }}>

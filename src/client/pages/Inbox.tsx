@@ -82,6 +82,16 @@ function parseProjectId(value: string) {
   return Number.isInteger(projectId) && projectId > 0 ? projectId : undefined;
 }
 
+function getProjectIdValidationError(value: string) {
+  const normalizedValue = value.trim();
+
+  if (normalizedValue.length === 0) {
+    return null;
+  }
+
+  return parseProjectId(value) === undefined ? '项目 ID 必须是大于 0 的整数' : null;
+}
+
 function buildProjectScopedPath(path: string, projectId?: number) {
   return projectId === undefined ? path : `${path}?projectId=${projectId}`;
 }
@@ -752,10 +762,17 @@ export function InboxPage({
   const [localProjectIdDraft, setLocalProjectIdDraft] = useState('');
   const activeProjectIdDraft = projectIdDraft ?? localProjectIdDraft;
   const projectId = parseProjectId(activeProjectIdDraft);
+  const projectIdValidationError = getProjectIdValidationError(activeProjectIdDraft);
   const shouldLoadReplyHandoffsLive = replyHandoffsStateOverride === undefined;
   const { state, reload } = useAsyncQuery(
-    () => (projectId === undefined ? loadInboxAction() : loadInboxAction(projectId)),
-    [loadInboxAction, projectId],
+    () => {
+      if (projectIdValidationError) {
+        return Promise.reject(new Error(projectIdValidationError));
+      }
+
+      return projectId === undefined ? loadInboxAction() : loadInboxAction(projectId);
+    },
+    [loadInboxAction, projectId, projectIdValidationError],
   );
   const { state: replyHandoffsState, reload: reloadReplyHandoffs } = useAsyncQuery(
     () =>
@@ -834,11 +851,15 @@ export function InboxPage({
     total: 1,
     unread: 1,
   };
+  const showLoadError = displayState.status === 'error' && displayState.error !== projectIdValidationError;
+  const shouldShowFetchFeedback = projectIdValidationError === null;
+  const shouldShowEnqueueFeedback = projectIdValidationError === null;
   const hasLiveData =
     typeof displayState.data === 'object' &&
     displayState.data !== null &&
     Array.isArray((displayState.data as InboxResponse).items);
   const isPreview = !hasLiveData;
+  const shouldShowInboxSurface = hasLiveData || displayState.status === 'idle' || projectIdValidationError !== null;
   const viewData = hasLiveData ? (displayState.data as InboxResponse) : fallbackData;
   const replyHandoffs =
     displayReplyHandoffsState.status === 'success' && displayReplyHandoffsState.data
@@ -1132,6 +1153,10 @@ export function InboxPage({
   }
 
   function handleFetchInbox() {
+    if (projectIdValidationError) {
+      return;
+    }
+
     void runFetchInbox(projectId)
       .then(() => {
         reloadInboxSurface();
@@ -1140,6 +1165,10 @@ export function InboxPage({
   }
 
   function handleEnqueueInboxFetch() {
+    if (projectIdValidationError) {
+      return;
+    }
+
     const runAt = enqueueRunAtDraft.trim().length > 0 ? enqueueRunAtDraft.trim() : undefined;
 
     void runEnqueueFetchJob({ runAt, projectId })
@@ -1385,10 +1414,12 @@ export function InboxPage({
             <ActionButton label="刷新收件箱" onClick={reloadInboxSurface} />
             <ActionButton
               label={displayFetchState.status === 'loading' ? '正在抓取收件箱...' : '抓取新命中'}
+              disabled={projectIdValidationError !== null}
               onClick={handleFetchInbox}
             />
             <ActionButton
               label={displayEnqueueState.status === 'loading' ? '正在提交抓取队列...' : '加入队列 / 定时抓取'}
+              disabled={projectIdValidationError !== null}
               onClick={handleEnqueueInboxFetch}
             />
           </>
@@ -1396,7 +1427,8 @@ export function InboxPage({
       />
 
       {displayState.status === 'loading' ? <p style={{ color: '#334155' }}>正在加载收件箱...</p> : null}
-      {displayState.status === 'error' ? <p style={{ color: '#b91c1c' }}>收件箱加载失败：{displayState.error}</p> : null}
+      {projectIdValidationError ? <p style={{ color: '#b91c1c', fontWeight: 700 }}>{projectIdValidationError}</p> : null}
+      {showLoadError ? <p style={{ color: '#b91c1c' }}>收件箱加载失败：{displayState.error}</p> : null}
       {displayState.status === 'idle' ? (
         <p style={{ ...feedbackStyle, margin: '0 0 16px', background: '#fffbeb', color: '#92400e' }}>
           当前展示的是预览数据，真实收件箱加载完成后会自动替换。
@@ -1407,22 +1439,22 @@ export function InboxPage({
           预览数据不可回写状态或生成回复。
         </p>
       ) : null}
-      {displayFetchState.status === 'success' && displayFetchState.data ? (
+      {shouldShowFetchFeedback && displayFetchState.status === 'success' && displayFetchState.data ? (
         <p style={{ ...feedbackStyle, margin: '0 0 16px', background: '#eff6ff', color: '#1d4ed8' }}>
           已抓取 {displayFetchState.data.inserted} 条收件箱命中，未读 {displayFetchState.data.unread}
         </p>
       ) : null}
-      {displayFetchState.status === 'error' ? (
+      {shouldShowFetchFeedback && displayFetchState.status === 'error' ? (
         <p style={{ ...feedbackStyle, margin: '0 0 16px', background: '#fef2f2', color: '#b91c1c' }}>
           收件箱抓取失败：{displayFetchState.error}
         </p>
       ) : null}
-      {displayEnqueueState.status === 'success' && displayEnqueueState.data ? (
+      {shouldShowEnqueueFeedback && displayEnqueueState.status === 'success' && displayEnqueueState.data ? (
         <p style={{ ...feedbackStyle, margin: '0 0 16px', background: '#eff6ff', color: '#1d4ed8' }}>
           已将收件箱抓取加入队列，job #{displayEnqueueState.data.job.id}，执行时间 {displayEnqueueState.data.job.runAt}
         </p>
       ) : null}
-      {displayEnqueueState.status === 'error' ? (
+      {shouldShowEnqueueFeedback && displayEnqueueState.status === 'error' ? (
         <p style={{ ...feedbackStyle, margin: '0 0 16px', background: '#fef2f2', color: '#b91c1c' }}>
           收件箱排程失败：{displayEnqueueState.error}
         </p>
@@ -1616,7 +1648,7 @@ export function InboxPage({
         </p>
       ) : null}
 
-      {hasLiveData || displayState.status === 'idle' ? (
+      {shouldShowInboxSurface ? (
         <>
           <SectionCard title="抓取排程" description="留空会立即加入 system jobs，也可以填写 ISO 时间做定时抓取。">
             <div style={{ display: 'grid', gap: '16px' }}>

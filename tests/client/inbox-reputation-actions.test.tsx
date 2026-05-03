@@ -7186,6 +7186,182 @@ describe('Reputation action wiring', () => {
     });
   });
 
+  it('does not fall back to an unscoped inbox load when a controlled projectId draft is invalid', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    const loadInboxAction = vi.fn().mockResolvedValue({
+      items: [],
+      total: 0,
+      unread: 0,
+    });
+    const fetchInboxAction = vi.fn().mockResolvedValue({
+      items: [],
+      inserted: 1,
+      total: 1,
+      unread: 1,
+    });
+    const enqueueFetchJobAction = vi.fn().mockResolvedValue({
+      job: {
+        id: 8,
+        type: 'inbox_fetch',
+        status: 'pending',
+        runAt: '2026-04-20T11:00:00.000Z',
+      },
+      runtime: {
+        available: true,
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(InboxPage as never, {
+          loadInboxAction,
+          fetchInboxAction,
+          enqueueFetchJobAction,
+          projectIdDraft: 'invalid-project-id',
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const projectIdInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    ) as HTMLElement & { value?: string };
+    const fetchButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('抓取新命中'),
+    );
+    const enqueueButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('加入队列'),
+    );
+
+    expect(projectIdInput).not.toBeNull();
+    expect(projectIdInput.value).toBe('invalid-project-id');
+    expect(loadInboxAction).not.toHaveBeenCalled();
+    expect(collectText(container)).toContain('项目 ID 必须是大于 0 的整数');
+    expect(collectText(container)).not.toContain('收件箱加载失败');
+
+    await act(async () => {
+      fetchButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      enqueueButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(fetchInboxAction).not.toHaveBeenCalled();
+    expect(enqueueFetchJobAction).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('clears stale inbox fetch and queue feedback after switching project scope to an invalid draft', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    const loadInboxAction = vi.fn().mockResolvedValue({
+      items: [
+        {
+          id: 7,
+          source: 'reddit',
+          status: 'needs_reply',
+          author: 'user123',
+          title: 'Project A inbox thread',
+          excerpt: 'Can you share current response times?',
+          createdAt: '2026-04-19T10:00:00.000Z',
+        },
+      ],
+      total: 1,
+      unread: 1,
+    });
+    const fetchInboxAction = vi.fn().mockResolvedValue({
+      items: [],
+      inserted: 2,
+      total: 2,
+      unread: 1,
+    });
+    const enqueueFetchJobAction = vi.fn().mockResolvedValue({
+      job: {
+        id: 13,
+        type: 'inbox_fetch',
+        status: 'pending',
+        runAt: '2026-04-20T09:15:00.000Z',
+      },
+      runtime: {
+        available: true,
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(InboxPage as never, {
+          loadInboxAction,
+          fetchInboxAction,
+          enqueueFetchJobAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const projectIdInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    );
+    const fetchButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('抓取新命中'),
+    );
+    const enqueueButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('加入队列'),
+    );
+
+    expect(projectIdInput).not.toBeNull();
+    expect(fetchButton).not.toBeNull();
+    expect(enqueueButton).not.toBeNull();
+
+    await act(async () => {
+      fetchButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    await act(async () => {
+      enqueueButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('已抓取 2 条收件箱命中，未读 1');
+    expect(collectText(container)).toContain('已将收件箱抓取加入队列，job #13');
+
+    await act(async () => {
+      updateFieldValue(projectIdInput as never, '12x', window as never);
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('项目 ID 必须是大于 0 的整数');
+    expect(collectText(container)).not.toContain('已抓取 2 条收件箱命中，未读 1');
+    expect(collectText(container)).not.toContain('已将收件箱抓取加入队列，job #13');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('clears stale reputation feedback after switching project scope with the same item id', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
@@ -7315,6 +7491,190 @@ describe('Reputation action wiring', () => {
     expect(loadReputationAction).toHaveBeenLastCalledWith(12);
     expect(collectText(container)).toContain('Project B complaint');
     expect(collectText(container)).not.toContain('已将“Project A complaint”回写为 handled');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('does not fall back to an unscoped reputation load when a controlled projectId draft is invalid', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ReputationPage } = await import('../../src/client/pages/Reputation');
+
+    const loadReputationAction = vi.fn().mockResolvedValue({
+      total: 0,
+      positive: 0,
+      neutral: 0,
+      negative: 0,
+      trend: [],
+      items: [],
+    });
+    const fetchReputationAction = vi.fn().mockResolvedValue({
+      items: [],
+      inserted: 1,
+      total: 1,
+    });
+    const enqueueFetchJobAction = vi.fn().mockResolvedValue({
+      job: {
+        id: 9,
+        type: 'reputation_fetch',
+        status: 'pending',
+        runAt: '2026-04-20T11:30:00.000Z',
+      },
+      runtime: {
+        available: true,
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ReputationPage as never, {
+          loadReputationAction,
+          fetchReputationAction,
+          enqueueFetchJobAction,
+          projectIdDraft: 'invalid-project-id',
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const projectIdInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    ) as HTMLElement & { value?: string };
+    const fetchButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('抓取新口碑'),
+    );
+    const enqueueButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('加入队列'),
+    );
+
+    expect(projectIdInput).not.toBeNull();
+    expect(projectIdInput.value).toBe('invalid-project-id');
+    expect(loadReputationAction).not.toHaveBeenCalled();
+    expect(collectText(container)).toContain('项目 ID 必须是大于 0 的整数');
+    expect(collectText(container)).not.toContain('口碑数据加载失败');
+
+    await act(async () => {
+      fetchButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      enqueueButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(fetchReputationAction).not.toHaveBeenCalled();
+    expect(enqueueFetchJobAction).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('clears stale reputation fetch and queue feedback after switching project scope to an invalid draft', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ReputationPage } = await import('../../src/client/pages/Reputation');
+
+    const loadReputationAction = vi.fn().mockResolvedValue({
+      total: 1,
+      positive: 0,
+      neutral: 0,
+      negative: 1,
+      trend: [
+        { label: '正向', value: 0 },
+        { label: '中性', value: 0 },
+        { label: '负向', value: 1 },
+      ],
+      items: [
+        {
+          id: 4,
+          source: 'x',
+          sentiment: 'negative' as const,
+          status: 'new',
+          title: 'Project A complaint',
+          detail: 'Users report being logged out unexpectedly.',
+          createdAt: '2026-04-19T10:00:00.000Z',
+        },
+      ],
+    });
+    const fetchReputationAction = vi.fn().mockResolvedValue({
+      items: [],
+      inserted: 3,
+      total: 5,
+    });
+    const enqueueFetchJobAction = vi.fn().mockResolvedValue({
+      job: {
+        id: 17,
+        type: 'reputation_fetch',
+        status: 'pending',
+        runAt: '2026-04-20T09:30:00.000Z',
+      },
+      runtime: {
+        available: true,
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ReputationPage as never, {
+          loadReputationAction,
+          fetchReputationAction,
+          enqueueFetchJobAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const projectIdInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    );
+    const fetchButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('抓取新口碑'),
+    );
+    const enqueueButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('加入队列'),
+    );
+
+    expect(projectIdInput).not.toBeNull();
+    expect(fetchButton).not.toBeNull();
+    expect(enqueueButton).not.toBeNull();
+
+    await act(async () => {
+      fetchButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    await act(async () => {
+      enqueueButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('已抓取 3 条口碑提及，当前总数 5');
+    expect(collectText(container)).toContain('已将口碑抓取加入队列，job #17');
+
+    await act(async () => {
+      updateFieldValue(projectIdInput as never, '12x', window as never);
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('项目 ID 必须是大于 0 的整数');
+    expect(collectText(container)).not.toContain('已抓取 3 条口碑提及，当前总数 5');
+    expect(collectText(container)).not.toContain('已将口碑抓取加入队列，job #17');
 
     await act(async () => {
       root.unmount();
