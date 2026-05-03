@@ -64,6 +64,16 @@ function parseProjectId(value: string) {
   return Number.isInteger(projectId) && projectId > 0 ? projectId : undefined;
 }
 
+function getProjectIdValidationError(value: string) {
+  const normalizedValue = value.trim();
+
+  if (normalizedValue.length === 0) {
+    return null;
+  }
+
+  return parseProjectId(value) === undefined ? '项目 ID 必须是大于 0 的整数' : null;
+}
+
 function buildProjectScopedPath(path: string, projectId?: number) {
   return projectId === undefined ? path : `${path}?projectId=${projectId}`;
 }
@@ -205,9 +215,16 @@ export function MonitorPage({
   const [localProjectIdDraft, setLocalProjectIdDraft] = useState('');
   const activeProjectIdDraft = projectIdDraft ?? localProjectIdDraft;
   const projectId = parseProjectId(activeProjectIdDraft);
+  const projectIdValidationError = getProjectIdValidationError(activeProjectIdDraft);
   const { state, reload } = useAsyncQuery(
-    () => (projectId === undefined ? loadMonitorAction() : loadMonitorAction(projectId)),
-    [loadMonitorAction, projectId],
+    () => {
+      if (projectIdValidationError) {
+        return Promise.reject(new Error(projectIdValidationError));
+      }
+
+      return projectId === undefined ? loadMonitorAction() : loadMonitorAction(projectId);
+    },
+    [loadMonitorAction, projectId, projectIdValidationError],
   );
   const { state: fetchState, run: runFetchMonitor } = useAsyncAction((nextProjectId?: number) =>
     nextProjectId === undefined ? fetchMonitorAction() : fetchMonitorAction(nextProjectId),
@@ -241,7 +258,9 @@ export function MonitorPage({
     ],
     total: 1,
   };
+  const showLoadError = displayState.status === 'error' && displayState.error !== projectIdValidationError;
   const hasLiveData =
+    !projectIdValidationError &&
     typeof displayState.data === 'object' &&
     displayState.data !== null &&
     Array.isArray((displayState.data as MonitorFeedResponse).items);
@@ -305,6 +324,10 @@ export function MonitorPage({
   }
 
   function handleFetchMonitor() {
+    if (projectIdValidationError) {
+      return;
+    }
+
     void runFetchMonitor(projectId)
       .then(() => {
         reload();
@@ -313,6 +336,10 @@ export function MonitorPage({
   }
 
   function handleEnqueueMonitorFetch() {
+    if (projectIdValidationError) {
+      return;
+    }
+
     const runAt = enqueueRunAtDraft.trim().length > 0 ? enqueueRunAtDraft.trim() : undefined;
 
     void runEnqueueFetchJob({ runAt, projectId })
@@ -371,10 +398,12 @@ export function MonitorPage({
             <ActionButton label="刷新监控" onClick={reload} />
             <ActionButton
               label={displayFetchState.status === 'loading' ? '正在抓取动态...' : '抓取新动态'}
+              disabled={projectIdValidationError !== null}
               onClick={handleFetchMonitor}
             />
             <ActionButton
               label={displayEnqueueState.status === 'loading' ? '正在提交抓取队列...' : '加入队列 / 定时抓取'}
+              disabled={projectIdValidationError !== null}
               onClick={handleEnqueueMonitorFetch}
             />
             <ActionButton
@@ -410,8 +439,12 @@ export function MonitorPage({
         />
       </label>
 
+      {projectIdValidationError ? (
+        <p style={{ color: '#b91c1c', fontWeight: 700 }}>{projectIdValidationError}</p>
+      ) : null}
+
       {displayState.status === 'loading' ? <p style={{ color: '#334155' }}>正在加载监控动态...</p> : null}
-      {displayState.status === 'error' ? <p style={{ color: '#b91c1c' }}>监控动态加载失败：{displayState.error}</p> : null}
+      {showLoadError ? <p style={{ color: '#b91c1c' }}>监控动态加载失败：{displayState.error}</p> : null}
       {displayState.status === 'idle' ? (
         <p style={{ color: '#92400e', fontWeight: 700 }}>
           当前展示的是预览数据，真实监控信号加载完成后会自动替换。

@@ -2663,6 +2663,80 @@ describe('Monitor follow-up actions', () => {
     });
   });
 
+  it('does not fall back to an unscoped monitor load when a controlled projectId draft is invalid', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { MonitorPage } = await import('../../src/client/pages/Monitor');
+
+    const loadMonitorAction = vi.fn().mockResolvedValue({
+      items: [],
+      total: 0,
+    });
+    const fetchMonitorAction = vi.fn().mockResolvedValue({
+      items: [],
+      inserted: 1,
+      total: 1,
+    });
+    const enqueueMonitorAction = vi.fn().mockResolvedValue({
+      job: {
+        id: 8,
+        type: 'monitor_fetch',
+        status: 'pending',
+        runAt: '2026-04-20T11:00:00.000Z',
+      },
+      runtime: {
+        available: true,
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(MonitorPage as never, {
+          loadMonitorAction,
+          fetchMonitorAction,
+          enqueueMonitorAction,
+          projectIdDraft: 'invalid-project-id',
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const projectIdInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    ) as FakeElement & { value?: string };
+    const fetchButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('抓取新动态'),
+    );
+    const enqueueButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('加入队列'),
+    );
+
+    expect(projectIdInput).not.toBeNull();
+    expect(projectIdInput.value).toBe('invalid-project-id');
+    expect(loadMonitorAction).not.toHaveBeenCalled();
+    expect(collectText(container)).toContain('项目 ID 必须是大于 0 的整数');
+    expect(collectText(container)).not.toContain('监控动态加载失败');
+
+    await act(async () => {
+      fetchButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      enqueueButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(fetchMonitorAction).not.toHaveBeenCalled();
+    expect(enqueueMonitorAction).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('shows queued monitor fetch feedback after clicking the action', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
