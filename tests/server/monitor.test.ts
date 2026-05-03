@@ -2207,6 +2207,33 @@ describe('monitor api', () => {
     }
   });
 
+  it('rejects non-string follow-up platforms instead of silently using the source fallback platform', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const monitorStore = createMonitorStore();
+      const draftStore = createSQLiteDraftStore();
+      const item = monitorStore.create({
+        projectId: 18,
+        source: 'instagram',
+        title: 'Instagram creator benchmark',
+        detail: 'Observed a follow-up opportunity on Instagram.',
+        status: 'new',
+      });
+
+      const response = await requestApp('POST', `/api/monitor/${item.id}/generate-follow-up`, {
+        platform: 42,
+      });
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'invalid follow-up payload',
+      });
+      expect(draftStore.list()).toEqual([]);
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('rejects an unsupported follow-up target even when the monitor source is launch-ready', async () => {
     const { rootDir } = createTestDatabasePath();
     try {

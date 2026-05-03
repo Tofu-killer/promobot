@@ -9,6 +9,10 @@ const monitorStore = createMonitorStore();
 const draftStore = createSQLiteDraftStore();
 const supportedFollowUpPlatforms = new Set(['x', 'reddit', 'instagram', 'tiktok', 'xiaohongshu', 'weibo']);
 
+function hasOwnProperty(target: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(target, key);
+}
+
 monitorRouter.use(systemDashboardRouter);
 
 monitorRouter.get('/feed', (request, response) => {
@@ -65,6 +69,16 @@ monitorRouter.post('/:id/generate-follow-up', (request, response) => {
     return;
   }
 
+  const body =
+    request.body !== null && typeof request.body === 'object'
+      ? (request.body as Record<string, unknown>)
+      : {};
+
+  if (hasOwnProperty(body, 'platform') && typeof body.platform !== 'string') {
+    response.status(400).json({ error: 'invalid follow-up payload' });
+    return;
+  }
+
   const item = monitorStore.getById(id);
   if (!item) {
     response.status(404).json({ error: 'monitor item not found' });
@@ -77,7 +91,7 @@ monitorRouter.post('/:id/generate-follow-up', (request, response) => {
     return;
   }
 
-  const platform = resolveFollowUpPlatform(request.body?.platform, sourcePlatform);
+  const platform = resolveFollowUpPlatform(body.platform, sourcePlatform);
   if (!platform) {
     response.status(400).json({ error: 'unsupported follow-up platform' });
     return;
