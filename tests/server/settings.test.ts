@@ -415,6 +415,119 @@ describe('settings api', () => {
     }
   });
 
+  it('rejects non-object patch bodies without mutating settings or reloading runtime', async () => {
+    const { rootDir } = createTestDatabasePath();
+    const calls: string[] = [];
+    const allowlistUpdates: string[][] = [];
+    const schedulerRuntime = {
+      getStatus() {
+        calls.push('getStatus');
+        return {
+          available: true,
+          started: true,
+          schedulerIntervalMinutes: 15,
+          pollMs: 900000,
+          bootedAt: '2026-04-19T12:00:00.000Z',
+          lastTickAt: null,
+          lastTickResults: [],
+          lastError: null,
+          recoveredRunningJobs: 0,
+          handlers: [],
+          queue: {
+            pending: 0,
+            running: 0,
+            done: 0,
+            failed: 0,
+            duePending: 0,
+          },
+          recentJobs: [],
+        };
+      },
+      reload() {
+        calls.push('reload');
+        return {
+          available: true,
+          started: true,
+          schedulerIntervalMinutes: 30,
+          pollMs: 1800000,
+          bootedAt: '2026-04-19T12:00:00.000Z',
+          lastTickAt: null,
+          lastTickResults: [],
+          lastError: null,
+          recoveredRunningJobs: 0,
+          handlers: [],
+          queue: {
+            pending: 0,
+            running: 0,
+            done: 0,
+            failed: 0,
+            duePending: 0,
+          },
+          recentJobs: [],
+        };
+      },
+      async tickNow() {
+        return [];
+      },
+      enqueueJob() {
+        throw new Error('not implemented');
+      },
+      stop() {},
+    };
+
+    try {
+      const seeded = await requestApp(
+        'PATCH',
+        '/api/settings',
+        {
+          allowlist: ['127.0.0.1'],
+          schedulerIntervalMinutes: 30,
+          monitorRssFeeds: ['https://example.com/feed.xml'],
+        },
+        {
+          schedulerRuntime,
+          onAllowlistUpdated(allowlist) {
+            allowlistUpdates.push(allowlist);
+          },
+        },
+      );
+      expect(seeded.status).toBe(200);
+      expect(calls).toEqual(['reload']);
+      expect(allowlistUpdates).toEqual([]);
+
+      calls.length = 0;
+      allowlistUpdates.length = 0;
+
+      const response = await requestApp('PATCH', '/api/settings', [], {
+        schedulerRuntime,
+        onAllowlistUpdated(allowlist) {
+          allowlistUpdates.push(allowlist);
+        },
+      });
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'invalid settings payload',
+      });
+      expect(calls).toEqual([]);
+      expect(allowlistUpdates).toEqual([]);
+
+      const loaded = await requestApp('GET', '/api/settings');
+
+      expect(loaded.status).toBe(200);
+      expect(JSON.parse(loaded.body)).toEqual({
+        settings: expect.objectContaining({
+          allowlist: ['127.0.0.1'],
+          schedulerIntervalMinutes: 30,
+          monitorRssFeeds: ['https://example.com/feed.xml'],
+        }),
+        platforms: expect.any(Array),
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('includes runtime status and reloads scheduler when runtime is provided', async () => {
     const { rootDir } = createTestDatabasePath();
     const calls: string[] = [];

@@ -25,6 +25,11 @@ export function createSettingsRouter(dependencies: SettingsRouteDependencies = {
   });
 
   settingsRouter.patch('/', (request, response) => {
+    if (request.body !== undefined && !isPlainObject(request.body)) {
+      response.status(400).json({ error: 'invalid settings payload' });
+      return;
+    }
+
     const input = request.body ?? {};
     const allowlist =
       Array.isArray(input.allowlist)
@@ -76,4 +81,8 @@ export function createSettingsRouter(dependencies: SettingsRouteDependencies = {
   });
 
   return settingsRouter;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
