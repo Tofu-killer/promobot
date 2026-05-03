@@ -17,6 +17,7 @@ import {
   inboxReplyHandoffPollJobType,
 } from '../services/inbox/replyHandoffPollHandler.js';
 import { createReputationFetchService } from '../services/reputationFetch.js';
+import { readRecurringSourceConfigIds } from './sourceConfigRecurringJobs.js';
 
 interface ProjectScopedJobPayload {
   projectId?: unknown;
@@ -54,10 +55,14 @@ export function createDefaultJobHandlers(
 
   return {
     inbox_fetch: async (payload) => {
-      await inboxFetchService.fetchNow(readProjectId(payload));
+      await inboxFetchService.fetchNow(readProjectId(payload), {
+        sourceConfigIds: readRecurringSourceConfigIds(payload),
+      });
     },
     monitor_fetch: async (payload) => {
-      await monitorFetchService.fetchNow(readProjectId(payload));
+      await monitorFetchService.fetchNow(readProjectId(payload), {
+        sourceConfigIds: readRecurringSourceConfigIds(payload),
+      });
     },
     [browserHandoffPollJobType]: browserHandoffPollHandler,
     [inboxReplyHandoffPollJobType]: inboxReplyHandoffPollHandler,
@@ -65,7 +70,9 @@ export function createDefaultJobHandlers(
     [channelAccountSessionRequestPollJobType]: channelAccountSessionRequestPollHandler,
     publish: publishJobHandler,
     reputation_fetch: async (payload) => {
-      await reputationFetchService.fetchNow(readProjectId(payload));
+      await reputationFetchService.fetchNow(readProjectId(payload), {
+        sourceConfigIds: readRecurringSourceConfigIds(payload),
+      });
     },
   };
 }

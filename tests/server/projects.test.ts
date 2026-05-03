@@ -1,13 +1,18 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createApp } from '../../src/server/app';
 import { createSourceConfigStore } from '../../src/server/store/sourceConfigs';
 import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
 
-async function requestApp(method: string, url: string, body?: unknown) {
+async function requestApp(
+  method: string,
+  url: string,
+  body?: unknown,
+  dependencies?: Parameters<typeof createApp>[1],
+) {
   const app = createApp({
     allowedIps: ['127.0.0.1'],
     adminPassword: 'secret',
-  });
+  }, dependencies);
 
   return await new Promise<{ status: number; body: string }>((resolve, reject) => {
     const req = Object.assign(Object.create(app.request), {
@@ -536,6 +541,184 @@ describe('projects api', () => {
             pollIntervalMinutes: 60,
             createdAt: initialCreatedAt,
             updatedAt: updatedPayload.sourceConfig.updatedAt,
+          }),
+        ],
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('reloads scheduler runtime after source config create and update', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const schedulerRuntime = {
+        reload: vi.fn(),
+      };
+
+      const projectResponse = await requestApp(
+        'POST',
+        '/api/projects',
+        {
+          name: 'Monitoring Workspace',
+          siteName: 'PromoBot',
+          siteUrl: 'https://example.com',
+          siteDescription: 'Brand monitoring',
+          sellingPoints: ['Fast iteration'],
+        },
+        { schedulerRuntime: schedulerRuntime as never },
+      );
+
+      expect(projectResponse.status).toBe(201);
+
+      const created = await requestApp(
+        'POST',
+        '/api/projects/1/source-configs',
+        {
+          projectId: 1,
+          sourceType: 'keyword',
+          platform: 'reddit',
+          label: 'Competitor mentions',
+          configJson: {
+            keywords: ['promobot', 'openai'],
+            subreddit: 'LocalLLaMA',
+          },
+          enabled: true,
+          pollIntervalMinutes: 30,
+        },
+        { schedulerRuntime: schedulerRuntime as never },
+      );
+
+      expect(created.status).toBe(201);
+      expect(schedulerRuntime.reload).toHaveBeenCalledTimes(1);
+
+      const updated = await requestApp(
+        'PATCH',
+        '/api/projects/1/source-configs/1',
+        {
+          label: 'Brand mentions',
+          enabled: false,
+          pollIntervalMinutes: 60,
+        },
+        { schedulerRuntime: schedulerRuntime as never },
+      );
+
+      expect(updated.status).toBe(200);
+      expect(schedulerRuntime.reload).toHaveBeenCalledTimes(2);
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('returns scheduler reload warnings after source config create and update when persistence already succeeded', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const schedulerRuntime = {
+        reload: vi
+          .fn()
+          .mockImplementationOnce(() => {
+            throw new Error('scheduler unavailable after create');
+          })
+          .mockImplementationOnce(() => {
+            throw new Error('scheduler unavailable after update');
+          }),
+      };
+
+      const projectResponse = await requestApp(
+        'POST',
+        '/api/projects',
+        {
+          name: 'Monitoring Workspace',
+          siteName: 'PromoBot',
+          siteUrl: 'https://example.com',
+          siteDescription: 'Brand monitoring',
+          sellingPoints: ['Fast iteration'],
+        },
+        { schedulerRuntime: schedulerRuntime as never },
+      );
+
+      expect(projectResponse.status).toBe(201);
+
+      const created = await requestApp(
+        'POST',
+        '/api/projects/1/source-configs',
+        {
+          projectId: 1,
+          sourceType: 'keyword+reddit',
+          platform: 'reddit',
+          label: 'Competitor mentions',
+          configJson: {
+            query: 'promobot',
+          },
+          enabled: true,
+          pollIntervalMinutes: 30,
+        },
+        { schedulerRuntime: schedulerRuntime as never },
+      );
+
+      expect(created.status).toBe(201);
+      expect(JSON.parse(created.body)).toEqual({
+        sourceConfig: expect.objectContaining({
+          id: 1,
+          label: 'Competitor mentions',
+        }),
+        warnings: [
+          {
+            code: 'scheduler_reload_failed',
+            message: 'scheduler unavailable after create',
+          },
+        ],
+      });
+
+      const persistedAfterCreate = await requestApp('GET', '/api/projects/1/source-configs');
+      expect(persistedAfterCreate.status).toBe(200);
+      expect(JSON.parse(persistedAfterCreate.body)).toEqual({
+        sourceConfigs: [
+          expect.objectContaining({
+            id: 1,
+            label: 'Competitor mentions',
+            enabled: true,
+            pollIntervalMinutes: 30,
+          }),
+        ],
+      });
+
+      const updated = await requestApp(
+        'PATCH',
+        '/api/projects/1/source-configs/1',
+        {
+          label: 'Brand mentions',
+          enabled: false,
+          pollIntervalMinutes: 60,
+        },
+        { schedulerRuntime: schedulerRuntime as never },
+      );
+
+      expect(updated.status).toBe(200);
+      expect(JSON.parse(updated.body)).toEqual({
+        sourceConfig: expect.objectContaining({
+          id: 1,
+          label: 'Brand mentions',
+          enabled: false,
+          pollIntervalMinutes: 60,
+        }),
+        warnings: [
+          {
+            code: 'scheduler_reload_failed',
+            message: 'scheduler unavailable after update',
+          },
+        ],
+      });
+
+      const persistedAfterUpdate = await requestApp('GET', '/api/projects/1/source-configs');
+      expect(persistedAfterUpdate.status).toBe(200);
+      expect(JSON.parse(persistedAfterUpdate.body)).toEqual({
+        sourceConfigs: [
+          expect.objectContaining({
+            id: 1,
+            label: 'Brand mentions',
+            enabled: false,
+            pollIntervalMinutes: 60,
           }),
         ],
       });

@@ -242,9 +242,44 @@ describe('default job handlers', () => {
     await handlers.inbox_fetch({ projectId: 8 }, {} as never);
     await handlers.reputation_fetch({ projectId: 9 }, {} as never);
 
-    expect(monitorFetchNow).toHaveBeenCalledWith(7);
-    expect(inboxFetchNow).toHaveBeenCalledWith(8);
-    expect(reputationFetchNow).toHaveBeenCalledWith(9);
+    expect(monitorFetchNow).toHaveBeenCalledWith(7, { sourceConfigIds: undefined });
+    expect(inboxFetchNow).toHaveBeenCalledWith(8, { sourceConfigIds: undefined });
+    expect(reputationFetchNow).toHaveBeenCalledWith(9, { sourceConfigIds: undefined });
+  });
+
+  it('passes recurring source config ids through to monitor, inbox, and reputation fetch handlers', async () => {
+    const monitorFetchNow = vi.fn().mockResolvedValue({ items: [], inserted: 0 });
+    const inboxFetchNow = vi.fn().mockReturnValue({ items: [], inserted: 0 });
+    const reputationFetchNow = vi.fn().mockReturnValue({ items: [], inserted: 0 });
+
+    const handlers = createDefaultJobHandlers({
+      monitorFetchService: {
+        fetchNow: monitorFetchNow,
+      },
+      inboxFetchService: {
+        fetchNow: inboxFetchNow,
+      },
+      reputationFetchService: {
+        fetchNow: reputationFetchNow,
+      },
+      channelAccountSessionRequestHandler: vi.fn(),
+      publishJobHandler: vi.fn(),
+    });
+
+    const payload = {
+      recurring: 'source_config_poll',
+      projectId: 11,
+      sourceConfigIds: [3, 5],
+      intervalMinutes: 30,
+    };
+
+    await handlers.monitor_fetch(payload, {} as never);
+    await handlers.inbox_fetch(payload, {} as never);
+    await handlers.reputation_fetch(payload, {} as never);
+
+    expect(monitorFetchNow).toHaveBeenCalledWith(11, { sourceConfigIds: [3, 5] });
+    expect(inboxFetchNow).toHaveBeenCalledWith(11, { sourceConfigIds: [3, 5] });
+    expect(reputationFetchNow).toHaveBeenCalledWith(11, { sourceConfigIds: [3, 5] });
   });
 
   it('falls back to global fetches when projectId is missing or invalid', async () => {
@@ -270,9 +305,9 @@ describe('default job handlers', () => {
     await handlers.inbox_fetch({ projectId: 'bad' }, {} as never);
     await handlers.reputation_fetch({ projectId: 0 }, {} as never);
 
-    expect(monitorFetchNow).toHaveBeenCalledWith(undefined);
-    expect(inboxFetchNow).toHaveBeenCalledWith(undefined);
-    expect(reputationFetchNow).toHaveBeenCalledWith(undefined);
+    expect(monitorFetchNow).toHaveBeenCalledWith(undefined, { sourceConfigIds: undefined });
+    expect(inboxFetchNow).toHaveBeenCalledWith(undefined, { sourceConfigIds: undefined });
+    expect(reputationFetchNow).toHaveBeenCalledWith(undefined, { sourceConfigIds: undefined });
   });
 
   it('keeps route-resolved browser-lane artifacts stable when the default session request handler runs', async () => {

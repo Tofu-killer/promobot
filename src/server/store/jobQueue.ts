@@ -37,6 +37,7 @@ export interface JobQueueStats {
 
 export interface ListJobQueueOptions {
   limit?: number;
+  offset?: number;
   statuses?: string[];
 }
 
@@ -215,6 +216,7 @@ function listJobs(
   options: ListJobQueueOptions = {},
 ): JobQueueEntry[] {
   const limit = normalizeLimit(options.limit);
+  const offset = normalizeOffset(options.offset);
   const statuses = Array.isArray(options.statuses)
     ? options.statuses.filter((status): status is string => typeof status === 'string' && status.trim().length > 0)
     : [];
@@ -228,6 +230,7 @@ function listJobs(
   }
 
   params.push(limit);
+  params.push(offset);
 
   const rows = database
     .prepare(
@@ -239,6 +242,7 @@ function listJobs(
         ${conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''}
         ORDER BY run_at ASC, id ASC
         LIMIT ?
+        OFFSET ?
       `,
     )
     .all(params);
@@ -627,4 +631,12 @@ function normalizeLimit(value: number | undefined) {
   }
 
   return Math.min(value, 100);
+}
+
+function normalizeOffset(value: number | undefined) {
+  if (!Number.isInteger(value) || value === undefined || value < 0) {
+    return 0;
+  }
+
+  return value;
 }

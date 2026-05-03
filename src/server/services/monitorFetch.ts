@@ -15,6 +15,11 @@ export interface MonitorFetchResult {
   inserted: number;
 }
 
+export interface MonitorFetchOptions {
+  now?: Date;
+  sourceConfigIds?: number[];
+}
+
 export function createMonitorFetchService() {
   const monitorStore = createMonitorStore();
   const rssService = createMonitorRssService();
@@ -22,9 +27,18 @@ export function createMonitorFetchService() {
   const sourceConfigStore = createSourceConfigStore();
 
   return {
-    async fetchNow(projectId?: number, now: Date = new Date()): Promise<MonitorFetchResult> {
+    async fetchNow(
+      projectId?: number,
+      options: MonitorFetchOptions | Date = {},
+    ): Promise<MonitorFetchResult> {
+      const normalizedOptions = options instanceof Date ? { now: options } : options;
+      const now = normalizedOptions.now ?? new Date();
       const settings = projectId === undefined ? settingsStore.get() : emptyMonitorSettings();
-      const sourceConfigs = filterSourceConfigsByProject(sourceConfigStore.listEnabled(), projectId);
+      const sourceConfigs = filterSourceConfigsByScope(
+        sourceConfigStore.listEnabled(),
+        projectId,
+        normalizedOptions.sourceConfigIds,
+      );
       const collected = await collectConfiguredSignals(
         rssService,
         settings,
@@ -109,12 +123,23 @@ function shouldDisableSeedDataInProduction() {
   return process.env.NODE_ENV === 'production';
 }
 
-function filterSourceConfigsByProject(sourceConfigs: SourceConfigRecord[], projectId?: number) {
-  if (projectId === undefined) {
-    return sourceConfigs;
+function filterSourceConfigsByScope(
+  sourceConfigs: SourceConfigRecord[],
+  projectId?: number,
+  sourceConfigIds?: number[],
+) {
+  let filtered = sourceConfigs;
+
+  if (projectId !== undefined) {
+    filtered = filtered.filter((sourceConfig) => sourceConfig.projectId === projectId);
   }
 
-  return sourceConfigs.filter((sourceConfig) => sourceConfig.projectId === projectId);
+  if (sourceConfigIds && sourceConfigIds.length > 0) {
+    const sourceConfigIdSet = new Set(sourceConfigIds);
+    filtered = filtered.filter((sourceConfig) => sourceConfigIdSet.has(sourceConfig.id));
+  }
+
+  return filtered;
 }
 
 function emptyMonitorSettings() {
@@ -140,6 +165,7 @@ interface ScopedStringValue {
 }
 
 interface ScopedProfileValue {
+  sourceConfigId?: number;
   projectId?: number;
   handle?: string;
   profileUrl: string;
@@ -396,6 +422,7 @@ export function resolveSourceConfigInputs(sourceConfigs: SourceConfigRecord[]) {
       if (profileInput) {
         const metadata = readSourceConfigChannelAccountMetadata(sourceConfig.configJson);
         instagramProfiles.push({
+          sourceConfigId: sourceConfig.id,
           projectId: sourceConfig.projectId,
           ...profileInput,
           ...(metadata ? { metadata } : {}),
@@ -412,6 +439,7 @@ export function resolveSourceConfigInputs(sourceConfigs: SourceConfigRecord[]) {
       if (profileInput) {
         const metadata = readSourceConfigChannelAccountMetadata(sourceConfig.configJson);
         tiktokProfiles.push({
+          sourceConfigId: sourceConfig.id,
           projectId: sourceConfig.projectId,
           ...profileInput,
           ...(metadata ? { metadata } : {}),
@@ -436,6 +464,10 @@ function buildProfileMonitorMetadata(profile: ScopedProfileValue) {
     sourceUrl: profile.profileUrl,
     profileUrl: profile.profileUrl,
   };
+
+  if (profile.sourceConfigId !== undefined) {
+    metadata.sourceConfigId = profile.sourceConfigId;
+  }
 
   if (profile.handle) {
     metadata.profileHandle = profile.handle;

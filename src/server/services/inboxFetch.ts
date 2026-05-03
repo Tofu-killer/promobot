@@ -1,6 +1,6 @@
 import type { InboxItemRecord } from '../store/inbox.js';
 import { createInboxStore } from '../store/inbox.js';
-import { createMonitorStore } from '../store/monitor.js';
+import { createMonitorStore, type MonitorItemRecord } from '../store/monitor.js';
 import { createSettingsStore } from '../store/settings.js';
 import { createSourceConfigStore, type SourceConfigRecord } from '../store/sourceConfigs.js';
 import { collectFacebookGroupInboxSignals } from './inbox/fetchers/facebookGroup.js';
@@ -17,6 +17,10 @@ import { readSourceConfigChannelAccountMetadata } from './sourceConfigMetadata.j
 export interface InboxFetchResult {
   items: InboxItemRecord[];
   inserted: number;
+}
+
+export interface InboxFetchOptions {
+  sourceConfigIds?: number[];
 }
 
 interface InboxSearchRecord {
@@ -45,12 +49,16 @@ export function createInboxFetchService() {
   const sourceConfigStore = createSourceConfigStore();
 
   return {
-    async fetchNow(projectId?: number): Promise<InboxFetchResult> {
-      const monitorItems = monitorStore.list(projectId);
+    async fetchNow(projectId?: number, options: InboxFetchOptions = {}): Promise<InboxFetchResult> {
+      const monitorItems = filterMonitorItemsBySourceConfigScope(
+        monitorStore.list(projectId),
+        normalizeSourceConfigIdSet(options.sourceConfigIds),
+      );
       const settings = projectId === undefined ? settingsStore.get() : emptyInboxSettings();
-      const sourceConfigs = filterSourceConfigsByProject(
+      const sourceConfigs = filterSourceConfigsByScope(
         sourceConfigStore.listEnabled(),
         projectId,
+        options.sourceConfigIds,
       );
       const queries = resolveInboxQueries(settings, sourceConfigs);
       const monitorSignals = collectBrowserPlatformInboxSignals(monitorItems);
@@ -112,12 +120,44 @@ function collectBrowserPlatformInboxSignals(
   ];
 }
 
-function filterSourceConfigsByProject(sourceConfigs: SourceConfigRecord[], projectId?: number) {
-  if (projectId === undefined) {
-    return sourceConfigs;
+function filterMonitorItemsBySourceConfigScope(
+  monitorItems: MonitorItemRecord[],
+  sourceConfigIdSet: Set<number> | undefined,
+) {
+  if (!sourceConfigIdSet || sourceConfigIdSet.size === 0) {
+    return monitorItems;
   }
 
-  return sourceConfigs.filter((sourceConfig) => sourceConfig.projectId === projectId);
+  return monitorItems.filter((item) => sourceConfigIdSet.has(readPositiveInteger(item.metadata?.sourceConfigId)));
+}
+
+function filterSourceConfigsByScope(
+  sourceConfigs: SourceConfigRecord[],
+  projectId?: number,
+  sourceConfigIds?: number[],
+) {
+  let filtered = sourceConfigs;
+
+  if (projectId !== undefined) {
+    filtered = filtered.filter((sourceConfig) => sourceConfig.projectId === projectId);
+  }
+
+  if (sourceConfigIds && sourceConfigIds.length > 0) {
+    const sourceConfigIdSet = new Set(sourceConfigIds);
+    filtered = filtered.filter((sourceConfig) => sourceConfigIdSet.has(sourceConfig.id));
+  }
+
+  return filtered;
+}
+
+function normalizeSourceConfigIdSet(sourceConfigIds?: number[]) {
+  if (!sourceConfigIds || sourceConfigIds.length === 0) {
+    return undefined;
+  }
+
+  return new Set(
+    sourceConfigIds.filter((id): id is number => Number.isInteger(id) && id > 0),
+  );
 }
 
 function resolveInboxQueries(
@@ -422,6 +462,11 @@ function resolveInboxSourceConfigQueries(sourceConfigs: SourceConfigRecord[]) {
 
 function readString(value: unknown) {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+function readPositiveInteger(value: unknown) {
+  const normalized = Number(value);
+  return Number.isInteger(normalized) && normalized > 0 ? normalized : -1;
 }
 
 function readQueryList(configJson: Record<string, unknown>) {

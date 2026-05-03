@@ -1495,6 +1495,7 @@ describe('monitor api', () => {
 
     expect(inputs.instagramProfiles).toEqual([
       {
+        sourceConfigId: 3,
         projectId: 7,
         handle: '@openai',
         profileUrl: 'https://www.instagram.com/openai/',
@@ -1502,6 +1503,7 @@ describe('monitor api', () => {
     ]);
     expect(inputs.tiktokProfiles).toEqual([
       {
+        sourceConfigId: 5,
         projectId: 7,
         handle: '@openai',
         profileUrl: 'https://www.tiktok.com/@openai',
@@ -1576,6 +1578,7 @@ describe('monitor api', () => {
 
     expect(inputs.instagramProfiles).toEqual([
       {
+        sourceConfigId: 2,
         projectId: 7,
         handle: '@openai',
         profileUrl: 'https://www.instagram.com/openai/',
@@ -1583,6 +1586,7 @@ describe('monitor api', () => {
     ]);
     expect(inputs.tiktokProfiles).toEqual([
       {
+        sourceConfigId: 4,
         projectId: 7,
         handle: '@openai',
         profileUrl: 'https://www.tiktok.com/@openai',
@@ -1656,6 +1660,7 @@ describe('monitor api', () => {
 
     expect(inputs.instagramProfiles).toEqual([
       {
+        sourceConfigId: 1,
         projectId: 8,
         handle: '@openai',
         profileUrl: 'https://www.instagram.com/openai/',
@@ -1663,6 +1668,7 @@ describe('monitor api', () => {
     ]);
     expect(inputs.tiktokProfiles).toEqual([
       {
+        sourceConfigId: 2,
         projectId: 8,
         handle: '@openai',
         profileUrl: 'https://www.tiktok.com/@openai',
@@ -1758,6 +1764,7 @@ describe('monitor api', () => {
         title: 'Instagram profile update: @openai',
         detail: '1 followers · 2 following · 3 posts\n\nhttps://www.instagram.com/openai/',
         metadata: {
+          sourceConfigId: 1,
           sourceUrl: 'https://www.instagram.com/openai/',
           profileUrl: 'https://www.instagram.com/openai/',
           profileHandle: '@openai',
@@ -1769,6 +1776,7 @@ describe('monitor api', () => {
         title: 'TikTok profile update: @openai',
         detail: 'OpenAI · OpenAI on TikTok\n\nhttps://www.tiktok.com/@openai',
         metadata: {
+          sourceConfigId: 2,
           sourceUrl: 'https://www.tiktok.com/@openai',
           profileUrl: 'https://www.tiktok.com/@openai',
           profileHandle: '@openai',

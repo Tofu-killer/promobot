@@ -7,266 +7,288 @@ import {
   type UpdateSourceConfigInput,
 } from '../store/sourceConfigs.js';
 import { isSupportedSourceType, validateSourceConfigInput } from '../lib/sourceConfigValidation.js';
+import type { SchedulerRuntime } from '../runtime/schedulerRuntime.js';
 
 const projectStore = createProjectStore();
 const sourceConfigStore = createSourceConfigStore();
 
-export const projectsRouter = Router();
+export interface ProjectsRouterDependencies {
+  schedulerRuntime?: Pick<SchedulerRuntime, 'reload'>;
+}
 
-projectsRouter.get('/', (_request, response) => {
-  response.json({ projects: projectStore.list() });
-});
+interface SchedulerWarning {
+  code: 'scheduler_reload_failed';
+  message: string;
+}
 
-projectsRouter.get('/:id/source-configs', (request, response) => {
-  const projectId = parseRouteId(request.params.id);
-  if (!projectId) {
-    response.status(400).json({ error: 'invalid project id' });
-    return;
-  }
+export function createProjectsRouter(
+  dependencies: ProjectsRouterDependencies = {},
+) {
+  const router = Router();
 
-  if (!projectExists(projectId)) {
-    response.status(404).json({ error: 'project not found' });
-    return;
-  }
-
-  response.json({
-    sourceConfigs: sourceConfigStore.listByProject(projectId),
-  });
-});
-
-projectsRouter.post('/', (request, response) => {
-  const input = request.body;
-  if (input === null || typeof input !== 'object' || Array.isArray(input)) {
-    response.status(400).json({ error: 'invalid project payload' });
-    return;
-  }
-
-  const allowedFields = new Set([
-    'name',
-    'siteName',
-    'siteUrl',
-    'siteDescription',
-    'sellingPoints',
-    'brandVoice',
-    'ctas',
-  ]);
-  if (Object.keys(input).some((key) => !allowedFields.has(key))) {
-    response.status(400).json({ error: 'invalid project payload' });
-    return;
-  }
-
-  const {
-    name,
-    siteName,
-    siteUrl,
-    siteDescription,
-    sellingPoints,
-    brandVoice,
-    ctas,
-  } = input;
-
-  if (
-    typeof name !== 'string' ||
-    typeof siteName !== 'string' ||
-    typeof siteUrl !== 'string' ||
-    typeof siteDescription !== 'string' ||
-    !Array.isArray(sellingPoints) ||
-    !sellingPoints.every((value: unknown) => typeof value === 'string') ||
-    (brandVoice !== undefined && typeof brandVoice !== 'string') ||
-    (ctas !== undefined &&
-      (!Array.isArray(ctas) || !ctas.every((value: unknown) => typeof value === 'string')))
-  ) {
-    response.status(400).json({ error: 'invalid project payload' });
-    return;
-  }
-
-  const project = projectStore.create({
-    name,
-    siteName,
-    siteUrl,
-    siteDescription,
-    sellingPoints: sellingPoints.filter((value: unknown): value is string => typeof value === 'string'),
-    brandVoice: typeof brandVoice === 'string' ? brandVoice : '',
-    ctas: Array.isArray(ctas) ? ctas.filter((value: unknown): value is string => typeof value === 'string') : [],
+  router.get('/', (_request, response) => {
+    response.json({ projects: projectStore.list() });
   });
 
-  response.status(201).json({
-    project,
-  });
-});
+  router.get('/:id/source-configs', (request, response) => {
+    const projectId = parseRouteId(request.params.id);
+    if (!projectId) {
+      response.status(400).json({ error: 'invalid project id' });
+      return;
+    }
 
-projectsRouter.post('/:id/source-configs', (request, response) => {
-  const projectId = parseRouteId(request.params.id);
-  if (!projectId) {
-    response.status(400).json({ error: 'invalid project id' });
-    return;
-  }
+    if (!projectExists(projectId)) {
+      response.status(404).json({ error: 'project not found' });
+      return;
+    }
 
-  if (!projectExists(projectId)) {
-    response.status(404).json({ error: 'project not found' });
-    return;
-  }
-
-  const input = parseCreateSourceConfigInput(request.body, projectId);
-  if (!input.ok) {
-    response.status(400).json({ error: input.error });
-    return;
-  }
-
-  const sourceConfig = sourceConfigStore.create(input.value);
-
-  response.status(201).json({
-    sourceConfig,
-  });
-});
-
-projectsRouter.patch('/:id', (request, response) => {
-  const id = Number(request.params.id);
-  if (!Number.isInteger(id) || id <= 0) {
-    response.status(400).json({ error: 'invalid project id' });
-    return;
-  }
-
-  if (!projectExists(id)) {
-    response.status(404).json({ error: 'project not found' });
-    return;
-  }
-
-  const input = request.body;
-  if (input !== undefined && (input === null || typeof input !== 'object' || Array.isArray(input))) {
-    response.status(400).json({ error: 'invalid project payload' });
-    return;
-  }
-
-  const body = (input ?? {}) as Record<string, unknown>;
-  const allowedFields = new Set([
-    'name',
-    'siteName',
-    'siteUrl',
-    'siteDescription',
-    'sellingPoints',
-    'brandVoice',
-    'ctas',
-    'archived',
-  ]);
-  const bodyKeys = Object.keys(body);
-  if (bodyKeys.some((key) => !allowedFields.has(key))) {
-    response.status(400).json({ error: 'invalid project payload' });
-    return;
-  }
-
-  if (
-    body.sellingPoints !== undefined &&
-    (!Array.isArray(body.sellingPoints) ||
-      !body.sellingPoints.every((value: unknown) => typeof value === 'string'))
-  ) {
-    response.status(400).json({ error: 'invalid project payload' });
-    return;
-  }
-
-  if (
-    body.ctas !== undefined &&
-    (!Array.isArray(body.ctas) || !body.ctas.every((value: unknown) => typeof value === 'string'))
-  ) {
-    response.status(400).json({ error: 'invalid project payload' });
-    return;
-  }
-
-  if (
-    hasInvalidOptionalStringField(body, 'name') ||
-    hasInvalidOptionalStringField(body, 'siteName') ||
-    hasInvalidOptionalStringField(body, 'siteUrl') ||
-    hasInvalidOptionalStringField(body, 'siteDescription') ||
-    hasInvalidOptionalStringField(body, 'brandVoice')
-  ) {
-    response.status(400).json({ error: 'invalid project payload' });
-    return;
-  }
-
-  if (input !== null && typeof input === 'object' && 'archived' in input) {
-    response.status(400).json({ error: 'project archive must use POST /api/projects/:id/archive' });
-    return;
-  }
-
-  const project = projectStore.update(id, {
-    name: typeof body.name === 'string' ? body.name : undefined,
-    siteName: typeof body.siteName === 'string' ? body.siteName : undefined,
-    siteUrl: typeof body.siteUrl === 'string' ? body.siteUrl : undefined,
-    siteDescription: typeof body.siteDescription === 'string' ? body.siteDescription : undefined,
-    sellingPoints: Array.isArray(body.sellingPoints)
-      ? body.sellingPoints.filter((value: unknown): value is string => typeof value === 'string')
-      : undefined,
-    brandVoice: typeof body.brandVoice === 'string' ? body.brandVoice : undefined,
-    ctas: Array.isArray(body.ctas)
-      ? body.ctas.filter((value: unknown): value is string => typeof value === 'string')
-      : undefined,
+    response.json({
+      sourceConfigs: sourceConfigStore.listByProject(projectId),
+    });
   });
 
-  if (!project) {
-    response.status(404).json({ error: 'project not found' });
-    return;
-  }
+  router.post('/', (request, response) => {
+    const input = request.body;
+    if (input === null || typeof input !== 'object' || Array.isArray(input)) {
+      response.status(400).json({ error: 'invalid project payload' });
+      return;
+    }
 
-  response.json({ project });
-});
+    const allowedFields = new Set([
+      'name',
+      'siteName',
+      'siteUrl',
+      'siteDescription',
+      'sellingPoints',
+      'brandVoice',
+      'ctas',
+    ]);
+    if (Object.keys(input).some((key) => !allowedFields.has(key))) {
+      response.status(400).json({ error: 'invalid project payload' });
+      return;
+    }
 
-projectsRouter.post('/:id/archive', (request, response) => {
-  const projectId = parseRouteId(request.params.id);
-  if (!projectId) {
-    response.status(400).json({ error: 'invalid project id' });
-    return;
-  }
+    const {
+      name,
+      siteName,
+      siteUrl,
+      siteDescription,
+      sellingPoints,
+      brandVoice,
+      ctas,
+    } = input;
 
-  const project = projectStore.archive(projectId);
-  if (!project) {
-    response.status(404).json({ error: 'project not found' });
-    return;
-  }
+    if (
+      typeof name !== 'string' ||
+      typeof siteName !== 'string' ||
+      typeof siteUrl !== 'string' ||
+      typeof siteDescription !== 'string' ||
+      !Array.isArray(sellingPoints) ||
+      !sellingPoints.every((value: unknown) => typeof value === 'string') ||
+      (brandVoice !== undefined && typeof brandVoice !== 'string') ||
+      (ctas !== undefined &&
+        (!Array.isArray(ctas) || !ctas.every((value: unknown) => typeof value === 'string')))
+    ) {
+      response.status(400).json({ error: 'invalid project payload' });
+      return;
+    }
 
-  response.json({ project });
-});
+    const project = projectStore.create({
+      name,
+      siteName,
+      siteUrl,
+      siteDescription,
+      sellingPoints: sellingPoints.filter((value: unknown): value is string => typeof value === 'string'),
+      brandVoice: typeof brandVoice === 'string' ? brandVoice : '',
+      ctas: Array.isArray(ctas)
+        ? ctas.filter((value: unknown): value is string => typeof value === 'string')
+        : [],
+    });
 
-projectsRouter.patch('/:id/source-configs/:sourceConfigId', (request, response) => {
-  const projectId = parseRouteId(request.params.id);
-  if (!projectId) {
-    response.status(400).json({ error: 'invalid project id' });
-    return;
-  }
+    response.status(201).json({
+      project,
+    });
+  });
 
-  const sourceConfigId = parseRouteId(request.params.sourceConfigId);
-  if (!sourceConfigId) {
-    response.status(400).json({ error: 'invalid source config id' });
-    return;
-  }
+  router.post('/:id/source-configs', (request, response) => {
+    const projectId = parseRouteId(request.params.id);
+    if (!projectId) {
+      response.status(400).json({ error: 'invalid project id' });
+      return;
+    }
 
-  if (!projectExists(projectId)) {
-    response.status(404).json({ error: 'project not found' });
-    return;
-  }
+    if (!projectExists(projectId)) {
+      response.status(404).json({ error: 'project not found' });
+      return;
+    }
 
-  const existingSourceConfig = sourceConfigStore
-    .listByProject(projectId)
-    .find((item) => item.id === sourceConfigId);
-  if (!existingSourceConfig) {
-    response.status(404).json({ error: 'source config not found' });
-    return;
-  }
+    const input = parseCreateSourceConfigInput(request.body, projectId);
+    if (!input.ok) {
+      response.status(400).json({ error: input.error });
+      return;
+    }
 
-  const input = parseUpdateSourceConfigInput(request.body, projectId, existingSourceConfig);
-  if (!input.ok) {
-    response.status(400).json({ error: input.error });
-    return;
-  }
+    const sourceConfig = sourceConfigStore.create(input.value);
+    const warnings = reloadSchedulerWithWarning(dependencies.schedulerRuntime);
 
-  const sourceConfig = sourceConfigStore.update(projectId, sourceConfigId, input.value);
+    response.status(201).json(withOptionalWarnings({
+      sourceConfig,
+    }, warnings));
+  });
 
-  if (!sourceConfig) {
-    response.status(404).json({ error: 'source config not found' });
-    return;
-  }
+  router.patch('/:id', (request, response) => {
+    const id = Number(request.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      response.status(400).json({ error: 'invalid project id' });
+      return;
+    }
 
-  response.json({ sourceConfig });
-});
+    if (!projectExists(id)) {
+      response.status(404).json({ error: 'project not found' });
+      return;
+    }
+
+    const input = request.body;
+    if (input !== undefined && (input === null || typeof input !== 'object' || Array.isArray(input))) {
+      response.status(400).json({ error: 'invalid project payload' });
+      return;
+    }
+
+    const body = (input ?? {}) as Record<string, unknown>;
+    const allowedFields = new Set([
+      'name',
+      'siteName',
+      'siteUrl',
+      'siteDescription',
+      'sellingPoints',
+      'brandVoice',
+      'ctas',
+      'archived',
+    ]);
+    const bodyKeys = Object.keys(body);
+    if (bodyKeys.some((key) => !allowedFields.has(key))) {
+      response.status(400).json({ error: 'invalid project payload' });
+      return;
+    }
+
+    if (
+      body.sellingPoints !== undefined &&
+      (!Array.isArray(body.sellingPoints) ||
+        !body.sellingPoints.every((value: unknown) => typeof value === 'string'))
+    ) {
+      response.status(400).json({ error: 'invalid project payload' });
+      return;
+    }
+
+    if (
+      body.ctas !== undefined &&
+      (!Array.isArray(body.ctas) || !body.ctas.every((value: unknown) => typeof value === 'string'))
+    ) {
+      response.status(400).json({ error: 'invalid project payload' });
+      return;
+    }
+
+    if (
+      hasInvalidOptionalStringField(body, 'name') ||
+      hasInvalidOptionalStringField(body, 'siteName') ||
+      hasInvalidOptionalStringField(body, 'siteUrl') ||
+      hasInvalidOptionalStringField(body, 'siteDescription') ||
+      hasInvalidOptionalStringField(body, 'brandVoice')
+    ) {
+      response.status(400).json({ error: 'invalid project payload' });
+      return;
+    }
+
+    if (input !== null && typeof input === 'object' && 'archived' in input) {
+      response.status(400).json({ error: 'project archive must use POST /api/projects/:id/archive' });
+      return;
+    }
+
+    const project = projectStore.update(id, {
+      name: typeof body.name === 'string' ? body.name : undefined,
+      siteName: typeof body.siteName === 'string' ? body.siteName : undefined,
+      siteUrl: typeof body.siteUrl === 'string' ? body.siteUrl : undefined,
+      siteDescription: typeof body.siteDescription === 'string' ? body.siteDescription : undefined,
+      sellingPoints: Array.isArray(body.sellingPoints)
+        ? body.sellingPoints.filter((value: unknown): value is string => typeof value === 'string')
+        : undefined,
+      brandVoice: typeof body.brandVoice === 'string' ? body.brandVoice : undefined,
+      ctas: Array.isArray(body.ctas)
+        ? body.ctas.filter((value: unknown): value is string => typeof value === 'string')
+        : undefined,
+    });
+
+    if (!project) {
+      response.status(404).json({ error: 'project not found' });
+      return;
+    }
+
+    response.json({ project });
+  });
+
+  router.post('/:id/archive', (request, response) => {
+    const projectId = parseRouteId(request.params.id);
+    if (!projectId) {
+      response.status(400).json({ error: 'invalid project id' });
+      return;
+    }
+
+    const project = projectStore.archive(projectId);
+    if (!project) {
+      response.status(404).json({ error: 'project not found' });
+      return;
+    }
+
+    response.json({ project });
+  });
+
+  router.patch('/:id/source-configs/:sourceConfigId', (request, response) => {
+    const projectId = parseRouteId(request.params.id);
+    if (!projectId) {
+      response.status(400).json({ error: 'invalid project id' });
+      return;
+    }
+
+    const sourceConfigId = parseRouteId(request.params.sourceConfigId);
+    if (!sourceConfigId) {
+      response.status(400).json({ error: 'invalid source config id' });
+      return;
+    }
+
+    if (!projectExists(projectId)) {
+      response.status(404).json({ error: 'project not found' });
+      return;
+    }
+
+    const existingSourceConfig = sourceConfigStore
+      .listByProject(projectId)
+      .find((item) => item.id === sourceConfigId);
+    if (!existingSourceConfig) {
+      response.status(404).json({ error: 'source config not found' });
+      return;
+    }
+
+    const input = parseUpdateSourceConfigInput(request.body, projectId, existingSourceConfig);
+    if (!input.ok) {
+      response.status(400).json({ error: input.error });
+      return;
+    }
+
+    const sourceConfig = sourceConfigStore.update(projectId, sourceConfigId, input.value);
+
+    if (!sourceConfig) {
+      response.status(404).json({ error: 'source config not found' });
+      return;
+    }
+
+    const warnings = reloadSchedulerWithWarning(dependencies.schedulerRuntime);
+    response.json(withOptionalWarnings({ sourceConfig }, warnings));
+  });
+
+  return router;
+}
+
+export const projectsRouter = createProjectsRouter();
 
 function parseRouteId(value: string | undefined) {
   const id = Number(value);
@@ -275,6 +297,38 @@ function parseRouteId(value: string | undefined) {
 
 function projectExists(projectId: number) {
   return projectStore.list().some((project) => project.id === projectId);
+}
+
+function reloadSchedulerWithWarning(
+  schedulerRuntime: ProjectsRouterDependencies['schedulerRuntime'],
+): SchedulerWarning[] | undefined {
+  if (!schedulerRuntime) {
+    return undefined;
+  }
+
+  try {
+    schedulerRuntime.reload();
+    return undefined;
+  } catch (error) {
+    return [
+      {
+        code: 'scheduler_reload_failed',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    ];
+  }
+}
+
+function withOptionalWarnings<T extends Record<string, unknown>>(
+  payload: T,
+  warnings: SchedulerWarning[] | undefined,
+) {
+  return warnings && warnings.length > 0
+    ? {
+        ...payload,
+        warnings,
+      }
+    : payload;
 }
 
 function hasInvalidOptionalStringField(

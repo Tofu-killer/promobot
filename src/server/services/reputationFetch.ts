@@ -12,6 +12,10 @@ export interface ReputationFetchResult {
   inserted: number;
 }
 
+export interface ReputationFetchOptions {
+  sourceConfigIds?: number[];
+}
+
 interface ScopedQuery {
   projectId?: number;
   value: string;
@@ -34,10 +38,17 @@ export function createReputationFetchService() {
   const sentimentService = createReputationSentimentService();
 
   return {
-    async fetchNow(projectId?: number): Promise<ReputationFetchResult> {
+    async fetchNow(
+      projectId?: number,
+      options: ReputationFetchOptions = {},
+    ): Promise<ReputationFetchResult> {
       const existingItemIds = new Set(reputationStore.getStats(projectId).items.map((item) => item.id));
       const settings = projectId === undefined ? settingsStore.get() : emptyReputationSettings();
-      const sourceConfigs = filterSourceConfigsByProject(sourceConfigStore.listEnabled(), projectId);
+      const sourceConfigs = filterSourceConfigsByScope(
+        sourceConfigStore.listEnabled(),
+        projectId,
+        options.sourceConfigIds,
+      );
       const queries = resolveReputationQueries(settings, sourceConfigs);
       const hasConfiguredQueries =
         queries.xQueries.length > 0 ||
@@ -95,12 +106,23 @@ function countNewReputationItems(items: ReputationItemRecord[], existingItemIds:
   return insertedItemIds.size;
 }
 
-function filterSourceConfigsByProject(sourceConfigs: SourceConfigRecord[], projectId?: number) {
-  if (projectId === undefined) {
-    return sourceConfigs;
+function filterSourceConfigsByScope(
+  sourceConfigs: SourceConfigRecord[],
+  projectId?: number,
+  sourceConfigIds?: number[],
+) {
+  let filtered = sourceConfigs;
+
+  if (projectId !== undefined) {
+    filtered = filtered.filter((sourceConfig) => sourceConfig.projectId === projectId);
   }
 
-  return sourceConfigs.filter((sourceConfig) => sourceConfig.projectId === projectId);
+  if (sourceConfigIds && sourceConfigIds.length > 0) {
+    const sourceConfigIdSet = new Set(sourceConfigIds);
+    filtered = filtered.filter((sourceConfig) => sourceConfigIdSet.has(sourceConfig.id));
+  }
+
+  return filtered;
 }
 
 function resolveReputationQueries(

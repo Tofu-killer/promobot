@@ -19,7 +19,7 @@ import { createDraftStore, createDraftsRouter } from './routes/drafts.js';
 import { inboxRouter } from './routes/inbox.js';
 import { monitorRouter } from './routes/monitor.js';
 import { createPublishRouter } from './routes/publish.js';
-import { projectsRouter } from './routes/projects.js';
+import { createProjectsRouter } from './routes/projects.js';
 import { reputationRouter } from './routes/reputation.js';
 import { createSettingsRouter } from './routes/settings.js';
 import { createSystemHealthPayload, createSystemRouter } from './routes/system.js';
@@ -125,7 +125,7 @@ export function createApp(config: AppConfig = loadConfig(), dependencies: AppDep
       },
     }),
   );
-  app.use('/api/projects', projectsRouter);
+  app.use('/api/projects', createProjectsRouter({ schedulerRuntime: dependencies.schedulerRuntime }));
   app.use('/api/inbox', inboxRouter);
   app.use('/api/monitor', monitorRouter);
   app.use('/api/reputation', reputationRouter);

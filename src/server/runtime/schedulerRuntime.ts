@@ -9,6 +9,9 @@ import type {
   JobQueueStore,
 } from '../store/jobQueue.js';
 import { createJobQueueStore } from '../store/jobQueue.js';
+import type { SourceConfigStore } from '../store/sourceConfigs.js';
+import { createSourceConfigStore } from '../store/sourceConfigs.js';
+import { syncSourceConfigRecurringJobs } from './sourceConfigRecurringJobs.js';
 
 export interface SchedulerRuntimeSnapshot {
   available: boolean;
@@ -46,6 +49,7 @@ export interface SchedulerRuntime {
 export interface SchedulerRuntimeDependencies {
   settingsStore?: SettingsStore;
   jobQueueStore?: JobQueueStore;
+  sourceConfigStore?: SourceConfigStore;
   handlers?: Record<string, JobHandler>;
   now?: () => Date;
 }
@@ -55,6 +59,7 @@ export function createSchedulerRuntime(
 ): SchedulerRuntime {
   const settingsStore = dependencies.settingsStore ?? createSettingsStore();
   const jobQueueStore = dependencies.jobQueueStore ?? createJobQueueStore();
+  const sourceConfigStore = dependencies.sourceConfigStore ?? createSourceConfigStore();
   const handlers = dependencies.handlers ?? {};
   const now = dependencies.now ?? (() => new Date());
 
@@ -76,6 +81,11 @@ export function createSchedulerRuntime(
         lastTickAt = now().toISOString();
         lastTickResults = results;
         lastError = null;
+        syncSourceConfigRecurringJobs({
+          jobQueueStore,
+          sourceConfigStore,
+          now,
+        });
       },
       onTickError(error) {
         lastError = error instanceof Error ? error.message : String(error);
@@ -88,6 +98,11 @@ export function createSchedulerRuntime(
     scheduler.stop();
     scheduler = createSchedulerInstance(settings.schedulerIntervalMinutes);
     recoveredRunningJobs = jobQueueStore.requeueRunningJobs(now().toISOString());
+    syncSourceConfigRecurringJobs({
+      jobQueueStore,
+      sourceConfigStore,
+      now,
+    });
     scheduler.start();
     bootedAt = now().toISOString();
     lastError = null;
