@@ -107,7 +107,7 @@ discoveryRouter.patch('/:id', (request, response) => {
 
   const updatedItem = inboxStore.updateStatus(
     parsedId.id,
-    action === 'save' ? 'needs_review' : 'ignored',
+    action === 'save' ? 'handled' : 'ignored',
   );
 
   if (!updatedItem) {

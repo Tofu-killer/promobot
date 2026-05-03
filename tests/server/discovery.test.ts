@@ -342,7 +342,7 @@ describe('discovery api', () => {
     }
   });
 
-  it('saves an inbox-derived discovery item by reopening it for review', async () => {
+  it('saves an inbox-derived discovery item as handled', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
       const inboxStore = createInboxStore();
@@ -366,13 +366,13 @@ describe('discovery api', () => {
           id: 'inbox-1',
           type: 'inbox',
           title: 'Users asking for SOC 2 proof',
-          status: 'needs_review',
+          status: 'handled',
         }),
       });
       expect(inboxStore.list(1)).toEqual([
         expect.objectContaining({
           id: 1,
-          status: 'needs_review',
+          status: 'handled',
         }),
       ]);
     } finally {

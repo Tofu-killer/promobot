@@ -841,6 +841,78 @@ describe('Discovery draft actions', () => {
     });
   });
 
+  it('saves inbox-derived discovery items as handled through the page action wiring', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { DiscoveryPage } = await import('../../src/client/pages/Discovery');
+
+    const updateDiscoveryItemAction = vi.fn().mockResolvedValue({
+      item: {
+        id: 'inbox-3',
+        source: 'Reddit',
+        type: 'inbox',
+        title: 'Inbox lead',
+        detail: '需要回复，这条信号也应该支持 Discovery 保存/忽略。',
+        status: 'handled',
+        createdAt: '2026-04-19T09:10:00.000Z',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(DiscoveryPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              items: [
+                {
+                  id: 'inbox-3',
+                  source: 'Reddit',
+                  title: 'Inbox lead',
+                  summary: '需要回复，这条信号也应该支持 Discovery 保存/忽略。',
+                  status: 'needs_review',
+                  score: 72,
+                  createdAt: '2026-04-19T09:10:00.000Z',
+                },
+              ],
+              total: 1,
+              stats: {
+                sources: 1,
+                averageScore: 72,
+              },
+            },
+          },
+          updateDiscoveryItemAction,
+        }),
+      );
+      await flush();
+    });
+
+    const inboxSaveButton = findElement(
+      container,
+      (element) => element.getAttribute('data-discovery-save-id') === 'inbox-3',
+    );
+
+    expect(inboxSaveButton).not.toBeNull();
+    expect(collectText(container)).toContain('Reddit · needs_review · 2026-04-19T09:10:00.000Z');
+
+    await act(async () => {
+      inboxSaveButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(updateDiscoveryItemAction).toHaveBeenCalledWith('inbox-3', 'save');
+    expect(collectText(container)).toContain('已保存到发现池。');
+    expect(collectText(container)).toContain('Reddit · handled · 2026-04-19T09:10:00.000Z');
+    expect(collectText(container)).not.toContain('Reddit · needs_review · 2026-04-19T09:10:00.000Z');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('disables draft generation for preview discovery data', async () => {
     const { container } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
