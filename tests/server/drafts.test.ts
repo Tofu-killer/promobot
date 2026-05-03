@@ -473,6 +473,89 @@ describe('drafts api', () => {
     expect(readJobQueue()).toEqual([]);
   });
 
+  it('rejects explicit invalid draft field types without partially applying other valid changes', async () => {
+    const invalidPayloads: Array<{ field: string; payload: Record<string, unknown> }> = [
+      {
+        field: 'title',
+        payload: {
+          title: 123,
+          status: 'review',
+        },
+      },
+      {
+        field: 'content',
+        payload: {
+          content: false,
+          target: 'r/promobot',
+        },
+      },
+      {
+        field: 'target',
+        payload: {
+          target: ['r/promobot'],
+          status: 'approved',
+        },
+      },
+      {
+        field: 'metadata',
+        payload: {
+          metadata: 'bad',
+          title: 'Changed Title',
+        },
+      },
+      {
+        field: 'scheduledAt',
+        payload: {
+          scheduledAt: 42,
+          status: 'approved',
+        },
+      },
+      {
+        field: 'status',
+        payload: {
+          status: 42,
+          title: 'Changed Title',
+        },
+      },
+    ];
+
+    for (const { field, payload } of invalidPayloads) {
+      const store = createSQLiteDraftStore();
+      const draft = store.create({
+        platform: 'reddit',
+        content: 'original-draft-content',
+        title: 'Original Draft',
+        target: 'r/original',
+        metadata: {
+          flair: 'launch',
+        },
+        status: 'draft',
+      });
+      const app = createApp({
+        allowedIps: ['127.0.0.1'],
+        adminPassword: 'secret',
+      });
+
+      const response = await requestApp(app, 'PATCH', `/api/drafts/${draft.id}`, payload);
+
+      expect(response.status, field).toBe(400);
+      expect(JSON.parse(response.body), field).toEqual({ error: 'invalid draft payload' });
+      expect(store.getById(draft.id), field).toEqual(
+        expect.objectContaining({
+          id: draft.id,
+          content: 'original-draft-content',
+          title: 'Original Draft',
+          target: 'r/original',
+          metadata: {
+            flair: 'launch',
+          },
+          status: 'draft',
+        }),
+      );
+      expect(readJobQueue(), field).toEqual([]);
+    }
+  });
+
   it('updates draft scheduledAt and enqueues a publish job', async () => {
     installFetchStub();
     const app = createApp({

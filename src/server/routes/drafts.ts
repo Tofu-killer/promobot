@@ -108,58 +108,69 @@ export function createDraftsRouter(
     const id = Number(request.params.id);
     const patch: UpdateDraftInput = {};
     const currentDraft = draftStore.getById(id);
+    const body =
+      request.body && isPlainObject(request.body)
+        ? (request.body as Record<string, unknown>)
+        : undefined;
 
     if (!currentDraft) {
       response.status(404).json({ error: 'draft not found' });
       return;
     }
 
-    if (request.body !== undefined && !isPlainObject(request.body)) {
+    if (request.body !== undefined && !body) {
       response.status(400).json({ error: 'invalid draft payload' });
       return;
     }
 
-    const projectId = parseProjectIdBodyValue(request.body?.projectId);
+    if (
+      hasInvalidOptionalString(body, 'title') ||
+      hasInvalidOptionalString(body, 'content') ||
+      hasInvalidOptionalString(body, 'target') ||
+      hasInvalidOptionalString(body, 'status') ||
+      hasInvalidOptionalPlainObject(body, 'metadata') ||
+      hasInvalidOptionalNullableString(body, 'scheduledAt') ||
+      hasInvalidOptionalStringArray(body, 'hashtags')
+    ) {
+      response.status(400).json({ error: 'invalid draft payload' });
+      return;
+    }
 
-    if (request.body?.projectId !== undefined && projectId === undefined) {
+    const projectId = parseProjectIdBodyValue(body?.projectId);
+
+    if (body?.projectId !== undefined && projectId === undefined) {
       response.status(400).json({ error: 'invalid project id' });
       return;
     }
 
-    if (typeof request.body?.title === 'string') {
-      patch.title = request.body.title;
+    if (hasOwnProperty(body, 'title')) {
+      patch.title = body.title as string;
     }
-    if (typeof request.body?.content === 'string') {
-      patch.content = request.body.content;
+    if (hasOwnProperty(body, 'content')) {
+      patch.content = body.content as string;
     }
-    if (typeof request.body?.target === 'string') {
-      patch.target = request.body.target;
+    if (hasOwnProperty(body, 'target')) {
+      patch.target = body.target as string;
     }
-    if (isPlainObject(request.body?.metadata)) {
-      patch.metadata = request.body.metadata;
+    if (hasOwnProperty(body, 'metadata')) {
+      patch.metadata = body.metadata as Record<string, unknown>;
     }
     if (projectId !== undefined) {
       patch.projectId = projectId;
     }
-    if (request.body && Object.hasOwn(request.body, 'hashtags')) {
-      if (
-        !Array.isArray(request.body.hashtags) ||
-        request.body.hashtags.some((hashtag: unknown) => typeof hashtag !== 'string')
-      ) {
-        response.status(400).json({ error: 'invalid draft payload' });
-        return;
-      }
-      patch.hashtags = request.body.hashtags;
+    if (hasOwnProperty(body, 'hashtags')) {
+      patch.hashtags = body.hashtags as string[];
     }
-    if (typeof request.body?.status === 'string') {
-      if (!isDraftStatus(request.body.status)) {
+    if (hasOwnProperty(body, 'status')) {
+      const status = body.status as string;
+      if (!isDraftStatus(status)) {
         response.status(400).json({ error: 'invalid draft status' });
         return;
       }
-      patch.status = request.body.status;
+      patch.status = status;
     }
-    if (typeof request.body?.scheduledAt === 'string' || request.body?.scheduledAt === null) {
-      patch.scheduledAt = request.body.scheduledAt;
+    if (hasOwnProperty(body, 'scheduledAt')) {
+      patch.scheduledAt = body.scheduledAt as string | null;
     }
 
     const normalizedPatch = normalizeDraftPatch(currentDraft, patch);
@@ -177,6 +188,32 @@ export function createDraftsRouter(
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function hasOwnProperty(
+  value: Record<string, unknown> | undefined,
+  key: string,
+): value is Record<string, unknown> {
+  return Boolean(value && Object.hasOwn(value, key));
+}
+
+function hasInvalidOptionalString(value: Record<string, unknown> | undefined, key: string) {
+  return hasOwnProperty(value, key) && typeof value[key] !== 'string';
+}
+
+function hasInvalidOptionalNullableString(value: Record<string, unknown> | undefined, key: string) {
+  return hasOwnProperty(value, key) && value[key] !== null && typeof value[key] !== 'string';
+}
+
+function hasInvalidOptionalPlainObject(value: Record<string, unknown> | undefined, key: string) {
+  return hasOwnProperty(value, key) && !isPlainObject(value[key]);
+}
+
+function hasInvalidOptionalStringArray(value: Record<string, unknown> | undefined, key: string) {
+  return (
+    hasOwnProperty(value, key) &&
+    (!Array.isArray(value[key]) || value[key].some((entry: unknown) => typeof entry !== 'string'))
+  );
 }
 
 function normalizeDraftPatch(currentDraft: DraftRecord, patch: UpdateDraftInput): UpdateDraftInput {
