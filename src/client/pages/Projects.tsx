@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { apiRequest, getErrorMessage } from '../lib/api';
 import type { AsyncState } from '../hooks/useAsyncRequest';
 import { useAsyncAction, useAsyncQuery } from '../hooks/useAsyncRequest';
@@ -328,24 +328,6 @@ function mergeSourceConfigLists(currentList: SourceConfigRecord[], nextList: Sou
   return [...sourceConfigMap.values()].sort((left, right) => left.id - right.id);
 }
 
-function mergeSourceConfigsByProject(
-  currentMap: Record<number, SourceConfigRecord[]>,
-  nextMap: Record<number, SourceConfigRecord[]>,
-): Record<number, SourceConfigRecord[]> {
-  const mergedMap: Record<number, SourceConfigRecord[]> = { ...currentMap };
-  const projectIds = new Set([...Object.keys(currentMap), ...Object.keys(nextMap)]);
-
-  for (const projectIdValue of projectIds) {
-    const projectId = Number(projectIdValue);
-    const currentList = currentMap[projectId] ?? [];
-    const nextList = nextMap[projectId];
-
-    mergedMap[projectId] = nextList ? mergeSourceConfigLists(currentList, nextList) : currentList;
-  }
-
-  return mergedMap;
-}
-
 async function loadSourceConfigsByProjectRequest(
   projects: ProjectRecord[],
   loadSourceConfigsAction: (projectId: number) => Promise<SourceConfigsResponse>,
@@ -393,6 +375,11 @@ export function ProjectsPage({
   >({});
   const [pendingSourceConfigSaveIds, setPendingSourceConfigSaveIds] = useState<Record<number, boolean>>({});
   const [projectForms, setProjectForms] = useState<Record<number, ProjectFormValue>>({});
+  const projectFormVersionByIdRef = useRef<Record<number, number>>({});
+  const projectSaveAttemptByIdRef = useRef<Record<number, number>>({});
+  const sourceConfigMutationVersionByProjectRef = useRef<Record<number, number>>({});
+  const sourceConfigFetchVersionByProjectRef = useRef<Record<number, number>>({});
+  const nextSourceConfigFetchVersionRef = useRef(0);
   const [sourceConfigsState, setSourceConfigsState] = useState<AsyncState<SourceConfigsByProjectResponse>>({
     status: 'idle',
     data: {
@@ -400,7 +387,6 @@ export function ProjectsPage({
     },
     error: null,
   });
-  const [sourceConfigsByProject, setSourceConfigsByProject] = useState<Record<number, SourceConfigRecord[]>>({});
   const [sourceConfigForms, setSourceConfigForms] = useState<Record<string, SourceConfigFormValue>>({});
   const [newSourceConfigPresetByProject, setNewSourceConfigPresetByProject] = useState<
     Record<number, SourceConfigPresetId>
@@ -408,14 +394,7 @@ export function ProjectsPage({
   const displayState = stateOverride ?? state;
   const displayProjectsState = projectsStateOverride ?? projectsState;
   const displaySourceConfigsState = sourceConfigsStateOverride ?? sourceConfigsState;
-  const visibleSourceConfigsByProject = useMemo(
-    () =>
-      mergeSourceConfigsByProject(
-        displaySourceConfigsState.data?.sourceConfigsByProject ?? {},
-        sourceConfigsByProject,
-      ),
-    [displaySourceConfigsState.data, sourceConfigsByProject],
-  );
+  const visibleSourceConfigsByProject = displaySourceConfigsState.data?.sourceConfigsByProject ?? {};
 
   const loadedProjects = useMemo(
     () => (displayProjectsState.data?.projects ?? []).filter((project) => !project.archivedAt),
@@ -439,6 +418,15 @@ export function ProjectsPage({
 
   useEffect(() => {
     let cancelled = false;
+    const sourceConfigMutationVersionByProjectAtStart = Object.fromEntries(
+      loadedProjects.map((project) => [
+        project.id,
+        sourceConfigMutationVersionByProjectRef.current[project.id] ?? 0,
+      ]),
+    ) as Record<number, number>;
+    const sourceConfigFetchVersionByProjectAtStart = Object.fromEntries(
+      loadedProjects.map((project) => [project.id, bumpSourceConfigFetchVersion(project.id)]),
+    ) as Record<number, number>;
 
     setSourceConfigsState((current) => ({
       status: 'loading',
@@ -466,12 +454,37 @@ export function ProjectsPage({
           return;
         }
 
-        setSourceConfigsState({
-          status: 'success',
-          data: {
-            sourceConfigsByProject: result.sourceConfigsByProject,
-          },
-          error: null,
+        setSourceConfigsState((current) => {
+          const currentSourceConfigsByProject = current.data?.sourceConfigsByProject ?? {};
+          const nextSourceConfigsByProject = Object.fromEntries(
+            loadedProjects.map((project) => {
+              const projectId = project.id;
+              const currentFetchVersion = sourceConfigFetchVersionByProjectRef.current[projectId] ?? 0;
+              const fetchVersionAtStart = sourceConfigFetchVersionByProjectAtStart[projectId] ?? 0;
+              const currentMutationVersion =
+                sourceConfigMutationVersionByProjectRef.current[projectId] ?? 0;
+              const mutationVersionAtStart =
+                sourceConfigMutationVersionByProjectAtStart[projectId] ?? 0;
+
+              if (currentFetchVersion !== fetchVersionAtStart) {
+                return [projectId, currentSourceConfigsByProject[projectId] ?? []] as const;
+              }
+
+              if (currentMutationVersion !== mutationVersionAtStart) {
+                return [projectId, currentSourceConfigsByProject[projectId] ?? []] as const;
+              }
+
+              return [projectId, result.sourceConfigsByProject[projectId] ?? []] as const;
+            }),
+          ) as Record<number, SourceConfigRecord[]>;
+
+          return {
+            status: 'success',
+            data: {
+              sourceConfigsByProject: nextSourceConfigsByProject,
+            },
+            error: null,
+          };
         });
       })
       .catch((error) => {
@@ -489,7 +502,7 @@ export function ProjectsPage({
     return () => {
       cancelled = true;
     };
-  }, [loadProjectsAction, loadSourceConfigsAction, loadedProjectIdsKey, loadedProjects]);
+  }, [loadSourceConfigsAction, loadedProjectIdsKey]);
 
   function handleCreateProject() {
     clearPageFeedback();
@@ -541,6 +554,7 @@ export function ProjectsPage({
         ...patch,
       },
     }));
+    projectFormVersionByIdRef.current[projectId] = (projectFormVersionByIdRef.current[projectId] ?? 0) + 1;
     setProjectSaveMessageById((currentMessages) => {
       if (!(projectId in currentMessages)) {
         return currentMessages;
@@ -674,9 +688,12 @@ export function ProjectsPage({
         ctas: [],
       },
     );
+    const formVersionAtStart = projectFormVersionByIdRef.current[projectId] ?? 0;
+    const nextSaveAttempt = (projectSaveAttemptByIdRef.current[projectId] ?? 0) + 1;
 
     clearPageFeedback();
     setProjectSaveMessage(projectId, null);
+    projectSaveAttemptByIdRef.current[projectId] = nextSaveAttempt;
     setProjectSavePending(projectId, true);
     void updateProjectAction(projectId, {
       name: form.name,
@@ -686,6 +703,14 @@ export function ProjectsPage({
       ctas: parseCommaSeparatedList(form.ctas),
     })
       .then((result) => {
+        if ((projectSaveAttemptByIdRef.current[projectId] ?? 0) !== nextSaveAttempt) {
+          return;
+        }
+
+        if ((projectFormVersionByIdRef.current[projectId] ?? 0) !== formVersionAtStart) {
+          return;
+        }
+
         setProjectForms((currentForms) => ({
           ...currentForms,
           [projectId]: {
@@ -699,15 +724,41 @@ export function ProjectsPage({
         setProjectSaveMessage(projectId, '项目已保存');
         reload();
 
+        const sourceConfigMutationVersionAtReloadStart =
+          sourceConfigMutationVersionByProjectRef.current[projectId] ?? 0;
+        const sourceConfigFetchVersionAtReloadStart = bumpSourceConfigFetchVersion(projectId);
         return loadSourceConfigsAction(projectId)
           .then((reloaded) => {
+            if (
+              (sourceConfigFetchVersionByProjectRef.current[projectId] ?? 0) !==
+              sourceConfigFetchVersionAtReloadStart
+            ) {
+              return;
+            }
+            if (
+              (sourceConfigMutationVersionByProjectRef.current[projectId] ?? 0) !==
+              sourceConfigMutationVersionAtReloadStart
+            ) {
+              return;
+            }
             setProjectSourceConfigs(projectId, reloaded?.sourceConfigs ?? []);
           })
           .catch(() => undefined);
       })
       .catch(() => undefined)
       .finally(() => {
-        setProjectSavePending(projectId, false);
+        setPendingProjectSaveIds((current) => {
+          if (!current[projectId]) {
+            return current;
+          }
+
+          if ((projectSaveAttemptByIdRef.current[projectId] ?? 0) !== nextSaveAttempt) {
+            return current;
+          }
+
+          const { [projectId]: _removed, ...rest } = current;
+          return rest;
+        });
       });
   }
 
@@ -721,11 +772,7 @@ export function ProjectsPage({
           delete nextForms[projectId];
           return nextForms;
         });
-        setSourceConfigsByProject((currentConfigs) => {
-          const nextConfigs = { ...currentConfigs };
-          delete nextConfigs[projectId];
-          return nextConfigs;
-        });
+        removeProjectSourceConfigs(projectId);
         showPageSuccess(`项目已归档：${result.project.name}`);
         reload();
       })
@@ -859,10 +906,52 @@ export function ProjectsPage({
       },
       error: null,
     }));
-    setSourceConfigsByProject((current) => ({
-      ...current,
-      [projectId]: nextSourceConfigs,
-    }));
+  }
+
+  function mergeProjectSourceConfigs(projectId: number, nextSourceConfigs: SourceConfigRecord[]) {
+    setSourceConfigsState((current) => {
+      const currentProjectSourceConfigs = current.data?.sourceConfigsByProject?.[projectId] ?? [];
+
+      return {
+        status: 'success',
+        data: {
+          sourceConfigsByProject: {
+            ...(current.data?.sourceConfigsByProject ?? {}),
+            [projectId]: mergeSourceConfigLists(currentProjectSourceConfigs, nextSourceConfigs),
+          },
+        },
+        error: null,
+      };
+    });
+  }
+
+  function removeProjectSourceConfigs(projectId: number) {
+    setSourceConfigsState((current) => {
+      const nextSourceConfigsByProject = { ...(current.data?.sourceConfigsByProject ?? {}) };
+      delete nextSourceConfigsByProject[projectId];
+      return {
+        status: 'success',
+        data: {
+          sourceConfigsByProject: nextSourceConfigsByProject,
+        },
+        error: null,
+      };
+    });
+    delete sourceConfigMutationVersionByProjectRef.current[projectId];
+    delete sourceConfigFetchVersionByProjectRef.current[projectId];
+  }
+
+  function bumpSourceConfigMutationVersion(projectId: number) {
+    const nextVersion = (sourceConfigMutationVersionByProjectRef.current[projectId] ?? 0) + 1;
+    sourceConfigMutationVersionByProjectRef.current[projectId] = nextVersion;
+    return nextVersion;
+  }
+
+  function bumpSourceConfigFetchVersion(projectId: number) {
+    const nextVersion = nextSourceConfigFetchVersionRef.current + 1;
+    nextSourceConfigFetchVersionRef.current = nextVersion;
+    sourceConfigFetchVersionByProjectRef.current[projectId] = nextVersion;
+    return nextVersion;
   }
 
   function areComparableJsonObjectsEqual(left: Record<string, unknown>, right: Record<string, unknown>) {
@@ -896,6 +985,8 @@ export function ProjectsPage({
     setSourceConfigCreatePending(projectId, true);
     void createSourceConfigAction(projectId, prepared.payload)
       .then((result) => {
+        const sourceConfigMutationVersion = bumpSourceConfigMutationVersion(projectId);
+        const sourceConfigFetchVersion = bumpSourceConfigFetchVersion(projectId);
         const nextSourceConfigs = mergeSourceConfigLists(
           visibleSourceConfigsByProject[projectId] ?? [],
           [result.sourceConfig],
@@ -911,18 +1002,14 @@ export function ProjectsPage({
 
         return loadSourceConfigsAction(projectId)
           .then((reloaded) => {
+            if ((sourceConfigFetchVersionByProjectRef.current[projectId] ?? 0) !== sourceConfigFetchVersion) {
+              return;
+            }
+            if ((sourceConfigMutationVersionByProjectRef.current[projectId] ?? 0) !== sourceConfigMutationVersion) {
+              return;
+            }
             const mergedSourceConfigs = mergeSourceConfigLists(nextSourceConfigs, reloaded.sourceConfigs);
             setProjectSourceConfigs(projectId, mergedSourceConfigs);
-            setSourceConfigsState((current) => ({
-              status: 'success',
-              data: {
-                sourceConfigsByProject: {
-                  ...(current.data?.sourceConfigsByProject ?? {}),
-                  [projectId]: mergedSourceConfigs,
-                },
-              },
-              error: null,
-            }));
           })
           .catch(() => undefined);
       })
@@ -952,12 +1039,8 @@ export function ProjectsPage({
     setSourceConfigSavePending(sourceConfigId, true);
     void updateSourceConfigAction(projectId, sourceConfigId, prepared.payload)
       .then((result) => {
-        const nextSourceConfigs = mergeSourceConfigLists(
-          (visibleSourceConfigsByProject[projectId] ?? []).filter((item) => item.id !== sourceConfigId),
-          [result.sourceConfig],
-        );
-
-        setProjectSourceConfigs(projectId, nextSourceConfigs);
+        bumpSourceConfigMutationVersion(projectId);
+        mergeProjectSourceConfigs(projectId, [result.sourceConfig]);
         setSourceConfigForms((current) => ({
           ...current,
           [String(sourceConfigId)]: {
@@ -968,16 +1051,6 @@ export function ProjectsPage({
             enabled: result.sourceConfig.enabled,
             pollIntervalMinutes: String(result.sourceConfig.pollIntervalMinutes),
           },
-        }));
-        setSourceConfigsState((current) => ({
-          status: 'success',
-          data: {
-            sourceConfigsByProject: {
-              ...(current.data?.sourceConfigsByProject ?? {}),
-              [projectId]: nextSourceConfigs,
-            },
-          },
-          error: null,
         }));
         showPageSuccess('SourceConfig 已保存');
       })

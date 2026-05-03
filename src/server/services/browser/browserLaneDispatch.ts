@@ -132,11 +132,18 @@ function resolveLocalBrowserLaneDispatchCommand(
     return explicitLocalRunnerCommand;
   }
 
-  if (kind !== 'session_request') {
-    return null;
+  switch (kind) {
+    case 'session_request':
+      return 'pnpm browser:lane:local';
+    case 'publish_handoff':
+      return normalizeCommand(env.PROMOBOT_BROWSER_PUBLISH_STATUS)
+        ? 'pnpm browser:lane:local'
+        : null;
+    case 'inbox_reply_handoff':
+      return normalizeCommand(env.PROMOBOT_BROWSER_REPLY_STATUS)
+        ? 'pnpm browser:lane:local'
+        : null;
   }
-
-  return 'pnpm browser:lane:local';
 }
 
 function parseBooleanEnv(value: string | undefined) {

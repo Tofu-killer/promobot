@@ -285,6 +285,26 @@ interface BrowserHandoffCompletionMutationState {
   result: BrowserHandoffCompletionResponse | null;
 }
 
+function retainLoadingMutationStatesById<T extends { status: string }>(stateById: Record<number, T>) {
+  const nextEntries = Object.entries(stateById).filter(([, state]) => state.status === 'loading');
+
+  if (nextEntries.length === Object.keys(stateById).length) {
+    return stateById;
+  }
+
+  return Object.fromEntries(nextEntries) as Record<number, T>;
+}
+
+function clearLoadingMutationStateById<T extends { status: string }>(stateById: Record<number, T>, id: number) {
+  const currentState = stateById[id];
+  if (!currentState || currentState.status !== 'loading') {
+    return stateById;
+  }
+
+  const { [id]: _removed, ...rest } = stateById;
+  return rest;
+}
+
 function createIdleSessionActionState(): SessionActionMutationState {
   return {
     status: 'idle',
@@ -617,7 +637,8 @@ export function ReviewQueuePage({
   const [browserHandoffCompletionStateById, setBrowserHandoffCompletionStateById] = useState<
     Record<number, BrowserHandoffCompletionMutationState>
   >({});
-  const pendingDraftActionIdsRef = useRef<Set<number>>(new Set());
+  const pendingDraftActionAttemptByIdRef = useRef<Record<number, number>>({});
+  const nextDraftActionAttemptRef = useRef(0);
   const followUpScopeVersionRef = useRef(0);
   const publishFollowUpAttemptByIdRef = useRef<Record<number, number>>({});
   const displayState = stateOverride ?? state;
@@ -638,14 +659,16 @@ export function ReviewQueuePage({
 
   const visibleDrafts = hasLiveReviewDrafts ? (localDrafts ?? loadedReviewDrafts) : [];
 
-  useEffect(() => {
+  function invalidateFollowUpScope() {
     followUpScopeVersionRef.current += 1;
-    pendingDraftActionIdsRef.current.clear();
-    publishFollowUpAttemptByIdRef.current = {};
-    setActionStateById({});
-    setSessionActionStateById({});
+    setActionStateById((currentState) => retainLoadingMutationStatesById(currentState));
+    setSessionActionStateById((currentState) => retainLoadingMutationStatesById(currentState));
     setBrowserHandoffDraftByArtifactPath({});
-    setBrowserHandoffCompletionStateById({});
+    setBrowserHandoffCompletionStateById((currentState) => retainLoadingMutationStatesById(currentState));
+  }
+
+  useEffect(() => {
+    invalidateFollowUpScope();
   }, [projectScopeKey]);
 
   useEffect(() => {
@@ -666,11 +689,13 @@ export function ReviewQueuePage({
   }, [displayState]);
 
   function startDraftAction(draftId: number, action: ReviewActionState['action']) {
-    if (pendingDraftActionIdsRef.current.has(draftId)) {
+    if (typeof pendingDraftActionAttemptByIdRef.current[draftId] === 'number') {
       return false;
     }
 
-    pendingDraftActionIdsRef.current.add(draftId);
+    const nextAttempt = nextDraftActionAttemptRef.current + 1;
+    nextDraftActionAttemptRef.current = nextAttempt;
+    pendingDraftActionAttemptByIdRef.current[draftId] = nextAttempt;
     setActionStateById((currentState) => ({
       ...currentState,
       [draftId]: {
@@ -685,11 +710,16 @@ export function ReviewQueuePage({
       },
     }));
 
-    return true;
+    return nextAttempt;
   }
 
-  function finishDraftAction(draftId: number) {
-    pendingDraftActionIdsRef.current.delete(draftId);
+  function finishDraftAction(draftId: number, attempt: number) {
+    if (pendingDraftActionAttemptByIdRef.current[draftId] !== attempt) {
+      return;
+    }
+
+    delete pendingDraftActionAttemptByIdRef.current[draftId];
+    setActionStateById((currentState) => clearLoadingMutationStateById(currentState, draftId));
   }
 
   function nextPublishFollowUpAttempt(draftId: number) {
@@ -794,6 +824,13 @@ export function ReviewQueuePage({
             artifactPath: null,
           },
         }));
+      })
+      .finally(() => {
+        if (publishFollowUpAttempt !== readPublishFollowUpAttempt(draftId)) {
+          return;
+        }
+
+        setSessionActionStateById((currentState) => clearLoadingMutationStateById(currentState, draftId));
       });
   }
 
@@ -862,6 +899,13 @@ export function ReviewQueuePage({
             result: null,
           },
         }));
+      })
+      .finally(() => {
+        if (publishFollowUpAttempt !== readPublishFollowUpAttempt(draftId)) {
+          return;
+        }
+
+        setBrowserHandoffCompletionStateById((currentState) => clearLoadingMutationStateById(currentState, draftId));
       });
   }
 
@@ -869,7 +913,9 @@ export function ReviewQueuePage({
     const sourceDraft =
       visibleDrafts.find((draft) => draft.id === draftId) ?? displayState.data?.drafts.find((draft) => draft.id === draftId);
 
-    if (!sourceDraft || !startDraftAction(draftId, 'review')) {
+    const draftActionAttempt = sourceDraft ? startDraftAction(draftId, 'review') : false;
+
+    if (!sourceDraft || !draftActionAttempt) {
       return;
     }
 
@@ -915,7 +961,7 @@ export function ReviewQueuePage({
       }));
     }
     finally {
-      finishDraftAction(draftId);
+      finishDraftAction(draftId, draftActionAttempt);
     }
   }
 
@@ -923,7 +969,9 @@ export function ReviewQueuePage({
     const sourceDraft =
       visibleDrafts.find((draft) => draft.id === draftId) ?? displayState.data?.drafts.find((draft) => draft.id === draftId);
 
-    if (!sourceDraft || !startDraftAction(draftId, 'publish')) {
+    const draftActionAttempt = sourceDraft ? startDraftAction(draftId, 'publish') : false;
+
+    if (!sourceDraft || !draftActionAttempt) {
       return;
     }
 
@@ -1003,7 +1051,7 @@ export function ReviewQueuePage({
       }));
     }
     finally {
-      finishDraftAction(draftId);
+      finishDraftAction(draftId, draftActionAttempt);
     }
   }
 
@@ -1011,7 +1059,9 @@ export function ReviewQueuePage({
     const sourceDraft =
       visibleDrafts.find((draft) => draft.id === draftId) ?? displayState.data?.drafts.find((draft) => draft.id === draftId);
 
-    if (!sourceDraft || !startDraftAction(draftId, 'schedule')) {
+    const draftActionAttempt = sourceDraft ? startDraftAction(draftId, 'schedule') : false;
+
+    if (!sourceDraft || !draftActionAttempt) {
       return;
     }
 
@@ -1067,26 +1117,12 @@ export function ReviewQueuePage({
       }));
     }
     finally {
-      finishDraftAction(draftId);
+      finishDraftAction(draftId, draftActionAttempt);
     }
   }
 
   function handleReloadQueue() {
-    setActionStateById((currentState) =>
-      Object.fromEntries(
-        Object.entries(currentState).filter(([, state]) => state.status === 'loading'),
-      ) as Record<number, ReviewActionState>,
-    );
-    setSessionActionStateById((currentState) =>
-      Object.fromEntries(
-        Object.entries(currentState).filter(([, state]) => state.status === 'loading'),
-      ) as Record<number, SessionActionMutationState>,
-    );
-    setBrowserHandoffCompletionStateById((currentState) =>
-      Object.fromEntries(
-        Object.entries(currentState).filter(([, state]) => state.status === 'loading'),
-      ) as Record<number, BrowserHandoffCompletionMutationState>,
-    );
+    invalidateFollowUpScope();
     reloadReviewQueueSurface();
   }
 
@@ -1269,7 +1305,9 @@ export function ReviewQueuePage({
                   const persistedBrowserHandoff = persistedBrowserHandoffRecord
                     ? toBrowserHandoffContract(persistedBrowserHandoffRecord)
                     : null;
-                  const isDraftActionPending = actionState.status === 'loading';
+                  const isDraftActionPending =
+                    actionState.status === 'loading' ||
+                    typeof pendingDraftActionAttemptByIdRef.current[draft.id] === 'number';
                   const publishContract = getReviewDraftPublishContract(draft, actionState, persistedBrowserHandoff);
                   const scheduledAtValue = scheduledAtById[draft.id] ?? draft.scheduledAt ?? '';
                   const badgeStyle = getReviewDraftBadgeStyle(draft.status);

@@ -1989,6 +1989,125 @@ describe('PublishCalendar and Projects pages', () => {
     });
   });
 
+  it('ignores stale project save success after the operator keeps editing the same project while save is pending', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ProjectsPage } = await import('../../src/client/pages/Projects');
+
+    const pendingSave = createDeferredPromise<{
+      project: {
+        id: number;
+        name: string;
+        siteName: string;
+        siteUrl: string;
+        siteDescription: string;
+        sellingPoints: string[];
+        brandVoice?: string;
+        ctas?: string[];
+        createdAt: string;
+      };
+    }>();
+    const loadProjectsAction = vi.fn().mockResolvedValue({
+      projects: [
+        {
+          id: 7,
+          name: 'Acme Launch',
+          siteName: 'Acme',
+          siteUrl: 'https://acme.test',
+          siteDescription: 'Launch week campaign',
+          sellingPoints: ['Cheap', 'Fast'],
+          brandVoice: '',
+          ctas: [],
+          createdAt: '2026-04-19T08:00:00.000Z',
+        },
+      ],
+    });
+    const updateProjectAction = vi.fn().mockReturnValue(pendingSave.promise);
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ProjectsPage as never, {
+          loadProjectsAction,
+          updateProjectAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const nameField = findElement(container, (element) => element.getAttribute('data-project-field') === 'name-7');
+    const saveButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-project-save-id') === '7',
+    );
+
+    await act(async () => {
+      updateFieldValue(nameField, 'Acme Launch Saved', window);
+      await flush();
+    });
+
+    await act(async () => {
+      saveButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(updateProjectAction).toHaveBeenCalledWith(7, {
+      name: 'Acme Launch Saved',
+      siteDescription: 'Launch week campaign',
+      sellingPoints: ['Cheap', 'Fast'],
+      brandVoice: '',
+      ctas: [],
+    });
+
+    const pendingNameField = findElement(
+      container,
+      (element) => element.getAttribute('data-project-field') === 'name-7',
+    );
+    expect(pendingNameField?.getAttribute('disabled')).toBeNull();
+
+    await act(async () => {
+      updateFieldValue(pendingNameField, 'Acme Launch Unsaved Local Edit', window);
+      await flush();
+    });
+
+    await act(async () => {
+      pendingSave.resolve({
+        project: {
+          id: 7,
+          name: 'Acme Launch Saved',
+          siteName: 'Acme',
+          siteUrl: 'https://acme.test',
+          siteDescription: 'Launch week campaign',
+          sellingPoints: ['Cheap', 'Fast'],
+          brandVoice: '',
+          ctas: [],
+          createdAt: '2026-04-19T08:00:00.000Z',
+        },
+      });
+      await flush();
+      await flush();
+    });
+
+    const resolvedNameField = findElement(
+      container,
+      (element) => element.getAttribute('data-project-field') === 'name-7',
+    );
+    const projectSaveFeedback = findElement(
+      container,
+      (element) => element.getAttribute('data-project-save-feedback-id') === '7',
+    );
+
+    expect(resolvedNameField?.value).toBe('Acme Launch Unsaved Local Edit');
+    expect(collectText(container)).toContain('项目：Acme Launch Unsaved Local Edit');
+    expect(projectSaveFeedback).toBeNull();
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('keeps project archive pending scoped when multiple archives overlap', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
@@ -3128,7 +3247,7 @@ describe('PublishCalendar and Projects pages', () => {
     });
   });
 
-  it('keeps a locally created source config when a later page-wide reload returns stale data', async () => {
+  it('reconciles to the latest page-wide source config snapshot when no newer local mutation exists', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
     const { ProjectsPage } = await import('../../src/client/pages/Projects');
@@ -3241,6 +3360,249 @@ describe('PublishCalendar and Projects pages', () => {
 
     await act(async () => {
       laterPageWideReload.resolve({
+        sourceConfigs: [],
+      });
+      await flush();
+      await flush();
+    });
+
+    expect(collectText(container)).not.toContain('Launch feed');
+    expect(collectText(container)).toContain('暂无 SourceConfig');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('reconciles to an empty page-wide source config snapshot after a project save-triggered reload when no newer local mutation exists', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ProjectsPage } = await import('../../src/client/pages/Projects');
+
+    const loadProjectsAction = vi.fn().mockResolvedValue({
+      projects: [
+        {
+          id: 7,
+          name: 'Acme Launch',
+          siteName: 'Acme',
+          siteUrl: 'https://acme.test',
+          siteDescription: 'Launch week campaign',
+          sellingPoints: ['Cheap', 'Fast'],
+          createdAt: '2026-04-19T08:00:00.000Z',
+        },
+      ],
+    });
+    const loadSourceConfigsAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        sourceConfigs: [],
+      })
+      .mockResolvedValueOnce({
+        sourceConfigs: [
+          {
+            id: 4,
+            projectId: 7,
+            sourceType: 'rss',
+            platform: 'rss',
+            label: 'Launch feed',
+            configJson: { feedUrl: 'https://feeds.test/launch.xml' },
+            enabled: true,
+            pollIntervalMinutes: 30,
+          },
+        ],
+      });
+    const updateProjectAction = vi.fn().mockResolvedValue({
+      project: {
+        id: 7,
+        name: 'Acme Launch',
+        siteName: 'Acme',
+        siteUrl: 'https://acme.test',
+        siteDescription: 'Launch week campaign',
+        sellingPoints: ['Cheap', 'Fast'],
+        brandVoice: '',
+        ctas: [],
+        createdAt: '2026-04-19T08:00:00.000Z',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ProjectsPage as never, {
+          loadProjectsAction,
+          loadSourceConfigsAction,
+          updateProjectAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const saveProjectButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-project-save-id') === '7' &&
+        collectText(element).includes('保存项目'),
+    );
+
+    expect(saveProjectButton).not.toBeNull();
+
+    await act(async () => {
+      saveProjectButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    expect(loadSourceConfigsAction).toHaveBeenCalledTimes(2);
+    expect(collectText(container)).toContain('Launch feed');
+    expect(collectText(container)).not.toContain('暂无 SourceConfig');
+
+    const laterPageWideReload = createDeferredPromise<{
+      sourceConfigs: Array<{
+        id: number;
+        projectId: number;
+        sourceType: string;
+        platform: string;
+        label: string;
+        configJson: Record<string, unknown>;
+        enabled: boolean;
+        pollIntervalMinutes: number;
+      }>;
+    }>();
+    const laterLoadSourceConfigsAction = vi.fn().mockReturnValue(laterPageWideReload.promise);
+
+    await act(async () => {
+      root.render(
+        createElement(ProjectsPage as never, {
+          loadProjectsAction,
+          loadSourceConfigsAction: laterLoadSourceConfigsAction,
+          updateProjectAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('Launch feed');
+    expect(collectText(container)).toContain('正在加载 SourceConfig');
+    expect(collectText(container)).not.toContain('暂无 SourceConfig');
+
+    await act(async () => {
+      laterPageWideReload.resolve({
+        sourceConfigs: [],
+      });
+      await flush();
+      await flush();
+    });
+
+    expect(collectText(container)).not.toContain('Launch feed');
+    expect(collectText(container)).toContain('暂无 SourceConfig');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('ignores an older page-wide source config reload that resolves after a newer project-save reload', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ProjectsPage } = await import('../../src/client/pages/Projects');
+
+    const initialPageWideReload = createDeferredPromise<{
+      sourceConfigs: Array<{
+        id: number;
+        projectId: number;
+        sourceType: string;
+        platform: string;
+        label: string;
+        configJson: Record<string, unknown>;
+        enabled: boolean;
+        pollIntervalMinutes: number;
+      }>;
+    }>();
+    const loadProjectsAction = vi.fn().mockResolvedValue({
+      projects: [
+        {
+          id: 7,
+          name: 'Acme Launch',
+          siteName: 'Acme',
+          siteUrl: 'https://acme.test',
+          siteDescription: 'Launch week campaign',
+          sellingPoints: ['Cheap', 'Fast'],
+          createdAt: '2026-04-19T08:00:00.000Z',
+        },
+      ],
+    });
+    const loadSourceConfigsAction = vi
+      .fn()
+      .mockReturnValueOnce(initialPageWideReload.promise)
+      .mockResolvedValueOnce({
+        sourceConfigs: [
+          {
+            id: 4,
+            projectId: 7,
+            sourceType: 'rss',
+            platform: 'rss',
+            label: 'Launch feed',
+            configJson: { feedUrl: 'https://feeds.test/launch.xml' },
+            enabled: true,
+            pollIntervalMinutes: 30,
+          },
+        ],
+      });
+    const updateProjectAction = vi.fn().mockResolvedValue({
+      project: {
+        id: 7,
+        name: 'Acme Launch',
+        siteName: 'Acme',
+        siteUrl: 'https://acme.test',
+        siteDescription: 'Launch week campaign',
+        sellingPoints: ['Cheap', 'Fast'],
+        brandVoice: '',
+        ctas: [],
+        createdAt: '2026-04-19T08:00:00.000Z',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ProjectsPage as never, {
+          loadProjectsAction,
+          loadSourceConfigsAction,
+          updateProjectAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const saveProjectButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-project-save-id') === '7' &&
+        collectText(element).includes('保存项目'),
+    );
+
+    expect(saveProjectButton).not.toBeNull();
+
+    await act(async () => {
+      saveProjectButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('Launch feed');
+    expect(collectText(container)).not.toContain('暂无 SourceConfig');
+
+    await act(async () => {
+      initialPageWideReload.resolve({
         sourceConfigs: [],
       });
       await flush();
@@ -4086,6 +4448,167 @@ describe('PublishCalendar and Projects pages', () => {
       await flush();
       await flush();
     });
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('preserves both source config updates when concurrent saves on the same project resolve out of order', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ProjectsPage } = await import('../../src/client/pages/Projects');
+
+    const firstSaveDeferred = createDeferredPromise<{
+      sourceConfig: {
+        id: number;
+        projectId: number;
+        sourceType: string;
+        platform: string;
+        label: string;
+        configJson: Record<string, unknown>;
+        enabled: boolean;
+        pollIntervalMinutes: number;
+      };
+    }>();
+    const secondSaveDeferred = createDeferredPromise<{
+      sourceConfig: {
+        id: number;
+        projectId: number;
+        sourceType: string;
+        platform: string;
+        label: string;
+        configJson: Record<string, unknown>;
+        enabled: boolean;
+        pollIntervalMinutes: number;
+      };
+    }>();
+    const loadProjectsAction = vi.fn().mockResolvedValue({
+      projects: [
+        {
+          id: 7,
+          name: 'Acme Launch',
+          siteName: 'Acme',
+          siteUrl: 'https://acme.test',
+          siteDescription: 'Launch week campaign',
+          sellingPoints: ['Cheap', 'Fast'],
+          createdAt: '2026-04-19T08:00:00.000Z',
+        },
+      ],
+    });
+    const loadSourceConfigsAction = vi.fn().mockResolvedValue({
+      sourceConfigs: [
+        {
+          id: 3,
+          projectId: 7,
+          sourceType: 'keyword+reddit',
+          platform: 'reddit',
+          label: 'Reddit mentions',
+          configJson: { query: 'acme launch' },
+          enabled: true,
+          pollIntervalMinutes: 30,
+        },
+        {
+          id: 4,
+          projectId: 7,
+          sourceType: 'rss',
+          platform: 'rss',
+          label: 'Expansion RSS',
+          configJson: { feedUrl: 'https://feeds.test/expansion.xml' },
+          enabled: true,
+          pollIntervalMinutes: 45,
+        },
+      ],
+    });
+    const updateSourceConfigAction = vi.fn((_projectId: number, sourceConfigId: number) =>
+      sourceConfigId === 3 ? firstSaveDeferred.promise : secondSaveDeferred.promise,
+    );
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ProjectsPage as never, {
+          loadProjectsAction,
+          loadSourceConfigsAction,
+          updateSourceConfigAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const firstLabelField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'label-3',
+    );
+    const secondLabelField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'label-4',
+    );
+    const firstSaveButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-source-config-save-id') === '3',
+    );
+    const secondSaveButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-source-config-save-id') === '4',
+    );
+
+    await act(async () => {
+      updateFieldValue(firstLabelField, 'Reddit mentions updated', window);
+      updateFieldValue(secondLabelField, 'Expansion RSS updated', window);
+      await flush();
+    });
+
+    await act(async () => {
+      firstSaveButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      secondSaveButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    await act(async () => {
+      secondSaveDeferred.resolve({
+        sourceConfig: {
+          id: 4,
+          projectId: 7,
+          sourceType: 'rss',
+          platform: 'rss',
+          label: 'Expansion RSS updated',
+          configJson: { feedUrl: 'https://feeds.test/expansion.xml' },
+          enabled: true,
+          pollIntervalMinutes: 45,
+        },
+      });
+      await flush();
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('Expansion RSS updated');
+
+    await act(async () => {
+      firstSaveDeferred.resolve({
+        sourceConfig: {
+          id: 3,
+          projectId: 7,
+          sourceType: 'keyword+reddit',
+          platform: 'reddit',
+          label: 'Reddit mentions updated',
+          configJson: { query: 'acme launch updated' },
+          enabled: true,
+          pollIntervalMinutes: 30,
+        },
+      });
+      await flush();
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('Reddit mentions updated');
+    expect(collectText(container)).toContain('Expansion RSS updated');
 
     await act(async () => {
       root.unmount();

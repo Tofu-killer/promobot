@@ -163,7 +163,7 @@ describe('createBrowserLaneDispatch', () => {
     });
   });
 
-  it('does not auto-run the built-in local runner for publish handoffs without an explicit local runner command', () => {
+  it('does not auto-run the built-in local runner for publish handoffs until a publish status is provided', () => {
     const spawn = vi.fn();
     const dispatch = createBrowserLaneDispatch({
       env: {
@@ -185,7 +185,49 @@ describe('createBrowserLaneDispatch', () => {
     expect(spawn).not.toHaveBeenCalled();
   });
 
-  it('does not auto-run the built-in local runner for inbox reply handoffs without an explicit local runner command', () => {
+  it('uses the built-in local runner for publish handoffs once a publish status is provided', () => {
+    const child = {
+      once: vi.fn().mockReturnThis(),
+      unref: vi.fn(),
+    };
+    const spawn = vi.fn().mockReturnValue(child);
+    const dispatch = createBrowserLaneDispatch({
+      cwd: '/tmp/promobot',
+      env: {
+        PROMOBOT_BROWSER_LOCAL_AUTORUN: 'true',
+        PROMOBOT_BROWSER_PUBLISH_STATUS: 'published',
+      },
+      spawn,
+    });
+
+    expect(
+      dispatch({
+        kind: 'publish_handoff',
+        artifactPath: 'artifacts/browser-handoffs/instagram/main/instagram-draft-4.json',
+        platform: 'instagram',
+        accountKey: 'main',
+        draftId: '4',
+      }),
+    ).toBe(true);
+
+    expect(spawn).toHaveBeenCalledWith('pnpm browser:lane:local', {
+      cwd: '/tmp/promobot',
+      env: expect.objectContaining({
+        PROMOBOT_BROWSER_LOCAL_AUTORUN: 'true',
+        PROMOBOT_BROWSER_PUBLISH_STATUS: 'published',
+        PROMOBOT_BROWSER_DISPATCH_KIND: 'publish_handoff',
+        PROMOBOT_BROWSER_ARTIFACT_PATH:
+          'artifacts/browser-handoffs/instagram/main/instagram-draft-4.json',
+        PROMOBOT_BROWSER_PLATFORM: 'instagram',
+        PROMOBOT_BROWSER_ACCOUNT_KEY: 'main',
+        PROMOBOT_BROWSER_DRAFT_ID: '4',
+      }),
+      shell: true,
+      stdio: 'ignore',
+    });
+  });
+
+  it('does not auto-run the built-in local runner for inbox reply handoffs until a reply status is provided', () => {
     const spawn = vi.fn();
     const dispatch = createBrowserLaneDispatch({
       env: {
@@ -205,6 +247,48 @@ describe('createBrowserLaneDispatch', () => {
     ).toBe(false);
 
     expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it('uses the built-in local runner for inbox reply handoffs once a reply status is provided', () => {
+    const child = {
+      once: vi.fn().mockReturnThis(),
+      unref: vi.fn(),
+    };
+    const spawn = vi.fn().mockReturnValue(child);
+    const dispatch = createBrowserLaneDispatch({
+      cwd: '/tmp/promobot',
+      env: {
+        PROMOBOT_BROWSER_LOCAL_AUTORUN: 'true',
+        PROMOBOT_BROWSER_REPLY_STATUS: 'sent',
+      },
+      spawn,
+    });
+
+    expect(
+      dispatch({
+        kind: 'inbox_reply_handoff',
+        artifactPath: 'artifacts/inbox-reply-handoffs/weibo/main/weibo-inbox-item-4.json',
+        platform: 'weibo',
+        accountKey: 'main',
+        itemId: '4',
+      }),
+    ).toBe(true);
+
+    expect(spawn).toHaveBeenCalledWith('pnpm browser:lane:local', {
+      cwd: '/tmp/promobot',
+      env: expect.objectContaining({
+        PROMOBOT_BROWSER_LOCAL_AUTORUN: 'true',
+        PROMOBOT_BROWSER_REPLY_STATUS: 'sent',
+        PROMOBOT_BROWSER_DISPATCH_KIND: 'inbox_reply_handoff',
+        PROMOBOT_BROWSER_ARTIFACT_PATH:
+          'artifacts/inbox-reply-handoffs/weibo/main/weibo-inbox-item-4.json',
+        PROMOBOT_BROWSER_PLATFORM: 'weibo',
+        PROMOBOT_BROWSER_ACCOUNT_KEY: 'main',
+        PROMOBOT_BROWSER_ITEM_ID: '4',
+      }),
+      shell: true,
+      stdio: 'ignore',
+    });
   });
 
   it('uses the explicit local runner command for publish handoffs when opt-in autorun is enabled', () => {
