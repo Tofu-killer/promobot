@@ -31,7 +31,14 @@ export function createSettingsRouter(dependencies: SettingsRouteDependencies = {
     }
 
     const input = request.body ?? {};
-    if (hasInvalidOptionalStringArray(input, 'allowlist')) {
+    if (
+      hasInvalidOptionalStringArray(input, 'allowlist') ||
+      hasInvalidOptionalStringArray(input, 'rssDefaults') ||
+      hasInvalidOptionalStringArray(input, 'monitorRssFeeds') ||
+      hasInvalidOptionalStringArray(input, 'monitorXQueries') ||
+      hasInvalidOptionalStringArray(input, 'monitorRedditQueries') ||
+      hasInvalidOptionalStringArray(input, 'monitorV2exQueries')
+    ) {
       response.status(400).json({ error: 'invalid settings payload' });
       return;
     }

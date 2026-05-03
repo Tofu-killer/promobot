@@ -511,6 +511,143 @@ describe('settings api', () => {
     }
   });
 
+  it('rejects mixed-type monitor source arrays without mutating settings or reloading runtime', async () => {
+    const invalidPayloads: Array<{
+      field: string;
+      payload: Record<string, unknown>;
+      expectedSettings: Record<string, unknown>;
+    }> = [
+      {
+        field: 'rssDefaults',
+        payload: {
+          rssDefaults: ['OpenAI blog', 42],
+        },
+        expectedSettings: {
+          rssDefaults: ['OpenAI blog'],
+        },
+      },
+      {
+        field: 'monitorRssFeeds',
+        payload: {
+          monitorRssFeeds: ['https://news.ycombinator.com/rss', 42],
+        },
+        expectedSettings: {
+          monitorRssFeeds: ['https://news.ycombinator.com/rss'],
+        },
+      },
+      {
+        field: 'monitorXQueries',
+        payload: {
+          monitorXQueries: ['openrouter failover', 42],
+        },
+        expectedSettings: {
+          monitorXQueries: ['openrouter failover'],
+        },
+      },
+      {
+        field: 'monitorRedditQueries',
+        payload: {
+          monitorRedditQueries: ['local llm', 42],
+        },
+        expectedSettings: {
+          monitorRedditQueries: ['local llm'],
+        },
+      },
+      {
+        field: 'monitorV2exQueries',
+        payload: {
+          monitorV2exQueries: ['australia saas', 42],
+        },
+        expectedSettings: {
+          monitorV2exQueries: ['australia saas'],
+        },
+      },
+    ];
+
+    for (const { field, payload, expectedSettings } of invalidPayloads) {
+      const { rootDir } = createTestDatabasePath();
+      const calls: string[] = [];
+
+      try {
+        const app = createApp({
+          allowedIps: ['127.0.0.1'],
+          adminPassword: 'secret',
+          schedulerRuntime: {
+            getStatus() {
+              calls.push('getStatus');
+              return {
+                available: true,
+                started: true,
+                schedulerIntervalMinutes: 15,
+                pollMs: 900000,
+                bootedAt: '2026-04-19T12:00:00.000Z',
+                lastTickAt: null,
+                lastTickResults: [],
+                lastError: null,
+                recoveredRunningJobs: 0,
+                handlers: [],
+                queue: {
+                  pending: 0,
+                  running: 0,
+                  done: 0,
+                  failed: 0,
+                  duePending: 0,
+                },
+                recentJobs: [],
+              };
+            },
+            reload() {
+              calls.push('reload');
+              return {
+                available: true,
+                started: true,
+                schedulerIntervalMinutes: 15,
+                pollMs: 900000,
+                bootedAt: '2026-04-19T12:00:00.000Z',
+                lastTickAt: null,
+                lastTickResults: [],
+                lastError: null,
+                recoveredRunningJobs: 0,
+                handlers: [],
+                queue: {
+                  pending: 0,
+                  running: 0,
+                  done: 0,
+                  failed: 0,
+                  duePending: 0,
+                },
+                recentJobs: [],
+              };
+            },
+          },
+        });
+
+        const baseline = await requestApp('PATCH', '/api/settings', expectedSettings);
+
+        expect(baseline.status, field).toBe(200);
+        calls.length = 0;
+
+        const response = await requestApp('PATCH', '/api/settings', payload);
+
+        expect(response.status, field).toBe(400);
+        expect(JSON.parse(response.body), field).toEqual({
+          error: 'invalid settings payload',
+        });
+        expect(calls, field).toEqual([]);
+
+        const loaded = await requestApp('GET', '/api/settings');
+
+        expect(loaded.status, field).toBe(200);
+        expect(JSON.parse(loaded.body), field).toEqual({
+          settings: expect.objectContaining(expectedSettings),
+          platforms: expect.any(Array),
+        });
+      } finally {
+        cleanupTestDatabasePath(rootDir);
+      }
+    }
+  });
+
   it('rejects non-object patch bodies without mutating settings or reloading runtime', async () => {
     const { rootDir } = createTestDatabasePath();
     const calls: string[] = [];
