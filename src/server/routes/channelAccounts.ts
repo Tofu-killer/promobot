@@ -113,6 +113,11 @@ channelAccountsRouter.post('/:id/session/request', (request, response) => {
     return;
   }
 
+  if (request.body !== undefined && !isPlainObject(request.body)) {
+    response.status(400).json({ error: 'invalid session action payload' });
+    return;
+  }
+
   const input = request.body ?? {};
   if (
     input.action !== undefined &&
@@ -425,6 +430,11 @@ channelAccountsRouter.post('/:id/test', (request, response) => {
   const id = Number(request.params.id);
   if (!Number.isInteger(id) || id <= 0) {
     response.status(400).json({ error: 'invalid channel account id' });
+    return;
+  }
+
+  if (request.body !== undefined && !isPlainObject(request.body)) {
+    response.status(400).json({ error: 'invalid channel account test payload' });
     return;
   }
 

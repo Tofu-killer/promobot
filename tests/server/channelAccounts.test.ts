@@ -650,6 +650,28 @@ describe('channel accounts api', () => {
     }
   });
 
+  it('rejects non-object channel-account test bodies instead of running a default check', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'x',
+        accountKey: '@promobot',
+        displayName: 'PromoBot X',
+        authType: 'api',
+        status: 'unknown',
+      });
+
+      const response = await requestApp('POST', '/api/channel-accounts/1/test', []);
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'invalid channel account test payload',
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('tests a channel account and updates its status when requested', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
@@ -2556,6 +2578,31 @@ describe('channel accounts api', () => {
           attempts: 0,
         }),
       ]);
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('rejects non-object session-request bodies instead of queuing a default request', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const jobQueueStore = createJobQueueStore();
+
+      await requestApp('POST', '/api/channel-accounts', {
+        platform: 'x',
+        accountKey: '@promobot',
+        displayName: 'PromoBot X',
+        authType: 'browser',
+        status: 'healthy',
+      });
+
+      const response = await requestApp('POST', '/api/channel-accounts/1/session/request', []);
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'invalid session action payload',
+      });
+      expect(jobQueueStore.list({ limit: 10 })).toEqual([]);
     } finally {
       cleanupTestDatabasePath(rootDir);
     }
