@@ -114,6 +114,11 @@ export function createDraftsRouter(
       return;
     }
 
+    if (request.body !== undefined && !isPlainObject(request.body)) {
+      response.status(400).json({ error: 'invalid draft payload' });
+      return;
+    }
+
     const projectId = parseProjectIdBodyValue(request.body?.projectId);
 
     if (request.body?.projectId !== undefined && projectId === undefined) {
