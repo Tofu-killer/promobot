@@ -113,6 +113,14 @@ export function createContentRouter(
   const contentRouter = Router();
 
   contentRouter.post('/generate', async (request, response) => {
+    if (
+      Array.isArray(request.body?.platforms) &&
+      request.body.platforms.some((platform: unknown) => typeof platform !== 'string')
+    ) {
+      response.status(400).json({ error: 'invalid content payload' });
+      return;
+    }
+
     const topic = typeof request.body?.topic === 'string' ? request.body.topic.trim() : '';
     const platforms = Array.isArray(request.body?.platforms)
       ? request.body.platforms.filter((platform: unknown): platform is string => typeof platform === 'string')

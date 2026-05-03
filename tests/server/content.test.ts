@@ -323,6 +323,23 @@ describe('content generation api', () => {
     ]);
   });
 
+  it('rejects generation when platforms contains non-string entries', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await requestApp('POST', '/api/content/generate', {
+      topic: 'Mixed platform payload',
+      platforms: ['x', 123],
+      tone: 'professional',
+    });
+
+    expect(response.status).toBe(400);
+    expect(JSON.parse(response.body)).toEqual({
+      error: 'invalid content payload',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('hydrates site context from the saved project when projectId is provided', async () => {
     const projectCreateResponse = await requestApp('POST', '/api/projects', {
       name: 'Context Project',
