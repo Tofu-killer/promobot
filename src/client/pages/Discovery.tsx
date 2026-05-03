@@ -233,6 +233,16 @@ function parseProjectId(value: string) {
   return Number.isInteger(projectId) && projectId > 0 ? projectId : undefined;
 }
 
+function getProjectIdValidationError(value: string) {
+  const normalizedValue = value.trim();
+
+  if (normalizedValue.length === 0) {
+    return null;
+  }
+
+  return parseProjectId(value) === undefined ? '项目 ID 必须是大于 0 的整数' : null;
+}
+
 function buildProjectScopedPath(path: string, projectId?: number) {
   return projectId === undefined ? path : `${path}?projectId=${projectId}`;
 }
@@ -322,11 +332,18 @@ export function DiscoveryPage({
   const resolvedUpdateDiscoveryAction =
     updateDiscoveryItemAction ?? updateDiscoveryAction ?? updateDiscoveryItemActionRequest;
   const projectId = parseProjectId(activeProjectIdDraft);
+  const projectIdValidationError = getProjectIdValidationError(activeProjectIdDraft);
   const currentProjectIdRef = useRef<number | undefined>(projectId);
   currentProjectIdRef.current = projectId;
   const { state, reload } = useAsyncQuery(
-    () => (projectId === undefined ? loadDiscoveryAction() : loadDiscoveryAction(projectId)),
-    [loadDiscoveryAction, projectId],
+    () => {
+      if (projectIdValidationError) {
+        return Promise.reject(new Error(projectIdValidationError));
+      }
+
+      return projectId === undefined ? loadDiscoveryAction() : loadDiscoveryAction(projectId);
+    },
+    [loadDiscoveryAction, projectId, projectIdValidationError],
   );
   const { state: fetchState, run: runFetchDiscovery } = useAsyncAction((nextProjectId?: number) =>
     nextProjectId === undefined ? fetchDiscoveryAction() : fetchDiscoveryAction(nextProjectId),
@@ -365,7 +382,9 @@ export function DiscoveryPage({
       averageScore: 92,
     },
   };
+  const showLoadError = displayState.status === 'error' && displayState.error !== projectIdValidationError;
   const hasLiveData =
+    !projectIdValidationError &&
     typeof displayState.data === 'object' &&
     displayState.data !== null &&
     Array.isArray((displayState.data as DiscoveryResponse).items);
@@ -517,6 +536,10 @@ export function DiscoveryPage({
   }
 
   function handleFetchDiscovery() {
+    if (projectIdValidationError) {
+      return;
+    }
+
     void runFetchDiscovery(projectId)
       .then(() => {
         reload();
@@ -677,16 +700,18 @@ export function DiscoveryPage({
           <button
             type="button"
             data-discovery-fetch-action="true"
+            disabled={projectIdValidationError !== null}
             onClick={handleFetchDiscovery}
             style={{
               borderRadius: '12px',
               border: 'none',
-              background: '#2563eb',
-              color: '#ffffff',
+              background: projectIdValidationError ? '#bfdbfe' : '#2563eb',
+              color: projectIdValidationError ? '#475569' : '#ffffff',
               padding: '12px 16px',
               fontWeight: 700,
-              boxShadow: '0 12px 24px rgba(37, 99, 235, 0.18)',
-              cursor: 'pointer',
+              boxShadow: projectIdValidationError ? 'none' : '0 12px 24px rgba(37, 99, 235, 0.18)',
+              cursor: projectIdValidationError ? 'not-allowed' : 'pointer',
+              opacity: projectIdValidationError ? 0.8 : 1,
             }}
           >
             {displayFetchState.status === 'loading' ? '正在同步发现信号...' : '立即抓取'}
@@ -704,8 +729,12 @@ export function DiscoveryPage({
         />
       </label>
 
+      {projectIdValidationError ? (
+        <p style={{ color: '#b91c1c', fontWeight: 700 }}>{projectIdValidationError}</p>
+      ) : null}
+
       {displayState.status === 'loading' ? <p style={{ color: '#334155' }}>正在加载发现池...</p> : null}
-      {displayState.status === 'error' ? <p style={{ color: '#b91c1c' }}>发现池加载失败：{displayState.error}</p> : null}
+      {showLoadError ? <p style={{ color: '#b91c1c' }}>发现池加载失败：{displayState.error}</p> : null}
       {displayFetchState.status === 'success' && displayFetchState.data ? (
         <p style={{ color: '#1d4ed8', fontWeight: 700 }}>
           已同步发现信号：monitor {displayFetchState.data.monitorInserted} 条，inbox {displayFetchState.data.inboxInserted} 条

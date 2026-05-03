@@ -1300,6 +1300,66 @@ describe('Discovery draft actions', () => {
     });
   });
 
+  it('does not fall back to an unscoped discovery load when a controlled projectId draft is invalid', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { DiscoveryPage } = await import('../../src/client/pages/Discovery');
+
+    const loadDiscoveryAction = vi.fn().mockResolvedValue({
+      items: [],
+      total: 0,
+      stats: {
+        sources: 0,
+        averageScore: 0,
+      },
+    });
+    const fetchDiscoveryAction = vi.fn().mockResolvedValue({
+      monitorInserted: 2,
+      inboxInserted: 1,
+      totalInserted: 3,
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(DiscoveryPage as never, {
+          loadDiscoveryAction,
+          fetchDiscoveryAction,
+          projectIdDraft: 'invalid-project-id',
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const projectIdInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    ) as FakeElement & { value?: string };
+    const fetchButton = findElement(
+      container,
+      (element) => element.getAttribute('data-discovery-fetch-action') === 'true',
+    );
+
+    expect(projectIdInput).not.toBeNull();
+    expect(projectIdInput.value).toBe('invalid-project-id');
+    expect(loadDiscoveryAction).not.toHaveBeenCalled();
+    expect(collectText(container)).toContain('项目 ID 必须是大于 0 的整数');
+    expect(collectText(container)).not.toContain('发现池加载失败');
+
+    await act(async () => {
+      fetchButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(fetchDiscoveryAction).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('keeps live discovery items visible while a project-scoped reload is pending', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
