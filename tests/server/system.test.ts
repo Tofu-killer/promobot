@@ -2447,6 +2447,91 @@ describe('system runtime api', () => {
     }
   });
 
+  it('rejects browser-lane imports when optional fields have invalid types', async () => {
+    const { rootDir } = createTestDatabasePath();
+
+    try {
+      const app = createApp({
+        allowedIps: ['127.0.0.1'],
+        adminPassword: 'secret',
+      });
+
+      const created = await requestExistingApp(app, {
+        method: 'POST',
+        url: '/api/channel-accounts',
+        remoteAddress: '127.0.0.1',
+        headers: {
+          'x-admin-password': 'secret',
+        },
+        body: {
+          platform: 'x',
+          accountKey: '@promobot',
+          displayName: 'PromoBot X',
+          authType: 'browser',
+          status: 'healthy',
+        },
+      });
+      expect(created.status).toBe(201);
+
+      const requestResponse = await requestExistingApp(app, {
+        method: 'POST',
+        url: '/api/channel-accounts/1/session/request',
+        remoteAddress: '127.0.0.1',
+        headers: {
+          'x-admin-password': 'secret',
+        },
+      });
+      expect(requestResponse.status).toBe(200);
+
+      const requestBody = JSON.parse(requestResponse.body) as {
+        job: {
+          id: number;
+        };
+        sessionAction: {
+          artifactPath: string;
+        };
+      };
+
+      const importResponse = await requestExistingApp(app, {
+        method: 'POST',
+        url: '/api/system/browser-lane-requests/import',
+        remoteAddress: '127.0.0.1',
+        headers: {
+          'x-admin-password': 'secret',
+        },
+        body: {
+          requestArtifactPath: requestBody.sessionAction.artifactPath,
+          storageState: defaultStorageState,
+          sessionStatus: ['active'],
+        },
+      });
+
+      expect(importResponse.status).toBe(400);
+      expect(JSON.parse(importResponse.body)).toEqual({
+        error: 'invalid browser lane result payload',
+      });
+      expect(
+        getSessionRequestResultArtifact({
+          platform: 'x',
+          accountKey: '@promobot',
+          action: 'request_session',
+          requestJobId: requestBody.job.id,
+        }),
+      ).toBeNull();
+      expect(
+        JSON.parse(
+          fs.readFileSync(path.join(rootDir, requestBody.sessionAction.artifactPath), 'utf8'),
+        ),
+      ).toEqual(
+        expect.objectContaining({
+          jobStatus: 'pending',
+        }),
+      );
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('lists browser-handoff artifacts through the system api', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
@@ -2704,6 +2789,103 @@ describe('system runtime api', () => {
             message: 'browser lane completed publish',
             publishedAt: '2026-04-23T10:10:00.000Z',
           },
+        }),
+      );
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('rejects browser-handoff imports when optional fields have invalid types', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const draftStore = createSQLiteDraftStore();
+      const publishLogStore = createSQLitePublishLogStore();
+      const draft = draftStore.create({
+        platform: 'facebook-group',
+        title: 'Community update',
+        content: 'Need manual browser handoff',
+        target: 'group-123',
+        metadata: {
+          accountKey: 'launch-campaign',
+        },
+      });
+
+      const artifactDir = path.join(
+        rootDir,
+        'artifacts',
+        'browser-handoffs',
+        'facebookGroup',
+        'launch-campaign',
+      );
+      fs.mkdirSync(artifactDir, { recursive: true });
+      const artifactPath =
+        'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-1.json';
+      fs.writeFileSync(
+        path.join(rootDir, artifactPath),
+        JSON.stringify({
+          type: 'browser_manual_handoff',
+          handoffAttempt: 1,
+          status: 'pending',
+          platform: 'facebookGroup',
+          draftId: String(draft.id),
+          title: 'Community update',
+          content: 'Need manual browser handoff',
+          target: 'group-123',
+          accountKey: 'launch-campaign',
+          session: {
+            hasSession: true,
+            id: 'facebookGroup:launch-campaign',
+            status: 'active',
+            validatedAt: '2026-04-23T10:00:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
+          },
+          createdAt: '2026-04-23T10:05:00.000Z',
+          updatedAt: '2026-04-23T10:05:00.000Z',
+          resolvedAt: null,
+          resolution: null,
+        }),
+      );
+
+      const app = createApp({
+        allowedIps: ['127.0.0.1'],
+        adminPassword: 'secret',
+      });
+
+      const response = await requestExistingApp(app, {
+        method: 'POST',
+        url: '/api/system/browser-handoffs/import',
+        remoteAddress: '127.0.0.1',
+        headers: {
+          'x-admin-password': 'secret',
+          'content-type': 'application/json',
+        },
+        body: {
+          artifactPath,
+          handoffAttempt: 1,
+          publishStatus: 'published',
+          message: 'browser lane completed publish',
+          publishedAt: ['2026-04-23T10:10:00.000Z'],
+        },
+      });
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'invalid browser handoff payload',
+      });
+      expect(draftStore.getById(draft.id)).toEqual(
+        expect.objectContaining({
+          id: draft.id,
+          status: 'draft',
+          publishedAt: undefined,
+        }),
+      );
+      expect(publishLogStore.listByDraftId(draft.id)).toEqual([]);
+      expect(JSON.parse(fs.readFileSync(path.join(rootDir, artifactPath), 'utf8'))).toEqual(
+        expect.objectContaining({
+          status: 'pending',
+          resolvedAt: null,
+          resolution: null,
         }),
       );
     } finally {
@@ -3016,6 +3198,96 @@ describe('system runtime api', () => {
             message: 'manual browser reply sent without explicit attempt',
             deliveredAt: '2026-04-25T10:06:00.000Z',
           },
+        }),
+      );
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('rejects inbox reply handoff imports when optional fields have invalid types', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const inboxStore = createInboxStore();
+      const item = inboxStore.create({
+        projectId: 1,
+        source: 'weibo',
+        status: 'needs_reply',
+        author: 'ops-user',
+        title: 'Community question',
+        excerpt: 'Can you share current response times?',
+        metadata: {
+          accountKey: 'weibo-browser-main',
+        },
+      });
+      const artifactPath =
+        'artifacts/inbox-reply-handoffs/weibo/weibo-browser-main/weibo-inbox-item-1.json';
+      fs.mkdirSync(path.dirname(path.join(rootDir, artifactPath)), { recursive: true });
+      fs.writeFileSync(
+        path.join(rootDir, artifactPath),
+        JSON.stringify({
+          type: 'browser_inbox_reply_handoff',
+          handoffAttempt: 1,
+          status: 'pending',
+          platform: 'weibo',
+          itemId: String(item.id),
+          source: 'weibo',
+          title: 'Community question',
+          excerpt: 'Can you share current response times?',
+          reply: 'Thanks for reaching out.',
+          author: 'ops-user',
+          sourceUrl: 'https://weibo.test/post/1',
+          accountKey: 'weibo-browser-main',
+          session: {
+            hasSession: true,
+            id: 'weibo:weibo-browser-main',
+            status: 'active',
+            validatedAt: '2026-04-25T10:00:00.000Z',
+            storageStatePath: 'browser-sessions/managed/weibo/weibo-browser-main.json',
+          },
+          createdAt: '2026-04-25T10:01:00.000Z',
+          updatedAt: '2026-04-25T10:01:00.000Z',
+          resolvedAt: null,
+          resolution: null,
+        }),
+      );
+
+      const app = createApp({
+        allowedIps: ['127.0.0.1'],
+        adminPassword: 'secret',
+      });
+
+      const response = await requestExistingApp(app, {
+        method: 'POST',
+        url: '/api/system/inbox-reply-handoffs/import',
+        remoteAddress: '127.0.0.1',
+        headers: {
+          'x-admin-password': 'secret',
+          'content-type': 'application/json',
+        },
+        body: {
+          artifactPath,
+          replyStatus: 'sent',
+          message: 'manual browser reply sent without explicit attempt',
+          deliveredAt: ['2026-04-25T10:06:00.000Z'],
+        },
+      });
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'invalid inbox reply handoff payload',
+      });
+      expect(inboxStore.list()).toEqual([
+        expect.objectContaining({
+          id: item.id,
+          status: 'needs_reply',
+        }),
+      ]);
+      expect(JSON.parse(fs.readFileSync(path.join(rootDir, artifactPath), 'utf8'))).toEqual(
+        expect.objectContaining({
+          status: 'pending',
+          resolvedAt: null,
+          resolution: null,
         }),
       );
     } finally {

@@ -153,35 +153,40 @@ export function createSystemRouter(dependencies: SystemRouteDependencies = {}) {
       return;
     }
 
+    const body = request.body as Record<string, unknown> | undefined;
+
     try {
-      if (typeof request.body?.artifactPath === 'string' && request.body.artifactPath.trim()) {
-        const result = await importSessionRequestResultArtifact(request.body.artifactPath.trim());
+      if (typeof body?.artifactPath === 'string' && body.artifactPath.trim()) {
+        const result = await importSessionRequestResultArtifact(body.artifactPath.trim());
         response.json(result);
         return;
       }
 
       if (
-        typeof request.body?.requestArtifactPath !== 'string' ||
-        !request.body.requestArtifactPath.trim() ||
-        !isPlainObject(request.body?.storageState)
+        typeof body?.requestArtifactPath !== 'string' ||
+        !body.requestArtifactPath.trim() ||
+        !isPlainObject(body?.storageState) ||
+        (hasOwnProperty(body, 'sessionStatus') && !isSessionStatusValue(body.sessionStatus)) ||
+        hasInvalidOptionalNullableString(body, 'validatedAt') ||
+        hasInvalidOptionalString(body, 'notes') ||
+        hasInvalidOptionalString(body, 'completedAt')
       ) {
         response.status(400).json({ error: 'invalid browser lane result payload' });
         return;
       }
 
       const result = await importInlineSessionRequestResult({
-        requestArtifactPath: request.body.requestArtifactPath.trim(),
-        storageState: request.body.storageState,
-        ...(isSessionStatusValue(request.body?.sessionStatus)
-          ? { sessionStatus: request.body.sessionStatus }
+        requestArtifactPath: body.requestArtifactPath.trim(),
+        storageState: body.storageState,
+        ...(isSessionStatusValue(body?.sessionStatus)
+          ? { sessionStatus: body.sessionStatus }
           : {}),
-        ...(request.body?.validatedAt === null ||
-        typeof request.body?.validatedAt === 'string'
-          ? { validatedAt: request.body.validatedAt as string | null | undefined }
+        ...(body?.validatedAt === null || typeof body?.validatedAt === 'string'
+          ? { validatedAt: body.validatedAt as string | null | undefined }
           : {}),
-        ...(typeof request.body?.notes === 'string' ? { notes: request.body.notes } : {}),
-        ...(typeof request.body?.completedAt === 'string'
-          ? { completedAt: request.body.completedAt }
+        ...(typeof body?.notes === 'string' ? { notes: body.notes } : {}),
+        ...(typeof body?.completedAt === 'string'
+          ? { completedAt: body.completedAt }
           : {}),
       });
       response.json(result);
@@ -211,20 +216,21 @@ export function createSystemRouter(dependencies: SystemRouteDependencies = {}) {
       return;
     }
 
+    const body = request.body as Record<string, unknown> | undefined;
     const artifactPath =
-      typeof request.body?.artifactPath === 'string' ? request.body.artifactPath.trim() : '';
-    const message =
-      typeof request.body?.message === 'string' ? request.body.message.trim() : '';
-    const handoffAttempt = parseOptionalPositiveInteger(request.body?.handoffAttempt);
-    const hasHandoffAttempt =
-      request.body !== undefined &&
-      Object.prototype.hasOwnProperty.call(request.body, 'handoffAttempt');
+      typeof body?.artifactPath === 'string' ? body.artifactPath.trim() : '';
+    const message = typeof body?.message === 'string' ? body.message.trim() : '';
+    const handoffAttempt = parseOptionalPositiveInteger(body?.handoffAttempt);
+    const hasHandoffAttempt = hasOwnProperty(body, 'handoffAttempt');
 
     if (
       !artifactPath ||
       !message ||
       (hasHandoffAttempt && handoffAttempt === undefined) ||
-      !isBrowserHandoffPublishStatus(request.body?.publishStatus)
+      !isBrowserHandoffPublishStatus(body?.publishStatus) ||
+      hasInvalidOptionalNullableString(body, 'publishUrl') ||
+      hasInvalidOptionalNullableString(body, 'externalId') ||
+      hasInvalidOptionalNullableString(body, 'publishedAt')
     ) {
       response.status(400).json({ error: 'invalid browser handoff payload' });
       return;
@@ -233,16 +239,16 @@ export function createSystemRouter(dependencies: SystemRouteDependencies = {}) {
     try {
       const result = await importBrowserHandoffResult({
         artifactPath,
-        publishStatus: request.body.publishStatus,
+        publishStatus: body.publishStatus,
         message,
-        ...(request.body?.publishUrl === null || typeof request.body?.publishUrl === 'string'
-          ? { publishUrl: request.body.publishUrl as string | null | undefined }
+        ...(body?.publishUrl === null || typeof body?.publishUrl === 'string'
+          ? { publishUrl: body.publishUrl as string | null | undefined }
           : {}),
-        ...(request.body?.externalId === null || typeof request.body?.externalId === 'string'
-          ? { externalId: request.body.externalId as string | null | undefined }
+        ...(body?.externalId === null || typeof body?.externalId === 'string'
+          ? { externalId: body.externalId as string | null | undefined }
           : {}),
-        ...(request.body?.publishedAt === null || typeof request.body?.publishedAt === 'string'
-          ? { publishedAt: request.body.publishedAt as string | null | undefined }
+        ...(body?.publishedAt === null || typeof body?.publishedAt === 'string'
+          ? { publishedAt: body.publishedAt as string | null | undefined }
           : {}),
         ...(handoffAttempt !== undefined ? { handoffAttempt } : {}),
       });
@@ -273,20 +279,21 @@ export function createSystemRouter(dependencies: SystemRouteDependencies = {}) {
       return;
     }
 
+    const body = request.body as Record<string, unknown> | undefined;
     const artifactPath =
-      typeof request.body?.artifactPath === 'string' ? request.body.artifactPath.trim() : '';
-    const message =
-      typeof request.body?.message === 'string' ? request.body.message.trim() : '';
-    const handoffAttempt = parseOptionalPositiveInteger(request.body?.handoffAttempt);
-    const hasHandoffAttempt =
-      request.body !== undefined &&
-      Object.prototype.hasOwnProperty.call(request.body, 'handoffAttempt');
+      typeof body?.artifactPath === 'string' ? body.artifactPath.trim() : '';
+    const message = typeof body?.message === 'string' ? body.message.trim() : '';
+    const handoffAttempt = parseOptionalPositiveInteger(body?.handoffAttempt);
+    const hasHandoffAttempt = hasOwnProperty(body, 'handoffAttempt');
 
     if (
       !artifactPath ||
       !message ||
       (hasHandoffAttempt && handoffAttempt === undefined) ||
-      !isInboxReplyHandoffReplyStatus(request.body?.replyStatus)
+      !isInboxReplyHandoffReplyStatus(body?.replyStatus) ||
+      hasInvalidOptionalNullableString(body, 'deliveryUrl') ||
+      hasInvalidOptionalNullableString(body, 'externalId') ||
+      hasInvalidOptionalNullableString(body, 'deliveredAt')
     ) {
       response.status(400).json({ error: 'invalid inbox reply handoff payload' });
       return;
@@ -295,16 +302,16 @@ export function createSystemRouter(dependencies: SystemRouteDependencies = {}) {
     try {
       const result = await importInboxReplyHandoffResult({
         artifactPath,
-        replyStatus: request.body.replyStatus,
+        replyStatus: body.replyStatus,
         message,
-        ...(request.body?.deliveryUrl === null || typeof request.body?.deliveryUrl === 'string'
-          ? { deliveryUrl: request.body.deliveryUrl as string | null | undefined }
+        ...(body?.deliveryUrl === null || typeof body?.deliveryUrl === 'string'
+          ? { deliveryUrl: body.deliveryUrl as string | null | undefined }
           : {}),
-        ...(request.body?.externalId === null || typeof request.body?.externalId === 'string'
-          ? { externalId: request.body.externalId as string | null | undefined }
+        ...(body?.externalId === null || typeof body?.externalId === 'string'
+          ? { externalId: body.externalId as string | null | undefined }
           : {}),
-        ...(request.body?.deliveredAt === null || typeof request.body?.deliveredAt === 'string'
-          ? { deliveredAt: request.body.deliveredAt as string | null | undefined }
+        ...(body?.deliveredAt === null || typeof body?.deliveredAt === 'string'
+          ? { deliveredAt: body.deliveredAt as string | null | undefined }
           : {}),
         ...(handoffAttempt !== undefined ? { handoffAttempt } : {}),
       });
@@ -410,6 +417,21 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
   const prototype = Object.getPrototypeOf(value);
   return prototype === Object.prototype || prototype === null;
+}
+
+function hasOwnProperty(
+  value: Record<string, unknown> | undefined,
+  key: string,
+): value is Record<string, unknown> {
+  return value !== undefined && Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function hasInvalidOptionalString(value: Record<string, unknown> | undefined, key: string) {
+  return hasOwnProperty(value, key) && typeof value[key] !== 'string';
+}
+
+function hasInvalidOptionalNullableString(value: Record<string, unknown> | undefined, key: string) {
+  return hasOwnProperty(value, key) && value[key] !== null && typeof value[key] !== 'string';
 }
 
 function isSessionStatusValue(value: unknown): value is 'active' | 'expired' | 'missing' {
