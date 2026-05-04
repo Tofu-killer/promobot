@@ -141,12 +141,14 @@ interface SessionActionMutationState {
   status: 'idle' | 'loading' | 'success' | 'error';
   message: string | null;
   artifactPath: string | null;
+  handoffKey: string | null;
 }
 
 interface BrowserHandoffCompletionMutationState {
   status: 'idle' | 'loading' | 'success' | 'error';
   error: string | null;
   result: BrowserHandoffCompletionResponse | null;
+  handoffKey: string | null;
 }
 
 const calendarStatuses: CalendarDraftStatus[] = ['scheduled', 'published'];
@@ -368,6 +370,24 @@ function readSessionActionArtifactPath(result: RequestChannelAccountSessionActio
   return readString(sessionAction?.artifactPath) ?? readString(sessionAction?.path);
 }
 
+function getBrowserHandoffIdentity(handoff: BrowserHandoffContract | null) {
+  if (!handoff) {
+    return null;
+  }
+
+  if (handoff.artifactPath) {
+    return `${handoff.artifactPath}#${handoff.handoffAttempt ?? 0}`;
+  }
+
+  return [
+    handoff.platform ?? '',
+    handoff.accountKey ?? '',
+    String(handoff.channelAccountId ?? ''),
+    handoff.sessionAction ?? '',
+    String(handoff.handoffAttempt ?? ''),
+  ].join('|');
+}
+
 function formatSessionActionLabel(action: BrowserSessionAction) {
   return action === 'relogin' ? '重新登录' : '请求登录';
 }
@@ -497,6 +517,7 @@ function createIdleSessionActionState(): SessionActionMutationState {
     status: 'idle',
     message: null,
     artifactPath: null,
+    handoffKey: null,
   };
 }
 
@@ -505,6 +526,7 @@ function createIdleBrowserHandoffCompletionState(): BrowserHandoffCompletionMuta
     status: 'idle',
     error: null,
     result: null,
+    handoffKey: null,
   };
 }
 
@@ -621,6 +643,23 @@ function getDraftPublishContract(draft: DraftRecord, mutationState: ScheduleMuta
         ? mutationState.error ?? readString(draftRecord?.lastPublishError) ?? readString(draftRecord?.publishError)
         : readString(draftRecord?.lastPublishError) ?? readString(draftRecord?.publishError),
     browserHandoff,
+  };
+}
+
+function createRestoredBrowserHandoffMutationState(draft: DraftRecord, handoff: BrowserHandoffRecord): ScheduleMutationState {
+  return {
+    status: 'success',
+    message: `已恢复人工接管：${draft.title ?? `${draft.platform} draft #${draft.id}`}`,
+    error: null,
+    action: 'retry',
+    publishUrl: null,
+    contractMessage: isReadyBrowserHandoff(handoff)
+      ? '发现待处理的 browser handoff，可以直接结单。'
+      : getBrowserHandoffBlockedMessage(handoff),
+    contractStatus: 'manual_required',
+    contractDetails: {
+      browserHandoff: toBrowserHandoffContract(handoff),
+    },
   };
 }
 
@@ -748,46 +787,42 @@ export function PublishCalendarPage({
   function getDisplayMutationState(draft: DraftRecord) {
     const currentMutationState = getMutationState(draft.id);
     const persistedBrowserHandoff = findPendingBrowserHandoff(browserHandoffs, draft.id);
-    if (
-      currentMutationState.status !== 'idle' &&
-      currentMutationState.action === 'retry' &&
-      currentMutationState.contractStatus === 'manual_required' &&
-      persistedBrowserHandoff &&
-      draft.status !== 'published' &&
-      draft.status !== 'scheduled'
-    ) {
-      return {
-        ...currentMutationState,
-        contractMessage: isReadyBrowserHandoff(persistedBrowserHandoff)
-          ? '发现待处理的 browser handoff，可以直接结单。'
-          : getBrowserHandoffBlockedMessage(persistedBrowserHandoff),
-        contractDetails: {
-          browserHandoff: toBrowserHandoffContract(persistedBrowserHandoff),
-        },
-      } satisfies ScheduleMutationState;
-    }
-
-    if (currentMutationState.status !== 'idle') {
-      return currentMutationState;
-    }
-
     if (!persistedBrowserHandoff || draft.status === 'published' || draft.status === 'scheduled') {
       return currentMutationState;
     }
 
+    if (
+      currentMutationState.action === 'retry' &&
+      (currentMutationState.status === 'loading' || currentMutationState.status === 'error')
+    ) {
+      return currentMutationState;
+    }
+
+    const restoredMutationState = createRestoredBrowserHandoffMutationState(draft, persistedBrowserHandoff);
+    if (currentMutationState.status === 'idle') {
+      return restoredMutationState;
+    }
+
+    const currentBrowserHandoff = readBrowserHandoffContract(currentMutationState.contractDetails);
+    const currentBrowserHandoffIdentity = getBrowserHandoffIdentity(currentBrowserHandoff);
+    const persistedBrowserHandoffIdentity = getBrowserHandoffIdentity(
+      toBrowserHandoffContract(persistedBrowserHandoff),
+    );
+
+    if (
+      currentMutationState.action !== 'retry' ||
+      currentMutationState.contractStatus !== 'manual_required' ||
+      currentBrowserHandoffIdentity !== persistedBrowserHandoffIdentity
+    ) {
+      return restoredMutationState;
+    }
+
     return {
-      status: 'success',
-      message: `已恢复人工接管：${draft.title ?? `${draft.platform} draft #${draft.id}`}`,
-      error: null,
-      action: 'retry',
-      publishUrl: null,
-      contractMessage: isReadyBrowserHandoff(persistedBrowserHandoff)
-        ? '发现待处理的 browser handoff，可以直接结单。'
-        : getBrowserHandoffBlockedMessage(persistedBrowserHandoff),
-      contractStatus: 'manual_required',
-      contractDetails: {
-        browserHandoff: toBrowserHandoffContract(persistedBrowserHandoff),
-      },
+      ...currentMutationState,
+      contractMessage: restoredMutationState.contractMessage,
+      contractStatus: restoredMutationState.contractStatus,
+      contractDetails: restoredMutationState.contractDetails,
+      publishUrl: restoredMutationState.publishUrl,
     } satisfies ScheduleMutationState;
   }
 
@@ -1025,6 +1060,7 @@ export function PublishCalendarPage({
 
     const scopeVersionAtStart = followUpScopeVersionRef.current;
     const retryFollowUpAttempt = readRetryFollowUpAttempt(draftId);
+    const handoffKey = getBrowserHandoffIdentity(browserHandoff);
 
     setSessionActionStateById((currentState) => ({
       ...currentState,
@@ -1032,6 +1068,7 @@ export function PublishCalendarPage({
         status: 'loading',
         message: null,
         artifactPath: null,
+        handoffKey,
       },
     }));
 
@@ -1051,6 +1088,7 @@ export function PublishCalendarPage({
             status: 'success',
             message: result.sessionAction.message,
             artifactPath: readSessionActionArtifactPath(result),
+            handoffKey,
           },
         }));
       })
@@ -1067,6 +1105,7 @@ export function PublishCalendarPage({
             status: 'error',
             message: `提交 browser session 动作失败：${getErrorMessage(error)}`,
             artifactPath: null,
+            handoffKey,
           },
         }));
       });
@@ -1084,6 +1123,7 @@ export function PublishCalendarPage({
     const scopeVersionAtStart = followUpScopeVersionRef.current;
     const retryFollowUpAttempt = readRetryFollowUpAttempt(draftId);
     const handoffDraft = browserHandoffDraftByArtifactPath[browserHandoff.artifactPath];
+    const handoffKey = getBrowserHandoffIdentity(browserHandoff);
     const message = handoffDraft?.message.trim();
     const publishUrl = handoffDraft?.publishUrl.trim();
 
@@ -1093,6 +1133,7 @@ export function PublishCalendarPage({
         status: 'loading',
         error: null,
         result: null,
+        handoffKey,
       },
     }));
 
@@ -1118,6 +1159,7 @@ export function PublishCalendarPage({
             status: 'success',
             error: null,
             result,
+            handoffKey,
           },
         }));
         reloadCalendarSurface();
@@ -1135,6 +1177,7 @@ export function PublishCalendarPage({
             status: 'error',
             error: `Publish browser handoff 结单失败：${getErrorMessage(error)}`,
             result: null,
+            handoffKey,
           },
         }));
       });
@@ -1161,9 +1204,18 @@ export function PublishCalendarPage({
       return null;
     }
 
-    const sessionActionState = sessionActionStateById[draftId] ?? createIdleSessionActionState();
-    const browserHandoffCompletionState =
+    const activeBrowserHandoffIdentity = getBrowserHandoffIdentity(browserHandoff);
+    const sessionActionStateCandidate = sessionActionStateById[draftId] ?? createIdleSessionActionState();
+    const sessionActionState =
+      sessionActionStateCandidate.handoffKey === activeBrowserHandoffIdentity
+        ? sessionActionStateCandidate
+        : createIdleSessionActionState();
+    const browserHandoffCompletionStateCandidate =
       browserHandoffCompletionStateById[draftId] ?? createIdleBrowserHandoffCompletionState();
+    const browserHandoffCompletionState =
+      browserHandoffCompletionStateCandidate.handoffKey === activeBrowserHandoffIdentity
+        ? browserHandoffCompletionStateCandidate
+        : createIdleBrowserHandoffCompletionState();
     const handoffDraft = browserHandoff.artifactPath
       ? browserHandoffDraftByArtifactPath[browserHandoff.artifactPath]
       : undefined;

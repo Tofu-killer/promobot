@@ -1072,4 +1072,306 @@ describe('Publish Calendar schedule actions', () => {
     });
   });
 
+  it('clears stale session action feedback when a newer blocked handoff replaces the current draft handoff', async () => {
+    const { container } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { PublishCalendarPage } = await import('../../src/client/pages/PublishCalendar');
+
+    const retryPublishDraftAction = vi.fn().mockResolvedValue({
+      success: false,
+      status: 'manual_required',
+      publishUrl: null,
+      message: 'instagram draft 21 needs a relogin before the manual handoff can proceed.',
+      details: {
+        browserHandoff: {
+          platform: 'instagram',
+          channelAccountId: 19,
+          readiness: 'blocked',
+          sessionAction: 'relogin',
+          artifactPath: 'artifacts/browser-handoffs/instagram/acct-19/instagram-draft-21-v1.json',
+          handoffAttempt: 1,
+        },
+      },
+    });
+    const requestChannelAccountSessionActionAction = vi.fn().mockResolvedValue({
+      sessionAction: {
+        action: 'relogin',
+        message: 'Browser relogin request queued for the original publish handoff.',
+        artifactPath: 'artifacts/browser-lane-requests/instagram/acct-19/relogin-job-21-v1.json',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(PublishCalendarPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              drafts: [
+                {
+                  id: 21,
+                  platform: 'instagram',
+                  title: 'Instagram launch follow-up',
+                  content: 'Publish follow-up',
+                  hashtags: ['#launch'],
+                  status: 'failed',
+                  createdAt: '2026-04-19T08:00:00.000Z',
+                  updatedAt: '2026-04-19T08:10:00.000Z',
+                },
+              ],
+            },
+          },
+          browserHandoffsStateOverride: {
+            status: 'success',
+            data: {
+              handoffs: [],
+              total: 0,
+            },
+          },
+          retryPublishDraftAction,
+          requestChannelAccountSessionActionAction,
+        }),
+      );
+      await flush();
+    });
+
+    const retryButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-calendar-retry-id') === '21' &&
+        collectText(element).includes('重试发布'),
+    );
+    expect(retryButton).not.toBeNull();
+
+    await act(async () => {
+      retryButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    await act(async () => {
+      const sessionActionButton = findElement(
+        container,
+        (element) => element.getAttribute('data-calendar-session-action') === 'relogin',
+      );
+      sessionActionButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('Browser relogin request queued for the original publish handoff.');
+    expect(collectText(container)).toContain(
+      'Session 请求路径：artifacts/browser-lane-requests/instagram/acct-19/relogin-job-21-v1.json',
+    );
+
+    await act(async () => {
+      root.render(
+        createElement(PublishCalendarPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              drafts: [
+                {
+                  id: 21,
+                  platform: 'instagram',
+                  title: 'Instagram launch follow-up',
+                  content: 'Publish follow-up',
+                  hashtags: ['#launch'],
+                  status: 'failed',
+                  createdAt: '2026-04-19T08:00:00.000Z',
+                  updatedAt: '2026-04-19T08:30:00.000Z',
+                },
+              ],
+            },
+          },
+          browserHandoffsStateOverride: {
+            status: 'success',
+            data: {
+              handoffs: [
+                {
+                  platform: 'instagram',
+                  draftId: 21,
+                  title: 'Instagram launch follow-up',
+                  accountKey: 'acct-19',
+                  channelAccountId: 19,
+                  status: 'pending',
+                  readiness: 'blocked',
+                  sessionAction: 'relogin',
+                  artifactPath: 'artifacts/browser-handoffs/instagram/acct-19/instagram-draft-21-v2.json',
+                  handoffAttempt: 2,
+                  createdAt: '2026-04-19T08:20:00.000Z',
+                  updatedAt: '2026-04-19T08:30:00.000Z',
+                  resolvedAt: null,
+                },
+              ],
+              total: 1,
+            },
+          },
+          retryPublishDraftAction,
+          requestChannelAccountSessionActionAction,
+        }),
+      );
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('等待刷新 Session 后继续发布接管。');
+    expect(collectText(container)).toContain('Handoff 路径：artifacts/browser-handoffs/instagram/acct-19/instagram-draft-21-v2.json');
+    expect(collectText(container)).not.toContain('Browser relogin request queued for the original publish handoff.');
+    expect(collectText(container)).not.toContain(
+      'Session 请求路径：artifacts/browser-lane-requests/instagram/acct-19/relogin-job-21-v1.json',
+    );
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('restores inline completion actions when a newer pending handoff replaces a completed one for the same draft', async () => {
+    const { container } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { PublishCalendarPage } = await import('../../src/client/pages/PublishCalendar');
+
+    const completeBrowserHandoffAction = vi.fn().mockResolvedValue({
+      ok: true,
+      imported: true,
+      artifactPath: 'artifacts/browser-handoffs/tiktok/relaunch/tiktok-draft-142-v1.json',
+      draftId: 142,
+      draftStatus: 'published',
+      platform: 'tiktok',
+      mode: 'browser_handoff',
+      status: 'published',
+      success: true,
+      publishUrl: 'https://www.tiktok.com/@promobot/video/142-v1',
+      externalId: null,
+      message: 'Older TikTok browser handoff completed.',
+      publishedAt: '2026-04-29T01:00:00.000Z',
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(PublishCalendarPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              drafts: [
+                {
+                  id: 142,
+                  platform: 'tiktok',
+                  title: 'TikTok relaunch clip',
+                  content: 'Draft body',
+                  hashtags: ['#launch'],
+                  status: 'failed',
+                  lastPublishError: 'waiting for browser lane',
+                  createdAt: '2026-04-29T00:00:00.000Z',
+                  updatedAt: '2026-04-29T00:00:00.000Z',
+                },
+              ],
+            },
+          },
+          browserHandoffsStateOverride: {
+            status: 'success',
+            data: {
+              handoffs: [
+                {
+                  platform: 'tiktok',
+                  draftId: 142,
+                  title: 'TikTok relaunch clip',
+                  accountKey: 'tiktok:relaunch',
+                  status: 'pending',
+                  readiness: 'ready',
+                  sessionAction: null,
+                  artifactPath: 'artifacts/browser-handoffs/tiktok/relaunch/tiktok-draft-142-v1.json',
+                  handoffAttempt: 1,
+                  createdAt: '2026-04-29T00:00:00.000Z',
+                  updatedAt: '2026-04-29T00:05:00.000Z',
+                  resolvedAt: null,
+                },
+              ],
+              total: 1,
+            },
+          },
+          completeBrowserHandoffAction,
+        }),
+      );
+      await flush();
+    });
+
+    const completeButton = findElement(
+      container,
+      (element) => element.getAttribute('data-calendar-browser-handoff-complete') === 'published',
+    );
+
+    expect(completeButton).not.toBeNull();
+
+    await act(async () => {
+      completeButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('Older TikTok browser handoff completed.');
+
+    await act(async () => {
+      root.render(
+        createElement(PublishCalendarPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              drafts: [
+                {
+                  id: 142,
+                  platform: 'tiktok',
+                  title: 'TikTok relaunch clip',
+                  content: 'Draft body',
+                  hashtags: ['#launch'],
+                  status: 'failed',
+                  lastPublishError: 'waiting for browser lane again',
+                  createdAt: '2026-04-29T00:00:00.000Z',
+                  updatedAt: '2026-04-29T02:00:00.000Z',
+                },
+              ],
+            },
+          },
+          browserHandoffsStateOverride: {
+            status: 'success',
+            data: {
+              handoffs: [
+                {
+                  platform: 'tiktok',
+                  draftId: 142,
+                  title: 'TikTok relaunch clip',
+                  accountKey: 'tiktok:relaunch',
+                  status: 'pending',
+                  readiness: 'ready',
+                  sessionAction: null,
+                  artifactPath: 'artifacts/browser-handoffs/tiktok/relaunch/tiktok-draft-142-v2.json',
+                  handoffAttempt: 2,
+                  createdAt: '2026-04-29T02:00:00.000Z',
+                  updatedAt: '2026-04-29T02:05:00.000Z',
+                  resolvedAt: null,
+                },
+              ],
+              total: 1,
+            },
+          },
+          completeBrowserHandoffAction,
+        }),
+      );
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('发现待处理的 browser handoff，可以直接结单。');
+    expect(collectText(container)).toContain('Handoff 路径：artifacts/browser-handoffs/tiktok/relaunch/tiktok-draft-142-v2.json');
+    expect(collectText(container)).toContain('标记已发布');
+    expect(collectText(container)).not.toContain('Older TikTok browser handoff completed.');
+    expect(collectText(container)).not.toContain('已结单 draft #142');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
 });
