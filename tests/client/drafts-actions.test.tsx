@@ -3052,4 +3052,348 @@ describe('Drafts publish actions', () => {
       await flush();
     });
   });
+
+  it('clears stale draft session action feedback when a newer persisted handoff replaces the current draft handoff', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { DraftsPage } = await import('../../src/client/pages/Drafts');
+
+    const publishDraftAction = vi.fn().mockResolvedValue({
+      success: false,
+      status: 'manual_required',
+      publishUrl: null,
+      message: 'instagram draft 271 requires a saved browser session before manual handoff.',
+      details: {
+        browserHandoff: {
+          platform: 'instagram',
+          channelAccountId: 88,
+          readiness: 'blocked',
+          sessionAction: 'request_session',
+          artifactPath: 'artifacts/browser-handoffs/instagram/relaunch/instagram-draft-271-v1.json',
+          handoffAttempt: 1,
+        },
+      },
+    });
+    const requestChannelAccountSessionActionAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        sessionAction: {
+          action: 'request_session',
+          message: 'Instagram session request queued for the original draft handoff.',
+          artifactPath: 'artifacts/browser-lane-requests/instagram/relaunch/session-request-271-v1.json',
+        },
+      })
+      .mockResolvedValueOnce({
+        sessionAction: {
+          action: 'relogin',
+          message: 'Instagram relogin request queued for the newer draft handoff.',
+          artifactPath: 'artifacts/browser-lane-requests/instagram/relaunch/relogin-job-271-v2.json',
+        },
+      });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(DraftsPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              drafts: [
+                {
+                  id: 271,
+                  platform: 'instagram',
+                  title: 'Instagram relaunch reel',
+                  content: 'Draft body',
+                  hashtags: ['#launch'],
+                  status: 'draft',
+                  createdAt: '2026-04-29T00:00:00.000Z',
+                  updatedAt: '2026-04-29T00:00:00.000Z',
+                },
+              ],
+            },
+          },
+          browserHandoffsStateOverride: {
+            status: 'success',
+            data: {
+              handoffs: [],
+              total: 0,
+            },
+          },
+          publishDraftAction,
+          requestChannelAccountSessionActionAction,
+        }),
+      );
+      await flush();
+    });
+
+    const publishButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('发起人工接管'),
+    );
+
+    expect(publishButton).not.toBeNull();
+
+    await act(async () => {
+      publishButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    const firstSessionActionButton = findElement(
+      container,
+      (element) => element.getAttribute('data-draft-session-action') === 'request_session',
+    );
+
+    expect(firstSessionActionButton).not.toBeNull();
+
+    await act(async () => {
+      firstSessionActionButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('Instagram session request queued for the original draft handoff.');
+    expect(collectText(container)).toContain(
+      'Session 请求路径：artifacts/browser-lane-requests/instagram/relaunch/session-request-271-v1.json',
+    );
+
+    await act(async () => {
+      root.render(
+        createElement(DraftsPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              drafts: [
+                {
+                  id: 271,
+                  platform: 'instagram',
+                  title: 'Instagram relaunch reel',
+                  content: 'Draft body',
+                  hashtags: ['#launch'],
+                  status: 'draft',
+                  createdAt: '2026-04-29T00:00:00.000Z',
+                  updatedAt: '2026-04-29T00:12:00.000Z',
+                },
+              ],
+            },
+          },
+          browserHandoffsStateOverride: {
+            status: 'success',
+            data: {
+              handoffs: [
+                {
+                  platform: 'instagram',
+                  channelAccountId: 88,
+                  draftId: 271,
+                  title: 'Instagram relaunch reel',
+                  accountKey: 'instagram:relaunch',
+                  status: 'pending',
+                  readiness: 'blocked',
+                  sessionAction: 'relogin',
+                  artifactPath: 'artifacts/browser-handoffs/instagram/relaunch/instagram-draft-271-v2.json',
+                  handoffAttempt: 2,
+                  createdAt: '2026-04-29T00:10:00.000Z',
+                  updatedAt: '2026-04-29T00:12:00.000Z',
+                  resolvedAt: null,
+                },
+              ],
+              total: 1,
+            },
+          },
+          publishDraftAction,
+          requestChannelAccountSessionActionAction,
+        }),
+      );
+      await flush();
+    });
+
+    expect(collectText(container)).toContain('等待刷新 Session 后继续发布接管。');
+    expect(collectText(container)).toContain(
+      'Handoff 路径：artifacts/browser-handoffs/instagram/relaunch/instagram-draft-271-v2.json',
+    );
+    expect(collectText(container)).not.toContain('Instagram session request queued for the original draft handoff.');
+    expect(collectText(container)).not.toContain(
+      'Session 请求路径：artifacts/browser-lane-requests/instagram/relaunch/session-request-271-v1.json',
+    );
+
+    const secondSessionActionButton = findElement(
+      container,
+      (element) => element.getAttribute('data-draft-session-action') === 'relogin',
+    );
+
+    expect(secondSessionActionButton).not.toBeNull();
+
+    await act(async () => {
+      secondSessionActionButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(requestChannelAccountSessionActionAction).toHaveBeenNthCalledWith(1, 88, {
+      action: 'request_session',
+    });
+    expect(requestChannelAccountSessionActionAction).toHaveBeenNthCalledWith(2, 88, {
+      action: 'relogin',
+    });
+    expect(collectText(container)).toContain('Instagram relogin request queued for the newer draft handoff.');
+    expect(collectText(container)).toContain(
+      'Session 请求路径：artifacts/browser-lane-requests/instagram/relaunch/relogin-job-271-v2.json',
+    );
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('restores inline draft browser handoff completion actions when a newer pending handoff replaces a completed one for the same draft', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { DraftsPage } = await import('../../src/client/pages/Drafts');
+
+    const completeBrowserHandoffAction = vi.fn().mockResolvedValue({
+      ok: true,
+      imported: true,
+      artifactPath: 'artifacts/browser-handoffs/tiktok/relaunch/tiktok-draft-272-v1.json',
+      draftId: 272,
+      draftStatus: 'published',
+      platform: 'tiktok',
+      mode: 'browser_handoff',
+      status: 'published',
+      success: true,
+      publishUrl: 'https://www.tiktok.com/@promobot/video/272-v1',
+      externalId: null,
+      message: 'Older TikTok browser handoff completed.',
+      publishedAt: '2026-04-29T01:00:00.000Z',
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(DraftsPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              drafts: [
+                {
+                  id: 272,
+                  platform: 'tiktok',
+                  title: 'TikTok relaunch clip',
+                  content: 'Draft body',
+                  hashtags: ['#launch'],
+                  status: 'draft',
+                  createdAt: '2026-04-29T00:00:00.000Z',
+                  updatedAt: '2026-04-29T00:00:00.000Z',
+                },
+              ],
+            },
+          },
+          browserHandoffsStateOverride: {
+            status: 'success',
+            data: {
+              handoffs: [
+                {
+                  platform: 'tiktok',
+                  draftId: 272,
+                  title: 'TikTok relaunch clip',
+                  accountKey: 'tiktok:relaunch',
+                  status: 'pending',
+                  readiness: 'ready',
+                  sessionAction: null,
+                  artifactPath: 'artifacts/browser-handoffs/tiktok/relaunch/tiktok-draft-272-v1.json',
+                  handoffAttempt: 1,
+                  createdAt: '2026-04-29T00:00:00.000Z',
+                  updatedAt: '2026-04-29T00:05:00.000Z',
+                  resolvedAt: null,
+                },
+              ],
+              total: 1,
+            },
+          },
+          completeBrowserHandoffAction,
+        }),
+      );
+      await flush();
+    });
+
+    const firstCompleteButton = findElement(
+      container,
+      (element) => element.getAttribute('data-draft-browser-handoff-complete') === 'published',
+    );
+
+    expect(firstCompleteButton).not.toBeNull();
+
+    await act(async () => {
+      firstCompleteButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    await act(async () => {
+      root.render(
+        createElement(DraftsPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              drafts: [
+                {
+                  id: 272,
+                  platform: 'tiktok',
+                  title: 'TikTok relaunch clip',
+                  content: 'Draft body',
+                  hashtags: ['#launch'],
+                  status: 'draft',
+                  createdAt: '2026-04-29T00:00:00.000Z',
+                  updatedAt: '2026-04-29T02:00:00.000Z',
+                },
+              ],
+            },
+          },
+          browserHandoffsStateOverride: {
+            status: 'success',
+            data: {
+              handoffs: [
+                {
+                  platform: 'tiktok',
+                  draftId: 272,
+                  title: 'TikTok relaunch clip',
+                  accountKey: 'tiktok:relaunch',
+                  status: 'pending',
+                  readiness: 'ready',
+                  sessionAction: null,
+                  artifactPath: 'artifacts/browser-handoffs/tiktok/relaunch/tiktok-draft-272-v2.json',
+                  handoffAttempt: 2,
+                  createdAt: '2026-04-29T01:40:00.000Z',
+                  updatedAt: '2026-04-29T02:00:00.000Z',
+                  resolvedAt: null,
+                },
+              ],
+              total: 1,
+            },
+          },
+          completeBrowserHandoffAction,
+        }),
+      );
+      await flush();
+    });
+
+    expect(collectText(container)).toContain(
+      'Handoff 路径：artifacts/browser-handoffs/tiktok/relaunch/tiktok-draft-272-v2.json',
+    );
+    expect(collectText(container)).toContain('发现待处理的 browser handoff，可以直接结单。');
+    expect(collectText(container)).not.toContain('Older TikTok browser handoff completed.');
+    expect(collectText(container)).not.toContain('已结单 draft #272');
+
+    const secondCompleteButton = findElement(
+      container,
+      (element) => element.getAttribute('data-draft-browser-handoff-complete') === 'published',
+    );
+
+    expect(secondCompleteButton).not.toBeNull();
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
 });
