@@ -200,12 +200,14 @@ interface SessionActionMutationState {
   status: 'idle' | 'loading' | 'success' | 'error';
   message: string | null;
   artifactPath: string | null;
+  handoffKey: string | null;
 }
 
 interface BrowserHandoffCompletionMutationState {
   status: 'idle' | 'loading' | 'success' | 'error';
   error: string | null;
   result: BrowserHandoffCompletionResponse | null;
+  handoffKey: string | null;
 }
 
 export async function generateDraftsRequest(input: GenerateDraftsPayload): Promise<GenerateDraftsResponse> {
@@ -385,6 +387,7 @@ function createIdleSessionActionState(): SessionActionMutationState {
     status: 'idle',
     message: null,
     artifactPath: null,
+    handoffKey: null,
   };
 }
 
@@ -393,6 +396,7 @@ function createIdleBrowserHandoffCompletionState(): BrowserHandoffCompletionMuta
     status: 'idle',
     error: null,
     result: null,
+    handoffKey: null,
   };
 }
 
@@ -495,12 +499,49 @@ function readSessionActionArtifactPath(result: RequestChannelAccountSessionActio
   return readString(sessionAction?.artifactPath) ?? readString(sessionAction?.path);
 }
 
+function getBrowserHandoffIdentity(handoff: BrowserHandoffContract | null) {
+  if (!handoff) {
+    return null;
+  }
+
+  if (handoff.artifactPath) {
+    return `${handoff.artifactPath}#${handoff.handoffAttempt ?? 0}`;
+  }
+
+  return [
+    handoff.platform ?? '',
+    handoff.accountKey ?? '',
+    String(handoff.channelAccountId ?? ''),
+    handoff.sessionAction ?? '',
+    String(handoff.handoffAttempt ?? ''),
+  ].join('|');
+}
+
 function formatSessionActionLabel(action: BrowserSessionAction) {
   return action === 'relogin' ? '重新登录' : '请求登录';
 }
 
 function formatSessionActionPendingLabel(action: BrowserSessionAction) {
   return action === 'relogin' ? '正在提交重新登录...' : '正在提交登录请求...';
+}
+
+function createRestoredBrowserHandoffPublishState(
+  draftTitle: string,
+  persistedBrowserHandoff: BrowserHandoffRecord,
+): PublishMutationState {
+  return {
+    status: 'success',
+    message: `已恢复人工接管：${draftTitle}`,
+    error: null,
+    publishUrl: null,
+    contractMessage: isReadyBrowserHandoff(persistedBrowserHandoff)
+      ? '发现待处理的 browser handoff，可以直接结单。'
+      : getBrowserHandoffBlockedMessage(persistedBrowserHandoff),
+    contractStatus: 'manual_required',
+    contractDetails: {
+      browserHandoff: toBrowserHandoffContract(persistedBrowserHandoff),
+    },
+  } satisfies PublishMutationState;
 }
 
 export function GeneratePage({
@@ -659,10 +700,6 @@ export function GeneratePage({
 
   function getDisplayPublishState(draftId: number, draftTitle: string): PublishMutationState {
     const currentPublishState = getPublishState(draftId);
-    if (currentPublishState.status !== 'idle') {
-      return currentPublishState;
-    }
-
     const persistedBrowserHandoff = findPendingBrowserHandoff(browserHandoffs, draftId);
     const currentDraftStatus = draftStatusById[draftId];
     if (
@@ -675,18 +712,34 @@ export function GeneratePage({
       return currentPublishState;
     }
 
+    if (currentPublishState.status === 'loading' || currentPublishState.status === 'error') {
+      return currentPublishState;
+    }
+
+    const restoredPublishState = createRestoredBrowserHandoffPublishState(draftTitle, persistedBrowserHandoff);
+    if (currentPublishState.status === 'idle') {
+      return restoredPublishState;
+    }
+
+    const currentBrowserHandoff = readBrowserHandoffContract(currentPublishState.contractDetails);
+    const currentBrowserHandoffIdentity = getBrowserHandoffIdentity(currentBrowserHandoff);
+    const persistedBrowserHandoffIdentity = getBrowserHandoffIdentity(
+      toBrowserHandoffContract(persistedBrowserHandoff),
+    );
+
+    if (
+      currentPublishState.contractStatus !== 'manual_required' ||
+      currentBrowserHandoffIdentity !== persistedBrowserHandoffIdentity
+    ) {
+      return restoredPublishState;
+    }
+
     return {
-      status: 'success',
-      message: `已恢复人工接管：${draftTitle}`,
-      error: null,
-      publishUrl: null,
-      contractMessage: isReadyBrowserHandoff(persistedBrowserHandoff)
-        ? '发现待处理的 browser handoff，可以直接结单。'
-        : getBrowserHandoffBlockedMessage(persistedBrowserHandoff),
-      contractStatus: 'manual_required',
-      contractDetails: {
-        browserHandoff: toBrowserHandoffContract(persistedBrowserHandoff),
-      },
+      ...currentPublishState,
+      contractMessage: restoredPublishState.contractMessage,
+      contractStatus: restoredPublishState.contractStatus,
+      contractDetails: restoredPublishState.contractDetails,
+      publishUrl: restoredPublishState.publishUrl,
     } satisfies PublishMutationState;
   }
 
@@ -898,6 +951,7 @@ export function GeneratePage({
 
     const scopeVersionAtStart = followUpScopeVersionRef.current;
     const publishFollowUpAttempt = readPublishFollowUpAttempt(draftId);
+    const handoffKey = getBrowserHandoffIdentity(browserHandoff);
 
     setSessionActionStateByDraftId((currentState) => ({
       ...currentState,
@@ -905,6 +959,7 @@ export function GeneratePage({
         status: 'loading',
         message: null,
         artifactPath: null,
+        handoffKey,
       },
     }));
 
@@ -924,6 +979,7 @@ export function GeneratePage({
             status: 'success',
             message: result.sessionAction.message,
             artifactPath: readSessionActionArtifactPath(result),
+            handoffKey,
           },
         }));
       })
@@ -940,6 +996,7 @@ export function GeneratePage({
             status: 'error',
             message: `提交 browser session 动作失败：${getErrorMessage(error)}`,
             artifactPath: null,
+            handoffKey,
           },
         }));
       });
@@ -959,6 +1016,7 @@ export function GeneratePage({
     const handoffDraft = browserHandoffDraftByArtifactPath[browserHandoff.artifactPath];
     const message = handoffDraft?.message.trim();
     const publishUrl = handoffDraft?.publishUrl.trim();
+    const handoffKey = getBrowserHandoffIdentity(browserHandoff);
 
     setBrowserHandoffCompletionStateByDraftId((currentState) => ({
       ...currentState,
@@ -966,6 +1024,7 @@ export function GeneratePage({
         status: 'loading',
         error: null,
         result: null,
+        handoffKey,
       },
     }));
 
@@ -1008,6 +1067,7 @@ export function GeneratePage({
             status: 'success',
             error: null,
             result,
+            handoffKey,
           },
         }));
         void reloadBrowserHandoffs();
@@ -1025,6 +1085,7 @@ export function GeneratePage({
             status: 'error',
             error: `Generate browser handoff 结单失败：${getErrorMessage(error)}`,
             result: null,
+            handoffKey,
           },
         }));
       });
@@ -1080,8 +1141,17 @@ export function GeneratePage({
       return null;
     }
 
-    const sessionActionState = getSessionActionState(draftId);
-    const browserHandoffCompletionState = getBrowserHandoffCompletionState(draftId);
+    const activeBrowserHandoffIdentity = getBrowserHandoffIdentity(browserHandoff);
+    const sessionActionStateCandidate = getSessionActionState(draftId);
+    const sessionActionState =
+      sessionActionStateCandidate.handoffKey === activeBrowserHandoffIdentity
+        ? sessionActionStateCandidate
+        : createIdleSessionActionState();
+    const browserHandoffCompletionStateCandidate = getBrowserHandoffCompletionState(draftId);
+    const browserHandoffCompletionState =
+      browserHandoffCompletionStateCandidate.handoffKey === activeBrowserHandoffIdentity
+        ? browserHandoffCompletionStateCandidate
+        : createIdleBrowserHandoffCompletionState();
     const handoffDraft = browserHandoff.artifactPath
       ? browserHandoffDraftByArtifactPath[browserHandoff.artifactPath]
       : undefined;
