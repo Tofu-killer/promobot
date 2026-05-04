@@ -747,11 +747,30 @@ export function PublishCalendarPage({
 
   function getDisplayMutationState(draft: DraftRecord) {
     const currentMutationState = getMutationState(draft.id);
+    const persistedBrowserHandoff = findPendingBrowserHandoff(browserHandoffs, draft.id);
+    if (
+      currentMutationState.status !== 'idle' &&
+      currentMutationState.action === 'retry' &&
+      currentMutationState.contractStatus === 'manual_required' &&
+      persistedBrowserHandoff &&
+      draft.status !== 'published' &&
+      draft.status !== 'scheduled'
+    ) {
+      return {
+        ...currentMutationState,
+        contractMessage: isReadyBrowserHandoff(persistedBrowserHandoff)
+          ? '发现待处理的 browser handoff，可以直接结单。'
+          : getBrowserHandoffBlockedMessage(persistedBrowserHandoff),
+        contractDetails: {
+          browserHandoff: toBrowserHandoffContract(persistedBrowserHandoff),
+        },
+      } satisfies ScheduleMutationState;
+    }
+
     if (currentMutationState.status !== 'idle') {
       return currentMutationState;
     }
 
-    const persistedBrowserHandoff = findPendingBrowserHandoff(browserHandoffs, draft.id);
     if (!persistedBrowserHandoff || draft.status === 'published' || draft.status === 'scheduled') {
       return currentMutationState;
     }
