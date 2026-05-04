@@ -79,7 +79,15 @@ describe('database schema', () => {
         .all() as Array<{ name: string }>;
 
       expect(columns.map((column) => column.name)).toEqual(
-        expect.arrayContaining(['brand_voice', 'ctas', 'risk_policy', 'archived', 'archived_at']),
+        expect.arrayContaining([
+          'brand_voice',
+          'ctas',
+          'banned_phrases',
+          'default_language_policy',
+          'risk_policy',
+          'archived',
+          'archived_at',
+        ]),
       );
     } finally {
       db.close();
@@ -105,6 +113,8 @@ describe('database schema', () => {
         'archived_at',
         'brand_voice',
         'ctas',
+        'banned_phrases',
+        'default_language_policy',
         'risk_policy',
       ]);
 
@@ -132,6 +142,8 @@ describe('database schema', () => {
           `
             SELECT brand_voice AS brandVoice,
                    ctas,
+                   banned_phrases,
+                   default_language_policy,
                    risk_policy AS riskPolicy,
                    archived,
                    archived_at AS archivedAt
@@ -152,6 +164,8 @@ describe('database schema', () => {
       expect(row).toEqual({
         brandVoice: '',
         ctas: '[]',
+        banned_phrases: '[]',
+        default_language_policy: '',
         riskPolicy: 'requires_review',
         archived: 0,
         archivedAt: null,

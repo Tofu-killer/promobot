@@ -283,6 +283,8 @@ describe('content generation api', () => {
           sellingPoints: ['Project scoped'],
           brandVoice: '',
           ctas: [],
+          bannedPhrases: [],
+          defaultLanguagePolicy: '',
           riskPolicy: 'auto_approve',
           archived: false,
           createdAt: new Date().toISOString(),
@@ -380,6 +382,8 @@ describe('content generation api', () => {
           sellingPoints: ['Project scoped'],
           brandVoice: '',
           ctas: [],
+          bannedPhrases: [],
+          defaultLanguagePolicy: '',
           riskPolicy: 'requires_review',
           archived: false,
           createdAt: new Date().toISOString(),
@@ -471,6 +475,16 @@ describe('content generation api', () => {
         platforms: ['x'],
         siteContext: { ctas: ['Start free', 42] },
       },
+      {
+        topic: 'Invalid site context banned phrases payload',
+        platforms: ['x'],
+        siteContext: { bannedPhrases: ['No hype', 42] },
+      },
+      {
+        topic: 'Invalid site context default language policy payload',
+        platforms: ['x'],
+        siteContext: { defaultLanguagePolicy: ['en-AU'] },
+      },
     ];
 
     for (const body of invalidBodies) {
@@ -496,6 +510,8 @@ describe('content generation api', () => {
       sellingPoints: ['Fast routing', 'Lower cost'],
       brandVoice: 'Direct, calm, proof-first',
       ctas: ['Start free', 'Book a demo'],
+      bannedPhrases: ['Guaranteed #1', 'Zero risk'],
+      defaultLanguagePolicy: 'en-AU first, zh-CN only for Chinese channels',
     });
 
     expect(projectCreateResponse.status).toBe(201);
@@ -512,6 +528,10 @@ describe('content generation api', () => {
         expect(userPrompt).toContain('Selling Points: Fast routing, Lower cost');
         expect(userPrompt).toContain('Brand Voice: Direct, calm, proof-first');
         expect(userPrompt).toContain('CTAs: Start free, Book a demo');
+        expect(userPrompt).toContain('Banned Phrases: Guaranteed #1, Zero risk');
+        expect(userPrompt).toContain(
+          'Default Language Policy: en-AU first, zh-CN only for Chinese channels',
+        );
 
         return {
           ok: true,
@@ -557,6 +577,106 @@ describe('content generation api', () => {
       error: 'project not found',
     });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('merges banned phrases and language policy from the scoped project into the generation prompt', async () => {
+    const projectStore: ProjectStore = {
+      create() {
+        throw new Error('not implemented');
+      },
+      getById(id) {
+        if (id !== 42) {
+          return undefined;
+        }
+
+        return {
+          id: 42,
+          name: 'Scoped Project',
+          siteName: 'PromoBot',
+          siteUrl: 'https://promobot.test',
+          siteDescription: 'Scoped project',
+          sellingPoints: ['Project scoped'],
+          brandVoice: '',
+          ctas: ['Start free'],
+          bannedPhrases: ['Guaranteed #1'],
+          defaultLanguagePolicy: 'English only',
+          riskPolicy: 'requires_review',
+          archived: false,
+          createdAt: new Date().toISOString(),
+        };
+      },
+      list() {
+        return [];
+      },
+      update() {
+        return undefined;
+      },
+      archive() {
+        return undefined;
+      },
+    };
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+        const payload = JSON.parse(String(init?.body)) as {
+          messages: Array<{ role: string; content: string }>;
+        };
+        const userPrompt = payload.messages.find((message) => message.role === 'user')?.content ?? '';
+
+        expect(userPrompt).toContain('Site Description: Scoped project');
+        expect(userPrompt).toContain('Selling Points: Request override');
+        expect(userPrompt).toContain('CTAs: Start free');
+        expect(userPrompt).toContain('Banned Phrases: Guaranteed #1');
+        expect(userPrompt).toContain('Default Language Policy: English only');
+
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{ message: { content: 'x-draft-content' } }],
+          }),
+        };
+      }),
+    );
+
+    const response = await requestExpressApp(
+      createContentApp({
+        create() {
+          throw new Error('not implemented');
+        },
+        getById() {
+          return undefined;
+        },
+        list() {
+          return [];
+        },
+        update() {
+          return undefined;
+        },
+      }, projectStore),
+      'POST',
+      '/api/content/generate',
+      {
+        topic: 'Scoped prompt merge',
+        platforms: ['x'],
+        tone: 'professional',
+        projectId: 42,
+        siteContext: {
+          sellingPoints: ['Request override'],
+        },
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({
+      results: [
+        {
+          platform: 'x',
+          content: 'x-draft-content',
+          hashtags: [],
+        },
+      ],
+    });
   });
 
   it('does not create a draft when saveAsDraft is true and projectId points to a missing project', async () => {
@@ -676,6 +796,8 @@ describe('content generation api', () => {
           sellingPoints: ['Archived'],
           brandVoice: '',
           ctas: [],
+          bannedPhrases: [],
+          defaultLanguagePolicy: '',
           riskPolicy: 'requires_review',
           archived: true,
           createdAt: new Date().toISOString(),

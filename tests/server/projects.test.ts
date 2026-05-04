@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createApp } from '../../src/server/app';
+import { createProjectStore } from '../../src/server/store/projects';
 import { createSourceConfigStore } from '../../src/server/store/sourceConfigs';
 import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
 
@@ -98,6 +99,37 @@ async function requestApp(
 }
 
 describe('projects api', () => {
+  it('defaults new runtime project fields for legacy store callers', () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const projectStore = createProjectStore();
+
+      const created = projectStore.create({
+        name: 'Legacy Store Workspace',
+        siteName: 'PromoBot',
+        siteUrl: 'https://legacy-store.example.com',
+        siteDescription: 'Legacy store payload',
+        sellingPoints: ['Existing flow'],
+        brandVoice: '',
+        ctas: [],
+        riskPolicy: 'requires_review',
+      } as unknown as Parameters<typeof projectStore.create>[0]);
+
+      expect(created).toEqual(
+        expect.objectContaining({
+          id: 1,
+          name: 'Legacy Store Workspace',
+          bannedPhrases: [],
+          defaultLanguagePolicy: '',
+          riskPolicy: 'requires_review',
+          archived: false,
+        }),
+      );
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
   it('persists created projects in SQLite', async () => {
     const { rootDir } = createTestDatabasePath();
     try {
@@ -109,6 +141,8 @@ describe('projects api', () => {
         sellingPoints: ['Lower cost'],
         brandVoice: 'Direct, calm, proof-first',
         ctas: ['Start free', 'Book a demo'],
+        bannedPhrases: ['Guaranteed #1', 'Zero risk'],
+        defaultLanguagePolicy: 'en-AU first, zh-CN fallback for China channels',
         riskPolicy: 'auto_approve',
       });
 
@@ -120,6 +154,8 @@ describe('projects api', () => {
           siteName: 'MyModelHub',
           brandVoice: 'Direct, calm, proof-first',
           ctas: ['Start free', 'Book a demo'],
+          bannedPhrases: ['Guaranteed #1', 'Zero risk'],
+          defaultLanguagePolicy: 'en-AU first, zh-CN fallback for China channels',
           riskPolicy: 'auto_approve',
         }),
       });
@@ -137,6 +173,8 @@ describe('projects api', () => {
             sellingPoints: ['Lower cost'],
             brandVoice: 'Direct, calm, proof-first',
             ctas: ['Start free', 'Book a demo'],
+            bannedPhrases: ['Guaranteed #1', 'Zero risk'],
+            defaultLanguagePolicy: 'en-AU first, zh-CN fallback for China channels',
             riskPolicy: 'auto_approve',
           }),
         ],
@@ -163,6 +201,8 @@ describe('projects api', () => {
           id: 1,
           brandVoice: '',
           ctas: [],
+          bannedPhrases: [],
+          defaultLanguagePolicy: '',
           riskPolicy: 'requires_review',
           archived: false,
         }),
@@ -171,6 +211,8 @@ describe('projects api', () => {
       const updated = await requestApp('PATCH', '/api/projects/1', {
         brandVoice: 'Warm, operator-friendly, action-oriented',
         ctas: ['Talk to sales', 'See live examples'],
+        bannedPhrases: ['One-click miracle'],
+        defaultLanguagePolicy: 'English only unless the platform locale is explicitly Chinese',
         riskPolicy: 'auto_approve',
       });
 
@@ -181,6 +223,8 @@ describe('projects api', () => {
           name: 'Legacy Workspace',
           brandVoice: 'Warm, operator-friendly, action-oriented',
           ctas: ['Talk to sales', 'See live examples'],
+          bannedPhrases: ['One-click miracle'],
+          defaultLanguagePolicy: 'English only unless the platform locale is explicitly Chinese',
           riskPolicy: 'auto_approve',
         }),
       });
@@ -194,6 +238,8 @@ describe('projects api', () => {
             id: 1,
             brandVoice: 'Warm, operator-friendly, action-oriented',
             ctas: ['Talk to sales', 'See live examples'],
+            bannedPhrases: ['One-click miracle'],
+            defaultLanguagePolicy: 'English only unless the platform locale is explicitly Chinese',
             riskPolicy: 'auto_approve',
             archived: false,
           }),
@@ -224,6 +270,9 @@ describe('projects api', () => {
         { siteDescription: ['Wrong shape'] },
         { brandVoice: 456 },
         { ctas: 'Talk to sales' },
+        { bannedPhrases: 'No hype' },
+        { bannedPhrases: ['Valid', 42] },
+        { defaultLanguagePolicy: ['en-AU'] },
         { riskPolicy: 'sometimes_review' },
       ];
 
@@ -244,6 +293,8 @@ describe('projects api', () => {
           expect.objectContaining({
             id: 1,
             ctas: [],
+            bannedPhrases: [],
+            defaultLanguagePolicy: '',
             riskPolicy: 'requires_review',
             archived: false,
           }),

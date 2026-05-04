@@ -94,8 +94,10 @@ function parseSiteContext(
     hasInvalidOptionalStringField(raw, 'siteUrl') ||
     hasInvalidOptionalStringField(raw, 'siteDescription') ||
     hasInvalidOptionalStringField(raw, 'brandVoice') ||
+    hasInvalidOptionalStringField(raw, 'defaultLanguagePolicy') ||
     hasInvalidOptionalStringArrayField(raw, 'sellingPoints') ||
-    hasInvalidOptionalStringArrayField(raw, 'ctas')
+    hasInvalidOptionalStringArrayField(raw, 'ctas') ||
+    hasInvalidOptionalStringArrayField(raw, 'bannedPhrases')
   ) {
     return { ok: false };
   }
@@ -119,6 +121,14 @@ function parseSiteContext(
           ctas: raw.ctas.filter((value): value is string => typeof value === 'string'),
         }
       : {}),
+    ...(Array.isArray(raw.bannedPhrases)
+      ? {
+          bannedPhrases: raw.bannedPhrases.filter((value): value is string => typeof value === 'string'),
+        }
+      : {}),
+    ...(typeof raw.defaultLanguagePolicy === 'string'
+      ? { defaultLanguagePolicy: raw.defaultLanguagePolicy }
+      : {}),
   } };
 }
 
@@ -134,6 +144,8 @@ function getProjectSiteContext(project: ProjectRecord | undefined): SiteContext 
     sellingPoints: project.sellingPoints,
     brandVoice: project.brandVoice,
     ctas: project.ctas,
+    bannedPhrases: project.bannedPhrases,
+    defaultLanguagePolicy: project.defaultLanguagePolicy,
   };
 }
 
@@ -152,6 +164,12 @@ function mergeSiteContext(
       ? { sellingPoints: requestSiteContext.sellingPoints }
       : {}),
     ...(requestSiteContext?.ctas !== undefined ? { ctas: requestSiteContext.ctas } : {}),
+    ...(requestSiteContext?.bannedPhrases !== undefined
+      ? { bannedPhrases: requestSiteContext.bannedPhrases }
+      : {}),
+    ...(requestSiteContext?.defaultLanguagePolicy !== undefined
+      ? { defaultLanguagePolicy: requestSiteContext.defaultLanguagePolicy }
+      : {}),
   };
 }
 

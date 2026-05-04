@@ -10,6 +10,8 @@ CREATE TABLE IF NOT EXISTS projects (
   archived_at TEXT,
   brand_voice TEXT NOT NULL DEFAULT '',
   ctas TEXT NOT NULL DEFAULT '[]',
+  banned_phrases TEXT NOT NULL DEFAULT '[]',
+  default_language_policy TEXT NOT NULL DEFAULT '',
   risk_policy TEXT NOT NULL DEFAULT 'requires_review'
 );
 

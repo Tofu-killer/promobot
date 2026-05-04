@@ -1387,6 +1387,8 @@ describe('PublishCalendar and Projects pages', () => {
       sellingPoints: ['Cheap', 'Fast'],
       brandVoice: 'Direct, calm, proof-first',
       ctas: ['Start free', 'Book a demo'],
+      bannedPhrases: ['Guaranteed #1', 'Zero risk'],
+      defaultLanguagePolicy: 'en-AU first, zh-CN fallback',
       riskPolicy: 'auto_approve',
     });
     expect(collectText(container)).toContain('最近创建结果');
@@ -1509,11 +1511,12 @@ describe('PublishCalendar and Projects pages', () => {
             name: 'Acme Launch',
             siteName: 'Acme',
             siteUrl: 'https://acme.test',
-            siteDescription: 'Launch week campaign',
-            sellingPoints: ['Cheap', 'Fast'],
-            riskPolicy: 'requires_review',
-            createdAt: '2026-04-19T08:00:00.000Z',
-          },
+          siteDescription: 'Launch week campaign',
+          sellingPoints: ['Cheap', 'Fast'],
+          riskPolicy: 'requires_review',
+          defaultLanguagePolicy: 'English only',
+          createdAt: '2026-04-19T08:00:00.000Z',
+        },
         ],
       })
       .mockResolvedValueOnce({
@@ -1538,6 +1541,8 @@ describe('PublishCalendar and Projects pages', () => {
         siteUrl: 'https://acme.test',
         siteDescription: 'Updated brief',
         sellingPoints: ['Faster', 'Cheaper'],
+        bannedPhrases: ['No hype'],
+        defaultLanguagePolicy: 'English only',
         riskPolicy: 'auto_approve',
         createdAt: '2026-04-19T08:00:00.000Z',
       },
@@ -1567,11 +1572,21 @@ describe('PublishCalendar and Projects pages', () => {
       container,
       (element) => element.getAttribute('data-project-field') === 'risk-policy-7',
     );
+    const bannedPhrasesField = findElement(
+      container,
+      (element) => element.getAttribute('data-project-field') === 'banned-phrases-7',
+    );
+    const defaultLanguagePolicyField = findElement(
+      container,
+      (element) => element.getAttribute('data-project-field') === 'default-language-policy-7',
+    );
 
     await act(async () => {
       updateFieldValue(nameField, 'Acme Launch Updated', window);
       updateFieldValue(descriptionField, 'Updated brief', window);
       updateFieldValue(sellingPointsField, 'Faster, Cheaper', window);
+      updateFieldValue(bannedPhrasesField, 'No hype', window);
+      updateFieldValue(defaultLanguagePolicyField, 'English only', window);
       updateFieldValue(riskPolicyField, 'auto_approve', window);
       await flush();
     });
@@ -1597,6 +1612,8 @@ describe('PublishCalendar and Projects pages', () => {
       sellingPoints: ['Faster', 'Cheaper'],
       brandVoice: '',
       ctas: [],
+      bannedPhrases: ['No hype'],
+      defaultLanguagePolicy: 'English only',
       riskPolicy: 'auto_approve',
     });
     const projectSaveFeedback = findElement(
@@ -1620,9 +1637,19 @@ describe('PublishCalendar and Projects pages', () => {
       container,
       (element) => element.getAttribute('data-project-field') === 'risk-policy-7',
     );
+    const updatedBannedPhrasesField = findElement(
+      container,
+      (element) => element.getAttribute('data-project-field') === 'banned-phrases-7',
+    );
+    const updatedDefaultLanguagePolicyField = findElement(
+      container,
+      (element) => element.getAttribute('data-project-field') === 'default-language-policy-7',
+    );
 
     expect(updatedNameField?.value).toBe('Acme Launch Updated');
     expect(updatedSellingPointsField?.value).toBe('Faster, Cheaper');
+    expect(updatedBannedPhrasesField?.value).toBe('No hype');
+    expect(updatedDefaultLanguagePolicyField?.value).toBe('English only');
     expect(updatedRiskPolicyField?.value).toBe('auto_approve');
 
     await act(async () => {
@@ -2079,6 +2106,8 @@ describe('PublishCalendar and Projects pages', () => {
       sellingPoints: ['Cheap', 'Fast'],
       brandVoice: 'Direct, calm, proof-first',
       ctas: ['Start free', 'Book a demo'],
+      bannedPhrases: ['Guaranteed #1', 'Zero risk'],
+      defaultLanguagePolicy: 'en-AU first, zh-CN fallback',
       riskPolicy: 'auto_approve',
     });
     expect(pendingCreateButton?.disabled).toBe(true);
@@ -2134,6 +2163,8 @@ describe('PublishCalendar and Projects pages', () => {
           sellingPoints: ['Cheap', 'Fast'],
           brandVoice: '',
           ctas: [],
+          bannedPhrases: [],
+          defaultLanguagePolicy: '',
           riskPolicy: 'requires_review',
           createdAt: '2026-04-19T08:00:00.000Z',
         },
@@ -2175,6 +2206,8 @@ describe('PublishCalendar and Projects pages', () => {
       sellingPoints: ['Cheap', 'Fast'],
       brandVoice: '',
       ctas: [],
+      bannedPhrases: [],
+      defaultLanguagePolicy: '',
       riskPolicy: 'requires_review',
     });
 
@@ -2200,6 +2233,8 @@ describe('PublishCalendar and Projects pages', () => {
           sellingPoints: ['Cheap', 'Fast'],
           brandVoice: '',
           ctas: [],
+          bannedPhrases: [],
+          defaultLanguagePolicy: '',
           riskPolicy: 'requires_review',
           createdAt: '2026-04-19T08:00:00.000Z',
         },
@@ -3230,6 +3265,8 @@ describe('PublishCalendar and Projects pages', () => {
       sellingPoints: ['Cheap', 'Fast'],
       brandVoice: '',
       ctas: [],
+      bannedPhrases: [],
+      defaultLanguagePolicy: '',
       riskPolicy: 'requires_review',
     });
     expect(collectText(container)).not.toContain('Reddit mentions');

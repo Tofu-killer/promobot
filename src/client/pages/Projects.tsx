@@ -20,6 +20,8 @@ export interface ProjectRecord {
   sellingPoints: string[];
   brandVoice?: string;
   ctas?: string[];
+  bannedPhrases?: string[];
+  defaultLanguagePolicy?: string;
   riskPolicy?: ProjectRiskPolicy;
   archivedAt?: string;
   createdAt?: string;
@@ -58,6 +60,8 @@ export interface CreateProjectPayload {
   sellingPoints: string[];
   brandVoice?: string;
   ctas?: string[];
+  bannedPhrases?: string[];
+  defaultLanguagePolicy?: string;
   riskPolicy?: ProjectRiskPolicy;
 }
 
@@ -71,6 +75,8 @@ export interface UpdateProjectPayload {
   sellingPoints?: string[];
   brandVoice?: string;
   ctas?: string[];
+  bannedPhrases?: string[];
+  defaultLanguagePolicy?: string;
   riskPolicy?: ProjectRiskPolicy;
 }
 
@@ -183,6 +189,8 @@ interface ProjectFormValue {
   sellingPoints: string;
   brandVoice: string;
   ctas: string;
+  bannedPhrases: string;
+  defaultLanguagePolicy: string;
   riskPolicy: ProjectRiskPolicy;
 }
 
@@ -368,6 +376,8 @@ export function ProjectsPage({
   const [sellingPoints, setSellingPoints] = useState('Cheap, Fast');
   const [brandVoice, setBrandVoice] = useState('Direct, calm, proof-first');
   const [ctas, setCtas] = useState('Start free, Book a demo');
+  const [bannedPhrases, setBannedPhrases] = useState('Guaranteed #1, Zero risk');
+  const [defaultLanguagePolicy, setDefaultLanguagePolicy] = useState('en-AU first, zh-CN fallback');
   const [riskPolicy, setRiskPolicy] = useState<ProjectRiskPolicy>('auto_approve');
   const { state, run } = useAsyncAction(createProjectAction);
   const { state: projectsState, reload } = useAsyncQuery(loadProjectsAction, [loadProjectsAction]);
@@ -527,6 +537,8 @@ export function ProjectsPage({
       sellingPoints: parseCommaSeparatedList(sellingPoints),
       brandVoice,
       ctas: parseCommaSeparatedList(ctas),
+      bannedPhrases: parseCommaSeparatedList(bannedPhrases),
+      defaultLanguagePolicy,
       riskPolicy,
     })
       .then((result) => {
@@ -546,6 +558,8 @@ export function ProjectsPage({
       sellingPoints: formatStringList(project.sellingPoints),
       brandVoice: project.brandVoice ?? '',
       ctas: formatStringList(project.ctas),
+      bannedPhrases: formatStringList(project.bannedPhrases),
+      defaultLanguagePolicy: project.defaultLanguagePolicy ?? '',
       riskPolicy: project.riskPolicy ?? 'requires_review',
     };
   }
@@ -564,6 +578,8 @@ export function ProjectsPage({
             sellingPoints: [],
             brandVoice: '',
             ctas: [],
+            bannedPhrases: [],
+            defaultLanguagePolicy: '',
             riskPolicy: 'requires_review',
           },
           currentForms,
@@ -703,6 +719,8 @@ export function ProjectsPage({
         sellingPoints: [],
         brandVoice: '',
         ctas: [],
+        bannedPhrases: [],
+        defaultLanguagePolicy: '',
         riskPolicy: 'requires_review',
       },
     );
@@ -719,6 +737,8 @@ export function ProjectsPage({
       sellingPoints: parseCommaSeparatedList(form.sellingPoints),
       brandVoice: form.brandVoice,
       ctas: parseCommaSeparatedList(form.ctas),
+      bannedPhrases: parseCommaSeparatedList(form.bannedPhrases),
+      defaultLanguagePolicy: form.defaultLanguagePolicy,
       riskPolicy: form.riskPolicy,
     })
       .then((result) => {
@@ -738,6 +758,8 @@ export function ProjectsPage({
             sellingPoints: formatStringList(result.project.sellingPoints),
             brandVoice: result.project.brandVoice ?? '',
             ctas: formatStringList(result.project.ctas),
+            bannedPhrases: formatStringList(result.project.bannedPhrases),
+            defaultLanguagePolicy: result.project.defaultLanguagePolicy ?? '',
             riskPolicy: result.project.riskPolicy ?? 'requires_review',
           },
         }));
@@ -1209,6 +1231,25 @@ export function ProjectsPage({
             </label>
 
             <label style={{ display: 'grid', gap: '8px' }}>
+              <span style={{ fontWeight: 700 }}>Banned Phrases</span>
+              <input
+                value={bannedPhrases}
+                onChange={(event) => setBannedPhrases(event.target.value)}
+                style={fieldStyle}
+              />
+            </label>
+
+            <label style={{ display: 'grid', gap: '8px' }}>
+              <span style={{ fontWeight: 700 }}>Default Language Policy</span>
+              <textarea
+                rows={3}
+                value={defaultLanguagePolicy}
+                onChange={(event) => setDefaultLanguagePolicy(event.target.value)}
+                style={{ ...fieldStyle, resize: 'vertical' }}
+              />
+            </label>
+
+            <label style={{ display: 'grid', gap: '8px' }}>
               <span style={{ fontWeight: 700 }}>Risk Policy</span>
               <select
                 value={riskPolicy}
@@ -1277,6 +1318,14 @@ export function ProjectsPage({
               <div>
                 <strong>CTAs：</strong>
                 {formatStringList(displayState.data.project.ctas)}
+              </div>
+              <div>
+                <strong>Banned Phrases：</strong>
+                {formatStringList(displayState.data.project.bannedPhrases)}
+              </div>
+              <div>
+                <strong>Default Language Policy：</strong>
+                {displayState.data.project.defaultLanguagePolicy ?? ''}
               </div>
               <div>
                 <strong>Risk Policy：</strong>
@@ -1384,6 +1433,33 @@ export function ProjectsPage({
                       value={form.ctas}
                       onChange={(event) => updateProjectForm(project.id, { ctas: event.target.value })}
                       style={fieldStyle}
+                    />
+                  </label>
+
+                  <label style={{ display: 'grid', gap: '8px' }}>
+                    <span style={{ fontWeight: 700 }}>Banned Phrases</span>
+                    <input
+                      data-project-field={`banned-phrases-${project.id}`}
+                      name={`project-banned-phrases-${project.id}`}
+                      value={form.bannedPhrases}
+                      onChange={(event) => updateProjectForm(project.id, { bannedPhrases: event.target.value })}
+                      style={fieldStyle}
+                    />
+                  </label>
+
+                  <label style={{ display: 'grid', gap: '8px' }}>
+                    <span style={{ fontWeight: 700 }}>Default Language Policy</span>
+                    <textarea
+                      data-project-field={`default-language-policy-${project.id}`}
+                      name={`project-default-language-policy-${project.id}`}
+                      rows={3}
+                      value={form.defaultLanguagePolicy}
+                      onChange={(event) =>
+                        updateProjectForm(project.id, {
+                          defaultLanguagePolicy: event.target.value,
+                        })
+                      }
+                      style={{ ...fieldStyle, resize: 'vertical' }}
                     />
                   </label>
 

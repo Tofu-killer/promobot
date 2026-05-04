@@ -78,6 +78,8 @@ describe('client API page wiring', () => {
       siteUrl: string;
       siteDescription: string;
       sellingPoints: string[];
+      bannedPhrases?: string[];
+      defaultLanguagePolicy?: string;
       riskPolicy?: string;
     }) => Promise<{ project: { id: number; name: string; siteUrl: string } }>;
 
@@ -87,6 +89,8 @@ describe('client API page wiring', () => {
       siteUrl: 'https://acme.test',
       siteDescription: 'Launch week campaign',
       sellingPoints: ['Cheap', 'Fast'],
+      bannedPhrases: ['Guaranteed #1'],
+      defaultLanguagePolicy: 'en-AU first',
       riskPolicy: 'auto_approve',
     });
 
@@ -101,6 +105,8 @@ describe('client API page wiring', () => {
           siteUrl: 'https://acme.test',
           siteDescription: 'Launch week campaign',
           sellingPoints: ['Cheap', 'Fast'],
+          bannedPhrases: ['Guaranteed #1'],
+          defaultLanguagePolicy: 'en-AU first',
           riskPolicy: 'auto_approve',
         }),
       }),
@@ -605,13 +611,15 @@ describe('client API page wiring', () => {
             name: 'Acme Launch',
             siteName: 'Acme',
             siteUrl: 'https://acme.test',
-            siteDescription: 'Launch week campaign',
-            sellingPoints: ['Cheap', 'Fast'],
-            brandVoice: 'Direct, calm, proof-first',
-            ctas: ['Start free', 'Book a demo'],
-            riskPolicy: 'requires_review',
-          },
+          siteDescription: 'Launch week campaign',
+          sellingPoints: ['Cheap', 'Fast'],
+          brandVoice: 'Direct, calm, proof-first',
+          ctas: ['Start free', 'Book a demo'],
+          bannedPhrases: ['Guaranteed #1', 'Zero risk'],
+          defaultLanguagePolicy: 'en-AU first, zh-CN fallback',
+          riskPolicy: 'requires_review',
         },
+      },
       },
     });
 
@@ -620,6 +628,8 @@ describe('client API page wiring', () => {
     expect(html).toContain('https://acme.test');
     expect(html).toContain('Direct, calm, proof-first');
     expect(html).toContain('Start free, Book a demo');
+    expect(html).toContain('Guaranteed #1, Zero risk');
+    expect(html).toContain('en-AU first, zh-CN fallback');
   });
 
   it('posts project archiving through the shared API helper', async () => {
@@ -724,6 +734,8 @@ describe('client API page wiring', () => {
                 sellingPoints: ['Fast setup'],
                 brandVoice: 'Warm, punchy, confidence-building',
                 ctas: ['Get started', 'Watch demo'],
+                bannedPhrases: ['No hype'],
+                defaultLanguagePolicy: 'English only',
                 riskPolicy: 'requires_review',
               },
             ],
@@ -742,8 +754,12 @@ describe('client API page wiring', () => {
 
     expect(html).toContain('Brand Voice');
     expect(html).toContain('CTAs');
+    expect(html).toContain('Banned Phrases');
+    expect(html).toContain('Default Language Policy');
     expect(html).toContain('Warm, punchy, confidence-building');
     expect(html).toContain('Get started, Watch demo');
+    expect(html).toContain('No hype');
+    expect(html).toContain('English only');
   });
 
   it('posts content generation through the shared API helper', async () => {

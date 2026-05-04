@@ -12,6 +12,8 @@ export interface ProjectRecord {
   sellingPoints: string[];
   brandVoice: string;
   ctas: string[];
+  bannedPhrases: string[];
+  defaultLanguagePolicy: string;
   riskPolicy: ProjectRiskPolicy;
   archived: boolean;
   archivedAt?: string;
@@ -26,6 +28,8 @@ export interface CreateProjectInput {
   sellingPoints: string[];
   brandVoice: string;
   ctas: string[];
+  bannedPhrases: string[];
+  defaultLanguagePolicy: string;
   riskPolicy: ProjectRiskPolicy;
 }
 
@@ -37,6 +41,8 @@ export interface UpdateProjectInput {
   sellingPoints?: string[];
   brandVoice?: string;
   ctas?: string[];
+  bannedPhrases?: string[];
+  defaultLanguagePolicy?: string;
   riskPolicy?: ProjectRiskPolicy;
 }
 
@@ -68,11 +74,21 @@ export function createProjectStore(): ProjectStore {
   };
 }
 
+function defaultBannedPhrases(value: string[] | undefined): string[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function defaultLanguagePolicy(value: string | undefined): string {
+  return typeof value === 'string' ? value : '';
+}
+
 function insertProject(database: DatabaseConnection, input: CreateProjectInput): ProjectRecord {
   ensureArchivedColumn(database);
   ensureArchivedAtColumn(database);
   ensureBrandVoiceColumn(database);
   ensureCtasColumn(database);
+  ensureBannedPhrasesColumn(database);
+  ensureDefaultLanguagePolicyColumn(database);
   ensureRiskPolicyColumn(database);
   const result = database
     .prepare(
@@ -85,6 +101,8 @@ function insertProject(database: DatabaseConnection, input: CreateProjectInput):
           selling_points,
           brand_voice,
           ctas,
+          banned_phrases,
+          default_language_policy,
           risk_policy,
           archived
         )
@@ -96,6 +114,8 @@ function insertProject(database: DatabaseConnection, input: CreateProjectInput):
           @selling_points,
           @brand_voice,
           @ctas,
+          @banned_phrases,
+          @default_language_policy,
           @risk_policy,
           0
         )
@@ -109,6 +129,8 @@ function insertProject(database: DatabaseConnection, input: CreateProjectInput):
       selling_points: JSON.stringify(input.sellingPoints),
       brand_voice: input.brandVoice,
       ctas: JSON.stringify(input.ctas),
+      banned_phrases: JSON.stringify(defaultBannedPhrases(input.bannedPhrases)),
+      default_language_policy: defaultLanguagePolicy(input.defaultLanguagePolicy),
       risk_policy: input.riskPolicy,
     });
 
@@ -117,7 +139,10 @@ function insertProject(database: DatabaseConnection, input: CreateProjectInput):
       `
         SELECT id, name, site_name AS siteName, site_url AS siteUrl,
                site_description AS siteDescription, selling_points AS sellingPoints,
-               brand_voice AS brandVoice, ctas AS ctas, risk_policy AS riskPolicy,
+               brand_voice AS brandVoice, ctas AS ctas,
+               banned_phrases AS bannedPhrases,
+               default_language_policy AS defaultLanguagePolicy,
+               risk_policy AS riskPolicy,
                archived AS archived, archived_at AS archivedAt, created_at AS createdAt
         FROM projects
         WHERE id = ?
@@ -137,13 +162,18 @@ function listProjects(database: DatabaseConnection): ProjectRecord[] {
   ensureArchivedAtColumn(database);
   ensureBrandVoiceColumn(database);
   ensureCtasColumn(database);
+  ensureBannedPhrasesColumn(database);
+  ensureDefaultLanguagePolicyColumn(database);
   ensureRiskPolicyColumn(database);
   return database
     .prepare(
       `
         SELECT id, name, site_name AS siteName, site_url AS siteUrl,
                site_description AS siteDescription, selling_points AS sellingPoints,
-               brand_voice AS brandVoice, ctas AS ctas, risk_policy AS riskPolicy,
+               brand_voice AS brandVoice, ctas AS ctas,
+               banned_phrases AS bannedPhrases,
+               default_language_policy AS defaultLanguagePolicy,
+               risk_policy AS riskPolicy,
                archived AS archived, archived_at AS archivedAt, created_at AS createdAt
         FROM projects
         WHERE archived = 0
@@ -160,6 +190,8 @@ function getProjectById(database: DatabaseConnection, id: number): ProjectRecord
   ensureArchivedAtColumn(database);
   ensureBrandVoiceColumn(database);
   ensureCtasColumn(database);
+  ensureBannedPhrasesColumn(database);
+  ensureDefaultLanguagePolicyColumn(database);
   ensureRiskPolicyColumn(database);
 
   const row = database
@@ -167,7 +199,10 @@ function getProjectById(database: DatabaseConnection, id: number): ProjectRecord
       `
         SELECT id, name, site_name AS siteName, site_url AS siteUrl,
                site_description AS siteDescription, selling_points AS sellingPoints,
-               brand_voice AS brandVoice, ctas AS ctas, risk_policy AS riskPolicy,
+               brand_voice AS brandVoice, ctas AS ctas,
+               banned_phrases AS bannedPhrases,
+               default_language_policy AS defaultLanguagePolicy,
+               risk_policy AS riskPolicy,
                archived AS archived, archived_at AS archivedAt, created_at AS createdAt
         FROM projects
         WHERE id = ?
@@ -187,13 +222,18 @@ function updateProject(
   ensureArchivedAtColumn(database);
   ensureBrandVoiceColumn(database);
   ensureCtasColumn(database);
+  ensureBannedPhrasesColumn(database);
+  ensureDefaultLanguagePolicyColumn(database);
   ensureRiskPolicyColumn(database);
   const currentRow = database
     .prepare(
       `
         SELECT id, name, site_name AS siteName, site_url AS siteUrl,
                site_description AS siteDescription, selling_points AS sellingPoints,
-               brand_voice AS brandVoice, ctas AS ctas, risk_policy AS riskPolicy,
+               brand_voice AS brandVoice, ctas AS ctas,
+               banned_phrases AS bannedPhrases,
+               default_language_policy AS defaultLanguagePolicy,
+               risk_policy AS riskPolicy,
                archived AS archived, archived_at AS archivedAt, created_at AS createdAt
         FROM projects
         WHERE id = ?
@@ -218,6 +258,8 @@ function updateProject(
             selling_points = @selling_points,
             brand_voice = @brand_voice,
             ctas = @ctas,
+            banned_phrases = @banned_phrases,
+            default_language_policy = @default_language_policy,
             risk_policy = @risk_policy
         WHERE id = @id
       `,
@@ -231,6 +273,8 @@ function updateProject(
       selling_points: JSON.stringify(input.sellingPoints ?? current.sellingPoints),
       brand_voice: input.brandVoice ?? current.brandVoice,
       ctas: JSON.stringify(input.ctas ?? current.ctas),
+      banned_phrases: JSON.stringify(input.bannedPhrases ?? current.bannedPhrases),
+      default_language_policy: input.defaultLanguagePolicy ?? current.defaultLanguagePolicy,
       risk_policy: input.riskPolicy ?? current.riskPolicy,
     });
 
@@ -239,7 +283,10 @@ function updateProject(
       `
         SELECT id, name, site_name AS siteName, site_url AS siteUrl,
                site_description AS siteDescription, selling_points AS sellingPoints,
-               brand_voice AS brandVoice, ctas AS ctas, risk_policy AS riskPolicy,
+               brand_voice AS brandVoice, ctas AS ctas,
+               banned_phrases AS bannedPhrases,
+               default_language_policy AS defaultLanguagePolicy,
+               risk_policy AS riskPolicy,
                archived AS archived, archived_at AS archivedAt, created_at AS createdAt
         FROM projects
         WHERE id = ?
@@ -255,6 +302,8 @@ function archiveProject(database: DatabaseConnection, id: number): ProjectRecord
   ensureArchivedAtColumn(database);
   ensureBrandVoiceColumn(database);
   ensureCtasColumn(database);
+  ensureBannedPhrasesColumn(database);
+  ensureDefaultLanguagePolicyColumn(database);
   ensureRiskPolicyColumn(database);
 
   const result = database
@@ -277,7 +326,10 @@ function archiveProject(database: DatabaseConnection, id: number): ProjectRecord
       `
         SELECT id, name, site_name AS siteName, site_url AS siteUrl,
                site_description AS siteDescription, selling_points AS sellingPoints,
-               brand_voice AS brandVoice, ctas AS ctas, risk_policy AS riskPolicy,
+               brand_voice AS brandVoice, ctas AS ctas,
+               banned_phrases AS bannedPhrases,
+               default_language_policy AS defaultLanguagePolicy,
+               risk_policy AS riskPolicy,
                archived AS archived, archived_at AS archivedAt, created_at AS createdAt
         FROM projects
         WHERE id = ?
@@ -298,6 +350,9 @@ function normalizeProjectRow(row: Record<string, unknown>): ProjectRecord {
     sellingPoints: parseSellingPoints(row.sellingPoints),
     brandVoice: typeof row.brandVoice === 'string' ? row.brandVoice : '',
     ctas: parseCtas(row.ctas),
+    bannedPhrases: parseBannedPhrases(row.bannedPhrases),
+    defaultLanguagePolicy:
+      typeof row.defaultLanguagePolicy === 'string' ? row.defaultLanguagePolicy : '',
     riskPolicy: parseRiskPolicy(row.riskPolicy),
     archived: Number(row.archived) === 1,
     archivedAt: typeof row.archivedAt === 'string' && row.archivedAt.length > 0 ? row.archivedAt : undefined,
@@ -341,6 +396,24 @@ function ensureCtasColumn(database: DatabaseConnection) {
   database.exec("ALTER TABLE projects ADD COLUMN ctas TEXT NOT NULL DEFAULT '[]'");
 }
 
+function ensureBannedPhrasesColumn(database: DatabaseConnection) {
+  const columns = database.prepare('PRAGMA table_info(projects)').all() as Array<{ name?: unknown }>;
+  if (columns.some((column) => column.name === 'banned_phrases')) {
+    return;
+  }
+
+  database.exec("ALTER TABLE projects ADD COLUMN banned_phrases TEXT NOT NULL DEFAULT '[]'");
+}
+
+function ensureDefaultLanguagePolicyColumn(database: DatabaseConnection) {
+  const columns = database.prepare('PRAGMA table_info(projects)').all() as Array<{ name?: unknown }>;
+  if (columns.some((column) => column.name === 'default_language_policy')) {
+    return;
+  }
+
+  database.exec("ALTER TABLE projects ADD COLUMN default_language_policy TEXT NOT NULL DEFAULT ''");
+}
+
 function ensureRiskPolicyColumn(database: DatabaseConnection) {
   const columns = database.prepare('PRAGMA table_info(projects)').all() as Array<{ name?: unknown }>;
   if (columns.some((column) => column.name === 'risk_policy')) {
@@ -355,6 +428,10 @@ function parseSellingPoints(value: unknown): string[] {
 }
 
 function parseCtas(value: unknown): string[] {
+  return parseStringArray(value);
+}
+
+function parseBannedPhrases(value: unknown): string[] {
   return parseStringArray(value);
 }
 

@@ -63,6 +63,8 @@ export function createProjectsRouter(
       'sellingPoints',
       'brandVoice',
       'ctas',
+      'bannedPhrases',
+      'defaultLanguagePolicy',
       'riskPolicy',
     ]);
     if (Object.keys(input).some((key) => !allowedFields.has(key))) {
@@ -78,6 +80,8 @@ export function createProjectsRouter(
       sellingPoints,
       brandVoice,
       ctas,
+      bannedPhrases,
+      defaultLanguagePolicy,
       riskPolicy,
     } = input;
 
@@ -89,10 +93,14 @@ export function createProjectsRouter(
       !Array.isArray(sellingPoints) ||
       !sellingPoints.every((value: unknown) => typeof value === 'string') ||
       (brandVoice !== undefined && typeof brandVoice !== 'string') ||
+      (defaultLanguagePolicy !== undefined && typeof defaultLanguagePolicy !== 'string') ||
       (riskPolicy !== undefined &&
         (typeof riskPolicy !== 'string' || !allowedRiskPolicies.has(riskPolicy as ProjectRiskPolicy))) ||
       (ctas !== undefined &&
-        (!Array.isArray(ctas) || !ctas.every((value: unknown) => typeof value === 'string')))
+        (!Array.isArray(ctas) || !ctas.every((value: unknown) => typeof value === 'string'))) ||
+      (bannedPhrases !== undefined &&
+        (!Array.isArray(bannedPhrases) ||
+          !bannedPhrases.every((value: unknown) => typeof value === 'string')))
     ) {
       response.status(400).json({ error: 'invalid project payload' });
       return;
@@ -108,6 +116,11 @@ export function createProjectsRouter(
       ctas: Array.isArray(ctas)
         ? ctas.filter((value: unknown): value is string => typeof value === 'string')
         : [],
+      bannedPhrases: Array.isArray(bannedPhrases)
+        ? bannedPhrases.filter((value: unknown): value is string => typeof value === 'string')
+        : [],
+      defaultLanguagePolicy:
+        typeof defaultLanguagePolicy === 'string' ? defaultLanguagePolicy : '',
       riskPolicy:
         typeof riskPolicy === 'string' && allowedRiskPolicies.has(riskPolicy as ProjectRiskPolicy)
           ? (riskPolicy as ProjectRiskPolicy)
@@ -172,6 +185,8 @@ export function createProjectsRouter(
       'sellingPoints',
       'brandVoice',
       'ctas',
+      'bannedPhrases',
+      'defaultLanguagePolicy',
       'riskPolicy',
       'archived',
     ]);
@@ -208,11 +223,21 @@ export function createProjectsRouter(
     }
 
     if (
+      body.bannedPhrases !== undefined &&
+      (!Array.isArray(body.bannedPhrases) ||
+        !body.bannedPhrases.every((value: unknown) => typeof value === 'string'))
+    ) {
+      response.status(400).json({ error: 'invalid project payload' });
+      return;
+    }
+
+    if (
       hasInvalidOptionalStringField(body, 'name') ||
       hasInvalidOptionalStringField(body, 'siteName') ||
       hasInvalidOptionalStringField(body, 'siteUrl') ||
       hasInvalidOptionalStringField(body, 'siteDescription') ||
-      hasInvalidOptionalStringField(body, 'brandVoice')
+      hasInvalidOptionalStringField(body, 'brandVoice') ||
+      hasInvalidOptionalStringField(body, 'defaultLanguagePolicy')
     ) {
       response.status(400).json({ error: 'invalid project payload' });
       return;
@@ -235,6 +260,13 @@ export function createProjectsRouter(
       ctas: Array.isArray(body.ctas)
         ? body.ctas.filter((value: unknown): value is string => typeof value === 'string')
         : undefined,
+      bannedPhrases: Array.isArray(body.bannedPhrases)
+        ? body.bannedPhrases.filter((value: unknown): value is string => typeof value === 'string')
+        : undefined,
+      defaultLanguagePolicy:
+        typeof body.defaultLanguagePolicy === 'string'
+          ? body.defaultLanguagePolicy
+          : undefined,
       riskPolicy:
         typeof body.riskPolicy === 'string'
           ? (body.riskPolicy as ProjectRiskPolicy)
@@ -356,7 +388,13 @@ function withOptionalWarnings<T extends Record<string, unknown>>(
 
 function hasInvalidOptionalStringField(
   body: Record<string, unknown>,
-  field: 'name' | 'siteName' | 'siteUrl' | 'siteDescription' | 'brandVoice',
+  field:
+    | 'name'
+    | 'siteName'
+    | 'siteUrl'
+    | 'siteDescription'
+    | 'brandVoice'
+    | 'defaultLanguagePolicy',
 ) {
   return body[field] !== undefined && typeof body[field] !== 'string';
 }

@@ -7,6 +7,8 @@ export interface SiteContext {
   sellingPoints?: string[];
   brandVoice?: string;
   ctas?: string[];
+  bannedPhrases?: string[];
+  defaultLanguagePolicy?: string;
 }
 
 export interface GenerateDraftInput {

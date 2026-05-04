@@ -32,8 +32,16 @@ export async function generatePlatformDraft(
     promptLines.push(`CTAs: ${input.siteContext.ctas.join(', ')}`);
   }
 
+  if (input.siteContext?.bannedPhrases && input.siteContext.bannedPhrases.length > 0) {
+    promptLines.push(`Banned Phrases: ${input.siteContext.bannedPhrases.join(', ')}`);
+  }
+
+  if (input.siteContext?.defaultLanguagePolicy) {
+    promptLines.push(`Default Language Policy: ${input.siteContext.defaultLanguagePolicy}`);
+  }
+
   const content = await chat(
-    `You generate ${platform} promotional drafts for ${siteName}. ${instructions} Use the provided site context, selling points, brand voice, and CTAs when drafting.`,
+    `You generate ${platform} promotional drafts for ${siteName}. ${instructions} Use the provided site context, selling points, brand voice, CTAs, banned phrases, and language policy when drafting.`,
     promptLines.join('\n'),
   );
 
