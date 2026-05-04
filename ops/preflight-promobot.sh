@@ -14,11 +14,11 @@ usage() {
   cat <<EOF
 Usage: ops/preflight-promobot.sh [options]
 
-Runs pnpm preflight:prod from the repo root, then optionally runs the server smoke check.
+Runs production preflight + config validation first, then optionally runs a separate server smoke check.
 
 Options:
   --require-env <comma-separated keys>
-                              Forward required env keys to pnpm preflight:prod
+                              Forward required env keys to the preflight config validation step
   --skip-smoke                 Skip pnpm smoke:server
   --base-url <url>             Smoke check base URL (default: PROMOBOT_BASE_URL or http://127.0.0.1:<PORT>)
   --admin-password <secret>    Smoke check admin password

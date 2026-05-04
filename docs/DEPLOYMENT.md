@@ -221,7 +221,7 @@ pnpm deploy:local -- --base-url http://127.0.0.1:3001
 4. 仓库根 `.env` 里的 `PROMOBOT_ADMIN_PASSWORD`
 5. 仓库根 `.env` 里的 `ADMIN_PASSWORD`
 
-如果只是想先做静态预检，不想马上 deploy，可运行：
+如果只是想先做 production preflight + config validation，不想马上 deploy，可运行：
 
 ```bash
 pnpm preflight:prod -- --require-env AI_API_KEY,ADMIN_PASSWORD
@@ -236,7 +236,7 @@ pnpm preflight:prod -- --require-env AI_API_KEY,ADMIN_PASSWORD
 - 可选 `.env`
 - 你通过 `--require-env` 指定的 env keys
 
-输出是机器可读 JSON summary，不会启动服务。
+输出是机器可读 JSON summary，不会启动服务，也不替代独立 smoke 验收。
 
 如果你还想顺手追加一次 smoke，而不是手动再敲第二条命令，可运行：
 
@@ -246,7 +246,7 @@ pnpm preflight:local -- --require-env AI_API_KEY,ADMIN_PASSWORD --skip-smoke
 
 脚本位置：`ops/preflight-promobot.sh`
 
-它会先调用 `preflight:prod`，所以也支持把 `--require-env` 这类 prod preflight 参数透传过去，再按需追加 smoke check。
+它会先调用 `preflight:prod` 的 production preflight + config validation，所以也支持把 `--require-env` 这类参数透传过去，再按需追加独立 smoke check；这条 wrapper 不等于 readiness check。
 
 如果你需要一份可分发的目录型发布物，而不是直接拿源码目录上线，可运行：
 

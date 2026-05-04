@@ -337,7 +337,7 @@ describe('GitHub workflow contracts', () => {
     );
 
     expect(readme).toContain(
-      'GitHub Actions `Release Bundle`：支持手动触发和 `v*` tag push；默认都会执行 `pnpm test`、`pnpm build`、静态 preflight、release bundle 生成与校验。',
+      'GitHub Actions `Release Bundle`：支持手动触发和 `v*` tag push；默认都会执行 `pnpm test`、`pnpm build`、production preflight + config validation、release bundle 生成与校验。',
     );
     expect(deploymentDoc).toContain(
       '默认会执行 `pnpm test`、`pnpm build`、静态 `preflight`、`release:bundle` 和 `release:verify`',

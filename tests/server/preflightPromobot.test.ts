@@ -25,12 +25,12 @@ describe('preflight promobot cli', () => {
         '--repo-root',
         '/tmp/promobot',
         '--require-env',
-        'AI_API_KEY, PROMOBOT_ADMIN_PASSWORD ,,PORT',
+        'AI_API_KEY, ADMIN_PASSWORD ,,PORT',
         '--help',
       ]),
     ).toEqual({
       repoRoot: '/tmp/promobot',
-      requireEnv: ['AI_API_KEY', 'PROMOBOT_ADMIN_PASSWORD', 'PORT'],
+      requireEnv: ['AI_API_KEY', 'ADMIN_PASSWORD', 'PORT'],
       showHelp: true,
     });
 
@@ -52,11 +52,11 @@ describe('preflight promobot cli', () => {
     const result = preflight.runPreflightPromobot(
       {
         repoRoot,
-        requiredEnvKeys: ['AI_API_KEY', 'PROMOBOT_ADMIN_PASSWORD'],
+        requiredEnvKeys: ['AI_API_KEY', 'ADMIN_PASSWORD'],
       },
       {
         env: {
-          PROMOBOT_ADMIN_PASSWORD: 'secret',
+          ADMIN_PASSWORD: 'secret',
         },
       },
     );
@@ -108,11 +108,18 @@ describe('preflight promobot cli', () => {
       }),
       expect.objectContaining({
         kind: 'env',
-        name: 'PROMOBOT_ADMIN_PASSWORD',
+        name: 'ADMIN_PASSWORD',
         required: true,
         ok: true,
         source: 'process',
-        target: 'PROMOBOT_ADMIN_PASSWORD',
+        target: 'ADMIN_PASSWORD',
+      }),
+      expect.objectContaining({
+        kind: 'config',
+        name: 'production-config',
+        required: true,
+        ok: true,
+        target: 'config',
       }),
     ]);
     expect(result.missing).toEqual([
@@ -163,11 +170,11 @@ describe('preflight promobot cli', () => {
     const result = preflight.runPreflightPromobot(
       {
         repoRoot,
-        requiredEnvKeys: ['AI_API_KEY', 'PROMOBOT_ADMIN_PASSWORD'],
+        requiredEnvKeys: ['AI_API_KEY', 'ADMIN_PASSWORD'],
       },
       {
         env: {
-          PROMOBOT_ADMIN_PASSWORD: 'secret',
+          ADMIN_PASSWORD: 'secret',
         },
       },
     );
@@ -194,11 +201,163 @@ describe('preflight promobot cli', () => {
         }),
         expect.objectContaining({
           kind: 'env',
-          name: 'PROMOBOT_ADMIN_PASSWORD',
+          name: 'ADMIN_PASSWORD',
           ok: true,
           required: true,
           source: 'process',
-          target: 'PROMOBOT_ADMIN_PASSWORD',
+          target: 'ADMIN_PASSWORD',
+        }),
+        expect.objectContaining({
+          kind: 'config',
+          name: 'production-config',
+          required: true,
+          ok: true,
+          target: 'config',
+        }),
+      ]),
+    );
+  });
+
+  it('fails when production config keeps the default admin password', async () => {
+    const preflight = await loadPreflightModule();
+    expect(preflight).toBeTruthy();
+    if (!preflight) {
+      return;
+    }
+
+    const repoRoot = createTempRepoRoot();
+    writeFile(repoRoot, 'package.json', '{ "name": "promobot" }\n');
+    writeFile(repoRoot, 'pm2.config.js', 'export default {};\n');
+    writeFile(repoRoot, 'dist/server/index.js', 'console.log("server");\n');
+    writeFile(repoRoot, 'dist/client/index.html', '<!doctype html>\n');
+    writeFile(repoRoot, '.env', 'AI_API_KEY=from-file\nADMIN_PASSWORD=change-me\n');
+
+    const result = preflight.runPreflightPromobot({
+      repoRoot,
+      requiredEnvKeys: ['AI_API_KEY', 'ADMIN_PASSWORD'],
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.missing).toEqual([]);
+    expect(result.warnings).toEqual([
+      {
+        code: 'invalid-config',
+        message: 'ADMIN_PASSWORD must be set to a non-default value in production',
+        target: 'config',
+      },
+    ]);
+    expect(result.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'config',
+          name: 'production-config',
+          required: true,
+          ok: false,
+          target: 'config',
+          message: 'ADMIN_PASSWORD must be set to a non-default value in production',
+        }),
+      ]),
+    );
+  });
+
+  it('fails when production config contains invalid allowlist entries', async () => {
+    const preflight = await loadPreflightModule();
+    expect(preflight).toBeTruthy();
+    if (!preflight) {
+      return;
+    }
+
+    const repoRoot = createTempRepoRoot();
+    writeFile(repoRoot, 'package.json', '{ "name": "promobot" }\n');
+    writeFile(repoRoot, 'pm2.config.js', 'export default {};\n');
+    writeFile(repoRoot, 'dist/server/index.js', 'console.log("server");\n');
+    writeFile(repoRoot, 'dist/client/index.html', '<!doctype html>\n');
+    writeFile(
+      repoRoot,
+      '.env',
+      'AI_API_KEY=from-file\nADMIN_PASSWORD=super-secret\nALLOWED_IPS=10.0.0.0/33\n',
+    );
+
+    const result = preflight.runPreflightPromobot({
+      repoRoot,
+      requiredEnvKeys: ['AI_API_KEY', 'ADMIN_PASSWORD'],
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.missing).toEqual([]);
+    expect(result.warnings).toEqual([
+      {
+        code: 'invalid-config',
+        message: 'ALLOWED_IPS must contain IPs, CIDR subnets, or *',
+        target: 'config',
+      },
+    ]);
+    expect(result.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'config',
+          name: 'production-config',
+          required: true,
+          ok: false,
+          target: 'config',
+          message: 'ALLOWED_IPS must contain IPs, CIDR subnets, or *',
+        }),
+      ]),
+    );
+  });
+
+  it('uses process env precedence when validating production config', async () => {
+    const preflight = await loadPreflightModule();
+    expect(preflight).toBeTruthy();
+    if (!preflight) {
+      return;
+    }
+
+    const repoRoot = createTempRepoRoot();
+    writeFile(repoRoot, 'package.json', '{ "name": "promobot" }\n');
+    writeFile(repoRoot, 'pm2.config.js', 'export default {};\n');
+    writeFile(repoRoot, 'dist/server/index.js', 'console.log("server");\n');
+    writeFile(repoRoot, 'dist/client/index.html', '<!doctype html>\n');
+    writeFile(repoRoot, '.env', 'AI_API_KEY=from-file\nADMIN_PASSWORD=super-secret\n');
+
+    const result = preflight.runPreflightPromobot(
+      {
+        repoRoot,
+        requiredEnvKeys: ['AI_API_KEY', 'ADMIN_PASSWORD'],
+      },
+      {
+        env: {
+          ADMIN_PASSWORD: 'change-me',
+        },
+      },
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.missing).toEqual([]);
+    expect(result.warnings).toEqual([
+      {
+        code: 'invalid-config',
+        message: 'ADMIN_PASSWORD must be set to a non-default value in production',
+        target: 'config',
+      },
+    ]);
+    expect(result.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'env',
+          name: 'ADMIN_PASSWORD',
+          ok: true,
+          required: true,
+          source: 'process',
+          target: 'ADMIN_PASSWORD',
+        }),
+        expect.objectContaining({
+          kind: 'config',
+          name: 'production-config',
+          required: true,
+          ok: false,
+          target: 'config',
+          message: 'ADMIN_PASSWORD must be set to a non-default value in production',
         }),
       ]),
     );

@@ -94,7 +94,7 @@ pnpm browser:artifacts:archive -- --older-than-hours 72
 - `pnpm dev:server`：Express API，默认 `3001`
 - `pnpm build`：分别构建到 `dist/client` 和 `dist/server`
 - `pnpm start`：启动 `dist/server/index.js`，并在 `dist/client` 存在时直接提供构建后的前端
-- `pnpm preflight:prod -- [options]`：做静态上线前检查，输出 JSON summary，不启动服务
+- `pnpm preflight:prod -- [options]`：做 production preflight + config validation，输出 JSON summary，不启动服务，也不替代独立 smoke 验收
 - `pnpm release:bundle -- --output-dir <path>`：把构建产物、PM2 配置、部署文档、bundle 根一键入口 `start-promobot.sh`，以及 bundle-safe 的 ops 脚本（`deploy-promobot.sh`、`deploy-release.sh`、`preflight-promobot.sh`、`rollback-promobot.sh`、`verify-downloaded-release.sh`、`verify-release.sh`）复制到目录型 release bundle，并生成带文件 checksum 信息的 manifest JSON；bundle 内会额外锁定 `dist/server/cli/preflightPromobot.js`、`dist/server/cli/runtimeRestore.js` 这两个 compiled helper，保证已解压 bundle 根目录里的 `preflight-promobot.sh` / `rollback-promobot.sh` 不会回退到源码仓库专用的 `pnpm` 脚本；仓库侧的 `ops/release-promobot.sh` 不会随 bundle 分发
 - `pnpm release:verify -- --input-dir <path>`：源码仓库里的目录型 release bundle 校验入口，校验 manifest、关键文件是否完整，并在 manifest 带 checksum 时重算 bundle 内现有文件内容做完整性校验；它不负责 tar.gz 下载文件本身的校验
 - `pnpm runtime:backup`：把当前可定位的 SQLite 文件来源、真实运行时 `browser-sessions/` 根目录和仓库根 `.env` 复制到时间戳备份目录，并生成 manifest JSON；若有缺失项，会在 manifest 里标记并以非零退出码返回。自定义 `--output-dir` 时，目标目录必须不存在或为空
@@ -105,9 +105,9 @@ pnpm browser:artifacts:archive -- --older-than-hours 72
 - `pnpm verify:downloaded-release -- --archive-file <path>`：调用仓库内的 `ops/verify-downloaded-release.sh`；正式 GitHub Release 页面现在会额外挂出同内容的 standalone `verify-downloaded-release.sh` helper，下载方即使不 checkout 仓库，也可以只拿 `archive + .sha256 + .metadata.json + helper` 在本机跑同一条校验链。两者都会先校验已下载的 archive、`.sha256` sidecar、`.metadata.json` metadata sidecar，再把解压目录交给 bundle 自带的 `releaseVerify` CLI
 - `pnpm deploy:local -- [options]`：执行本机部署链路，封装 `pnpm install`、`pnpm build`、PM2 reload/start 和可选 smoke check
 - `pnpm rollback:local -- --backup-dir <path> [options]`：先停 PM2、从已有 runtime backup 恢复数据，再按恢复后的环境重启服务，并按需追加 smoke check
-- `pnpm preflight:local -- [options]`：先跑 `preflight:prod`，并把 `--require-env` 这类 prod preflight 参数透传过去，再按需追加 smoke check
+- `pnpm preflight:local -- [options]`：先跑 `preflight:prod` 的 production preflight + config validation，并把 `--require-env` 这类参数透传过去，再按需追加独立 smoke check
 - GitHub Actions `CI`：所有 branch push（忽略 `v*` tag）和指向 `main` 的 pull request 现在都会先跑 `lint` job，通过 `rhysd/actionlint@v1.7.12` 校验 workflow，并用 `bash -n ops/*.sh` 检查 ops shell wrapper 语法；`lint` 和 `ci` 两个 job 都显式收敛到 `permissions: contents: read`；随后 `ci` job 继续运行 `pnpm test`、`pnpm build`，并追加一轮 local release wrapper smoke：通过 `pnpm release:local -- --skip-build --output-dir ...` 产出目录型 bundle、archive sidecar 和 standalone helper，并要求这组本地 release 交付件全部存在，用于提前拦截 workflow / shell wrapper 语法、测试、构建以及本地 release 交付链回归
-- GitHub Actions `Release Bundle`：支持手动触发和 `v*` tag push；默认都会执行 `pnpm test`、`pnpm build`、静态 preflight、release bundle 生成与校验。
+- GitHub Actions `Release Bundle`：支持手动触发和 `v*` tag push；默认都会执行 `pnpm test`、`pnpm build`、production preflight + config validation、release bundle 生成与校验。
 - 手动 preview run（`workflow_dispatch`）主要产出可下载的 Actions artifact，不额外承诺发布 `release asset`，也不会新建或更新 GitHub Release；因此它不会影响 `prerelease` 状态，`.metadata.json` metadata sidecar 里的 `release_url` 也应为 `null`。
 - 手动 preview run（`workflow_dispatch`）可选传 `skip_tests=true`，作为只用于加速手动 preview 包的自担风险选项：默认仍会执行 `pnpm test`；只有这条手动 preview 入口能跳过，`v*` tag push 这条 tag release 入口不受影响，仍会执行测试。它只影响打包前是否执行 `pnpm test`，不会改变已生成 archive、`.sha256` sidecar、`.metadata.json` metadata sidecar、bundle 内 `manifest.json` 和后续校验链语义。
 - `prerelease` 状态只和 `v*` tag push 这条 tag release 有关。当前 workflow 会按 tag 名本身自动判定是否为 semver 预发布：像 `v1.2.3-rc.1`、`v1.2.3-beta.1` 这类会写成 `prerelease=true`，`v1.2.3` 这类正式版 tag 仍保持 `false`。这个判定不从 `asset_suffix`、`release body` 或 `summary` 推导。
@@ -211,7 +211,7 @@ bash ./start-promobot.sh
 - `ops/release-promobot.sh` 现在提供一条本地 release 打包脚本；它会先按需构建，再调用 `release:bundle` 生成目录型 release bundle，并在同级额外产出 `tar.gz`、`.sha256`、`.metadata.json` 和 standalone `verify-downloaded-release.sh` helper；脚本结束前还会用这份 helper 对刚打出的 archive 做一次本地自检。
 - `ops/deploy-release.sh` 现在提供 bundle 内直接部署入口；进入 release bundle 根目录后优先运行 `bash ./start-promobot.sh`，也可以显式调用 `pnpm release:deploy`。
 - `ops/verify-release.sh` 现在提供 release 校验脚本；在源码仓库里会先跑 `release:verify`，在已解压 bundle 根目录里会改用 bundled `releaseVerify.js`，并且只会在校验成功后、且显式开启时才追加 smoke。若显式开启 `--smoke`，源码仓库还必须有 `src/server/cli/deploymentSmoke.ts`，bundle 根目录还必须有 `dist/server/cli/deploymentSmoke.js`；缺少对应入口时 wrapper 会直接失败。
-- `ops/preflight-promobot.sh` 现在提供上线前预检脚本；它会先跑 `preflight:prod`，再按需追加 smoke check。在源码仓库里会走 `pnpm preflight:prod` / `pnpm smoke:server`，在已解压的 bundle 根目录里则会自动切到 bundle 自带的 `dist/server/cli/preflightPromobot.js` / `dist/server/cli/deploymentSmoke.js`。
+- `ops/preflight-promobot.sh` 现在提供上线前预检脚本；它会先跑 `preflight:prod` 的 production preflight + config validation，再按需追加独立 smoke check；这条 wrapper 不等于 readiness check。在源码仓库里会走 `pnpm preflight:prod` / `pnpm smoke:server`，在已解压的 bundle 根目录里则会自动切到 bundle 自带的 `dist/server/cli/preflightPromobot.js` / `dist/server/cli/deploymentSmoke.js`。
 - `ops/deploy-promobot.sh` 现在提供一条可重复的本机部署脚本；默认会执行 install/build/PM2 切换，并默认启用 smoke check。脚本会优先读取 `--admin-password`，否则回退到 shell 里的 `PROMOBOT_ADMIN_PASSWORD` / `ADMIN_PASSWORD`，以及仓库根 `.env` 里的 `PROMOBOT_ADMIN_PASSWORD` / `ADMIN_PASSWORD`；如不想跑 smoke，可显式传 `--skip-smoke`。
 - `ops/rollback-promobot.sh` 现在提供对应的本机回滚脚本；它会先停 PM2，再调用 `runtime:restore` 恢复运行时数据，最后重启服务并可选追加 smoke check。需要保留当前 `.env` 时，可给 rollback 传 `--skip-env`。在已解压的 bundle 根目录里，它会改用 bundle 自带的 `dist/server/cli/runtimeRestore.js` / `dist/server/cli/deploymentSmoke.js`。
 - 仓库提供 `ops/logrotate.promobot.conf` 作为 Linux `logrotate` 样例；使用前把其中的 `REPO_ROOT` 替换成实际仓库绝对路径。

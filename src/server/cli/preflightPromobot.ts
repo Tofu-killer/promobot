@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { loadConfig } from '../config.js';
+
 export interface PreflightPromobotArgs {
   repoRoot?: string;
   requireEnv?: string[];
@@ -32,6 +34,14 @@ type PreflightCheck =
       ok: boolean;
       target: string;
       source?: 'process' | '.env';
+    }
+  | {
+      kind: 'config';
+      name: 'production-config';
+      required: true;
+      ok: boolean;
+      target: 'config';
+      message?: string;
     };
 
 interface PreflightSummary {
@@ -94,7 +104,7 @@ export function getPreflightPromobotHelpText() {
   return [
     'Usage: tsx src/server/cli/preflightPromobot.ts [options]',
     '',
-    'Run static production preflight checks and print a JSON summary.',
+    'Run production preflight checks, validate config semantics, and print a JSON summary.',
     '',
     'Options:',
     '  --repo-root <path>               Override the repo root to inspect',
@@ -193,13 +203,49 @@ export function runPreflightPromobot(
     });
   }
 
+  const configValidation = validateProductionConfig(envFileEntries, env);
+  checks.push({
+    kind: 'config',
+    name: 'production-config',
+    required: true,
+    ok: configValidation.ok,
+    target: 'config',
+    ...(configValidation.ok ? {} : { message: configValidation.message }),
+  });
+  if (!configValidation.ok) {
+    warnings.push({
+      code: 'invalid-config',
+      message: configValidation.message,
+      target: 'config',
+    });
+  }
+
   return {
-    ok: missing.length === 0,
+    ok: missing.length === 0 && configValidation.ok,
     repoRoot,
     checks,
     missing,
     warnings,
   };
+}
+
+function validateProductionConfig(
+  envFileEntries: Record<string, string>,
+  env: Record<string, string | undefined>,
+) {
+  try {
+    loadConfig({
+      ...envFileEntries,
+      ...env,
+      NODE_ENV: 'production',
+    });
+    return { ok: true as const };
+  } catch (error) {
+    return {
+      ok: false as const,
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 function normalizeRequiredEnvKeys(value: string) {
