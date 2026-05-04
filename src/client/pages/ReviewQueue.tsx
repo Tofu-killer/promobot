@@ -71,7 +71,7 @@ interface BrowserHandoffsResponse {
 
 interface ReviewQueuePageProps {
   loadReviewQueueAction?: (projectId?: number) => Promise<DraftsResponse>;
-  loadBrowserHandoffsAction?: () => Promise<BrowserHandoffsResponse>;
+  loadBrowserHandoffsAction?: (projectId?: number) => Promise<BrowserHandoffsResponse>;
   updateReviewDraftAction?: (id: number, input: { status: 'approved' | 'draft' | 'failed' }) => Promise<UpdateDraftResponse>;
   publishReviewDraftAction?: (id: number) => Promise<PublishDraftResponse>;
   scheduleReviewDraftAction?: (
@@ -137,12 +137,21 @@ export async function loadReviewQueueRequest(projectId?: number): Promise<Drafts
   return apiRequest<DraftsResponse>(buildReviewQueuePath(projectId));
 }
 
-export async function loadReviewQueueBrowserHandoffsRequest(limit = 100): Promise<BrowserHandoffsResponse> {
-  return apiRequest<BrowserHandoffsResponse>(`/api/system/browser-handoffs?limit=${limit}`);
+export async function loadReviewQueueBrowserHandoffsRequest(
+  limit = 100,
+  projectId?: number,
+): Promise<BrowserHandoffsResponse> {
+  const query = new URLSearchParams({ limit: String(limit) });
+
+  if (projectId !== undefined) {
+    query.set('projectId', String(projectId));
+  }
+
+  return apiRequest<BrowserHandoffsResponse>(`/api/system/browser-handoffs?${query.toString()}`);
 }
 
-function defaultLoadReviewQueueBrowserHandoffsAction() {
-  return loadReviewQueueBrowserHandoffsRequest(100);
+function defaultLoadReviewQueueBrowserHandoffsAction(projectId?: number) {
+  return loadReviewQueueBrowserHandoffsRequest(100, projectId);
 }
 
 export async function updateReviewDraftRequest(
@@ -620,12 +629,14 @@ export function ReviewQueuePage({
   const { state: browserHandoffsState, reload: reloadBrowserHandoffs } = useAsyncQuery(
     () =>
       shouldLoadBrowserHandoffsLive
-        ? loadBrowserHandoffsAction()
+        ? projectIdValidationError
+          ? Promise.reject(new Error(projectIdValidationError))
+          : loadBrowserHandoffsAction(projectId)
         : Promise.resolve({
             handoffs: [],
             total: 0,
           } satisfies BrowserHandoffsResponse),
-    [loadBrowserHandoffsAction, shouldLoadBrowserHandoffsLive],
+    [loadBrowserHandoffsAction, projectId, projectIdValidationError, shouldLoadBrowserHandoffsLive],
   );
   const [localDrafts, setLocalDrafts] = useState<DraftRecord[] | null>(null);
   const [scheduledAtById, setScheduledAtById] = useState<Record<number, string>>({});

@@ -145,12 +145,21 @@ interface BrowserHandoffsResponse {
   total: number;
 }
 
-export async function loadDraftBrowserHandoffsRequest(limit = 100): Promise<BrowserHandoffsResponse> {
-  return apiRequest<BrowserHandoffsResponse>(`/api/system/browser-handoffs?limit=${limit}`);
+export async function loadDraftBrowserHandoffsRequest(
+  limit = 100,
+  projectId?: number,
+): Promise<BrowserHandoffsResponse> {
+  const query = new URLSearchParams({ limit: String(limit) });
+
+  if (projectId !== undefined) {
+    query.set('projectId', String(projectId));
+  }
+
+  return apiRequest<BrowserHandoffsResponse>(`/api/system/browser-handoffs?${query.toString()}`);
 }
 
-function defaultLoadDraftBrowserHandoffsAction() {
-  return loadDraftBrowserHandoffsRequest(100);
+function defaultLoadDraftBrowserHandoffsAction(projectId?: number) {
+  return loadDraftBrowserHandoffsRequest(100, projectId);
 }
 
 export async function requestDraftSessionActionRequest(
@@ -192,7 +201,7 @@ export async function completeDraftBrowserHandoffRequest(
 
 interface DraftsPageProps {
   loadDraftsAction?: (projectId?: number) => Promise<DraftsResponse>;
-  loadBrowserHandoffsAction?: () => Promise<BrowserHandoffsResponse>;
+  loadBrowserHandoffsAction?: (projectId?: number) => Promise<BrowserHandoffsResponse>;
   updateDraftAction?: (id: number, input: UpdateDraftPayload) => Promise<UpdateDraftResponse>;
   publishDraftAction?: (id: number) => Promise<PublishDraftResponse>;
   requestChannelAccountSessionActionAction?: (
@@ -500,12 +509,14 @@ export function DraftsPage({
   const { state: browserHandoffsState, reload: reloadBrowserHandoffs } = useAsyncQuery(
     () =>
       shouldLoadBrowserHandoffsLive
-        ? loadBrowserHandoffsAction()
+        ? projectIdValidationError
+          ? Promise.reject(new Error(projectIdValidationError))
+          : loadBrowserHandoffsAction(projectId)
         : Promise.resolve({
             handoffs: [],
             total: 0,
           } satisfies BrowserHandoffsResponse),
-    [loadBrowserHandoffsAction, shouldLoadBrowserHandoffsLive],
+    [loadBrowserHandoffsAction, projectId, projectIdValidationError, shouldLoadBrowserHandoffsLive],
   );
   const [localDrafts, setLocalDrafts] = useState<DraftRecord[]>([]);
   const [formValuesById, setFormValuesById] = useState<Record<number, DraftFormValues>>({});

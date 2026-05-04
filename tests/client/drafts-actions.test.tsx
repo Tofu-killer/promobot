@@ -2647,6 +2647,77 @@ describe('Drafts publish actions', () => {
     });
   });
 
+  it('loads draft browser handoffs with the same projectId scope used by the drafts page', async () => {
+    const { container } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { DraftsPage } = await import('../../src/client/pages/Drafts');
+
+    const loadDraftsAction = vi.fn().mockResolvedValue({
+      drafts: [],
+    });
+    const loadBrowserHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(DraftsPage as never, {
+          loadDraftsAction,
+          loadBrowserHandoffsAction,
+          projectIdDraft: '12',
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    expect(loadDraftsAction).toHaveBeenCalledWith(12);
+    expect(loadBrowserHandoffsAction).toHaveBeenCalledWith(12);
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('does not fall back to an unscoped draft browser handoff load when a controlled projectId draft is invalid', async () => {
+    const { container } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { DraftsPage } = await import('../../src/client/pages/Drafts');
+
+    const loadDraftsAction = vi.fn().mockResolvedValue({
+      drafts: [],
+    });
+    const loadBrowserHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(DraftsPage as never, {
+          loadDraftsAction,
+          loadBrowserHandoffsAction,
+          projectIdDraft: 'invalid-project-id',
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    expect(loadDraftsAction).not.toHaveBeenCalled();
+    expect(loadBrowserHandoffsAction).not.toHaveBeenCalled();
+    expect(collectText(container)).toContain('项目 ID 必须是大于 0 的整数');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('ignores stale browser handoff completions after the operator republishes the draft', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');

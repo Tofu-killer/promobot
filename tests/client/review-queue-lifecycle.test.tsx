@@ -672,6 +672,41 @@ describe('Review Queue lifecycle actions', () => {
     });
   });
 
+  it('loads review queue browser handoffs with the same projectId scope used by the review queue page', async () => {
+    const { container } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ReviewQueuePage } = await import('../../src/client/pages/ReviewQueue');
+
+    const loadReviewQueueAction = vi.fn().mockResolvedValue({
+      drafts: [],
+    });
+    const loadBrowserHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ReviewQueuePage as never, {
+          loadReviewQueueAction,
+          loadBrowserHandoffsAction,
+          projectIdDraft: '12',
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    expect(loadReviewQueueAction).toHaveBeenCalledWith(12);
+    expect(loadBrowserHandoffsAction).toHaveBeenCalledWith(12);
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('does not fall back to an unscoped review queue load when a controlled projectId draft is invalid', async () => {
     const { container } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
@@ -710,6 +745,42 @@ describe('Review Queue lifecycle actions', () => {
     expect(loadReviewQueueAction).not.toHaveBeenCalled();
     expect(collectText(container)).toContain('项目 ID 必须是大于 0 的整数');
     expect(collectText(container)).not.toContain('审核队列加载失败');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('does not fall back to an unscoped review queue browser handoff load when a controlled projectId draft is invalid', async () => {
+    const { container } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ReviewQueuePage } = await import('../../src/client/pages/ReviewQueue');
+
+    const loadReviewQueueAction = vi.fn().mockResolvedValue({
+      drafts: [],
+    });
+    const loadBrowserHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ReviewQueuePage as never, {
+          loadReviewQueueAction,
+          loadBrowserHandoffsAction,
+          projectIdDraft: 'invalid-project-id',
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    expect(loadReviewQueueAction).not.toHaveBeenCalled();
+    expect(loadBrowserHandoffsAction).not.toHaveBeenCalled();
+    expect(collectText(container)).toContain('项目 ID 必须是大于 0 的整数');
 
     await act(async () => {
       root.unmount();
