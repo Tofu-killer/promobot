@@ -640,19 +640,17 @@ describe('Publish Calendar lifecycle', () => {
     const loadDraftsAction = vi.fn().mockResolvedValue({
       drafts: [],
     });
+    const loadBrowserHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
 
     const root = createRoot(container as never);
     await act(async () => {
       root.render(
         createElement(PublishCalendarPage as never, {
           loadDraftsAction,
-          browserHandoffsStateOverride: {
-            status: 'success',
-            data: {
-              handoffs: [],
-              total: 0,
-            },
-          },
+          loadBrowserHandoffsAction,
           projectIdDraft: 'invalid-project-id',
         }),
       );
@@ -668,6 +666,7 @@ describe('Publish Calendar lifecycle', () => {
     expect(projectIdInput).not.toBeNull();
     expect(projectIdInput.value).toBe('invalid-project-id');
     expect(loadDraftsAction).not.toHaveBeenCalled();
+    expect(loadBrowserHandoffsAction).not.toHaveBeenCalled();
     expect(collectText(container)).toContain('项目 ID 必须是大于 0 的整数');
     expect(collectText(container)).not.toContain('日历加载失败');
 

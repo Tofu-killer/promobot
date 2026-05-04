@@ -569,6 +569,51 @@ describe('Publish Calendar schedule actions', () => {
     expect(result.drafts[0]?.title).toBe('Scheduled launch thread');
   });
 
+  it('loads browser handoffs with the same projectId scope used by the publish calendar page', async () => {
+    const { container } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { PublishCalendarPage } = await import('../../src/client/pages/PublishCalendar');
+
+    const loadDraftsAction = vi.fn().mockResolvedValue({
+      drafts: [
+        {
+          id: 12,
+          platform: 'instagram',
+          title: 'Scoped launch follow-up',
+          content: 'Scoped content',
+          hashtags: ['#launch'],
+          status: 'published',
+          createdAt: '2026-04-19T08:00:00.000Z',
+          updatedAt: '2026-04-19T08:10:00.000Z',
+        },
+      ],
+    });
+    const loadBrowserHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(PublishCalendarPage as never, {
+          loadDraftsAction,
+          loadBrowserHandoffsAction,
+          projectIdDraft: '12',
+        }),
+      );
+      await flush();
+    });
+
+    expect(loadDraftsAction).toHaveBeenCalledWith(12);
+    expect(loadBrowserHandoffsAction).toHaveBeenCalledWith(12);
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('patches draft scheduledAt through the shared API helper', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({

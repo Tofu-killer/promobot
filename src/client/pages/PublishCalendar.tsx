@@ -109,7 +109,7 @@ interface BrowserHandoffContract {
 
 interface PublishCalendarPageProps {
   loadDraftsAction?: (projectId?: number) => Promise<DraftsResponse>;
-  loadBrowserHandoffsAction?: () => Promise<BrowserHandoffsResponse>;
+  loadBrowserHandoffsAction?: (projectId?: number) => Promise<BrowserHandoffsResponse>;
   updateDraftScheduleAction?: (
     id: number,
     input: { scheduledAt: string | null },
@@ -191,12 +191,21 @@ export async function loadPublishCalendarRequest(projectId?: number): Promise<Dr
   return apiRequest<DraftsResponse>(buildPublishCalendarPath(projectId));
 }
 
-export async function loadPublishCalendarBrowserHandoffsRequest(limit = 100): Promise<BrowserHandoffsResponse> {
-  return apiRequest<BrowserHandoffsResponse>(`/api/system/browser-handoffs?limit=${limit}`);
+export async function loadPublishCalendarBrowserHandoffsRequest(
+  limit = 100,
+  projectId?: number,
+): Promise<BrowserHandoffsResponse> {
+  const query = new URLSearchParams({ limit: String(limit) });
+
+  if (projectId !== undefined) {
+    query.set('projectId', String(projectId));
+  }
+
+  return apiRequest<BrowserHandoffsResponse>(`/api/system/browser-handoffs?${query.toString()}`);
 }
 
-function defaultLoadPublishCalendarBrowserHandoffsAction() {
-  return loadPublishCalendarBrowserHandoffsRequest(100);
+function defaultLoadPublishCalendarBrowserHandoffsAction(projectId?: number) {
+  return loadPublishCalendarBrowserHandoffsRequest(100, projectId);
 }
 
 export async function updatePublishCalendarDraftScheduleRequest(
@@ -698,12 +707,17 @@ export function PublishCalendarPage({
   const { state: browserHandoffsState, reload: reloadBrowserHandoffs } = useAsyncQuery(
     () =>
       shouldLoadBrowserHandoffsLive
-        ? loadBrowserHandoffsAction()
+        ? projectIdValidationError
+          ? Promise.resolve({
+              handoffs: [],
+              total: 0,
+            } satisfies BrowserHandoffsResponse)
+          : loadBrowserHandoffsAction(projectId)
         : Promise.resolve({
             handoffs: [],
             total: 0,
           } satisfies BrowserHandoffsResponse),
-    [loadBrowserHandoffsAction, shouldLoadBrowserHandoffsLive],
+    [loadBrowserHandoffsAction, projectId, shouldLoadBrowserHandoffsLive],
   );
   const { run: updateSchedule } = useAsyncAction(
     ({ id, scheduledAt }: { id: number; scheduledAt: string | null }) =>
