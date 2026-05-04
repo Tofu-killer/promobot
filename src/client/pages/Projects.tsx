@@ -375,6 +375,7 @@ export function ProjectsPage({
   >({});
   const [pendingSourceConfigSaveIds, setPendingSourceConfigSaveIds] = useState<Record<number, boolean>>({});
   const [projectForms, setProjectForms] = useState<Record<number, ProjectFormValue>>({});
+  const [recentCreatedProjectForList, setRecentCreatedProjectForList] = useState<ProjectRecord | null>(null);
   const projectFormVersionByIdRef = useRef<Record<number, number>>({});
   const projectSaveAttemptByIdRef = useRef<Record<number, number>>({});
   const sourceConfigFormVersionByIdRef = useRef<Record<number, number>>({});
@@ -406,14 +407,16 @@ export function ProjectsPage({
   );
 
   const projects = useMemo(() => {
-    const createdProject = displayState.status === 'success' && displayState.data ? displayState.data.project : null;
-
-    if (createdProject && !createdProject.archivedAt && !loadedProjects.some((project) => project.id === createdProject.id)) {
-      return [...loadedProjects, createdProject];
+    if (
+      recentCreatedProjectForList &&
+      !recentCreatedProjectForList.archivedAt &&
+      !loadedProjects.some((project) => project.id === recentCreatedProjectForList.id)
+    ) {
+      return [...loadedProjects, recentCreatedProjectForList];
     }
 
     return loadedProjects;
-  }, [displayState, loadedProjects]);
+  }, [loadedProjects, recentCreatedProjectForList]);
 
   const loadedProjectIdsKey = useMemo(
     () => loadedProjects.map((project) => String(project.id)).join(','),
@@ -519,7 +522,8 @@ export function ProjectsPage({
       brandVoice,
       ctas: parseCommaSeparatedList(ctas),
     })
-      .then(() => {
+      .then((result) => {
+        setRecentCreatedProjectForList(result.project);
         reload();
       })
       .catch(() => undefined);
@@ -771,6 +775,9 @@ export function ProjectsPage({
     setProjectArchivePending(projectId, true);
     void archiveProjectAction(projectId)
       .then((result) => {
+        setRecentCreatedProjectForList((current) =>
+          current && current.id === result.project.id ? null : current,
+        );
         setProjectForms((currentForms) => {
           const nextForms = { ...currentForms };
           delete nextForms[projectId];

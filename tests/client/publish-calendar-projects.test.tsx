@@ -1394,6 +1394,102 @@ describe('PublishCalendar and Projects pages', () => {
     });
   });
 
+  it('does not resurrect a just-created project after archive reload when the list entry only comes from the recent-create patch', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ProjectsPage } = await import('../../src/client/pages/Projects');
+
+    const loadProjectsAction = vi.fn().mockResolvedValue({
+      projects: [
+        {
+          id: 1,
+          name: 'Existing Project',
+          siteName: 'Existing',
+          siteUrl: 'https://existing.test',
+          siteDescription: 'Already in database',
+          sellingPoints: ['Known'],
+          createdAt: '2026-04-19T08:00:00.000Z',
+        },
+      ],
+    });
+    const loadSourceConfigsAction = vi.fn().mockResolvedValue({
+      sourceConfigs: [],
+    });
+    const createProjectAction = vi.fn().mockResolvedValue({
+      project: {
+        id: 2,
+        name: 'Acme Launch',
+        siteName: 'Acme',
+        siteUrl: 'https://acme.test',
+        siteDescription: 'Launch week campaign',
+        sellingPoints: ['Cheap', 'Fast'],
+        createdAt: '2026-04-19T09:00:00.000Z',
+      },
+    });
+    const archiveProjectAction = vi.fn().mockResolvedValue({
+      project: {
+        id: 2,
+        name: 'Acme Launch',
+        siteName: 'Acme',
+        siteUrl: 'https://acme.test',
+        siteDescription: 'Launch week campaign',
+        sellingPoints: ['Cheap', 'Fast'],
+        createdAt: '2026-04-19T09:00:00.000Z',
+        archivedAt: '2026-04-23T10:00:00.000Z',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ProjectsPage as never, {
+          loadProjectsAction,
+          loadSourceConfigsAction,
+          createProjectAction,
+          archiveProjectAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const createButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && collectText(element).includes('创建项目'),
+    );
+
+    expect(createButton).not.toBeNull();
+
+    await act(async () => {
+      createButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    const createdProjectArchiveButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-project-archive-id') === '2',
+    );
+
+    expect(createdProjectArchiveButton).not.toBeNull();
+    expect(collectText(container)).toContain('已加载 2 个项目');
+
+    await act(async () => {
+      createdProjectArchiveButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(archiveProjectAction).toHaveBeenCalledWith(2);
+    expect(collectText(container)).toContain('已加载 1 个项目');
+    expect(findElement(container, (element) => element.getAttribute('data-project-archive-id') === '2')).toBeNull();
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('edits a loaded project through PATCH and updates the visible project data', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
