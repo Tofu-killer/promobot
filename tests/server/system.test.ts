@@ -3093,6 +3093,147 @@ describe('system runtime api', () => {
     }
   });
 
+  it('lists inbox reply handoff artifacts through the system api with project scope', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const app = createApp({
+        allowedIps: ['127.0.0.1'],
+        adminPassword: 'secret',
+      });
+
+      const inboxStore = createInboxStore();
+      inboxStore.create({
+        projectId: 11,
+        source: 'weibo',
+        status: 'needs_reply',
+        author: 'ops-user',
+        title: 'Project alpha question',
+        excerpt: 'Alpha project needs a reply.',
+        metadata: {
+          accountKey: 'weibo-alpha',
+        },
+      });
+      inboxStore.create({
+        projectId: 12,
+        source: 'weibo',
+        status: 'needs_reply',
+        author: 'ops-user',
+        title: 'Project beta question',
+        excerpt: 'Beta project needs a reply.',
+        metadata: {
+          accountKey: 'weibo-beta',
+        },
+      });
+
+      const artifactRoot = path.join(rootDir, 'artifacts', 'inbox-reply-handoffs', 'weibo');
+      fs.mkdirSync(path.join(artifactRoot, 'weibo-alpha'), { recursive: true });
+      fs.mkdirSync(path.join(artifactRoot, 'weibo-beta'), { recursive: true });
+      fs.writeFileSync(
+        path.join(artifactRoot, 'weibo-alpha', 'weibo-inbox-item-1.json'),
+        JSON.stringify({
+          type: 'browser_inbox_reply_handoff',
+          handoffAttempt: 1,
+          status: 'pending',
+          platform: 'weibo',
+          itemId: '1',
+          source: 'weibo',
+          title: 'Project alpha question',
+          excerpt: 'Alpha project needs a reply.',
+          reply: 'Alpha reply',
+          author: 'ops-user',
+          sourceUrl: 'https://weibo.test/post/1',
+          accountKey: 'weibo-alpha',
+          session: {
+            hasSession: true,
+            id: 'weibo:weibo-alpha',
+            status: 'active',
+            validatedAt: '2026-04-25T10:00:00.000Z',
+            storageStatePath: 'browser-sessions/managed/weibo/weibo-alpha.json',
+          },
+          createdAt: '2026-04-25T10:01:00.000Z',
+          updatedAt: '2026-04-25T10:01:00.000Z',
+          resolvedAt: null,
+          resolution: null,
+        }),
+      );
+      fs.writeFileSync(
+        path.join(artifactRoot, 'weibo-beta', 'weibo-inbox-item-2.json'),
+        JSON.stringify({
+          type: 'browser_inbox_reply_handoff',
+          handoffAttempt: 1,
+          status: 'pending',
+          platform: 'weibo',
+          itemId: '2',
+          source: 'weibo',
+          title: 'Project beta question',
+          excerpt: 'Beta project needs a reply.',
+          reply: 'Beta reply',
+          author: 'ops-user',
+          sourceUrl: 'https://weibo.test/post/2',
+          accountKey: 'weibo-beta',
+          session: {
+            hasSession: true,
+            id: 'weibo:weibo-beta',
+            status: 'active',
+            validatedAt: '2026-04-25T10:00:00.000Z',
+            storageStatePath: 'browser-sessions/managed/weibo/weibo-beta.json',
+          },
+          createdAt: '2026-04-25T10:02:00.000Z',
+          updatedAt: '2026-04-25T10:02:00.000Z',
+          resolvedAt: null,
+          resolution: null,
+        }),
+      );
+
+      const response = await requestExistingApp(app, {
+        method: 'GET',
+        url: '/api/system/inbox-reply-handoffs?limit=10&projectId=12',
+        remoteAddress: '127.0.0.1',
+        headers: {
+          'x-admin-password': 'secret',
+        },
+      });
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        handoffs: [
+          expect.objectContaining({
+            platform: 'weibo',
+            itemId: '2',
+            source: 'weibo',
+            accountKey: 'weibo-beta',
+            projectId: 12,
+            status: 'pending',
+            artifactPath: 'artifacts/inbox-reply-handoffs/weibo/weibo-beta/weibo-inbox-item-2.json',
+            resolvedAt: null,
+          }),
+        ],
+        total: 1,
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('rejects invalid project ids when listing inbox reply handoff artifacts', async () => {
+    const app = createApp({
+      allowedIps: ['127.0.0.1'],
+      adminPassword: 'secret',
+    });
+
+    const response = await requestExistingApp(app, {
+      method: 'GET',
+      url: '/api/system/inbox-reply-handoffs?limit=10&projectId=bad',
+      remoteAddress: '127.0.0.1',
+      headers: {
+        'x-admin-password': 'secret',
+      },
+    });
+
+    expect(response.status).toBe(400);
+    expect(JSON.parse(response.body)).toEqual({ error: 'invalid project id' });
+  });
+
   it('imports inbox reply handoff completion through the system api without an explicit handoff attempt', async () => {
     const { rootDir } = createTestDatabasePath();
     try {

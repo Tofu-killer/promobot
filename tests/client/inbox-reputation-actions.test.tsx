@@ -3515,6 +3515,80 @@ describe('Inbox action wiring', () => {
     });
   });
 
+  it('loads persisted inbox reply handoffs with the active project scope', async () => {
+    const { container } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { InboxPage } = await import('../../src/client/pages/Inbox');
+
+    const inboxItem = {
+      id: 81,
+      source: 'reddit',
+      status: 'needs_reply',
+      author: 'user-project',
+      title: 'Need project scoped ETA',
+      excerpt: 'Can you share the ETA for this project?',
+      createdAt: '2026-04-19T10:00:00.000Z',
+    } as const;
+    const loadInboxAction = vi.fn().mockResolvedValue({
+      items: [inboxItem],
+      total: 1,
+      unread: 1,
+    });
+    const loadInboxReplyHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [
+        {
+          platform: 'reddit',
+          itemId: 81,
+          source: 'reddit',
+          title: 'Need project scoped ETA',
+          author: 'user-project',
+          accountKey: 'reddit-project',
+          channelAccountId: 19,
+          projectId: 12,
+          status: 'pending',
+          readiness: 'ready',
+          sessionAction: null,
+          artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-project/reddit-item-81.json',
+          handoffAttempt: 1,
+          createdAt: '2026-04-24T10:00:00.000Z',
+          updatedAt: '2026-04-24T10:00:00.000Z',
+          resolvedAt: null,
+        },
+      ],
+      total: 1,
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(InboxPage as never, {
+          loadInboxAction,
+          loadInboxReplyHandoffsAction,
+          stateOverride: {
+            status: 'success',
+            data: {
+              items: [inboxItem],
+              total: 1,
+              unread: 1,
+            },
+          } satisfies ApiState<unknown>,
+          projectIdDraft: '12',
+        }),
+      );
+      await flush();
+      await flush();
+      await flush();
+    });
+
+    expect(loadInboxReplyHandoffsAction).toHaveBeenCalledWith(100, 12);
+    expect(collectText(container)).toContain('发现待处理的 Inbox reply handoff，可以直接结单。');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('does not let an older blocked persisted inbox reply handoff hide a newer immediate ready attempt', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');

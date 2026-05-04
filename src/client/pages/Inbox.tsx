@@ -139,8 +139,19 @@ export async function enqueueInboxFetchJobRequest(
   });
 }
 
-export async function loadInboxReplyHandoffsRequest(limit = 100): Promise<InboxReplyHandoffsResponse> {
-  return apiRequest<InboxReplyHandoffsResponse>(`/api/system/inbox-reply-handoffs?limit=${limit}`);
+export async function loadInboxReplyHandoffsRequest(
+  limit = 100,
+  projectId?: number,
+): Promise<InboxReplyHandoffsResponse> {
+  const searchParams = new URLSearchParams({
+    limit: String(limit),
+  });
+
+  if (projectId !== undefined) {
+    searchParams.set('projectId', String(projectId));
+  }
+
+  return apiRequest<InboxReplyHandoffsResponse>(`/api/system/inbox-reply-handoffs?${searchParams.toString()}`);
 }
 
 export interface UpdateInboxItemResponse {
@@ -309,7 +320,7 @@ export async function completeInboxReplyHandoffRequest(
 
 interface InboxPageProps {
   loadInboxAction?: (projectId?: number) => Promise<InboxResponse>;
-  loadInboxReplyHandoffsAction?: (limit?: number) => Promise<InboxReplyHandoffsResponse>;
+  loadInboxReplyHandoffsAction?: (limit?: number, projectId?: number) => Promise<InboxReplyHandoffsResponse>;
   fetchInboxAction?: (projectId?: number) => Promise<FetchInboxResponse>;
   enqueueFetchJobAction?: (runAt?: string, projectId?: number) => Promise<EnqueueInboxFetchJobResponse>;
   updateInboxAction?: (id: number, status: string) => Promise<UpdateInboxItemResponse>;
@@ -775,14 +786,19 @@ export function InboxPage({
     [loadInboxAction, projectId, projectIdValidationError],
   );
   const { state: replyHandoffsState, reload: reloadReplyHandoffs } = useAsyncQuery(
-    () =>
-      shouldLoadReplyHandoffsLive
-        ? loadInboxReplyHandoffsAction()
+    () => {
+      if (projectIdValidationError) {
+        return Promise.reject(new Error(projectIdValidationError));
+      }
+
+      return shouldLoadReplyHandoffsLive
+        ? loadInboxReplyHandoffsAction(100, projectId)
         : Promise.resolve({
             handoffs: [],
             total: 0,
-          } satisfies InboxReplyHandoffsResponse),
-    [loadInboxReplyHandoffsAction, shouldLoadReplyHandoffsLive],
+          } satisfies InboxReplyHandoffsResponse);
+    },
+    [loadInboxReplyHandoffsAction, projectId, projectIdValidationError, shouldLoadReplyHandoffsLive],
   );
   const { state: fetchState, run: runFetchInbox } = useAsyncAction((nextProjectId?: number) =>
     nextProjectId === undefined ? fetchInboxAction() : fetchInboxAction(nextProjectId),

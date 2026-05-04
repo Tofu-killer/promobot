@@ -265,11 +265,20 @@ export function createSystemRouter(dependencies: SystemRouteDependencies = {}) {
 
   systemRouter.get('/inbox-reply-handoffs', (request, response) => {
     const limit = parseOptionalPositiveInteger(request.query.limit);
-    const handoffs = listInboxReplyHandoffArtifacts(limit);
+    const projectId = parseOptionalPositiveInteger(request.query.projectId);
+
+    if (request.query.projectId !== undefined && projectId === undefined) {
+      response.status(400).json({ error: 'invalid project id' });
+      return;
+    }
+
+    const handoffs = listInboxReplyHandoffArtifacts().filter(
+      (handoff) => projectId === undefined || handoff.projectId === projectId,
+    );
 
     response.json({
-      handoffs,
-      total: listInboxReplyHandoffArtifacts().length,
+      handoffs: limit === undefined ? handoffs : handoffs.slice(0, limit),
+      total: handoffs.length,
     });
   });
 
