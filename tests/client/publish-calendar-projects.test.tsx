@@ -2262,6 +2262,157 @@ describe('PublishCalendar and Projects pages', () => {
     });
   });
 
+  it('ignores stale project save success after the same project is archived while save is pending', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ProjectsPage } = await import('../../src/client/pages/Projects');
+
+    const pendingSave = createDeferredPromise<{
+      project: {
+        id: number;
+        name: string;
+        siteName: string;
+        siteUrl: string;
+        siteDescription: string;
+        sellingPoints: string[];
+        brandVoice?: string;
+        ctas?: string[];
+        bannedPhrases?: string[];
+        defaultLanguagePolicy?: string;
+        riskPolicy?: 'requires_review' | 'auto_approve';
+        createdAt: string;
+      };
+    }>();
+    const loadProjectsAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        projects: [
+          {
+            id: 7,
+            name: 'Acme Launch',
+            siteName: 'Acme',
+            siteUrl: 'https://acme.test',
+            siteDescription: 'Launch week campaign',
+            sellingPoints: ['Cheap', 'Fast'],
+            brandVoice: '',
+            ctas: [],
+            bannedPhrases: [],
+            defaultLanguagePolicy: '',
+            riskPolicy: 'requires_review',
+            createdAt: '2026-04-19T08:00:00.000Z',
+          },
+        ],
+      })
+      .mockResolvedValue({
+        projects: [],
+      });
+    const loadSourceConfigsAction = vi.fn().mockResolvedValue({
+      sourceConfigs: [],
+    });
+    const updateProjectAction = vi.fn().mockReturnValue(pendingSave.promise);
+    const archiveProjectAction = vi.fn().mockResolvedValue({
+      project: {
+        id: 7,
+        name: 'Acme Launch',
+        siteName: 'Acme',
+        siteUrl: 'https://acme.test',
+        siteDescription: 'Launch week campaign',
+        sellingPoints: ['Cheap', 'Fast'],
+        brandVoice: '',
+        ctas: [],
+        bannedPhrases: [],
+        defaultLanguagePolicy: '',
+        riskPolicy: 'requires_review',
+        createdAt: '2026-04-19T08:00:00.000Z',
+        archivedAt: '2026-04-23T10:00:00.000Z',
+      },
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ProjectsPage as never, {
+          loadProjectsAction,
+          loadSourceConfigsAction,
+          updateProjectAction,
+          archiveProjectAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const saveButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-project-save-id') === '7',
+    );
+    const archiveButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-project-archive-id') === '7',
+    );
+
+    expect(saveButton).not.toBeNull();
+    expect(archiveButton).not.toBeNull();
+
+    await act(async () => {
+      saveButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(updateProjectAction).toHaveBeenCalledWith(7, {
+      name: 'Acme Launch',
+      siteDescription: 'Launch week campaign',
+      sellingPoints: ['Cheap', 'Fast'],
+      brandVoice: '',
+      ctas: [],
+      bannedPhrases: [],
+      defaultLanguagePolicy: '',
+      riskPolicy: 'requires_review',
+    });
+
+    await act(async () => {
+      archiveButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(archiveProjectAction).toHaveBeenCalledWith(7);
+    expect(collectText(container)).toContain('项目已归档：Acme Launch');
+    expect(findElement(container, (element) => element.getAttribute('data-project-save-id') === '7')).toBeNull();
+    expect(findElement(container, (element) => element.getAttribute('data-project-archive-id') === '7')).toBeNull();
+
+    await act(async () => {
+      pendingSave.resolve({
+        project: {
+          id: 7,
+          name: 'Acme Launch',
+          siteName: 'Acme',
+          siteUrl: 'https://acme.test',
+          siteDescription: 'Launch week campaign',
+          sellingPoints: ['Cheap', 'Fast'],
+          brandVoice: '',
+          ctas: [],
+          bannedPhrases: [],
+          defaultLanguagePolicy: '',
+          riskPolicy: 'requires_review',
+          createdAt: '2026-04-19T08:00:00.000Z',
+        },
+      });
+      await flush();
+      await flush();
+    });
+
+    expect(collectText(container)).not.toContain('项目已保存');
+    expect(findElement(container, (element) => element.getAttribute('data-project-save-feedback-id') === '7')).toBeNull();
+    expect(findElement(container, (element) => element.getAttribute('data-project-field') === 'name-7')).toBeNull();
+    expect(loadSourceConfigsAction).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('keeps project archive pending scoped when multiple archives overlap', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
