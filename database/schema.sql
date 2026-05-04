@@ -9,7 +9,8 @@ CREATE TABLE IF NOT EXISTS projects (
   archived INTEGER NOT NULL DEFAULT 0,
   archived_at TEXT,
   brand_voice TEXT NOT NULL DEFAULT '',
-  ctas TEXT NOT NULL DEFAULT '[]'
+  ctas TEXT NOT NULL DEFAULT '[]',
+  risk_policy TEXT NOT NULL DEFAULT 'requires_review'
 );
 
 CREATE TABLE IF NOT EXISTS drafts (

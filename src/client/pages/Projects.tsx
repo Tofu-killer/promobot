@@ -9,6 +9,7 @@ import {
   parseSourceConfigJsonText,
   validateSourceConfigInput,
 } from '../../server/lib/sourceConfigValidation.js';
+import type { ProjectRiskPolicy } from '../../server/store/projects.js';
 
 export interface ProjectRecord {
   id: number;
@@ -19,6 +20,7 @@ export interface ProjectRecord {
   sellingPoints: string[];
   brandVoice?: string;
   ctas?: string[];
+  riskPolicy?: ProjectRiskPolicy;
   archivedAt?: string;
   createdAt?: string;
 }
@@ -56,6 +58,7 @@ export interface CreateProjectPayload {
   sellingPoints: string[];
   brandVoice?: string;
   ctas?: string[];
+  riskPolicy?: ProjectRiskPolicy;
 }
 
 export interface CreateProjectResponse {
@@ -68,6 +71,7 @@ export interface UpdateProjectPayload {
   sellingPoints?: string[];
   brandVoice?: string;
   ctas?: string[];
+  riskPolicy?: ProjectRiskPolicy;
 }
 
 export interface UpdateProjectResponse {
@@ -179,6 +183,7 @@ interface ProjectFormValue {
   sellingPoints: string;
   brandVoice: string;
   ctas: string;
+  riskPolicy: ProjectRiskPolicy;
 }
 
 interface SourceConfigFormValue {
@@ -363,6 +368,7 @@ export function ProjectsPage({
   const [sellingPoints, setSellingPoints] = useState('Cheap, Fast');
   const [brandVoice, setBrandVoice] = useState('Direct, calm, proof-first');
   const [ctas, setCtas] = useState('Start free, Book a demo');
+  const [riskPolicy, setRiskPolicy] = useState<ProjectRiskPolicy>('auto_approve');
   const { state, run } = useAsyncAction(createProjectAction);
   const { state: projectsState, reload } = useAsyncQuery(loadProjectsAction, [loadProjectsAction]);
   const [pageMessage, setPageMessage] = useState<string | null>(null);
@@ -521,6 +527,7 @@ export function ProjectsPage({
       sellingPoints: parseCommaSeparatedList(sellingPoints),
       brandVoice,
       ctas: parseCommaSeparatedList(ctas),
+      riskPolicy,
     })
       .then((result) => {
         setRecentCreatedProjectForList(result.project);
@@ -539,6 +546,7 @@ export function ProjectsPage({
       sellingPoints: formatStringList(project.sellingPoints),
       brandVoice: project.brandVoice ?? '',
       ctas: formatStringList(project.ctas),
+      riskPolicy: project.riskPolicy ?? 'requires_review',
     };
   }
 
@@ -556,6 +564,7 @@ export function ProjectsPage({
             sellingPoints: [],
             brandVoice: '',
             ctas: [],
+            riskPolicy: 'requires_review',
           },
           currentForms,
         ),
@@ -694,6 +703,7 @@ export function ProjectsPage({
         sellingPoints: [],
         brandVoice: '',
         ctas: [],
+        riskPolicy: 'requires_review',
       },
     );
     const formVersionAtStart = projectFormVersionByIdRef.current[projectId] ?? 0;
@@ -709,6 +719,7 @@ export function ProjectsPage({
       sellingPoints: parseCommaSeparatedList(form.sellingPoints),
       brandVoice: form.brandVoice,
       ctas: parseCommaSeparatedList(form.ctas),
+      riskPolicy: form.riskPolicy,
     })
       .then((result) => {
         if ((projectSaveAttemptByIdRef.current[projectId] ?? 0) !== nextSaveAttempt) {
@@ -727,6 +738,7 @@ export function ProjectsPage({
             sellingPoints: formatStringList(result.project.sellingPoints),
             brandVoice: result.project.brandVoice ?? '',
             ctas: formatStringList(result.project.ctas),
+            riskPolicy: result.project.riskPolicy ?? 'requires_review',
           },
         }));
         setProjectSaveMessage(projectId, '项目已保存');
@@ -1196,6 +1208,18 @@ export function ProjectsPage({
               <input value={ctas} onChange={(event) => setCtas(event.target.value)} style={fieldStyle} />
             </label>
 
+            <label style={{ display: 'grid', gap: '8px' }}>
+              <span style={{ fontWeight: 700 }}>Risk Policy</span>
+              <select
+                value={riskPolicy}
+                onChange={(event) => setRiskPolicy(event.target.value as ProjectRiskPolicy)}
+                style={fieldStyle}
+              >
+                <option value="requires_review">requires_review</option>
+                <option value="auto_approve">auto_approve</option>
+              </select>
+            </label>
+
             <button
               type="button"
               onClick={handleCreateProject}
@@ -1253,6 +1277,10 @@ export function ProjectsPage({
               <div>
                 <strong>CTAs：</strong>
                 {formatStringList(displayState.data.project.ctas)}
+              </div>
+              <div>
+                <strong>Risk Policy：</strong>
+                {displayState.data.project.riskPolicy ?? 'requires_review'}
               </div>
             </div>
           ) : null}
@@ -1357,6 +1385,24 @@ export function ProjectsPage({
                       onChange={(event) => updateProjectForm(project.id, { ctas: event.target.value })}
                       style={fieldStyle}
                     />
+                  </label>
+
+                  <label style={{ display: 'grid', gap: '8px' }}>
+                    <span style={{ fontWeight: 700 }}>Risk Policy</span>
+                    <select
+                      data-project-field={`risk-policy-${project.id}`}
+                      name={`project-risk-policy-${project.id}`}
+                      value={form.riskPolicy}
+                      onChange={(event) =>
+                        updateProjectForm(project.id, {
+                          riskPolicy: event.target.value as ProjectRiskPolicy,
+                        })
+                      }
+                      style={fieldStyle}
+                    >
+                      <option value="requires_review">requires_review</option>
+                      <option value="auto_approve">auto_approve</option>
+                    </select>
                   </label>
 
                   <button

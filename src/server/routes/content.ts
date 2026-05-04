@@ -14,7 +14,7 @@ import { generateWeiboDraft } from '../services/generators/weibo.js';
 import { generateXDraft } from '../services/generators/x.js';
 import { generateXiaohongshuDraft } from '../services/generators/xiaohongshu.js';
 import { createProjectStore, type ProjectRecord, type ProjectStore } from '../store/projects.js';
-import type { DraftStore } from './drafts.js';
+import type { DraftStatus, DraftStore } from './drafts.js';
 import { createDraftStore } from './drafts.js';
 
 type SupportedPlatform =
@@ -155,6 +155,14 @@ function mergeSiteContext(
   };
 }
 
+function getGeneratedDraftStatus(project: ProjectRecord | undefined): DraftStatus | undefined {
+  if (!project) {
+    return undefined;
+  }
+
+  return project.riskPolicy === 'auto_approve' ? 'approved' : 'review';
+}
+
 export function createContentRouter(
   draftStore: DraftStore,
   projectStore: ProjectStore = createProjectStore(),
@@ -233,6 +241,10 @@ export function createContentRouter(
     };
     const shouldSaveAsDraft = body.saveAsDraft === true;
     const projectId = shouldSaveAsDraft ? parsedProjectId : undefined;
+    const generatedDraftStatus =
+      shouldSaveAsDraft && projectId !== undefined
+        ? getGeneratedDraftStatus(scopedProject)
+        : undefined;
 
     const results = await Promise.all(
       supportedPlatforms.map(async (platform) => {
@@ -247,6 +259,7 @@ export function createContentRouter(
           title: generatedDraft.title,
           content: generatedDraft.content,
           hashtags: generatedDraft.hashtags,
+          ...(generatedDraftStatus !== undefined ? { status: generatedDraftStatus } : {}),
           ...(projectId !== undefined ? { projectId } : {}),
         };
 

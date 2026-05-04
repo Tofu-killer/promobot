@@ -937,6 +937,7 @@ describe('PublishCalendar and Projects pages', () => {
       name: 'Acme Launch Updated',
       siteDescription: 'Updated brief',
       sellingPoints: ['Faster', 'Cheaper'],
+      riskPolicy: 'auto_approve',
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
@@ -948,6 +949,7 @@ describe('PublishCalendar and Projects pages', () => {
           name: 'Acme Launch Updated',
           siteDescription: 'Updated brief',
           sellingPoints: ['Faster', 'Cheaper'],
+          riskPolicy: 'auto_approve',
         }),
       }),
     );
@@ -1336,6 +1338,7 @@ describe('PublishCalendar and Projects pages', () => {
           siteUrl: 'https://existing.test',
           siteDescription: 'Already in database',
           sellingPoints: ['Known'],
+          riskPolicy: 'requires_review',
           createdAt: '2026-04-19T08:00:00.000Z',
         },
       ],
@@ -1348,6 +1351,7 @@ describe('PublishCalendar and Projects pages', () => {
         siteUrl: 'https://acme.test',
         siteDescription: 'Launch week campaign',
         sellingPoints: ['Cheap', 'Fast'],
+        riskPolicy: 'auto_approve',
         createdAt: '2026-04-19T09:00:00.000Z',
       },
     });
@@ -1383,6 +1387,7 @@ describe('PublishCalendar and Projects pages', () => {
       sellingPoints: ['Cheap', 'Fast'],
       brandVoice: 'Direct, calm, proof-first',
       ctas: ['Start free', 'Book a demo'],
+      riskPolicy: 'auto_approve',
     });
     expect(collectText(container)).toContain('最近创建结果');
     expect(collectText(container)).toContain('Existing Project');
@@ -1506,6 +1511,7 @@ describe('PublishCalendar and Projects pages', () => {
             siteUrl: 'https://acme.test',
             siteDescription: 'Launch week campaign',
             sellingPoints: ['Cheap', 'Fast'],
+            riskPolicy: 'requires_review',
             createdAt: '2026-04-19T08:00:00.000Z',
           },
         ],
@@ -1519,6 +1525,7 @@ describe('PublishCalendar and Projects pages', () => {
             siteUrl: 'https://acme.test',
             siteDescription: 'Launch week campaign',
             sellingPoints: ['Cheap', 'Fast'],
+            riskPolicy: 'auto_approve',
             createdAt: '2026-04-19T08:00:00.000Z',
           },
         ],
@@ -1531,6 +1538,7 @@ describe('PublishCalendar and Projects pages', () => {
         siteUrl: 'https://acme.test',
         siteDescription: 'Updated brief',
         sellingPoints: ['Faster', 'Cheaper'],
+        riskPolicy: 'auto_approve',
         createdAt: '2026-04-19T08:00:00.000Z',
       },
     });
@@ -1555,11 +1563,16 @@ describe('PublishCalendar and Projects pages', () => {
       container,
       (element) => element.getAttribute('data-project-field') === 'selling-points-7',
     );
+    const riskPolicyField = findElement(
+      container,
+      (element) => element.getAttribute('data-project-field') === 'risk-policy-7',
+    );
 
     await act(async () => {
       updateFieldValue(nameField, 'Acme Launch Updated', window);
       updateFieldValue(descriptionField, 'Updated brief', window);
       updateFieldValue(sellingPointsField, 'Faster, Cheaper', window);
+      updateFieldValue(riskPolicyField, 'auto_approve', window);
       await flush();
     });
 
@@ -1584,6 +1597,7 @@ describe('PublishCalendar and Projects pages', () => {
       sellingPoints: ['Faster', 'Cheaper'],
       brandVoice: '',
       ctas: [],
+      riskPolicy: 'auto_approve',
     });
     const projectSaveFeedback = findElement(
       container,
@@ -1602,9 +1616,14 @@ describe('PublishCalendar and Projects pages', () => {
       container,
       (element) => element.getAttribute('data-project-field') === 'selling-points-7',
     );
+    const updatedRiskPolicyField = findElement(
+      container,
+      (element) => element.getAttribute('data-project-field') === 'risk-policy-7',
+    );
 
     expect(updatedNameField?.value).toBe('Acme Launch Updated');
     expect(updatedSellingPointsField?.value).toBe('Faster, Cheaper');
+    expect(updatedRiskPolicyField?.value).toBe('auto_approve');
 
     await act(async () => {
       root.unmount();
@@ -2060,6 +2079,7 @@ describe('PublishCalendar and Projects pages', () => {
       sellingPoints: ['Cheap', 'Fast'],
       brandVoice: 'Direct, calm, proof-first',
       ctas: ['Start free', 'Book a demo'],
+      riskPolicy: 'auto_approve',
     });
     expect(pendingCreateButton?.disabled).toBe(true);
     expect(projectSaveFeedbackWhileCreatePending).not.toBeNull();
@@ -2114,6 +2134,7 @@ describe('PublishCalendar and Projects pages', () => {
           sellingPoints: ['Cheap', 'Fast'],
           brandVoice: '',
           ctas: [],
+          riskPolicy: 'requires_review',
           createdAt: '2026-04-19T08:00:00.000Z',
         },
       ],
@@ -2154,6 +2175,7 @@ describe('PublishCalendar and Projects pages', () => {
       sellingPoints: ['Cheap', 'Fast'],
       brandVoice: '',
       ctas: [],
+      riskPolicy: 'requires_review',
     });
 
     const pendingNameField = findElement(
@@ -2178,6 +2200,7 @@ describe('PublishCalendar and Projects pages', () => {
           sellingPoints: ['Cheap', 'Fast'],
           brandVoice: '',
           ctas: [],
+          riskPolicy: 'requires_review',
           createdAt: '2026-04-19T08:00:00.000Z',
         },
       });
@@ -3207,6 +3230,7 @@ describe('PublishCalendar and Projects pages', () => {
       sellingPoints: ['Cheap', 'Fast'],
       brandVoice: '',
       ctas: [],
+      riskPolicy: 'requires_review',
     });
     expect(collectText(container)).not.toContain('Reddit mentions');
     expect(collectText(container)).toContain('暂无 SourceConfig');

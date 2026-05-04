@@ -78,6 +78,7 @@ describe('client API page wiring', () => {
       siteUrl: string;
       siteDescription: string;
       sellingPoints: string[];
+      riskPolicy?: string;
     }) => Promise<{ project: { id: number; name: string; siteUrl: string } }>;
 
     const result = await createProjectRequest({
@@ -86,6 +87,7 @@ describe('client API page wiring', () => {
       siteUrl: 'https://acme.test',
       siteDescription: 'Launch week campaign',
       sellingPoints: ['Cheap', 'Fast'],
+      riskPolicy: 'auto_approve',
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
@@ -93,6 +95,14 @@ describe('client API page wiring', () => {
       expect.objectContaining({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Acme Launch',
+          siteName: 'Acme',
+          siteUrl: 'https://acme.test',
+          siteDescription: 'Launch week campaign',
+          sellingPoints: ['Cheap', 'Fast'],
+          riskPolicy: 'auto_approve',
+        }),
       }),
     );
     expect(result.project.name).toBe('Acme Launch');
@@ -599,6 +609,7 @@ describe('client API page wiring', () => {
             sellingPoints: ['Cheap', 'Fast'],
             brandVoice: 'Direct, calm, proof-first',
             ctas: ['Start free', 'Book a demo'],
+            riskPolicy: 'requires_review',
           },
         },
       },
@@ -621,6 +632,7 @@ describe('client API page wiring', () => {
           siteUrl: 'https://archive.test',
           siteDescription: 'Archive coverage',
           sellingPoints: ['Quiet sunset'],
+          riskPolicy: 'requires_review',
           archivedAt: '2026-04-23T10:00:00.000Z',
         },
       }),
@@ -663,6 +675,7 @@ describe('client API page wiring', () => {
                 siteUrl: 'https://active.test',
                 siteDescription: 'Still live',
                 sellingPoints: ['Fast'],
+                riskPolicy: 'requires_review',
               },
               {
                 id: 2,
@@ -671,6 +684,7 @@ describe('client API page wiring', () => {
                 siteUrl: 'https://archived.test',
                 siteDescription: 'No longer active',
                 sellingPoints: ['Quiet'],
+                riskPolicy: 'requires_review',
                 archivedAt: '2026-04-23T10:00:00.000Z',
               },
             ],
@@ -710,6 +724,7 @@ describe('client API page wiring', () => {
                 sellingPoints: ['Fast setup'],
                 brandVoice: 'Warm, punchy, confidence-building',
                 ctas: ['Get started', 'Watch demo'],
+                riskPolicy: 'requires_review',
               },
             ],
           },

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { createProjectStore } from '../store/projects.js';
+import { createProjectStore, type ProjectRiskPolicy } from '../store/projects.js';
 import {
   createSourceConfigStore,
   type CreateSourceConfigInput,
@@ -11,6 +11,7 @@ import type { SchedulerRuntime } from '../runtime/schedulerRuntime.js';
 
 const projectStore = createProjectStore();
 const sourceConfigStore = createSourceConfigStore();
+const allowedRiskPolicies = new Set<ProjectRiskPolicy>(['requires_review', 'auto_approve']);
 
 export interface ProjectsRouterDependencies {
   schedulerRuntime?: Pick<SchedulerRuntime, 'reload'>;
@@ -62,6 +63,7 @@ export function createProjectsRouter(
       'sellingPoints',
       'brandVoice',
       'ctas',
+      'riskPolicy',
     ]);
     if (Object.keys(input).some((key) => !allowedFields.has(key))) {
       response.status(400).json({ error: 'invalid project payload' });
@@ -76,6 +78,7 @@ export function createProjectsRouter(
       sellingPoints,
       brandVoice,
       ctas,
+      riskPolicy,
     } = input;
 
     if (
@@ -86,6 +89,8 @@ export function createProjectsRouter(
       !Array.isArray(sellingPoints) ||
       !sellingPoints.every((value: unknown) => typeof value === 'string') ||
       (brandVoice !== undefined && typeof brandVoice !== 'string') ||
+      (riskPolicy !== undefined &&
+        (typeof riskPolicy !== 'string' || !allowedRiskPolicies.has(riskPolicy as ProjectRiskPolicy))) ||
       (ctas !== undefined &&
         (!Array.isArray(ctas) || !ctas.every((value: unknown) => typeof value === 'string')))
     ) {
@@ -103,6 +108,10 @@ export function createProjectsRouter(
       ctas: Array.isArray(ctas)
         ? ctas.filter((value: unknown): value is string => typeof value === 'string')
         : [],
+      riskPolicy:
+        typeof riskPolicy === 'string' && allowedRiskPolicies.has(riskPolicy as ProjectRiskPolicy)
+          ? (riskPolicy as ProjectRiskPolicy)
+          : 'requires_review',
     });
 
     response.status(201).json({
@@ -163,6 +172,7 @@ export function createProjectsRouter(
       'sellingPoints',
       'brandVoice',
       'ctas',
+      'riskPolicy',
       'archived',
     ]);
     const bodyKeys = Object.keys(body);
@@ -175,6 +185,15 @@ export function createProjectsRouter(
       body.sellingPoints !== undefined &&
       (!Array.isArray(body.sellingPoints) ||
         !body.sellingPoints.every((value: unknown) => typeof value === 'string'))
+    ) {
+      response.status(400).json({ error: 'invalid project payload' });
+      return;
+    }
+
+    if (
+      body.riskPolicy !== undefined &&
+      (typeof body.riskPolicy !== 'string' ||
+        !allowedRiskPolicies.has(body.riskPolicy as ProjectRiskPolicy))
     ) {
       response.status(400).json({ error: 'invalid project payload' });
       return;
@@ -216,6 +235,10 @@ export function createProjectsRouter(
       ctas: Array.isArray(body.ctas)
         ? body.ctas.filter((value: unknown): value is string => typeof value === 'string')
         : undefined,
+      riskPolicy:
+        typeof body.riskPolicy === 'string'
+          ? (body.riskPolicy as ProjectRiskPolicy)
+          : undefined,
     });
 
     if (!project) {

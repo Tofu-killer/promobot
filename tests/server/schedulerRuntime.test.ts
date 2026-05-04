@@ -45,6 +45,7 @@ describe('scheduler runtime recurring source config jobs', () => {
         sellingPoints: ['fast'],
         brandVoice: '',
         ctas: [],
+        riskPolicy: 'requires_review',
       });
 
       sourceConfigStore.create({
@@ -181,6 +182,7 @@ describe('scheduler runtime recurring source config jobs', () => {
         sellingPoints: ['fast'],
         brandVoice: '',
         ctas: [],
+        riskPolicy: 'requires_review',
       });
       sourceConfigStore.create({
         projectId: 1,
@@ -258,6 +260,7 @@ describe('scheduler runtime recurring source config jobs', () => {
         sellingPoints: ['fast'],
         brandVoice: '',
         ctas: [],
+        riskPolicy: 'requires_review',
       });
       sourceConfigStore.create({
         projectId: 1,
@@ -341,6 +344,7 @@ describe('scheduler runtime recurring source config jobs', () => {
         sellingPoints: ['fast'],
         brandVoice: '',
         ctas: [],
+        riskPolicy: 'requires_review',
       });
 
       for (let index = 1; index <= 21; index += 1) {

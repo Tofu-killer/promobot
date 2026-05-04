@@ -228,7 +228,7 @@ describe('content generation api', () => {
     });
   });
 
-  it('passes projectId to draft creation when saving generated drafts', async () => {
+  it('passes projectId and approved status to draft creation when saving generated drafts for auto-approved projects', async () => {
     installFetchStub();
 
     type DraftRecordWithProjectId = DraftRecord & { projectId?: number };
@@ -243,7 +243,7 @@ describe('content generation api', () => {
           title: input.title,
           content: input.content,
           hashtags: [...(input.hashtags ?? [])],
-          status: 'draft',
+          status: input.status ?? 'draft',
           createdAt: now,
           updatedAt: now,
           projectId:
@@ -283,6 +283,7 @@ describe('content generation api', () => {
           sellingPoints: ['Project scoped'],
           brandVoice: '',
           ctas: [],
+          riskPolicy: 'auto_approve',
           archived: false,
           createdAt: new Date().toISOString(),
         };
@@ -318,6 +319,104 @@ describe('content generation api', () => {
         platform: 'x',
         content: 'x-draft-content',
         hashtags: [],
+        status: 'approved',
+        projectId: 42,
+      }),
+    ]);
+  });
+
+  it('uses review status when saving generated drafts for review-required projects', async () => {
+    installFetchStub();
+
+    type DraftRecordWithProjectId = DraftRecord & { projectId?: number };
+
+    const savedDrafts: DraftRecordWithProjectId[] = [];
+    const draftStore: DraftStore = {
+      create(input) {
+        const now = new Date().toISOString();
+        const savedDraft: DraftRecordWithProjectId = {
+          id: savedDrafts.length + 1,
+          platform: input.platform,
+          title: input.title,
+          content: input.content,
+          hashtags: [...(input.hashtags ?? [])],
+          status: input.status ?? 'draft',
+          createdAt: now,
+          updatedAt: now,
+          projectId:
+            typeof (input as { projectId?: unknown }).projectId === 'number'
+              ? ((input as { projectId?: number }).projectId)
+              : undefined,
+        };
+
+        savedDrafts.push(savedDraft);
+        return savedDraft;
+      },
+      getById(id) {
+        return savedDrafts.find((draft) => draft.id === id);
+      },
+      list() {
+        return savedDrafts;
+      },
+      update() {
+        return undefined;
+      },
+    };
+    const projectStore: ProjectStore = {
+      create() {
+        throw new Error('not implemented');
+      },
+      getById(id) {
+        if (id !== 42) {
+          return undefined;
+        }
+
+        return {
+          id: 42,
+          name: 'Scoped Project',
+          siteName: 'PromoBot',
+          siteUrl: 'https://promobot.test',
+          siteDescription: 'Scoped project',
+          sellingPoints: ['Project scoped'],
+          brandVoice: '',
+          ctas: [],
+          riskPolicy: 'requires_review',
+          archived: false,
+          createdAt: new Date().toISOString(),
+        };
+      },
+      list() {
+        return [];
+      },
+      update() {
+        return undefined;
+      },
+      archive() {
+        return undefined;
+      },
+    };
+
+    const response = await requestExpressApp(
+      createContentApp(draftStore, projectStore),
+      'POST',
+      '/api/content/generate',
+      {
+        topic: 'Project scoped draft',
+        platforms: ['x'],
+        tone: 'professional',
+        saveAsDraft: true,
+        projectId: 42,
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(savedDrafts).toEqual([
+      expect.objectContaining({
+        id: 1,
+        platform: 'x',
+        content: 'x-draft-content',
+        hashtags: [],
+        status: 'review',
         projectId: 42,
       }),
     ]);
@@ -577,6 +676,7 @@ describe('content generation api', () => {
           sellingPoints: ['Archived'],
           brandVoice: '',
           ctas: [],
+          riskPolicy: 'requires_review',
           archived: true,
           createdAt: new Date().toISOString(),
         };

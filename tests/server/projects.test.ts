@@ -109,6 +109,7 @@ describe('projects api', () => {
         sellingPoints: ['Lower cost'],
         brandVoice: 'Direct, calm, proof-first',
         ctas: ['Start free', 'Book a demo'],
+        riskPolicy: 'auto_approve',
       });
 
       expect(created.status).toBe(201);
@@ -119,6 +120,7 @@ describe('projects api', () => {
           siteName: 'MyModelHub',
           brandVoice: 'Direct, calm, proof-first',
           ctas: ['Start free', 'Book a demo'],
+          riskPolicy: 'auto_approve',
         }),
       });
 
@@ -135,6 +137,7 @@ describe('projects api', () => {
             sellingPoints: ['Lower cost'],
             brandVoice: 'Direct, calm, proof-first',
             ctas: ['Start free', 'Book a demo'],
+            riskPolicy: 'auto_approve',
           }),
         ],
       });
@@ -160,6 +163,7 @@ describe('projects api', () => {
           id: 1,
           brandVoice: '',
           ctas: [],
+          riskPolicy: 'requires_review',
           archived: false,
         }),
       });
@@ -167,6 +171,7 @@ describe('projects api', () => {
       const updated = await requestApp('PATCH', '/api/projects/1', {
         brandVoice: 'Warm, operator-friendly, action-oriented',
         ctas: ['Talk to sales', 'See live examples'],
+        riskPolicy: 'auto_approve',
       });
 
       expect(updated.status).toBe(200);
@@ -176,6 +181,7 @@ describe('projects api', () => {
           name: 'Legacy Workspace',
           brandVoice: 'Warm, operator-friendly, action-oriented',
           ctas: ['Talk to sales', 'See live examples'],
+          riskPolicy: 'auto_approve',
         }),
       });
 
@@ -188,6 +194,7 @@ describe('projects api', () => {
             id: 1,
             brandVoice: 'Warm, operator-friendly, action-oriented',
             ctas: ['Talk to sales', 'See live examples'],
+            riskPolicy: 'auto_approve',
             archived: false,
           }),
         ],
@@ -217,6 +224,7 @@ describe('projects api', () => {
         { siteDescription: ['Wrong shape'] },
         { brandVoice: 456 },
         { ctas: 'Talk to sales' },
+        { riskPolicy: 'sometimes_review' },
       ];
 
       for (const payload of invalidPayloads) {
@@ -236,6 +244,7 @@ describe('projects api', () => {
           expect.objectContaining({
             id: 1,
             ctas: [],
+            riskPolicy: 'requires_review',
             archived: false,
           }),
         ],

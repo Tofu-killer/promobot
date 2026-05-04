@@ -22,6 +22,7 @@ describe('inbox fetch service scoped recurring monitor items', () => {
         sellingPoints: ['fast'],
         brandVoice: '',
         ctas: [],
+        riskPolicy: 'requires_review',
       });
 
       const scopedSourceConfig = sourceConfigStore.create({
