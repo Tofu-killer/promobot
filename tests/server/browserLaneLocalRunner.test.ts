@@ -27,7 +27,8 @@ describe('browser lane local runner cli', () => {
     expect(parseBrowserLaneLocalRunnerArgs([])).toEqual({ showHelp: false });
   });
 
-  it('defaults session requests to the managed storage state path and active session reuse metadata', async () => {
+  it('routes session requests through the session automation runner instead of silently reusing the managed storage state', async () => {
+    const runSessionAutomation = vi.fn().mockResolvedValue({ ok: true });
     const submitSessionRequestResult = vi.fn().mockResolvedValue({ ok: true });
 
     await runBrowserLaneLocalRunner(
@@ -35,55 +36,152 @@ describe('browser lane local runner cli', () => {
         PROMOBOT_BROWSER_DISPATCH_KIND: 'session_request',
         PROMOBOT_BROWSER_ARTIFACT_PATH:
           'artifacts/browser-lane-requests/x/-promobot/request-session-job-41.json',
+        PROMOBOT_BROWSER_PLATFORM: 'x',
+        PROMOBOT_BROWSER_ACCOUNT_KEY: '@promobot',
+        PROMOBOT_BROWSER_SESSION_ACTION: 'request_session',
+        PROMOBOT_BROWSER_CHANNEL_ACCOUNT_ID: '7',
+        PROMOBOT_BROWSER_REQUEST_JOB_ID: '41',
         PROMOBOT_BROWSER_MANAGED_STORAGE_STATE_PATH:
           'browser-sessions/managed/x/-promobot.json',
       },
       {
-        now: () => new Date('2026-04-30T13:00:00.000Z'),
+        runSessionAutomation,
         submitSessionRequestResult,
       },
     );
 
-    expect(submitSessionRequestResult).toHaveBeenCalledWith({
+    expect(runSessionAutomation).toHaveBeenCalledWith(expect.objectContaining({
       requestArtifactPath:
         'artifacts/browser-lane-requests/x/-promobot/request-session-job-41.json',
-      storageStateFilePath: 'browser-sessions/managed/x/-promobot.json',
-      sessionStatus: 'active',
-      validatedAt: '2026-04-30T13:00:00.000Z',
-      completedAt: '2026-04-30T13:00:00.000Z',
-      notes: 'browser lane local runner reused the managed storage state',
-    });
+      managedStorageStatePath: 'browser-sessions/managed/x/-promobot.json',
+      platform: 'x',
+      accountKey: '@promobot',
+      action: 'request_session',
+      channelAccountId: 7,
+      requestJobId: 41,
+    }));
+    expect(submitSessionRequestResult).not.toHaveBeenCalled();
   });
 
-  it('preserves explicit session request overrides', async () => {
-    const submitSessionRequestResult = vi.fn().mockResolvedValue({ ok: true });
+  it('passes explicit session automation overrides through to the session automation runner', async () => {
+    const runSessionAutomation = vi.fn().mockResolvedValue({ ok: true });
 
     await runBrowserLaneLocalRunner(
       {
         PROMOBOT_BROWSER_DISPATCH_KIND: 'session_request',
         PROMOBOT_BROWSER_ARTIFACT_PATH:
-          'artifacts/browser-lane-requests/x/-promobot/request-session-job-42.json',
-        PROMOBOT_BROWSER_STORAGE_STATE_FILE: '/tmp/custom-storage-state.json',
-        PROMOBOT_BROWSER_SESSION_STATUS: 'expired',
-        PROMOBOT_BROWSER_VALIDATED_AT: '2026-04-30T12:00:00.000Z',
-        PROMOBOT_BROWSER_COMPLETED_AT: '2026-04-30T12:05:00.000Z',
-        PROMOBOT_BROWSER_NOTES: 'custom local runner note',
+          'artifacts/browser-lane-requests/instagram/main/relogin-job-42.json',
+        PROMOBOT_BROWSER_PLATFORM: 'instagram',
+        PROMOBOT_BROWSER_ACCOUNT_KEY: 'main',
+        PROMOBOT_BROWSER_SESSION_ACTION: 'relogin',
+        PROMOBOT_BROWSER_CHANNEL_ACCOUNT_ID: '9',
+        PROMOBOT_BROWSER_REQUEST_JOB_ID: '42',
+        PROMOBOT_BROWSER_MANAGED_STORAGE_STATE_PATH:
+          'browser-sessions/managed/instagram/main.json',
+        PROMOBOT_BROWSER_SESSION_START_URL: 'https://www.instagram.com/accounts/login/',
+        PROMOBOT_BROWSER_SESSION_HEADLESS: 'true',
+        PROMOBOT_BROWSER_SESSION_TIMEOUT_MS: '120000',
+        PROMOBOT_BROWSER_LAUNCH_CHANNEL: 'chrome',
+        PROMOBOT_BROWSER_EXECUTABLE_PATH:
+          '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
       },
       {
-        now: () => new Date('2026-04-30T13:00:00.000Z'),
-        submitSessionRequestResult,
+        runSessionAutomation,
       },
     );
 
-    expect(submitSessionRequestResult).toHaveBeenCalledWith({
+    expect(runSessionAutomation).toHaveBeenCalledWith(expect.objectContaining({
       requestArtifactPath:
-        'artifacts/browser-lane-requests/x/-promobot/request-session-job-42.json',
-      storageStateFilePath: '/tmp/custom-storage-state.json',
-      sessionStatus: 'expired',
-      validatedAt: '2026-04-30T12:00:00.000Z',
-      completedAt: '2026-04-30T12:05:00.000Z',
-      notes: 'custom local runner note',
-    });
+        'artifacts/browser-lane-requests/instagram/main/relogin-job-42.json',
+      managedStorageStatePath: 'browser-sessions/managed/instagram/main.json',
+      platform: 'instagram',
+      accountKey: 'main',
+      action: 'relogin',
+      channelAccountId: 9,
+      requestJobId: 42,
+      startUrl: 'https://www.instagram.com/accounts/login/',
+      headless: true,
+      timeoutMs: 120000,
+      browserChannel: 'chrome',
+      executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    }));
+  });
+
+  it('forwards session request submit metadata overrides to the session automation runner', async () => {
+    const runSessionAutomation = vi.fn().mockResolvedValue({ ok: true });
+
+    await runBrowserLaneLocalRunner(
+      {
+        PROMOBOT_BROWSER_DISPATCH_KIND: 'session_request',
+        PROMOBOT_BROWSER_ARTIFACT_PATH:
+          'artifacts/browser-lane-requests/x/-promobot/relogin-job-44.json',
+        PROMOBOT_BROWSER_COMPLETED_AT: '2026-05-04T18:00:00.000Z',
+        PROMOBOT_BROWSER_VALIDATED_AT: '2026-05-04T18:01:00.000Z',
+        PROMOBOT_BROWSER_NOTES: 'manual completion metadata from runner env',
+      },
+      {
+        runSessionAutomation,
+      },
+    );
+
+    expect(runSessionAutomation).toHaveBeenCalledWith(expect.objectContaining({
+      requestArtifactPath:
+        'artifacts/browser-lane-requests/x/-promobot/relogin-job-44.json',
+      completedAt: '2026-05-04T18:00:00.000Z',
+      validatedAt: '2026-05-04T18:01:00.000Z',
+      notes: 'manual completion metadata from runner env',
+    }));
+  });
+
+  it('does not inject a synthetic completedAt before session automation finishes', async () => {
+    const runSessionAutomation = vi.fn().mockResolvedValue({ ok: true });
+
+    await runBrowserLaneLocalRunner(
+      {
+        PROMOBOT_BROWSER_DISPATCH_KIND: 'session_request',
+        PROMOBOT_BROWSER_ARTIFACT_PATH:
+          'artifacts/browser-lane-requests/x/-promobot/request-session-job-45.json',
+      },
+      {
+        now: () => new Date('2026-05-04T18:30:00.000Z'),
+        runSessionAutomation,
+      },
+    );
+
+    expect(runSessionAutomation).toHaveBeenCalledWith(
+      expect.not.objectContaining({
+        completedAt: '2026-05-04T18:30:00.000Z',
+      }),
+    );
+    expect(runSessionAutomation).toHaveBeenCalledWith(expect.not.objectContaining({
+      completedAt: expect.any(String),
+    }));
+  });
+
+  it('fails closed when session automation fails instead of submitting a reused managed session result', async () => {
+    const runSessionAutomation = vi
+      .fn()
+      .mockRejectedValue(new Error('Playwright is not installed for local browser session automation'));
+    const submitSessionRequestResult = vi.fn().mockResolvedValue({ ok: true });
+
+    await expect(
+      runBrowserLaneLocalRunner(
+        {
+          PROMOBOT_BROWSER_DISPATCH_KIND: 'session_request',
+          PROMOBOT_BROWSER_ARTIFACT_PATH:
+            'artifacts/browser-lane-requests/x/-promobot/request-session-job-43.json',
+          PROMOBOT_BROWSER_PLATFORM: 'x',
+          PROMOBOT_BROWSER_ACCOUNT_KEY: '@promobot',
+          PROMOBOT_BROWSER_SESSION_ACTION: 'request_session',
+        },
+        {
+          runSessionAutomation,
+          submitSessionRequestResult,
+        },
+      ),
+    ).rejects.toThrow('Playwright is not installed for local browser session automation');
+
+    expect(submitSessionRequestResult).not.toHaveBeenCalled();
   });
 
   it('requires an explicit publish handoff status and fills the remaining local runner defaults around it', async () => {
@@ -168,8 +266,17 @@ describe('browser lane local runner cli', () => {
     expect(helpText).toContain('pnpm browser:lane:local');
     expect(helpText).toContain('PROMOBOT_BROWSER_LOCAL_AUTORUN');
     expect(helpText).toContain('PROMOBOT_BROWSER_MANAGED_STORAGE_STATE_PATH');
+    expect(helpText).toContain('session_request');
+    expect(helpText).toContain('PROMOBOT_BROWSER_SESSION_START_URL');
+    expect(helpText).toContain('PROMOBOT_BROWSER_SESSION_TIMEOUT_MS');
+    expect(helpText).toContain('PROMOBOT_BROWSER_SESSION_HEADLESS');
+    expect(helpText).toContain('applied first to initial page navigation, then again to post-navigation login polling');
+    expect(helpText).toContain('PROMOBOT_BROWSER_VALIDATED_AT');
+    expect(helpText).toContain('PROMOBOT_BROWSER_NOTES');
+    expect(helpText).toContain('PROMOBOT_BROWSER_COMPLETED_AT');
     expect(helpText).toContain('PROMOBOT_BROWSER_PUBLISH_STATUS');
     expect(helpText).toContain('PROMOBOT_BROWSER_REPLY_STATUS');
-    expect(helpText).toContain('session_request');
+    expect(helpText).toContain('only after local autorun is enabled and no kind-specific or generic browser lane command is configured');
+    expect(helpText).toContain('custom wrappers must enforce any publish/reply gating they need');
   });
 });

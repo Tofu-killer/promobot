@@ -375,6 +375,55 @@ describe('createBrowserLaneDispatch', () => {
     });
   });
 
+  it('prefers the generic browser lane command over the explicit local runner command', () => {
+    const child = {
+      once: vi.fn().mockReturnThis(),
+      unref: vi.fn(),
+    };
+    const spawn = vi.fn().mockReturnValue(child);
+    const dispatch = createBrowserLaneDispatch({
+      cwd: '/tmp/promobot',
+      env: {
+        PROMOBOT_BROWSER_LANE_COMMAND: 'generic-browser-lane',
+        PROMOBOT_BROWSER_LOCAL_AUTORUN: 'true',
+        PROMOBOT_BROWSER_LOCAL_RUNNER_COMMAND: 'custom-browser-lane',
+      },
+      spawn,
+    });
+
+    expect(
+      dispatch({
+        kind: 'session_request',
+        artifactPath: 'artifacts/browser-lane-requests/x/-promobot/request-session-job-5.json',
+        platform: 'x',
+        accountKey: '@promobot',
+        managedStorageStatePath: 'browser-sessions/managed/x/-promobot.json',
+        requestJobId: 5,
+        sessionAction: 'request_session',
+      }),
+    ).toBe(true);
+
+    expect(spawn).toHaveBeenCalledWith('generic-browser-lane', {
+      cwd: '/tmp/promobot',
+      env: expect.objectContaining({
+        PROMOBOT_BROWSER_LANE_COMMAND: 'generic-browser-lane',
+        PROMOBOT_BROWSER_LOCAL_AUTORUN: 'true',
+        PROMOBOT_BROWSER_LOCAL_RUNNER_COMMAND: 'custom-browser-lane',
+        PROMOBOT_BROWSER_DISPATCH_KIND: 'session_request',
+        PROMOBOT_BROWSER_ARTIFACT_PATH:
+          'artifacts/browser-lane-requests/x/-promobot/request-session-job-5.json',
+        PROMOBOT_BROWSER_PLATFORM: 'x',
+        PROMOBOT_BROWSER_ACCOUNT_KEY: '@promobot',
+        PROMOBOT_BROWSER_MANAGED_STORAGE_STATE_PATH:
+          'browser-sessions/managed/x/-promobot.json',
+        PROMOBOT_BROWSER_REQUEST_JOB_ID: '5',
+        PROMOBOT_BROWSER_SESSION_ACTION: 'request_session',
+      }),
+      shell: true,
+      stdio: 'ignore',
+    });
+  });
+
   it('logs and keeps going when the browser lane child fails to start or exits non-zero', () => {
     const logger = {
       warn: vi.fn(),
