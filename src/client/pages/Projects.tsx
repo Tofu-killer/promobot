@@ -806,23 +806,23 @@ export function ProjectsPage({
 
   function handleArchiveProject(projectId: number) {
     clearPageFeedback();
+    projectSaveAttemptByIdRef.current[projectId] = (projectSaveAttemptByIdRef.current[projectId] ?? 0) + 1;
+    projectFormVersionByIdRef.current[projectId] = (projectFormVersionByIdRef.current[projectId] ?? 0) + 1;
     setProjectArchivePending(projectId, true);
+    setPendingProjectSaveIds((current) => {
+      if (!(projectId in current)) {
+        return current;
+      }
+
+      const { [projectId]: _removed, ...rest } = current;
+      return rest;
+    });
+    setProjectSaveMessage(projectId, null);
     void archiveProjectAction(projectId)
       .then((result) => {
-        projectSaveAttemptByIdRef.current[projectId] = (projectSaveAttemptByIdRef.current[projectId] ?? 0) + 1;
-        projectFormVersionByIdRef.current[projectId] = (projectFormVersionByIdRef.current[projectId] ?? 0) + 1;
         setRecentCreatedProjectForList((current) =>
           current && current.id === result.project.id ? null : current,
         );
-        setPendingProjectSaveIds((current) => {
-          if (!(projectId in current)) {
-            return current;
-          }
-
-          const { [projectId]: _removed, ...rest } = current;
-          return rest;
-        });
-        setProjectSaveMessage(projectId, null);
         setProjectForms((currentForms) => {
           const nextForms = { ...currentForms };
           delete nextForms[projectId];
