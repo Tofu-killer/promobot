@@ -7,6 +7,7 @@ import {
   getUnresolvedRequestedSessionArtifact,
   normalizeReadinessRecord,
   resolveCurrentSessionAction,
+  resolvePreferredSessionAction,
   resolvePublishReadiness,
   supportsBrowserSessionMetadata,
   type BrowserSessionAction,
@@ -687,7 +688,7 @@ export function ChannelAccountsPage({
     : sessionActionStateOverride?.status === 'error' && sessionActionOverrideAccount
       ? {
           tone: 'error' as const,
-          action: getSupportedSessionAction(sessionActionOverrideAccount) ?? 'request_session',
+          action: resolvePreferredSessionAction(sessionActionOverrideAccount) ?? 'request_session',
           message: sessionActionStateOverride.error ?? '登录动作失败',
         }
       : null;
@@ -837,7 +838,7 @@ export function ChannelAccountsPage({
     editingAccountId !== null && editingAccountUpdateState.status === 'success';
   const showAccountUpdateError =
     editingAccountId !== null && editingAccountUpdateState.status === 'error';
-  const headerSessionAction = actionTargetAccount ? getSupportedSessionAction(actionTargetAccount) : null;
+  const headerSessionAction = actionTargetAccount ? resolvePreferredSessionAction(actionTargetAccount) : null;
   const headerSessionActionPending = actionTargetAccount ? sessionActionPendingById[actionTargetAccount.id] ?? null : null;
   const headerSessionActionDisabled =
     !actionTargetAccount || !headerSessionAction || headerSessionActionPending !== null;
@@ -1281,7 +1282,7 @@ export function ChannelAccountsPage({
   }
 
   function handleRequestSessionAction(account: ChannelAccountRecord, forcedAction?: 'request_session' | 'relogin') {
-    const action = forcedAction ?? getSupportedSessionAction(account);
+    const action = forcedAction ?? resolvePreferredSessionAction(account);
     if (!action) {
       return;
     }
@@ -1640,7 +1641,7 @@ export function ChannelAccountsPage({
                       updateStateOverride ?? getScopedAsyncState(accountUpdateStateById, account.id);
                     const session = getSessionSummary(account);
                     const supportsSessionMetadata = supportsBrowserSessionMetadata(account);
-                    const sessionAction = getSupportedSessionAction(account);
+                    const sessionAction = resolvePreferredSessionAction(account);
                     const sessionActionLabel = sessionAction ? getSessionActionLabel(sessionAction) : null;
                     const sessionActionPending = sessionActionPendingById[account.id] ?? null;
                     const sessionActionButtonLabel = sessionActionPending

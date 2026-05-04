@@ -68,6 +68,10 @@ export function getRequestedSessionAction(account: SessionActionAccountLike): Br
   return readiness?.action === 'request_session' || readiness?.action === 'relogin' ? readiness.action : null;
 }
 
+export function resolvePreferredSessionAction(account: SessionActionAccountLike): BrowserSessionAction | null {
+  return getRequestedSessionAction(account) ?? getSupportedSessionAction(account);
+}
+
 export function getSessionActionArtifactForAction(
   account: SessionActionAccountLike,
   action: BrowserSessionAction,
@@ -110,5 +114,5 @@ export function resolveCurrentSessionAction(
     return account.latestBrowserLaneArtifact.action;
   }
 
-  return getRequestedSessionAction(account);
+  return resolvePreferredSessionAction(account);
 }

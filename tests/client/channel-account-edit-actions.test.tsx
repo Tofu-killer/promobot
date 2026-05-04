@@ -2002,6 +2002,129 @@ describe('channel account edit actions', () => {
     });
   });
 
+  it('prefers publish readiness action over session.hasSession for header and card session CTAs', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ChannelAccountsPage } = await import('../../src/client/pages/ChannelAccounts');
+
+    const requestChannelAccountSessionAction = vi.fn().mockResolvedValue(
+      buildSessionActionResult({
+        action: 'request_session',
+        accountId: 7,
+        platform: 'instagram',
+        accountKey: 'acct-instagram',
+        channelAccount: buildBrowserAccountFixture({
+          id: 7,
+          platform: 'instagram',
+          accountKey: 'acct-instagram',
+          displayName: 'Instagram Ops',
+          session: {
+            hasSession: true,
+            status: 'active',
+            validatedAt: '2026-04-19T03:00:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/acct-instagram.json',
+            id: 'instagram:acct-instagram',
+          },
+          publishReadiness: {
+            platform: 'instagram',
+            ready: false,
+            mode: 'browser',
+            status: 'needs_session',
+            message: 'Instagram 浏览器登录态缺失，请先完成登录。',
+            action: 'request_session',
+          },
+        }),
+      }),
+    );
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ChannelAccountsPage as never, {
+          stateOverride: {
+            status: 'success',
+            data: {
+              channelAccounts: [
+                buildBrowserAccountFixture({
+                  id: 7,
+                  platform: 'instagram',
+                  accountKey: 'acct-instagram',
+                  displayName: 'Instagram Ops',
+                  session: {
+                    hasSession: true,
+                    status: 'active',
+                    validatedAt: '2026-04-19T03:00:00.000Z',
+                    storageStatePath: 'artifacts/browser-sessions/acct-instagram.json',
+                    id: 'instagram:acct-instagram',
+                  },
+                  publishReadiness: {
+                    platform: 'instagram',
+                    ready: false,
+                    mode: 'browser',
+                    status: 'needs_session',
+                    message: 'Instagram 浏览器登录态缺失，请先完成登录。',
+                    action: 'request_session',
+                  },
+                }),
+              ],
+            },
+          },
+          requestChannelAccountSessionAction,
+        }),
+      );
+      await flush();
+    });
+
+    const actionTargetButton = findElement(
+      container,
+      (element) => element.getAttribute('data-action-target-account') === '7',
+    );
+    expect(actionTargetButton).not.toBeNull();
+
+    await act(async () => {
+      actionTargetButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    const headerSessionButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.parentNode instanceof FakeElement &&
+        element.parentNode.getAttribute('data-header-session-action') === 'true',
+    );
+    const accountSessionButton = findElement(
+      container,
+      (element) => element.tagName === 'BUTTON' && element.getAttribute('data-session-action-id') === '7',
+    );
+
+    expect(headerSessionButton).not.toBeNull();
+    expect(accountSessionButton).not.toBeNull();
+    expect(collectText(headerSessionButton as never)).toContain('请求登录');
+    expect(collectText(accountSessionButton as never)).toContain('请求登录');
+    expect(collectText(headerSessionButton as never)).not.toContain('重新登录');
+    expect(collectText(accountSessionButton as never)).not.toContain('重新登录');
+
+    await act(async () => {
+      headerSessionButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(requestChannelAccountSessionAction).toHaveBeenCalledWith(7, {
+      action: 'request_session',
+    });
+    expect(requestChannelAccountSessionAction).not.toHaveBeenCalledWith(7, {
+      action: 'relogin',
+    });
+    expect(collectText(container)).toContain('请求登录工单已记录');
+    expect(collectText(container)).not.toContain('重新登录工单已记录');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('keeps session controls visible for browser accounts even when publish readiness is missing', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');
