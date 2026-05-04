@@ -167,6 +167,7 @@ interface BrowserHandoffCompletionResponse {
 interface BrowserHandoffRecord {
   platform: string;
   channelAccountId?: number;
+  projectId?: number;
   draftId: number | string;
   handoffAttempt?: number;
   title: string | null;
@@ -226,12 +227,22 @@ export async function publishGeneratedDraftRequest(id: number): Promise<PublishG
   });
 }
 
-export async function loadGeneratedDraftBrowserHandoffsRequest(limit = 100): Promise<BrowserHandoffsResponse> {
-  return apiRequest<BrowserHandoffsResponse>(`/api/system/browser-handoffs?limit=${limit}`);
+export async function loadGeneratedDraftBrowserHandoffsRequest(
+  limit = 100,
+  projectId?: number,
+): Promise<BrowserHandoffsResponse> {
+  const query = new URLSearchParams({
+    limit: String(limit),
+  });
+  if (typeof projectId === 'number') {
+    query.set('projectId', String(projectId));
+  }
+
+  return apiRequest<BrowserHandoffsResponse>(`/api/system/browser-handoffs?${query.toString()}`);
 }
 
-function defaultLoadGeneratedDraftBrowserHandoffsAction() {
-  return loadGeneratedDraftBrowserHandoffsRequest(100);
+function defaultLoadGeneratedDraftBrowserHandoffsAction(projectId?: number) {
+  return loadGeneratedDraftBrowserHandoffsRequest(100, projectId);
 }
 
 export async function requestGeneratedDraftSessionActionRequest(
@@ -321,7 +332,7 @@ interface GeneratePageProps {
   generateAction?: (input: GenerateDraftsPayload) => Promise<GenerateDraftsResponse>;
   sendDraftToReviewAction?: (id: number) => Promise<SendDraftToReviewResponse>;
   publishGeneratedDraftAction?: (id: number) => Promise<PublishGeneratedDraftResponse>;
-  loadBrowserHandoffsAction?: () => Promise<BrowserHandoffsResponse>;
+  loadBrowserHandoffsAction?: (projectId?: number) => Promise<BrowserHandoffsResponse>;
   requestChannelAccountSessionActionAction?: (
     accountId: number,
     input?: RequestChannelAccountSessionActionPayload,
@@ -591,12 +602,17 @@ export function GeneratePage({
   const { state: browserHandoffsState, reload: reloadBrowserHandoffs } = useAsyncQuery(
     () =>
       shouldLoadBrowserHandoffsLive
-        ? loadBrowserHandoffsAction()
+        ? projectIdValidationError
+          ? Promise.resolve({
+              handoffs: [],
+              total: 0,
+            } satisfies BrowserHandoffsResponse)
+          : loadBrowserHandoffsAction(projectId)
         : Promise.resolve({
             handoffs: [],
             total: 0,
           } satisfies BrowserHandoffsResponse),
-    [loadBrowserHandoffsAction, shouldLoadBrowserHandoffsLive],
+    [loadBrowserHandoffsAction, projectId, projectIdValidationError, shouldLoadBrowserHandoffsLive],
   );
 
   const displayState = stateOverride ?? state;

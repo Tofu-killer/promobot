@@ -1118,6 +1118,91 @@ describe('Generate review actions', () => {
     });
   });
 
+  it('passes the projectId filter into generate browser handoff loads', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { GeneratePage } = await import('../../src/client/pages/Generate');
+
+    const loadBrowserHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(GeneratePage as never, {
+          loadBrowserHandoffsAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    expect(loadBrowserHandoffsAction).toHaveBeenCalledTimes(1);
+    expect(loadBrowserHandoffsAction).toHaveBeenLastCalledWith(undefined);
+
+    const projectIdInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    ) as FakeElement & { value?: string };
+
+    expect(projectIdInput).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(projectIdInput, '12', window);
+      await flush();
+      await flush();
+    });
+
+    expect(loadBrowserHandoffsAction).toHaveBeenCalledTimes(2);
+    expect(loadBrowserHandoffsAction).toHaveBeenLastCalledWith(12);
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
+  it('does not fall back to an unscoped browser handoff load when a controlled projectId draft is invalid', async () => {
+    const { container } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { GeneratePage } = await import('../../src/client/pages/Generate');
+
+    const loadBrowserHandoffsAction = vi.fn().mockResolvedValue({
+      handoffs: [],
+      total: 0,
+    });
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(GeneratePage as never, {
+          loadBrowserHandoffsAction,
+          projectIdDraft: 'invalid-project-id',
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const projectIdInput = findElement(
+      container,
+      (element) => element.tagName === 'INPUT' && element.getAttribute('placeholder') === '例如 12',
+    ) as FakeElement & { value?: string };
+
+    expect(projectIdInput).not.toBeNull();
+    expect(projectIdInput.value).toBe('invalid-project-id');
+    expect(loadBrowserHandoffsAction).not.toHaveBeenCalled();
+    expect(collectText(container)).toContain('项目 ID 必须是大于 0 的整数');
+    expect(collectText(container)).not.toContain('Generate browser handoff 加载失败');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('disables generate controls while a generation request is in flight', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');

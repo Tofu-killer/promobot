@@ -2670,6 +2670,145 @@ describe('system runtime api', () => {
     }
   });
 
+  it('lists browser-handoff artifacts through the system api with project scope', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      const draftStore = createSQLiteDraftStore();
+      draftStore.create({
+        platform: 'facebook-group',
+        projectId: 11,
+        title: 'Alpha handoff',
+        content: 'Project alpha browser handoff',
+        target: 'group-123',
+        metadata: {
+          accountKey: 'launch-campaign',
+        },
+      });
+      draftStore.create({
+        platform: 'facebook-group',
+        projectId: 12,
+        title: 'Beta handoff',
+        content: 'Project beta browser handoff',
+        target: 'group-123',
+        metadata: {
+          accountKey: 'launch-campaign',
+        },
+      });
+
+      const app = createApp({
+        allowedIps: ['127.0.0.1'],
+        adminPassword: 'secret',
+      });
+
+      const artifactDir = path.join(
+        rootDir,
+        'artifacts',
+        'browser-handoffs',
+        'facebookGroup',
+        'launch-campaign',
+      );
+      fs.mkdirSync(artifactDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(artifactDir, 'facebookGroup-draft-1.json'),
+        JSON.stringify({
+          type: 'browser_manual_handoff',
+          status: 'pending',
+          platform: 'facebookGroup',
+          draftId: '1',
+          title: 'Alpha handoff',
+          content: 'Project alpha browser handoff',
+          target: 'group-123',
+          accountKey: 'launch-campaign',
+          session: {
+            hasSession: true,
+            id: 'facebookGroup:launch-campaign',
+            status: 'active',
+            validatedAt: '2026-04-21T08:55:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
+          },
+          createdAt: '2026-04-21T09:00:00.000Z',
+          updatedAt: '2026-04-21T09:00:00.000Z',
+          resolvedAt: null,
+          resolution: null,
+        }),
+      );
+      fs.writeFileSync(
+        path.join(artifactDir, 'facebookGroup-draft-2.json'),
+        JSON.stringify({
+          type: 'browser_manual_handoff',
+          status: 'resolved',
+          platform: 'facebookGroup',
+          draftId: '2',
+          title: 'Beta handoff',
+          content: 'Project beta browser handoff',
+          target: 'group-123',
+          accountKey: 'launch-campaign',
+          session: {
+            hasSession: true,
+            id: 'facebookGroup:launch-campaign',
+            status: 'active',
+            validatedAt: '2026-04-21T09:05:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
+          },
+          createdAt: '2026-04-21T09:10:00.000Z',
+          updatedAt: '2026-04-21T09:20:00.000Z',
+          resolvedAt: '2026-04-21T09:20:00.000Z',
+          resolution: {
+            status: 'resolved',
+            publishStatus: 'published',
+          },
+        }),
+      );
+
+      const response = await requestExistingApp(app, {
+        method: 'GET',
+        url: '/api/system/browser-handoffs?limit=10&projectId=12',
+        remoteAddress: '127.0.0.1',
+        headers: {
+          'x-admin-password': 'secret',
+        },
+      });
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({
+        handoffs: [
+          expect.objectContaining({
+            platform: 'facebookGroup',
+            draftId: '2',
+            projectId: 12,
+            accountKey: 'launch-campaign',
+            status: 'resolved',
+            artifactPath:
+              'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-2.json',
+            resolvedAt: '2026-04-21T09:20:00.000Z',
+          }),
+        ],
+        total: 1,
+      });
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('rejects invalid project ids when listing browser handoff artifacts', async () => {
+    const app = createApp({
+      allowedIps: ['127.0.0.1'],
+      adminPassword: 'secret',
+    });
+
+    const response = await requestExistingApp(app, {
+      method: 'GET',
+      url: '/api/system/browser-handoffs?limit=10&projectId=bad',
+      remoteAddress: '127.0.0.1',
+      headers: {
+        'x-admin-password': 'secret',
+      },
+    });
+
+    expect(response.status).toBe(400);
+    expect(JSON.parse(response.body)).toEqual({ error: 'invalid project id' });
+  });
+
   it('imports browser-handoff completion through the system api and marks the draft published', async () => {
     const { rootDir } = createTestDatabasePath();
     try {

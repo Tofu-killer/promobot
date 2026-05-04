@@ -40,6 +40,7 @@ interface BrowserHandoffArtifactRecord {
 
 export interface BrowserHandoffArtifactSummary {
   channelAccountId?: number;
+  projectId?: number;
   accountDisplayName?: string;
   ownership: BrowserHandoffOwnership;
   handoffAttempt: number;
@@ -259,13 +260,15 @@ export function listBrowserHandoffArtifacts(limit?: number): BrowserHandoffArtif
           continue;
         }
 
-        const ownership = resolveBrowserHandoffOwnership(artifact, channelAccounts);
+        const draftProjectId = readDraftProjectId(artifact);
+        const ownership = resolveBrowserHandoffOwnership(artifact, channelAccounts, draftProjectId);
 
         artifacts.push({
           ...('channelAccountId' in ownership &&
           typeof ownership.channelAccountId === 'number'
             ? { channelAccountId: ownership.channelAccountId }
             : {}),
+          ...(typeof draftProjectId === 'number' ? { projectId: draftProjectId } : {}),
           ...('accountDisplayName' in ownership && ownership.accountDisplayName
             ? { accountDisplayName: ownership.accountDisplayName }
             : {}),
@@ -348,13 +351,15 @@ export function getBrowserHandoffArtifactByPath(
     return null;
   }
 
-  const ownership = resolveBrowserHandoffOwnership(artifact, channelAccountStore.list());
+  const draftProjectId = readDraftProjectId(artifact);
+  const ownership = resolveBrowserHandoffOwnership(artifact, channelAccountStore.list(), draftProjectId);
 
   return {
     ...('channelAccountId' in ownership &&
     typeof ownership.channelAccountId === 'number'
       ? { channelAccountId: ownership.channelAccountId }
       : {}),
+    ...(typeof draftProjectId === 'number' ? { projectId: draftProjectId } : {}),
     ...('accountDisplayName' in ownership && ownership.accountDisplayName
       ? { accountDisplayName: ownership.accountDisplayName }
       : {}),
@@ -384,6 +389,7 @@ function resolveBrowserHandoffOwnership(
     accountKey: string;
     displayName: string;
   }>,
+  draftProjectId = readDraftProjectId(artifact),
 ) {
   if (typeof artifact.channelAccountId === 'number') {
     const channelAccount = channelAccounts.find((account) => account.id === artifact.channelAccountId);
@@ -402,7 +408,6 @@ function resolveBrowserHandoffOwnership(
       channelAccount.accountKey === artifact.accountKey,
   );
 
-  const draftProjectId = readDraftProjectId(artifact);
   if (typeof draftProjectId === 'number') {
     const projectMatches = matchingChannelAccounts.filter(
       (channelAccount) => channelAccount.projectId === draftProjectId,
@@ -431,7 +436,7 @@ function resolveBrowserHandoffOwnership(
     };
   }
 
-  const inferredChannelAccountId = inferChannelAccountIdFromDraft(artifact, channelAccounts);
+  const inferredChannelAccountId = inferChannelAccountIdFromDraft(artifact, channelAccounts, draftProjectId);
   if (typeof inferredChannelAccountId === 'number') {
     const channelAccount = channelAccounts.find((account) => account.id === inferredChannelAccountId);
     return {
@@ -553,13 +558,13 @@ function inferChannelAccountIdFromDraft(
     platform: string;
     accountKey: string;
   }>,
+  draftProjectId = readDraftProjectId(artifact),
 ) {
   const draftId = Number(artifact.draftId);
   if (!Number.isInteger(draftId) || draftId <= 0) {
     return undefined;
   }
 
-  const draftProjectId = readDraftProjectId(artifact);
   if (typeof draftProjectId !== 'number') {
     return undefined;
   }
