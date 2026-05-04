@@ -4223,6 +4223,156 @@ describe('PublishCalendar and Projects pages', () => {
     });
   });
 
+  it('preserves the new source config draft when create succeeds after the operator keeps editing while the request is pending', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ProjectsPage } = await import('../../src/client/pages/Projects');
+
+    const pendingCreateSourceConfig = createDeferredPromise<{
+      sourceConfig: {
+        id: number;
+        projectId: number;
+        sourceType: string;
+        platform: string;
+        label: string;
+        configJson: Record<string, unknown>;
+        enabled: boolean;
+        pollIntervalMinutes: number;
+      };
+    }>();
+    const loadProjectsAction = vi.fn().mockResolvedValue({
+      projects: [
+        {
+          id: 7,
+          name: 'Acme Launch',
+          siteName: 'Acme',
+          siteUrl: 'https://acme.test',
+          siteDescription: 'Launch week campaign',
+          sellingPoints: ['Cheap', 'Fast'],
+          createdAt: '2026-04-19T08:00:00.000Z',
+        },
+      ],
+    });
+    const loadSourceConfigsAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        sourceConfigs: [],
+      })
+      .mockResolvedValue({
+        sourceConfigs: [
+          {
+            id: 4,
+            projectId: 7,
+            sourceType: 'rss',
+            platform: 'rss',
+            label: 'Launch RSS',
+            configJson: { feedUrl: 'https://feeds.test/launch.xml' },
+            enabled: true,
+            pollIntervalMinutes: 30,
+          },
+        ],
+      });
+    const createSourceConfigAction = vi.fn().mockReturnValue(pendingCreateSourceConfig.promise);
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ProjectsPage as never, {
+          loadProjectsAction,
+          loadSourceConfigsAction,
+          createSourceConfigAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const presetField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'new-preset-7',
+    );
+    const labelField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'new-label-7',
+    );
+    const configJsonField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'new-config-json-7',
+    );
+    const createButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-source-config-create-id') === '7',
+    );
+
+    await act(async () => {
+      updateFieldValue(presetField, 'rss', window);
+      updateFieldValue(labelField, 'Launch RSS', window);
+      updateFieldValue(configJsonField, '{"feedUrl":"https://feeds.test/launch.xml"}', window);
+      await flush();
+    });
+
+    await act(async () => {
+      createButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    const pendingLabelField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'new-label-7',
+    );
+    const pendingConfigJsonField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'new-config-json-7',
+    );
+
+    expect(pendingLabelField?.getAttribute('disabled')).toBeNull();
+    expect(pendingConfigJsonField?.getAttribute('disabled')).toBeNull();
+
+    await act(async () => {
+      updateFieldValue(pendingLabelField, 'Edited after create started', window);
+      updateFieldValue(pendingConfigJsonField, '{"feedUrl":"https://feeds.test/edited-after-submit.xml"}', window);
+      await flush();
+    });
+
+    await act(async () => {
+      pendingCreateSourceConfig.resolve({
+        sourceConfig: {
+          id: 4,
+          projectId: 7,
+          sourceType: 'rss',
+          platform: 'rss',
+          label: 'Launch RSS',
+          configJson: { feedUrl: 'https://feeds.test/launch.xml' },
+          enabled: true,
+          pollIntervalMinutes: 30,
+        },
+      });
+      await flush();
+      await flush();
+    });
+
+    const labelFieldAfterResolve = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'new-label-7',
+    );
+    const configJsonFieldAfterResolve = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'new-config-json-7',
+    );
+
+    expect(collectText(container)).toContain('Launch RSS');
+    expect(labelFieldAfterResolve?.value).toBe('Edited after create started');
+    expect(configJsonFieldAfterResolve?.value).toBe('{"feedUrl":"https://feeds.test/edited-after-submit.xml"}');
+    expect(collectText(container)).not.toContain('SourceConfig 已保存');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('keeps source config save pending scoped when concurrent saves start on different projects', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');

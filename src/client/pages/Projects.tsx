@@ -379,6 +379,8 @@ export function ProjectsPage({
   const projectSaveAttemptByIdRef = useRef<Record<number, number>>({});
   const sourceConfigFormVersionByIdRef = useRef<Record<number, number>>({});
   const sourceConfigSaveAttemptByIdRef = useRef<Record<number, number>>({});
+  const newSourceConfigFormVersionByProjectRef = useRef<Record<number, number>>({});
+  const newSourceConfigCreateAttemptByProjectRef = useRef<Record<number, number>>({});
   const sourceConfigMutationVersionByProjectRef = useRef<Record<number, number>>({});
   const sourceConfigFetchVersionByProjectRef = useRef<Record<number, number>>({});
   const nextSourceConfigFetchVersionRef = useRef(0);
@@ -821,6 +823,15 @@ export function ProjectsPage({
     if (Number.isInteger(sourceConfigId) && sourceConfigId > 0) {
       sourceConfigFormVersionByIdRef.current[sourceConfigId] =
         (sourceConfigFormVersionByIdRef.current[sourceConfigId] ?? 0) + 1;
+      return;
+    }
+
+    if (formKey.startsWith('new-')) {
+      const projectId = Number(formKey.slice(4));
+      if (Number.isInteger(projectId) && projectId > 0) {
+        newSourceConfigFormVersionByProjectRef.current[projectId] =
+          (newSourceConfigFormVersionByProjectRef.current[projectId] ?? 0) + 1;
+      }
     }
   }
 
@@ -944,6 +955,8 @@ export function ProjectsPage({
         error: null,
       };
     });
+    delete newSourceConfigFormVersionByProjectRef.current[projectId];
+    delete newSourceConfigCreateAttemptByProjectRef.current[projectId];
     delete sourceConfigMutationVersionByProjectRef.current[projectId];
     delete sourceConfigFetchVersionByProjectRef.current[projectId];
   }
@@ -989,9 +1002,16 @@ export function ProjectsPage({
     }
 
     clearPageFeedback();
+    const formVersionAtStart = newSourceConfigFormVersionByProjectRef.current[projectId] ?? 0;
+    const nextCreateAttempt = (newSourceConfigCreateAttemptByProjectRef.current[projectId] ?? 0) + 1;
+    newSourceConfigCreateAttemptByProjectRef.current[projectId] = nextCreateAttempt;
     setSourceConfigCreatePending(projectId, true);
     void createSourceConfigAction(projectId, prepared.payload)
       .then((result) => {
+        if ((newSourceConfigCreateAttemptByProjectRef.current[projectId] ?? 0) !== nextCreateAttempt) {
+          return;
+        }
+
         const sourceConfigMutationVersion = bumpSourceConfigMutationVersion(projectId);
         const sourceConfigFetchVersion = bumpSourceConfigFetchVersion(projectId);
         const nextSourceConfigs = mergeSourceConfigLists(
@@ -1000,12 +1020,14 @@ export function ProjectsPage({
         );
 
         setProjectSourceConfigs(projectId, nextSourceConfigs);
-        setNewSourceConfigPreset(projectId, defaultNewSourceConfigPresetId);
-        setSourceConfigForms((current) => ({
-          ...current,
-          [`new-${projectId}`]: createEmptySourceConfigForm(),
-        }));
-        showPageSuccess('SourceConfig 已保存');
+        if ((newSourceConfigFormVersionByProjectRef.current[projectId] ?? 0) === formVersionAtStart) {
+          setNewSourceConfigPreset(projectId, defaultNewSourceConfigPresetId);
+          setSourceConfigForms((current) => ({
+            ...current,
+            [`new-${projectId}`]: createEmptySourceConfigForm(),
+          }));
+          showPageSuccess('SourceConfig 已保存');
+        }
 
         return loadSourceConfigsAction(projectId)
           .then((reloaded) => {
@@ -1021,10 +1043,24 @@ export function ProjectsPage({
           .catch(() => undefined);
       })
       .catch((error) => {
+        if ((newSourceConfigCreateAttemptByProjectRef.current[projectId] ?? 0) !== nextCreateAttempt) {
+          return;
+        }
         showPageError(getErrorMessage(error));
       })
       .finally(() => {
-        setSourceConfigCreatePending(projectId, false);
+        setPendingSourceConfigCreateProjectIds((current) => {
+          if (!(projectId in current)) {
+            return current;
+          }
+
+          if ((newSourceConfigCreateAttemptByProjectRef.current[projectId] ?? 0) !== nextCreateAttempt) {
+            return current;
+          }
+
+          const { [projectId]: _removed, ...rest } = current;
+          return rest;
+        });
       });
   }
 
