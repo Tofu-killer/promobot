@@ -340,13 +340,13 @@ describe('GitHub workflow contracts', () => {
       'GitHub Actions `Release Bundle`：支持手动触发和 `v*` tag push；默认都会执行 `pnpm test`、`pnpm build`、production preflight + config validation、release bundle 生成与校验。',
     );
     expect(deploymentDoc).toContain(
-      '默认会执行 `pnpm test`、`pnpm build`、静态 `preflight`、`release:bundle` 和 `release:verify`',
+      '默认会执行 `pnpm test`、`pnpm build`、production preflight + config validation、`release:bundle` 和 `release:verify`',
     );
 
     expectOrdered(releaseBundleJob, [
       '      - name: Run tests',
       '      - name: Build',
-      '      - name: Run static preflight',
+      '      - name: Run production preflight',
       '      - name: Generate release bundle',
       '      - name: Verify release bundle',
       '      - name: Archive release bundle',
@@ -358,6 +358,7 @@ describe('GitHub workflow contracts', () => {
       '      - name: Verify archived release bundle metadata',
       '      - name: Verify standalone downloaded release helper',
     ]);
+    expect(releaseBundleJob).toContain('          ADMIN_PASSWORD: github-actions-release-bundle-preflight');
   });
 
   it('keeps release-bundle concurrency and timeout protections aligned with deployment guidance', () => {

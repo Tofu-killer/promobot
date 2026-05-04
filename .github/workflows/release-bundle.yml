@@ -100,7 +100,9 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Run static preflight
+      - name: Run production preflight
+        env:
+          ADMIN_PASSWORD: github-actions-release-bundle-preflight
         run: node dist/server/cli/preflightPromobot.js --repo-root "$GITHUB_WORKSPACE"
 
       - name: Derive release bundle asset names
