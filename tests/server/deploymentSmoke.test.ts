@@ -8,6 +8,7 @@ import {
   parseDeploymentSmokeArgs,
   runDeploymentSmokeCheck,
 } from '../../src/server/cli/deploymentSmoke';
+import type { SchedulerRuntime } from '../../src/server/runtime/schedulerRuntime';
 import { cleanupTestDatabasePath, createTestDatabasePath } from './testDb';
 
 afterEach(() => {
@@ -158,6 +159,82 @@ function createAppFetch(app: ReturnType<typeof createApp>) {
   return { calls, fetchImpl };
 }
 
+function createSchedulerRuntimeStub(
+  overrides: Partial<SchedulerRuntime['getStatus'] extends () => infer Status ? Status : never> = {},
+): SchedulerRuntime {
+  return {
+    getStatus() {
+      return {
+        available: true,
+        started: true,
+        schedulerIntervalMinutes: 15,
+        pollMs: 900000,
+        bootedAt: '2026-04-19T12:00:00.000Z',
+        lastTickAt: null,
+        lastTickResults: [],
+        lastError: null,
+        recoveredRunningJobs: 0,
+        handlers: [],
+        queue: {
+          pending: 0,
+          running: 0,
+          done: 0,
+          failed: 0,
+          canceled: 0,
+          duePending: 0,
+        },
+        recentJobs: [],
+        ...overrides,
+      };
+    },
+    listJobs() {
+      return {
+        jobs: [],
+        queue: {
+          pending: 0,
+          running: 0,
+          done: 0,
+          failed: 0,
+          canceled: 0,
+          duePending: 0,
+        },
+        recentJobs: [],
+      };
+    },
+    getJob() {
+      return undefined;
+    },
+    reload() {
+      return this.getStatus();
+    },
+    async tickNow() {
+      return [];
+    },
+    enqueueJob() {
+      throw new Error('not implemented');
+    },
+    retryJob() {
+      return undefined;
+    },
+    cancelJob() {
+      return undefined;
+    },
+    stop() {},
+  };
+}
+
+function createHealthySmokeApp() {
+  return createApp(
+    {
+      allowedIps: ['127.0.0.1'],
+      adminPassword: 'secret',
+    },
+    {
+      schedulerRuntime: createSchedulerRuntimeStub(),
+    },
+  );
+}
+
 describe('deployment smoke cli', () => {
   it('runs the deployment smoke checks against the local app contract', async () => {
     const { rootDir } = createTestDatabasePath();
@@ -166,10 +243,7 @@ describe('deployment smoke cli', () => {
     resetBrowserArtifactHealthSummaryCache();
 
     try {
-      const app = createApp({
-        allowedIps: ['127.0.0.1'],
-        adminPassword: 'secret',
-      });
+      const app = createHealthySmokeApp();
       const { calls, fetchImpl } = createAppFetch(app);
 
       const result = await runDeploymentSmokeCheck(
@@ -196,6 +270,16 @@ describe('deployment smoke cli', () => {
           health: expect.objectContaining({
             ok: true,
             service: 'promobot',
+            scheduler: {
+              available: true,
+              started: true,
+              queue: {
+                pending: 0,
+                running: 0,
+                failed: 0,
+                duePending: 0,
+              },
+            },
             browserArtifacts: {
               laneRequests: {
                 total: 0,
@@ -235,6 +319,47 @@ describe('deployment smoke cli', () => {
           },
         },
       });
+    } finally {
+      resetBrowserArtifactHealthSummaryCache();
+      if (previousHandoffOutputDir === undefined) {
+        delete process.env.BROWSER_HANDOFF_OUTPUT_DIR;
+      } else {
+        process.env.BROWSER_HANDOFF_OUTPUT_DIR = previousHandoffOutputDir;
+      }
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('fails when the health payload reports that the scheduler runtime has not started', async () => {
+    const { rootDir } = createTestDatabasePath();
+    const previousHandoffOutputDir = process.env.BROWSER_HANDOFF_OUTPUT_DIR;
+    process.env.BROWSER_HANDOFF_OUTPUT_DIR = rootDir;
+    resetBrowserArtifactHealthSummaryCache();
+
+    try {
+      const app = createApp(
+        {
+          allowedIps: ['127.0.0.1'],
+          adminPassword: 'secret',
+        },
+        {
+          schedulerRuntime: createSchedulerRuntimeStub({
+            started: false,
+            bootedAt: null,
+          }),
+        },
+      );
+      const { fetchImpl } = createAppFetch(app);
+
+      await expect(
+        runDeploymentSmokeCheck(
+          {
+            baseUrl: 'http://local.test',
+            adminPassword: 'secret',
+          },
+          { fetchImpl },
+        ),
+      ).rejects.toThrow('scheduler runtime is not started');
     } finally {
       resetBrowserArtifactHealthSummaryCache();
       if (previousHandoffOutputDir === undefined) {
@@ -309,10 +434,7 @@ describe('deployment smoke cli', () => {
     resetBrowserArtifactHealthSummaryCache();
 
     try {
-      const app = createApp({
-        allowedIps: ['127.0.0.1'],
-        adminPassword: 'secret',
-      });
+      const app = createHealthySmokeApp();
       const { fetchImpl } = createAppFetch(app);
 
       const result = await runDeploymentSmokeCheck(
@@ -348,10 +470,7 @@ describe('deployment smoke cli', () => {
     resetBrowserArtifactHealthSummaryCache();
 
     try {
-      const app = createApp({
-        allowedIps: ['127.0.0.1'],
-        adminPassword: 'secret',
-      });
+      const app = createHealthySmokeApp();
       const { fetchImpl } = createAppFetch(app);
 
       const result = await runDeploymentSmokeCheck(
@@ -393,10 +512,7 @@ describe('deployment smoke cli', () => {
       );
       loadServerEnvFromRoot({ repoRootDir: rootDir });
 
-      const app = createApp({
-        allowedIps: ['127.0.0.1'],
-        adminPassword: 'secret',
-      });
+      const app = createHealthySmokeApp();
       const { fetchImpl } = createAppFetch(app);
 
       const result = await runDeploymentSmokeCheck(

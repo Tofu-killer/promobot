@@ -38,6 +38,9 @@ export async function runDeploymentSmokeCheck(
   if (!healthResponse.ok) {
     throw new Error(`health check failed: ${healthResponse.status}`);
   }
+  if (!isStartedSchedulerHealth(healthBody)) {
+    throw new Error('scheduler runtime is not started');
+  }
 
   const loginResponse = await fetchImpl(`${baseUrl}/api/auth/login`, {
     method: 'POST',
@@ -187,6 +190,19 @@ export function getDeploymentSmokeHelpText() {
 function readSetCookieValue(setCookieHeader: string, cookieName: string) {
   const match = setCookieHeader.match(new RegExp(`${cookieName}=([^;]+)`));
   return match ? `${cookieName}=${match[1]}` : null;
+}
+
+function isStartedSchedulerHealth(value: unknown) {
+  if (!isPlainObject(value)) {
+    return false;
+  }
+
+  const scheduler = value.scheduler;
+  return isPlainObject(scheduler) && scheduler.available === true && scheduler.started === true;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 async function main() {

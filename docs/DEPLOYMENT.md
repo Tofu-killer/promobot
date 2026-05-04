@@ -550,6 +550,7 @@ pnpm smoke:server -- --base-url http://127.0.0.1:3001
 ```
 
 `smoke:server` 会优先读取 `--admin-password`，否则回退到 `PROMOBOT_ADMIN_PASSWORD`、`ADMIN_PASSWORD`，以及仓库根 `.env` 里的 `PROMOBOT_ADMIN_PASSWORD` / `ADMIN_PASSWORD`。
+除了接口可达外，这条 smoke 现在还要求 `/api/system/health` 报告 `scheduler.available=true` 且 `scheduler.started=true`，避免把 scheduler 未启动的半残服务误判为可交付。
 
 当前 smoke CLI 会依次检查：
 

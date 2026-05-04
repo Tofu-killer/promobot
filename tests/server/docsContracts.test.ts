@@ -110,6 +110,9 @@ describe('deployment document contracts', () => {
       '它会先调用 `preflight:prod` 的 production preflight + config validation，所以也支持把 `--require-env` 这类参数透传过去，再按需追加独立 smoke check；这条 wrapper 不等于 readiness check。',
     );
     expect(deploymentDoc).toContain(
+      '除了接口可达外，这条 smoke 现在还要求 `/api/system/health` 报告 `scheduler.available=true` 且 `scheduler.started=true`，避免把 scheduler 未启动的半残服务误判为可交付。',
+    );
+    expect(deploymentDoc).toContain(
       '如果只是想先做 production preflight + config validation，不想马上 deploy，可运行：',
     );
     expect(deploymentDoc).toContain(
