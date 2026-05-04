@@ -58,6 +58,7 @@ export function createSourceConfigStore(): SourceConfigStore {
 }
 
 function listEnabledSourceConfigs(database: DatabaseConnection): SourceConfigRecord[] {
+  ensureProjectsArchiveColumns(database);
   return database
     .prepare(
       `
@@ -263,4 +264,16 @@ function parseJsonObject(value: unknown): Record<string, unknown> {
   }
 
   return {};
+}
+
+function ensureProjectsArchiveColumns(database: DatabaseConnection) {
+  const columns = database.prepare('PRAGMA table_info(projects)').all() as Array<{ name?: unknown }>;
+
+  if (!columns.some((column) => column.name === 'archived')) {
+    database.exec('ALTER TABLE projects ADD COLUMN archived INTEGER NOT NULL DEFAULT 0');
+  }
+
+  if (!columns.some((column) => column.name === 'archived_at')) {
+    database.exec('ALTER TABLE projects ADD COLUMN archived_at TEXT');
+  }
 }

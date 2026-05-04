@@ -1,4 +1,6 @@
+import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { initDb } from '../../src/server/db';
 import { createSchedulerRuntime } from '../../src/server/runtime/schedulerRuntime';
 import { createProjectStore } from '../../src/server/store/projects';
 import { createSettingsStore } from '../../src/server/store/settings';
@@ -397,6 +399,107 @@ describe('scheduler runtime recurring source config jobs', () => {
             JSON.stringify(readRecurringPayload(job.payload).sourceConfigIds) === JSON.stringify([21]),
         ),
       ).toHaveLength(0);
+    } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('reload keeps working against legacy projects tables that predate archived columns', () => {
+    const { databasePath, rootDir } = createTestDatabasePath();
+    try {
+      const initializedDatabase = initDb(databasePath);
+      initializedDatabase.close();
+      const legacyDatabase = new Database(databasePath);
+      legacyDatabase.exec(`
+        DROP TABLE IF EXISTS projects;
+        CREATE TABLE projects (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          site_name TEXT NOT NULL,
+          site_url TEXT NOT NULL,
+          site_description TEXT NOT NULL,
+          selling_points TEXT NOT NULL,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+      legacyDatabase
+        .prepare(
+          `
+            INSERT INTO projects (
+              id,
+              name,
+              site_name,
+              site_url,
+              site_description,
+              selling_points
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+          `,
+        )
+        .run([
+          1,
+          'Legacy Signals',
+          'PromoBot',
+          'https://signals.example.com',
+          'Legacy workspace',
+          '["fast"]',
+        ]);
+      legacyDatabase
+        .prepare(
+          `
+            INSERT INTO source_configs (
+              project_id,
+              source_type,
+              platform,
+              label,
+              config_json,
+              enabled,
+              poll_interval_minutes
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+          `,
+        )
+        .run([
+          1,
+          'rss',
+          'rss',
+          'RSS',
+          '{"url":"https://feeds.example.com/rss.xml"}',
+          1,
+          30,
+        ]);
+      legacyDatabase.close();
+
+      const settingsStore = createSettingsStore();
+      const jobQueueStore = createJobQueueStore();
+      const sourceConfigStore = createSourceConfigStore();
+      const runtime = createSchedulerRuntime({
+        settingsStore,
+        jobQueueStore,
+        sourceConfigStore,
+        handlers: {},
+        now: () => new Date('2026-05-03T00:00:00.000Z'),
+      });
+
+      expect(() => runtime.reload()).not.toThrow();
+
+      const migratedDatabase = new Database(databasePath);
+      const columns = migratedDatabase.prepare('PRAGMA table_info(projects)').all() as Array<{
+        name: string;
+      }>;
+      expect(columns.map((column) => column.name)).toEqual(
+        expect.arrayContaining(['archived', 'archived_at']),
+      );
+      migratedDatabase.close();
+
+      const jobs = jobQueueStore.list({ statuses: ['pending'] });
+      expect(jobs).toHaveLength(1);
+      expect(readRecurringPayload(jobs[0].payload)).toEqual({
+        recurring: 'source_config_poll',
+        projectId: 1,
+        sourceConfigIds: [1],
+        intervalMinutes: 30,
+      });
     } finally {
       cleanupTestDatabasePath(rootDir);
     }
