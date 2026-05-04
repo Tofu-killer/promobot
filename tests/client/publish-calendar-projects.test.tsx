@@ -3751,6 +3751,158 @@ describe('PublishCalendar and Projects pages', () => {
     });
   });
 
+  it('ignores stale source config save success after the operator keeps editing the same source config while save is pending', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    const { ProjectsPage } = await import('../../src/client/pages/Projects');
+
+    const pendingSave = createDeferredPromise<{
+      sourceConfig: {
+        id: number;
+        projectId: number;
+        sourceType: string;
+        platform: string;
+        label: string;
+        configJson: Record<string, unknown>;
+        enabled: boolean;
+        pollIntervalMinutes: number;
+      };
+    }>();
+    const loadProjectsAction = vi.fn().mockResolvedValue({
+      projects: [
+        {
+          id: 7,
+          name: 'Acme Launch',
+          siteName: 'Acme',
+          siteUrl: 'https://acme.test',
+          siteDescription: 'Launch week campaign',
+          sellingPoints: ['Cheap', 'Fast'],
+          createdAt: '2026-04-19T08:00:00.000Z',
+        },
+      ],
+    });
+    const loadSourceConfigsAction = vi.fn().mockResolvedValue({
+      sourceConfigs: [
+        {
+          id: 4,
+          projectId: 7,
+          sourceType: 'v2ex_search',
+          platform: 'v2ex',
+          label: 'V2EX mentions',
+          configJson: { query: 'cursor api' },
+          enabled: true,
+          pollIntervalMinutes: 45,
+        },
+      ],
+    });
+    const updateSourceConfigAction = vi.fn().mockReturnValue(pendingSave.promise);
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(
+        createElement(ProjectsPage as never, {
+          loadProjectsAction,
+          loadSourceConfigsAction,
+          updateSourceConfigAction,
+        }),
+      );
+      await flush();
+      await flush();
+    });
+
+    const labelField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'label-4',
+    );
+    const pollField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'poll-4',
+    );
+    const saveButton = findElement(
+      container,
+      (element) =>
+        element.tagName === 'BUTTON' &&
+        element.getAttribute('data-source-config-save-id') === '4' &&
+        collectText(element).includes('保存 SourceConfig'),
+    );
+
+    expect(labelField).not.toBeNull();
+    expect(pollField).not.toBeNull();
+    expect(saveButton).not.toBeNull();
+
+    await act(async () => {
+      updateFieldValue(labelField, 'Saved source config label', window);
+      updateFieldValue(pollField, '59', window);
+      await flush();
+    });
+
+    await act(async () => {
+      saveButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    expect(updateSourceConfigAction).toHaveBeenCalledWith(7, 4, {
+      projectId: 7,
+      sourceType: 'v2ex_search',
+      platform: 'v2ex',
+      label: 'Saved source config label',
+      configJson: { query: 'cursor api' },
+      enabled: true,
+      pollIntervalMinutes: 59,
+    });
+
+    await act(async () => {
+      updateFieldValue(labelField, 'Edited after save started', window);
+      updateFieldValue(pollField, '61', window);
+      await flush();
+    });
+
+    await act(async () => {
+      pendingSave.resolve({
+        sourceConfig: {
+          id: 4,
+          projectId: 7,
+          sourceType: 'v2ex_search',
+          platform: 'v2ex',
+          label: 'Saved source config label',
+          configJson: { query: 'cursor api', locale: 'au' },
+          enabled: false,
+          pollIntervalMinutes: 59,
+        },
+      });
+      await flush();
+      await flush();
+    });
+
+    const updatedLabelField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'label-4',
+    );
+    const updatedPollField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'poll-4',
+    );
+    const updatedEnabledField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'enabled-4',
+    );
+    const updatedConfigJsonField = findElement(
+      container,
+      (element) => element.getAttribute('data-source-config-field') === 'config-json-4',
+    );
+
+    expect(updatedLabelField?.value).toBe('Edited after save started');
+    expect(updatedPollField?.value).toBe('61');
+    expect(updatedEnabledField?.value).toBe('true');
+    expect(updatedConfigJsonField?.value).toBe('{"query":"cursor api"}');
+    expect(collectText(container)).not.toContain('SourceConfig 已保存');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
+  });
+
   it('allows saving metadata-only changes for legacy source configs that keep their existing contract fields', async () => {
     const { container, window } = installMinimalDom();
     const { createRoot } = await import('react-dom/client');

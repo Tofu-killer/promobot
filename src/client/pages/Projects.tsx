@@ -377,6 +377,8 @@ export function ProjectsPage({
   const [projectForms, setProjectForms] = useState<Record<number, ProjectFormValue>>({});
   const projectFormVersionByIdRef = useRef<Record<number, number>>({});
   const projectSaveAttemptByIdRef = useRef<Record<number, number>>({});
+  const sourceConfigFormVersionByIdRef = useRef<Record<number, number>>({});
+  const sourceConfigSaveAttemptByIdRef = useRef<Record<number, number>>({});
   const sourceConfigMutationVersionByProjectRef = useRef<Record<number, number>>({});
   const sourceConfigFetchVersionByProjectRef = useRef<Record<number, number>>({});
   const nextSourceConfigFetchVersionRef = useRef(0);
@@ -815,6 +817,11 @@ export function ProjectsPage({
         ...patch,
       },
     }));
+    const sourceConfigId = Number(formKey);
+    if (Number.isInteger(sourceConfigId) && sourceConfigId > 0) {
+      sourceConfigFormVersionByIdRef.current[sourceConfigId] =
+        (sourceConfigFormVersionByIdRef.current[sourceConfigId] ?? 0) + 1;
+    }
   }
 
   function getNewSourceConfigPreset(projectId: number) {
@@ -1036,11 +1043,21 @@ export function ProjectsPage({
     }
 
     clearPageFeedback();
+    const formVersionAtStart = sourceConfigFormVersionByIdRef.current[sourceConfigId] ?? 0;
+    const nextSaveAttempt = (sourceConfigSaveAttemptByIdRef.current[sourceConfigId] ?? 0) + 1;
+    sourceConfigSaveAttemptByIdRef.current[sourceConfigId] = nextSaveAttempt;
     setSourceConfigSavePending(sourceConfigId, true);
     void updateSourceConfigAction(projectId, sourceConfigId, prepared.payload)
       .then((result) => {
+        if ((sourceConfigSaveAttemptByIdRef.current[sourceConfigId] ?? 0) !== nextSaveAttempt) {
+          return;
+        }
+
         bumpSourceConfigMutationVersion(projectId);
         mergeProjectSourceConfigs(projectId, [result.sourceConfig]);
+        if ((sourceConfigFormVersionByIdRef.current[sourceConfigId] ?? 0) !== formVersionAtStart) {
+          return;
+        }
         setSourceConfigForms((current) => ({
           ...current,
           [String(sourceConfigId)]: {
@@ -1055,10 +1072,24 @@ export function ProjectsPage({
         showPageSuccess('SourceConfig 已保存');
       })
       .catch((error) => {
+        if ((sourceConfigSaveAttemptByIdRef.current[sourceConfigId] ?? 0) !== nextSaveAttempt) {
+          return;
+        }
         showPageError(getErrorMessage(error));
       })
       .finally(() => {
-        setSourceConfigSavePending(sourceConfigId, false);
+        setPendingSourceConfigSaveIds((current) => {
+          if (!current[sourceConfigId]) {
+            return current;
+          }
+
+          if ((sourceConfigSaveAttemptByIdRef.current[sourceConfigId] ?? 0) !== nextSaveAttempt) {
+            return current;
+          }
+
+          const { [sourceConfigId]: _removed, ...rest } = current;
+          return rest;
+        });
       });
   }
 
