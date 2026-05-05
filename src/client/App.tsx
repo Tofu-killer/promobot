@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Component, Suspense, lazy, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Layout } from './components/Layout';
 import {
   clearStoredAdminPassword,
@@ -9,20 +9,47 @@ import {
   probeAdminSession,
 } from './lib/api';
 import type { AppRoute, NavItem } from './lib/types';
-import { DashboardPage } from './pages/Dashboard';
-import { DiscoveryPage } from './pages/Discovery';
-import { DraftsPage } from './pages/Drafts';
-import { GeneratePage } from './pages/Generate';
-import { InboxPage } from './pages/Inbox';
-import { MonitorPage } from './pages/Monitor';
-import { ProjectsPage } from './pages/Projects';
-import { PublishCalendarPage } from './pages/PublishCalendar';
-import { ReputationPage } from './pages/Reputation';
-import { ReviewQueuePage } from './pages/ReviewQueue';
-import { SettingsPage } from './pages/Settings';
-import { ChannelAccountsPage } from './pages/ChannelAccounts';
-import { SystemQueuePage } from './pages/SystemQueue';
 import { LoginPage } from './pages/Login';
+
+const DashboardPage = lazy(async () => ({
+  default: (await import('./pages/Dashboard')).DashboardPage,
+}));
+const DiscoveryPage = lazy(async () => ({
+  default: (await import('./pages/Discovery')).DiscoveryPage,
+}));
+const DraftsPage = lazy(async () => ({
+  default: (await import('./pages/Drafts')).DraftsPage,
+}));
+const GeneratePage = lazy(async () => ({
+  default: (await import('./pages/Generate')).GeneratePage,
+}));
+const InboxPage = lazy(async () => ({
+  default: (await import('./pages/Inbox')).InboxPage,
+}));
+const MonitorPage = lazy(async () => ({
+  default: (await import('./pages/Monitor')).MonitorPage,
+}));
+const ProjectsPage = lazy(async () => ({
+  default: (await import('./pages/Projects')).ProjectsPage,
+}));
+const PublishCalendarPage = lazy(async () => ({
+  default: (await import('./pages/PublishCalendar')).PublishCalendarPage,
+}));
+const ReputationPage = lazy(async () => ({
+  default: (await import('./pages/Reputation')).ReputationPage,
+}));
+const ReviewQueuePage = lazy(async () => ({
+  default: (await import('./pages/ReviewQueue')).ReviewQueuePage,
+}));
+const SettingsPage = lazy(async () => ({
+  default: (await import('./pages/Settings')).SettingsPage,
+}));
+const ChannelAccountsPage = lazy(async () => ({
+  default: (await import('./pages/ChannelAccounts')).ChannelAccountsPage,
+}));
+const SystemQueuePage = lazy(async () => ({
+  default: (await import('./pages/SystemQueue')).SystemQueuePage,
+}));
 
 const navItems: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard', description: '总览今日运营节奏' },
@@ -299,6 +326,70 @@ function renderRoute(
           onNavigateToRoute={onNavigateToRoute}
         />
       );
+  }
+}
+
+function RouteLoadingFallback() {
+  return (
+    <section
+      style={{
+        borderRadius: '18px',
+        border: '1px solid #dbeafe',
+        background: '#eff6ff',
+        padding: '20px 22px',
+      }}
+    >
+      <div style={{ color: '#1d4ed8', fontWeight: 700 }}>正在加载页面...</div>
+      <p style={{ margin: '8px 0 0', color: '#1e3a8a' }}>保留当前导航与路由状态，待页面模块完成加载后再渲染内容。</p>
+    </section>
+  );
+}
+
+interface RouteErrorBoundaryProps {
+  children: ReactNode;
+}
+
+interface RouteErrorBoundaryState {
+  hasError: boolean;
+}
+
+class RouteErrorBoundary extends Component<RouteErrorBoundaryProps, RouteErrorBoundaryState> {
+  state: RouteErrorBoundaryState = {
+    hasError: false,
+  };
+
+  static getDerivedStateFromError() {
+    return {
+      hasError: true,
+    };
+  }
+
+  componentDidUpdate(previousProps: RouteErrorBoundaryProps) {
+    if (this.state.hasError && previousProps.children !== this.props.children) {
+      this.setState({
+        hasError: false,
+      });
+    }
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <section
+          style={{
+            borderRadius: '18px',
+            border: '1px solid #fecaca',
+            background: '#fef2f2',
+            padding: '20px 22px',
+          }}
+        >
+          <div style={{ color: '#b91c1c', fontWeight: 700 }}>页面加载失败</div>
+          <p style={{ margin: '8px 0 0', color: '#7f1d1d' }}>当前页面模块加载异常，请刷新后重试，或先切换到其他页面继续操作。</p>
+        </section>
+      );
+    }
+
+    return this.props.children;
   }
 }
 
@@ -595,18 +686,22 @@ export default function App({ initialRoute = 'dashboard', initialAdminPassword =
           });
       }}
     >
-      {renderRoute(
-        activeRoute,
-        sharedProjectIdDraft,
-        setSharedProjectIdDraft,
-        handleNavigate,
-        generatePrefillState,
-        handleOpenGenerateCenter,
-        () => setGeneratePrefillState(null),
-        inboxFocusState,
-        handleOpenInboxItem,
-        () => setInboxFocusState(null),
-      )}
+      <RouteErrorBoundary>
+        <Suspense fallback={<RouteLoadingFallback />}>
+          {renderRoute(
+            activeRoute,
+            sharedProjectIdDraft,
+            setSharedProjectIdDraft,
+            handleNavigate,
+            generatePrefillState,
+            handleOpenGenerateCenter,
+            () => setGeneratePrefillState(null),
+            inboxFocusState,
+            handleOpenInboxItem,
+            () => setInboxFocusState(null),
+          )}
+        </Suspense>
+      </RouteErrorBoundary>
     </Layout>
   );
 }

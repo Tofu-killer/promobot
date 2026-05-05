@@ -2,16 +2,14 @@ import { act, createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import App from '../../src/client/App';
+import {
+  createStorageArea,
+  installAuthStorage,
+  installBrowserHistory,
+  jsonResponse,
+  settleLazyRouteRender,
+} from './app-shell-test-helpers';
 import { collectText, findElement, flush, installMinimalDom } from './settings-test-helpers';
-
-function jsonResponse(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: {
-      'Content-Type': 'application/json',
-    },
-  });
-}
 
 function updateFieldValue(element: { value?: string } | null, value: string, window: { Event: typeof Event }) {
   if (!element) {
@@ -35,137 +33,6 @@ function updateFieldValue(element: { value?: string } | null, value: string, win
 
   (element as { dispatchEvent: (event: Event) => void }).dispatchEvent(new window.Event('input', { bubbles: true }));
   (element as { dispatchEvent: (event: Event) => void }).dispatchEvent(new window.Event('change', { bubbles: true }));
-}
-
-function createStorageArea(initialValue: string | null = null) {
-  let storedValue = initialValue;
-
-  return {
-    getItem: vi.fn((_key: string) => storedValue),
-    setItem: vi.fn((_key: string, value: string) => {
-      storedValue = value;
-    }),
-    removeItem: vi.fn((_key: string) => {
-      storedValue = null;
-    }),
-    peek: () => storedValue,
-  };
-}
-
-function installAuthStorage<
-  TStorage extends {
-    getItem: (key: string) => string | null;
-    setItem: (key: string, value: string) => void;
-    removeItem: (key: string) => void;
-  },
->(
-  window: unknown,
-  storage: {
-    localStorage: TStorage;
-    sessionStorage: TStorage;
-  },
-) {
-  const storageWindow = window as {
-    localStorage: TStorage;
-    sessionStorage: TStorage;
-  };
-
-  storageWindow.localStorage = storage.localStorage;
-  storageWindow.sessionStorage = storage.sessionStorage;
-
-  return storage;
-}
-
-function installBrowserHistory(
-  window: {
-    Event: typeof Event;
-    dispatchEvent: (event: Event) => boolean;
-    location: { href: string; pathname?: string };
-    history?: unknown;
-  },
-  initialPathname: string,
-) {
-  const location = window.location;
-  const entries: Array<{
-    pathname: string;
-    state: unknown;
-  }> = [
-    {
-      pathname: initialPathname,
-      state: null,
-    },
-  ];
-  let currentIndex = 0;
-
-  const syncLocation = (pathname: string) => {
-    location.pathname = pathname;
-    location.href = `http://localhost${pathname}`;
-    vi.stubGlobal('location', location);
-  };
-
-  const resolvePathname = (url?: string | URL | null) =>
-    typeof url === 'string'
-      ? new URL(url, location.href).pathname
-      : url instanceof URL
-        ? url.pathname
-        : entries[currentIndex]?.pathname ?? location.pathname ?? '/';
-
-  const dispatchPopState = (state: unknown) => {
-    const popStateEvent = new window.Event('popstate');
-    Object.defineProperty(popStateEvent, 'state', {
-      configurable: true,
-      value: state,
-    });
-    window.dispatchEvent(popStateEvent);
-  };
-
-  const history = {
-    get state() {
-      return entries[currentIndex]?.state ?? null;
-    },
-    pushState: vi.fn((state: unknown, _unused: string, url?: string | URL | null) => {
-      const nextPathname = resolvePathname(url);
-      entries.splice(currentIndex + 1);
-      entries.push({
-        pathname: nextPathname,
-        state,
-      });
-      currentIndex = entries.length - 1;
-      syncLocation(nextPathname);
-    }),
-    replaceState: vi.fn((state: unknown, _unused: string, url?: string | URL | null) => {
-      const nextPathname = resolvePathname(url);
-      entries[currentIndex] = {
-        pathname: nextPathname,
-        state,
-      };
-      syncLocation(nextPathname);
-    }),
-    back: vi.fn(() => {
-      if (currentIndex === 0) {
-        return;
-      }
-
-      currentIndex -= 1;
-      syncLocation(entries[currentIndex]?.pathname ?? '/');
-      dispatchPopState(entries[currentIndex]?.state ?? null);
-    }),
-    forward: vi.fn(() => {
-      if (currentIndex >= entries.length - 1) {
-        return;
-      }
-
-      currentIndex += 1;
-      syncLocation(entries[currentIndex]?.pathname ?? '/');
-      dispatchPopState(entries[currentIndex]?.state ?? null);
-    }),
-  };
-
-  window.history = history;
-  vi.stubGlobal('history', history);
-  syncLocation(entries[currentIndex]?.pathname ?? initialPathname);
-
-  return history;
 }
 
 function dispatchStorageEvent(
@@ -206,32 +73,111 @@ function findGeneratePlatformCheckbox(container: Parameters<typeof findElement>[
     : null;
 }
 
+async function settleAppRender() {
+  await settleLazyRouteRender();
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
 describe('App shell', () => {
-  it('renders the PromoBot navigation shell when admin auth is satisfied', () => {
-    const html = renderToStaticMarkup(<App initialAdminPassword="secret" />);
+  it('renders the PromoBot navigation shell when admin auth is satisfied', async () => {
+    const { container, window } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    installAuthStorage(window, {
+      localStorage: createStorageArea(),
+      sessionStorage: createStorageArea('secret'),
+    });
+    installBrowserHistory(window as never, '/');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
 
-    expect(html).toContain('PromoBot');
-    expect(html).toContain('Dashboard');
-    expect(html).toContain('System Queue');
-    expect(html).toContain('Projects');
-    expect(html).toContain('Discovery Pool');
-    expect(html).toContain('Generate Center');
-    expect(html).toContain('Social Inbox');
-    expect(html).toContain('Competitor Monitor');
-    expect(html).toContain('Channel Accounts');
-    expect(html).toContain('Settings');
+        if (url === '/api/auth/probe') {
+          return Promise.resolve(new Response(null, { status: 204 }));
+        }
+
+        if (url.includes('/api/monitor/dashboard')) {
+          return Promise.resolve(
+            jsonResponse({
+              monitor: {
+                total: 0,
+                new: 0,
+                followUpDrafts: 0,
+              },
+              drafts: {
+                total: 0,
+                review: 0,
+              },
+              totals: {
+                items: 0,
+                followUps: 0,
+              },
+            }),
+          );
+        }
+
+        throw new Error(`unexpected fetch request: ${url}`);
+      }),
+    );
+
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(createElement(App as never, { initialAdminPassword: 'secret' }));
+      await settleAppRender();
+    });
+
+    const renderedText = collectText(container);
+    expect(renderedText).toContain('PromoBot');
+    expect(renderedText).toContain('Dashboard');
+    expect(renderedText).toContain('System Queue');
+    expect(renderedText).toContain('Projects');
+    expect(renderedText).toContain('Discovery Pool');
+    expect(renderedText).toContain('Generate Center');
+    expect(renderedText).toContain('Social Inbox');
+    expect(renderedText).toContain('Competitor Monitor');
+    expect(renderedText).toContain('Channel Accounts');
+    expect(renderedText).toContain('Settings');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
   });
 
-  it('renders the admin login page when no admin password is present', () => {
-    const html = renderToStaticMarkup(<App initialAdminPassword={null} />);
+  it('renders the admin login page when no admin password is present', async () => {
+    const { container } = installMinimalDom();
+    const { createRoot } = await import('react-dom/client');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ error: 'unauthorized' }), {
+            status: 401,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          }),
+        ),
+      ),
+    );
 
-    expect(html).toContain('Admin Login');
-    expect(html).not.toContain('Dashboard');
+    const root = createRoot(container as never);
+    await act(async () => {
+      root.render(createElement(App as never, { initialAdminPassword: null }));
+      await settleAppRender();
+    });
+
+    expect(collectText(container)).toContain('Admin Login');
+    expect(collectText(container)).not.toContain('Dashboard');
+
+    await act(async () => {
+      root.unmount();
+      await flush();
+    });
   });
 
   it('keeps the shared raw projectId draft when switching between dashboard, generate, and monitor', async () => {
@@ -290,9 +236,7 @@ describe('App shell', () => {
     const root = createRoot(container as never);
     await act(async () => {
       root.render(createElement(App as never, { initialAdminPassword: 'secret' }));
-      await flush();
-      await flush();
-      await flush();
+      await settleAppRender();
     });
 
     const dashboardProjectInput = findElement(
@@ -317,7 +261,7 @@ describe('App shell', () => {
 
     await act(async () => {
       generateNavButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-      await flush();
+      await settleAppRender();
     });
 
     expect(collectText(container)).toContain('话题输入');
@@ -343,8 +287,7 @@ describe('App shell', () => {
 
     await act(async () => {
       monitorNavButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-      await flush();
-      await flush();
+      await settleAppRender();
     });
 
     expect(collectText(container)).toContain('抓取排程');
@@ -365,8 +308,7 @@ describe('App shell', () => {
 
     await act(async () => {
       dashboardNavButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-      await flush();
-      await flush();
+      await settleAppRender();
     });
 
     expect(collectText(container)).toContain('先看今天的内容运营节奏');
@@ -448,9 +390,7 @@ describe('App shell', () => {
     const root = createRoot(container as never);
     await act(async () => {
       root.render(createElement(App as never, { initialAdminPassword: 'secret' }));
-      await flush();
-      await flush();
-      await flush();
+      await settleAppRender();
     });
 
     const dashboardProjectInput = findElement(
@@ -475,8 +415,7 @@ describe('App shell', () => {
 
     await act(async () => {
       draftsNavButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-      await flush();
-      await flush();
+      await settleAppRender();
     });
 
     expect(collectText(container)).toContain('草稿列表');
@@ -503,8 +442,7 @@ describe('App shell', () => {
 
     await act(async () => {
       reviewNavButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-      await flush();
-      await flush();
+      await settleAppRender();
     });
 
     expect(collectText(container)).toContain('待审核草稿');
@@ -531,8 +469,7 @@ describe('App shell', () => {
 
     await act(async () => {
       calendarNavButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-      await flush();
-      await flush();
+      await settleAppRender();
     });
 
     expect(collectText(container)).toContain('发布状态');
@@ -553,8 +490,7 @@ describe('App shell', () => {
 
     await act(async () => {
       dashboardNavButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-      await flush();
-      await flush();
+      await settleAppRender();
     });
 
     const rerenderedDashboardProjectInput = findElement(
@@ -628,9 +564,7 @@ describe('App shell', () => {
     const root = createRoot(container as never);
     await act(async () => {
       root.render(createElement(App as never, { initialAdminPassword: 'secret' }));
-      await flush();
-      await flush();
-      await flush();
+      await settleAppRender();
     });
 
     expect((window.location as { pathname?: string }).pathname).toBe('/monitor');
@@ -697,9 +631,7 @@ describe('App shell', () => {
     const root = createRoot(container as never);
     await act(async () => {
       root.render(createElement(App as never, { initialAdminPassword: 'secret' }));
-      await flush();
-      await flush();
-      await flush();
+      await settleAppRender();
     });
 
     const discoveryProjectInput = findElement(
@@ -722,8 +654,7 @@ describe('App shell', () => {
 
     await act(async () => {
       manualHandoffButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-      await flush();
-      await flush();
+      await settleAppRender();
     });
 
     expect((window.location as { pathname?: string }).pathname).toBe('/generate');
@@ -804,9 +735,7 @@ describe('App shell', () => {
     const root = createRoot(container as never);
     await act(async () => {
       root.render(createElement(App as never, { initialAdminPassword: 'secret' }));
-      await flush();
-      await flush();
-      await flush();
+      await settleAppRender();
     });
 
     const discoveryProjectInput = findElement(
@@ -829,8 +758,7 @@ describe('App shell', () => {
 
     await act(async () => {
       manualHandoffButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-      await flush();
-      await flush();
+      await settleAppRender();
     });
 
     const topicField = () => findElement(container, (element) => element.tagName === 'TEXTAREA');
@@ -841,8 +769,7 @@ describe('App shell', () => {
 
     await act(async () => {
       (window.history as { back: () => void }).back();
-      await flush();
-      await flush();
+      await settleAppRender();
     });
 
     expect((window.location as { pathname?: string }).pathname).toBe('/discovery');
@@ -860,8 +787,7 @@ describe('App shell', () => {
 
     await act(async () => {
       (window.history as { forward: () => void }).forward();
-      await flush();
-      await flush();
+      await settleAppRender();
     });
 
     expect((window.location as { pathname?: string }).pathname).toBe('/generate');
@@ -943,9 +869,7 @@ describe('App shell', () => {
     const root = createRoot(container as never);
     await act(async () => {
       root.render(createElement(App as never, { initialAdminPassword: 'secret' }));
-      await flush();
-      await flush();
-      await flush();
+      await settleAppRender();
     });
 
     const inboxProjectInput = findElement(
@@ -968,8 +892,7 @@ describe('App shell', () => {
 
     await act(async () => {
       handoffButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-      await flush();
-      await flush();
+      await settleAppRender();
     });
 
     expect((window.location as { pathname?: string }).pathname).toBe('/generate');
@@ -1117,9 +1040,7 @@ describe('App shell', () => {
     const root = createRoot(container as never);
     await act(async () => {
       root.render(createElement(App as never, { initialAdminPassword: 'secret' }));
-      await flush();
-      await flush();
-      await flush();
+      await settleAppRender();
     });
 
     expect((window.location as { pathname?: string }).pathname).toBe('/reputation');
@@ -1145,9 +1066,7 @@ describe('App shell', () => {
 
     await act(async () => {
       escalateButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-      await flush();
-      await flush();
-      await flush();
+      await settleAppRender();
     });
 
     expect((window.location as { pathname?: string }).pathname).toBe('/inbox');
@@ -1288,9 +1207,7 @@ describe('App shell', () => {
     const root = createRoot(container as never);
     await act(async () => {
       root.render(createElement(App as never, { initialAdminPassword: 'secret' }));
-      await flush();
-      await flush();
-      await flush();
+      await settleAppRender();
     });
 
     const reputationProjectInput = findElement(
@@ -1476,9 +1393,7 @@ describe('App shell', () => {
     const root = createRoot(container as never);
     await act(async () => {
       root.render(createElement(App as never, { initialAdminPassword: 'secret' }));
-      await flush();
-      await flush();
-      await flush();
+      await settleAppRender();
     });
 
     const reputationProjectInput = findElement(
@@ -1571,8 +1486,7 @@ describe('App shell', () => {
 
     await act(async () => {
       (window.history as { back: () => void }).back();
-      await flush();
-      await flush();
+      await settleAppRender();
     });
 
     expect((window.location as { pathname?: string }).pathname).toBe('/projects');
@@ -1581,8 +1495,7 @@ describe('App shell', () => {
 
     await act(async () => {
       (window.history as { forward: () => void }).forward();
-      await flush();
-      await flush();
+      await settleAppRender();
     });
 
     expect((window.location as { pathname?: string }).pathname).toBe('/legacy-route');

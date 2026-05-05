@@ -1,6 +1,6 @@
-import { createElement } from 'react';
+import { act, createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import App from '../../src/client/App';
 import type { AppRoute } from '../../src/client/lib/types';
 import { ChannelAccountsPage } from '../../src/client/pages/ChannelAccounts';
@@ -9,14 +9,194 @@ import { MonitorPage } from '../../src/client/pages/Monitor';
 import { ReputationPage } from '../../src/client/pages/Reputation';
 import { SettingsPage } from '../../src/client/pages/Settings';
 import { SystemQueuePage } from '../../src/client/pages/SystemQueue';
+import {
+  createStorageArea,
+  installAuthStorage,
+  installBrowserHistory,
+  jsonResponse,
+  settleLazyRouteRender,
+} from './app-shell-test-helpers';
+import { collectText, flush, installMinimalDom } from './settings-test-helpers';
 
-function renderAppRoute(route: AppRoute) {
-  return renderToStaticMarkup(
-    createElement(
-      App as unknown as (props: { initialRoute: AppRoute; initialAdminPassword: string }) => React.JSX.Element,
-      { initialRoute: route, initialAdminPassword: 'secret' },
-    )
-  );
+const routePathById: Record<AppRoute, string> = {
+  dashboard: '/',
+  queue: '/queue',
+  projects: '/projects',
+  discovery: '/discovery',
+  generate: '/generate',
+  drafts: '/drafts',
+  review: '/review',
+  calendar: '/calendar',
+  inbox: '/inbox',
+  monitor: '/monitor',
+  reputation: '/reputation',
+  channels: '/channels',
+  settings: '/settings',
+};
+
+function createAppShellFetchStub() {
+  return (input: RequestInfo | URL) => {
+    const requestUrl = new URL(String(input), 'http://localhost');
+    const { pathname, searchParams } = requestUrl;
+
+    if (pathname === '/api/auth/probe') {
+      return Promise.resolve(new Response(null, { status: 204 }));
+    }
+
+    if (pathname === '/api/inbox') {
+      return Promise.resolve(
+        jsonResponse({
+          items: [],
+          total: 0,
+          unread: 0,
+        }),
+      );
+    }
+
+    if (pathname === '/api/monitor/feed') {
+      return Promise.resolve(
+        jsonResponse({
+          items: [],
+          total: 0,
+        }),
+      );
+    }
+
+    if (pathname === '/api/reputation/stats') {
+      return Promise.resolve(
+        jsonResponse({
+          total: 0,
+          positive: 0,
+          neutral: 0,
+          negative: 0,
+          trend: [],
+          items: [],
+        }),
+      );
+    }
+
+    if (pathname === '/api/channel-accounts') {
+      return Promise.resolve(
+        jsonResponse({
+          channelAccounts: [],
+        }),
+      );
+    }
+
+    if (pathname === '/api/settings') {
+      return Promise.resolve(
+        jsonResponse({
+          settings: {
+            allowlist: ['127.0.0.1'],
+            schedulerIntervalMinutes: 15,
+            rssDefaults: [],
+            monitorRssFeeds: [],
+            monitorXQueries: [],
+            monitorRedditQueries: [],
+            monitorV2exQueries: [],
+          },
+        }),
+      );
+    }
+
+    if (pathname === '/api/system/jobs' && searchParams.get('limit') === '20') {
+      return Promise.resolve(
+        jsonResponse({
+          jobs: [],
+          queue: {
+            pending: 0,
+            running: 0,
+            done: 0,
+            failed: 0,
+            canceled: 0,
+            duePending: 0,
+          },
+          recentJobs: [],
+        }),
+      );
+    }
+
+    if (pathname === '/api/system/jobs' && searchParams.get('limit') === '50') {
+      return Promise.resolve(
+        jsonResponse({
+          jobs: [],
+          queue: {
+            pending: 0,
+            running: 0,
+            done: 0,
+            failed: 0,
+            canceled: 0,
+            duePending: 0,
+          },
+          recentJobs: [],
+        }),
+      );
+    }
+
+    if (pathname === '/api/system/browser-lane-requests' && searchParams.has('limit')) {
+      return Promise.resolve(
+        jsonResponse({
+          requests: [],
+          total: 0,
+        }),
+      );
+    }
+
+    if (pathname === '/api/system/browser-handoffs' && searchParams.has('limit')) {
+      return Promise.resolve(
+        jsonResponse({
+          handoffs: [],
+          total: 0,
+        }),
+      );
+    }
+
+    if (pathname === '/api/system/inbox-reply-handoffs') {
+      return Promise.resolve(
+        jsonResponse({
+          handoffs: [],
+          total: 0,
+        }),
+      );
+    }
+
+    throw new Error(`unexpected fetch request: ${url}`);
+  };
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+
+async function renderAppRoute(route: AppRoute) {
+  const { container, window } = installMinimalDom();
+  const { createRoot } = await import('react-dom/client');
+  installAuthStorage(window, {
+    localStorage: createStorageArea(),
+    sessionStorage: createStorageArea('secret'),
+  });
+  installBrowserHistory(window as never, routePathById[route]);
+  vi.stubGlobal('fetch', vi.fn(createAppShellFetchStub()));
+
+  const root = createRoot(container as never);
+  await act(async () => {
+    root.render(
+      createElement(
+        App as unknown as (props: { initialRoute: AppRoute; initialAdminPassword: string }) => React.JSX.Element,
+        { initialRoute: route, initialAdminPassword: 'secret' },
+      ),
+    );
+    await settleLazyRouteRender();
+  });
+
+  const renderedText = collectText(container);
+  await act(async () => {
+    root.unmount();
+    await flush();
+  });
+
+  return renderedText;
 }
 
 describe('Operations pages', () => {
@@ -83,8 +263,8 @@ describe('App route shell', () => {
     ['channels', 'Channel Accounts'],
     ['settings', 'Settings'],
     ['queue', 'System Queue']
-  ] as const)('renders %s through the navigation shell', (route, heading) => {
-    const html = renderAppRoute(route);
+  ] as const)('renders %s through the navigation shell', async (route, heading) => {
+    const html = await renderAppRoute(route);
 
     expect(html).toContain('PromoBot');
     expect(html).toContain(heading);
