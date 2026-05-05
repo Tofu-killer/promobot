@@ -1,4 +1,13 @@
-import { Component, Suspense, lazy, useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  Component,
+  Suspense,
+  lazy,
+  startTransition,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { Layout } from './components/Layout';
 import {
   clearStoredAdminPassword,
@@ -11,44 +20,58 @@ import {
 import type { AppRoute, NavItem } from './lib/types';
 import { LoginPage } from './pages/Login';
 
+const loadDashboardPageModule = () => import('./pages/Dashboard');
+const loadDiscoveryPageModule = () => import('./pages/Discovery');
+const loadDraftsPageModule = () => import('./pages/Drafts');
+const loadGeneratePageModule = () => import('./pages/Generate');
+const loadInboxPageModule = () => import('./pages/Inbox');
+const loadMonitorPageModule = () => import('./pages/Monitor');
+const loadProjectsPageModule = () => import('./pages/Projects');
+const loadPublishCalendarPageModule = () => import('./pages/PublishCalendar');
+const loadReputationPageModule = () => import('./pages/Reputation');
+const loadReviewQueuePageModule = () => import('./pages/ReviewQueue');
+const loadSettingsPageModule = () => import('./pages/Settings');
+const loadChannelAccountsPageModule = () => import('./pages/ChannelAccounts');
+const loadSystemQueuePageModule = () => import('./pages/SystemQueue');
+
 const DashboardPage = lazy(async () => ({
-  default: (await import('./pages/Dashboard')).DashboardPage,
+  default: (await loadDashboardPageModule()).DashboardPage,
 }));
 const DiscoveryPage = lazy(async () => ({
-  default: (await import('./pages/Discovery')).DiscoveryPage,
+  default: (await loadDiscoveryPageModule()).DiscoveryPage,
 }));
 const DraftsPage = lazy(async () => ({
-  default: (await import('./pages/Drafts')).DraftsPage,
+  default: (await loadDraftsPageModule()).DraftsPage,
 }));
 const GeneratePage = lazy(async () => ({
-  default: (await import('./pages/Generate')).GeneratePage,
+  default: (await loadGeneratePageModule()).GeneratePage,
 }));
 const InboxPage = lazy(async () => ({
-  default: (await import('./pages/Inbox')).InboxPage,
+  default: (await loadInboxPageModule()).InboxPage,
 }));
 const MonitorPage = lazy(async () => ({
-  default: (await import('./pages/Monitor')).MonitorPage,
+  default: (await loadMonitorPageModule()).MonitorPage,
 }));
 const ProjectsPage = lazy(async () => ({
-  default: (await import('./pages/Projects')).ProjectsPage,
+  default: (await loadProjectsPageModule()).ProjectsPage,
 }));
 const PublishCalendarPage = lazy(async () => ({
-  default: (await import('./pages/PublishCalendar')).PublishCalendarPage,
+  default: (await loadPublishCalendarPageModule()).PublishCalendarPage,
 }));
 const ReputationPage = lazy(async () => ({
-  default: (await import('./pages/Reputation')).ReputationPage,
+  default: (await loadReputationPageModule()).ReputationPage,
 }));
 const ReviewQueuePage = lazy(async () => ({
-  default: (await import('./pages/ReviewQueue')).ReviewQueuePage,
+  default: (await loadReviewQueuePageModule()).ReviewQueuePage,
 }));
 const SettingsPage = lazy(async () => ({
-  default: (await import('./pages/Settings')).SettingsPage,
+  default: (await loadSettingsPageModule()).SettingsPage,
 }));
 const ChannelAccountsPage = lazy(async () => ({
-  default: (await import('./pages/ChannelAccounts')).ChannelAccountsPage,
+  default: (await loadChannelAccountsPageModule()).ChannelAccountsPage,
 }));
 const SystemQueuePage = lazy(async () => ({
-  default: (await import('./pages/SystemQueue')).SystemQueuePage,
+  default: (await loadSystemQueuePageModule()).SystemQueuePage,
 }));
 
 const navItems: NavItem[] = [
@@ -83,6 +106,22 @@ const routePathById: Record<AppRoute, string> = {
   settings: '/settings',
 };
 
+const routeModuleLoaders: Record<AppRoute, () => Promise<unknown>> = {
+  dashboard: loadDashboardPageModule,
+  queue: loadSystemQueuePageModule,
+  projects: loadProjectsPageModule,
+  discovery: loadDiscoveryPageModule,
+  generate: loadGeneratePageModule,
+  drafts: loadDraftsPageModule,
+  review: loadReviewQueuePageModule,
+  calendar: loadPublishCalendarPageModule,
+  inbox: loadInboxPageModule,
+  monitor: loadMonitorPageModule,
+  reputation: loadReputationPageModule,
+  channels: loadChannelAccountsPageModule,
+  settings: loadSettingsPageModule,
+};
+
 const knownRoutes = new Set<AppRoute>(navItems.map((item) => item.id));
 
 function normalizeRoutePath(pathname: string | null | undefined) {
@@ -103,6 +142,10 @@ function getRouteFromPathname(pathname: string | null | undefined, fallback: App
 
   const candidate = normalizedPath.slice(1) as AppRoute;
   return knownRoutes.has(candidate) ? candidate : fallback;
+}
+
+function getInitialRoute(initialRoute: AppRoute) {
+  return typeof window === 'undefined' ? initialRoute : getRouteFromPathname(window.location.pathname, initialRoute);
 }
 
 function parseProjectIdDraft(value: string) {
@@ -401,17 +444,17 @@ interface AppProps {
 type AuthStatus = 'booting' | 'checking' | 'authenticated' | 'anonymous';
 
 export default function App({ initialRoute = 'dashboard', initialAdminPassword = null }: AppProps) {
-  const [activeRoute, setActiveRoute] = useState<AppRoute>(() =>
-    typeof window === 'undefined'
-      ? initialRoute
-      : getRouteFromPathname(window.location.pathname, initialRoute),
-  );
+  const [activeRoute, setActiveRoute] = useState<AppRoute>(() => getInitialRoute(initialRoute));
+  const [renderedRoute, setRenderedRoute] = useState<AppRoute>(() => getInitialRoute(initialRoute));
   const [sharedProjectIdDraft, setSharedProjectIdDraft] = useState('');
   const [generatePrefillState, setGeneratePrefillState] = useState<GeneratePrefillState | null>(null);
   const [inboxFocusState, setInboxFocusState] = useState<InboxFocusState | null>(null);
   const authSyncVersionRef = useRef(0);
+  const renderedRouteSyncVersionRef = useRef(0);
   const activeRouteRef = useRef(activeRoute);
+  const renderedRouteRef = useRef(renderedRoute);
   activeRouteRef.current = activeRoute;
+  renderedRouteRef.current = renderedRoute;
   const [authStatus, setAuthStatus] = useState<AuthStatus>(
     typeof window === 'undefined'
       ? initialAdminPassword
@@ -422,6 +465,37 @@ export default function App({ initialRoute = 'dashboard', initialAdminPassword =
   const [authError, setAuthError] = useState<string | null>(null);
   const cancelPendingAuthSync = () => {
     authSyncVersionRef.current += 1;
+  };
+
+  const commitRenderedRouteState = (nextRoute: AppRoute, routeHistoryState: AppRouteHistoryState) => {
+    setRenderedRoute(nextRoute);
+    if ('sharedProjectIdDraft' in routeHistoryState) {
+      setSharedProjectIdDraft(routeHistoryState.sharedProjectIdDraft ?? '');
+    }
+    setGeneratePrefillState(nextRoute === 'generate' ? routeHistoryState.generatePrefillState ?? null : null);
+    setInboxFocusState(nextRoute === 'inbox' ? routeHistoryState.inboxFocusState ?? null : null);
+  };
+
+  const scheduleRenderedRouteState = (nextRoute: AppRoute, routeHistoryState: AppRouteHistoryState) => {
+    const syncVersion = ++renderedRouteSyncVersionRef.current;
+    const commitRouteState = () => {
+      if (renderedRouteSyncVersionRef.current !== syncVersion) {
+        return;
+      }
+
+      startTransition(() => {
+        commitRenderedRouteState(nextRoute, routeHistoryState);
+      });
+    };
+
+    if (nextRoute === renderedRouteRef.current) {
+      commitRouteState();
+      return;
+    }
+
+    void routeModuleLoaders[nextRoute]()
+      .catch(() => undefined)
+      .finally(commitRouteState);
   };
 
   const syncAdminSession = (nextAuthError: string | null = null) => {
@@ -522,11 +596,7 @@ export default function App({ initialRoute = 'dashboard', initialAdminPassword =
       const routeHistoryState = readAppRouteHistoryState(nextHistoryState);
 
       setActiveRoute(nextRoute);
-      if ('sharedProjectIdDraft' in routeHistoryState) {
-        setSharedProjectIdDraft(routeHistoryState.sharedProjectIdDraft ?? '');
-      }
-      setGeneratePrefillState(nextRoute === 'generate' ? routeHistoryState.generatePrefillState ?? null : null);
-      setInboxFocusState(nextRoute === 'inbox' ? routeHistoryState.inboxFocusState ?? null : null);
+      scheduleRenderedRouteState(nextRoute, routeHistoryState);
     };
 
     syncRouteFromLocation(activeRouteRef.current);
@@ -547,16 +617,24 @@ export default function App({ initialRoute = 'dashboard', initialAdminPassword =
     }
 
     const pathname = normalizeRoutePath(window.location.pathname) || routePathById[activeRoute];
+    const nextHistoryState =
+      activeRoute === renderedRoute
+        ? createAppRouteHistoryState(
+            activeRoute,
+            {
+              sharedProjectIdDraft,
+              generatePrefillState,
+              inboxFocusState,
+            },
+            window.history.state,
+          )
+        : window.history.state;
     window.history.replaceState(
-      createAppRouteHistoryState(activeRoute, {
-        sharedProjectIdDraft,
-        generatePrefillState,
-        inboxFocusState,
-      }, window.history.state),
+      nextHistoryState,
       '',
       pathname,
     );
-  }, [activeRoute, generatePrefillState, inboxFocusState, sharedProjectIdDraft]);
+  }, [activeRoute, renderedRoute, generatePrefillState, inboxFocusState, sharedProjectIdDraft]);
 
   const handleNavigate = (
     route: AppRoute,
@@ -566,26 +644,23 @@ export default function App({ initialRoute = 'dashboard', initialAdminPassword =
       inboxFocusState?: InboxFocusState | null;
     } = {},
   ) => {
-    setActiveRoute(route);
-
-    if (typeof window.history?.pushState !== 'function') {
-      return;
-    }
-
-    const nextPath = routePathById[route];
     const nextHistoryState = createAppRouteHistoryState(route, {
       sharedProjectIdDraft: input.sharedProjectIdDraft ?? sharedProjectIdDraft,
       generatePrefillState: input.generatePrefillState,
       inboxFocusState: input.inboxFocusState,
-    }, window.history.state);
-    if (normalizeRoutePath(window.location.pathname) !== nextPath) {
-      window.history.pushState(nextHistoryState, '', nextPath);
-      return;
+    }, window.history?.state);
+    if (typeof window.history?.pushState === 'function') {
+      const nextPath = routePathById[route];
+      if (normalizeRoutePath(window.location.pathname) !== nextPath) {
+        window.history.pushState(nextHistoryState, '', nextPath);
+      } else if (typeof window.history.replaceState === 'function') {
+        window.history.replaceState(nextHistoryState, '', nextPath);
+      }
     }
 
-    if (typeof window.history.replaceState === 'function') {
-      window.history.replaceState(nextHistoryState, '', nextPath);
-    }
+    const routeHistoryState = readAppRouteHistoryState(nextHistoryState);
+    setActiveRoute(route);
+    scheduleRenderedRouteState(route, routeHistoryState);
   };
 
   const handleOpenGenerateCenter = (input: { topic: string; preferredPlatforms: string[] }) => {
@@ -595,7 +670,6 @@ export default function App({ initialRoute = 'dashboard', initialAdminPassword =
       preferredPlatforms: input.preferredPlatforms,
     } satisfies GeneratePrefillState;
 
-    setGeneratePrefillState(nextState);
     handleNavigate('generate', {
       generatePrefillState: nextState,
     });
@@ -614,8 +688,6 @@ export default function App({ initialRoute = 'dashboard', initialAdminPassword =
       itemId: input.itemId,
     } satisfies InboxFocusState;
 
-    setSharedProjectIdDraft(nextProjectIdDraft);
-    setInboxFocusState(nextState);
     handleNavigate('inbox', {
       sharedProjectIdDraft: nextProjectIdDraft,
       inboxFocusState: nextState,
@@ -689,7 +761,7 @@ export default function App({ initialRoute = 'dashboard', initialAdminPassword =
       <RouteErrorBoundary>
         <Suspense fallback={<RouteLoadingFallback />}>
           {renderRoute(
-            activeRoute,
+            renderedRoute,
             sharedProjectIdDraft,
             setSharedProjectIdDraft,
             handleNavigate,
