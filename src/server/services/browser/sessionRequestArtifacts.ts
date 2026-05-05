@@ -91,6 +91,11 @@ export interface SessionRequestArtifactSummary {
   resolution?: string | Record<string, unknown>;
 }
 
+export interface ChannelAccountSessionRequestArtifactSummary {
+  latestArtifact: SessionRequestArtifactSummary | null;
+  latestUnresolvedByAction: Partial<Record<BrowserSessionAction, SessionRequestArtifactSummary>>;
+}
+
 export interface SessionRequestArtifactLookupInput {
   platform: string;
   accountKey: string;
@@ -253,6 +258,109 @@ export function getLatestSessionRequestArtifact(
     unresolvedOnly?: boolean;
   },
 ): SessionRequestArtifactSummary | null {
+  const artifacts = listMatchingSessionRequestArtifacts(input);
+
+  const latest = artifacts[0];
+  if (!latest) {
+    return null;
+  }
+
+  return toSessionRequestArtifactSummary(latest);
+}
+
+export function getChannelAccountSessionRequestArtifactSummary(
+  input: {
+    channelAccountId: number;
+    platform: string;
+    accountKey: string;
+  },
+): ChannelAccountSessionRequestArtifactSummary {
+  const artifacts = listMatchingSessionRequestArtifacts(input);
+  const latestArtifact = artifacts[0] ? toSessionRequestArtifactSummary(artifacts[0]) : null;
+  const latestUnresolvedByAction: Partial<
+    Record<BrowserSessionAction, SessionRequestArtifactSummary>
+  > = {};
+
+  for (const artifact of artifacts) {
+    if (artifact.artifact.resolvedAt !== undefined) {
+      continue;
+    }
+
+    if (latestUnresolvedByAction[artifact.artifact.action]) {
+      continue;
+    }
+
+    latestUnresolvedByAction[artifact.artifact.action] =
+      toSessionRequestArtifactSummary(artifact);
+  }
+
+  return {
+    latestArtifact,
+    latestUnresolvedByAction,
+  };
+}
+
+function toSessionRequestArtifactSummary(input: {
+  artifact: SessionRequestArtifactRecord;
+  artifactPath: string;
+}): SessionRequestArtifactSummary {
+  return {
+    channelAccountId: input.artifact.channelAccountId,
+    platform: input.artifact.platform,
+    accountKey: input.artifact.accountKey,
+    action: input.artifact.action,
+    jobId: input.artifact.jobId,
+    jobStatus: input.artifact.jobStatus,
+    requestedAt: input.artifact.requestedAt,
+    artifactPath: input.artifactPath,
+    managedStorageStatePath:
+      input.artifact.managedStorageStatePath ??
+      buildManagedStorageStatePath(input.artifact.platform, input.artifact.accountKey),
+    resolvedAt: input.artifact.resolvedAt ?? null,
+    ...(input.artifact.resolution !== undefined ? { resolution: input.artifact.resolution } : {}),
+  };
+}
+
+export function getLatestUnresolvedSessionRequestArtifactsByAction(
+  input: {
+    channelAccountId: number;
+    platform: string;
+    accountKey: string;
+  },
+): Partial<Record<BrowserSessionAction, SessionRequestArtifactSummary>> {
+  const actions: BrowserSessionAction[] = ['request_session', 'relogin'];
+  const artifacts = actions
+    .map((action) =>
+      getLatestSessionRequestArtifact({
+        ...input,
+        action,
+        unresolvedOnly: true,
+      }),
+    )
+    .filter((artifact): artifact is SessionRequestArtifactSummary => artifact !== null);
+
+  if (artifacts.length === 0) {
+    return {};
+  }
+
+  return artifacts.reduce<Partial<Record<BrowserSessionAction, SessionRequestArtifactSummary>>>(
+    (current, artifact) => ({
+      ...current,
+      [artifact.action]: artifact,
+    }),
+    {},
+  );
+}
+
+function listMatchingSessionRequestArtifacts(
+  input: {
+    channelAccountId: number;
+    platform: string;
+    accountKey: string;
+    action?: BrowserSessionAction;
+    unresolvedOnly?: boolean;
+  },
+) {
   const artifactRootDir = resolveArtifactRootDir();
   const artifactDir = path.join(
     artifactRootDir,
@@ -260,10 +368,10 @@ export function getLatestSessionRequestArtifact(
   );
 
   if (!fs.existsSync(artifactDir)) {
-    return null;
+    return [];
   }
 
-  const artifacts = fs
+  return fs
     .readdirSync(artifactDir, { withFileTypes: true })
     .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
     .map((entry) => {
@@ -309,58 +417,6 @@ export function getLatestSessionRequestArtifact(
 
       return right.artifactPath.localeCompare(left.artifactPath);
     });
-
-  const latest = artifacts[0];
-  if (!latest) {
-    return null;
-  }
-
-  return {
-    channelAccountId: latest.artifact.channelAccountId,
-    platform: latest.artifact.platform,
-    accountKey: latest.artifact.accountKey,
-    action: latest.artifact.action,
-    jobId: latest.artifact.jobId,
-    jobStatus: latest.artifact.jobStatus,
-    requestedAt: latest.artifact.requestedAt,
-    artifactPath: latest.artifactPath,
-    managedStorageStatePath:
-      latest.artifact.managedStorageStatePath ??
-      buildManagedStorageStatePath(latest.artifact.platform, latest.artifact.accountKey),
-    resolvedAt: latest.artifact.resolvedAt ?? null,
-    ...(latest.artifact.resolution !== undefined ? { resolution: latest.artifact.resolution } : {}),
-  };
-}
-
-export function getLatestUnresolvedSessionRequestArtifactsByAction(
-  input: {
-    channelAccountId: number;
-    platform: string;
-    accountKey: string;
-  },
-): Partial<Record<BrowserSessionAction, SessionRequestArtifactSummary>> {
-  const actions: BrowserSessionAction[] = ['request_session', 'relogin'];
-  const artifacts = actions
-    .map((action) =>
-      getLatestSessionRequestArtifact({
-        ...input,
-        action,
-        unresolvedOnly: true,
-      }),
-    )
-    .filter((artifact): artifact is SessionRequestArtifactSummary => artifact !== null);
-
-  if (artifacts.length === 0) {
-    return {};
-  }
-
-  return artifacts.reduce<Partial<Record<BrowserSessionAction, SessionRequestArtifactSummary>>>(
-    (current, artifact) => ({
-      ...current,
-      [artifact.action]: artifact,
-    }),
-    {},
-  );
 }
 
 export function getSessionRequestArtifact(

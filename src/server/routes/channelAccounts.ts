@@ -18,14 +18,21 @@ import {
 import { createBrowserLaneDispatch } from '../services/browser/browserLaneDispatch.js';
 import {
   createSessionRequestArtifact,
+  getChannelAccountSessionRequestArtifactSummary,
   getLatestSessionRequestArtifact,
   getLatestUnresolvedSessionRequestArtifactsByAction,
   resolveSessionRequestArtifacts,
 } from '../services/browser/sessionRequestArtifacts.js';
 import { resumeBlockedInboxReplyHandoffsForChannelAccount } from '../services/browser/resumeBlockedInboxReplyHandoffs.js';
 import { resumeBlockedBrowserPublishesForChannelAccount } from '../services/browser/resumeBlockedBrowserPublishes.js';
-import { getLatestBrowserHandoffArtifact } from '../services/publishers/browserHandoffArtifacts.js';
-import { getLatestInboxReplyHandoffArtifact } from '../services/inbox/replyHandoffArtifacts.js';
+import {
+  findLatestBrowserHandoffArtifact,
+  listBrowserHandoffArtifacts,
+} from '../services/publishers/browserHandoffArtifacts.js';
+import {
+  findLatestInboxReplyHandoffArtifact,
+  listInboxReplyHandoffArtifacts,
+} from '../services/inbox/replyHandoffArtifacts.js';
 
 const channelAccountStore = createChannelAccountStore();
 const jobQueueStore = createJobQueueStore();
@@ -46,10 +53,50 @@ export const channelAccountsRouter = Router();
 
 channelAccountsRouter.get('/', (_request, response) => {
   const sessionStore = createSessionStore();
+  const channelAccounts = channelAccountStore.list();
+  const browserHandoffArtifactsByScope = groupArtifactsByScope(
+    listBrowserHandoffArtifacts(),
+    normalizeScopedChannelAccountPlatform,
+  );
+  const inboxReplyHandoffArtifactsByScope = groupArtifactsByScope(
+    listInboxReplyHandoffArtifacts(),
+    normalizeScopedChannelAccountPlatform,
+  );
+
   response.json({
-    channelAccounts: channelAccountStore
-      .list()
-      .map((channelAccount) => attachSessionSummary(channelAccount, sessionStore)),
+    channelAccounts: channelAccounts.map((channelAccount) => {
+      const sessionRequestArtifactSummary = getChannelAccountSessionRequestArtifactSummary({
+        channelAccountId: channelAccount.id,
+        platform: channelAccount.platform,
+        accountKey: channelAccount.accountKey,
+      });
+      const artifactScopeKey = buildScopedChannelAccountArtifactKey(
+        channelAccount.platform,
+        channelAccount.accountKey,
+        normalizeScopedChannelAccountPlatform,
+      );
+
+      return attachSessionSummary(channelAccount, sessionStore, {
+        latestBrowserLaneArtifact: sessionRequestArtifactSummary.latestArtifact,
+        activeSessionActionArtifacts: sessionRequestArtifactSummary.latestUnresolvedByAction,
+        latestBrowserHandoffArtifact: findLatestBrowserHandoffArtifact(
+          {
+            channelAccountId: channelAccount.id,
+            platform: channelAccount.platform,
+            accountKey: channelAccount.accountKey,
+          },
+          browserHandoffArtifactsByScope.get(artifactScopeKey) ?? [],
+        ),
+        latestInboxReplyHandoffArtifact: findLatestInboxReplyHandoffArtifact(
+          {
+            channelAccountId: channelAccount.id,
+            platform: channelAccount.platform,
+            accountKey: channelAccount.accountKey,
+          },
+          inboxReplyHandoffArtifactsByScope.get(artifactScopeKey) ?? [],
+        ),
+      });
+    }),
   });
 });
 
@@ -544,7 +591,18 @@ function attachSessionSummary<
     accountKey: string;
     metadata: Record<string, unknown>;
   },
->(channelAccount: T, sessionStore = createSessionStore()): T & { session: SessionSummary } {
+>(
+  channelAccount: T,
+  sessionStore = createSessionStore(),
+  prefetchedArtifacts?: {
+    latestBrowserLaneArtifact?: ReturnType<typeof getLatestSessionRequestArtifact>;
+    activeSessionActionArtifacts?: Partial<
+      Record<BrowserSessionAction, ReturnType<typeof getLatestSessionRequestArtifact>>
+    >;
+    latestBrowserHandoffArtifact?: ReturnType<typeof findLatestBrowserHandoffArtifact>;
+    latestInboxReplyHandoffArtifact?: ReturnType<typeof findLatestInboxReplyHandoffArtifact>;
+  },
+): T & { session: SessionSummary } {
   const { sessionMetadata: liveSession } = resolveManagedBrowserSession(
     sessionStore,
     channelAccount.platform,
@@ -554,11 +612,14 @@ function attachSessionSummary<
     parseSessionSummary(channelAccount.metadata.session),
   );
   const session = liveSession ? buildSessionSummary(liveSession) : metadataSession;
-  const latestBrowserLaneArtifact = getLatestSessionRequestArtifact({
-    channelAccountId: channelAccount.id,
-    platform: channelAccount.platform,
-    accountKey: channelAccount.accountKey,
-  });
+  const latestBrowserLaneArtifact =
+    prefetchedArtifacts && 'latestBrowserLaneArtifact' in prefetchedArtifacts
+      ? prefetchedArtifacts.latestBrowserLaneArtifact
+      : getLatestSessionRequestArtifact({
+          channelAccountId: channelAccount.id,
+          platform: channelAccount.platform,
+          accountKey: channelAccount.accountKey,
+        });
   const latestBrowserLaneArtifactWithLiveStatus =
     latestBrowserLaneArtifact && latestBrowserLaneArtifact.resolvedAt === null
       ? {
@@ -568,33 +629,54 @@ function attachSessionSummary<
             latestBrowserLaneArtifact.jobStatus,
         }
       : latestBrowserLaneArtifact;
+  const sessionActionArtifacts =
+    prefetchedArtifacts && 'activeSessionActionArtifacts' in prefetchedArtifacts
+      ? (prefetchedArtifacts.activeSessionActionArtifacts ?? {})
+      : getLatestUnresolvedSessionRequestArtifactsByAction({
+          channelAccountId: channelAccount.id,
+          platform: channelAccount.platform,
+          accountKey: channelAccount.accountKey,
+        });
   const activeSessionActionArtifacts = Object.fromEntries(
-    Object.entries(
-      getLatestUnresolvedSessionRequestArtifactsByAction({
-        channelAccountId: channelAccount.id,
-        platform: channelAccount.platform,
-        accountKey: channelAccount.accountKey,
-      }),
-    ).map(([action, artifact]) => [
-      action,
-      artifact.resolvedAt === null
-        ? {
-            ...artifact,
-            jobStatus: jobQueueStore.get(artifact.jobId)?.status ?? artifact.jobStatus,
-          }
-        : artifact,
-    ]),
+    Object.entries(sessionActionArtifacts)
+      .filter(
+        (
+          entry,
+        ): entry is [BrowserSessionAction, NonNullable<(typeof sessionActionArtifacts)[BrowserSessionAction]>] =>
+          entry[1] !== undefined && entry[1] !== null,
+      )
+      .map(([action, artifact]) => [
+        action,
+        artifact.resolvedAt === null
+          ? {
+              ...artifact,
+              jobStatus: jobQueueStore.get(artifact.jobId)?.status ?? artifact.jobStatus,
+            }
+          : artifact,
+      ]),
   );
-  const latestBrowserHandoffArtifact = getLatestBrowserHandoffArtifact({
-    channelAccountId: channelAccount.id,
-    platform: channelAccount.platform,
-    accountKey: channelAccount.accountKey,
-  });
-  const latestInboxReplyHandoffArtifact = getLatestInboxReplyHandoffArtifact({
-    channelAccountId: channelAccount.id,
-    platform: channelAccount.platform,
-    accountKey: channelAccount.accountKey,
-  });
+  const latestBrowserHandoffArtifact =
+    prefetchedArtifacts && 'latestBrowserHandoffArtifact' in prefetchedArtifacts
+      ? prefetchedArtifacts.latestBrowserHandoffArtifact
+      : findLatestBrowserHandoffArtifact(
+          {
+            channelAccountId: channelAccount.id,
+            platform: channelAccount.platform,
+            accountKey: channelAccount.accountKey,
+          },
+          listBrowserHandoffArtifacts(),
+        );
+  const latestInboxReplyHandoffArtifact =
+    prefetchedArtifacts && 'latestInboxReplyHandoffArtifact' in prefetchedArtifacts
+      ? prefetchedArtifacts.latestInboxReplyHandoffArtifact
+      : findLatestInboxReplyHandoffArtifact(
+          {
+            channelAccountId: channelAccount.id,
+            platform: channelAccount.platform,
+            accountKey: channelAccount.accountKey,
+          },
+          listInboxReplyHandoffArtifacts(),
+        );
 
   return {
     ...channelAccount,
@@ -613,6 +695,44 @@ function attachSessionSummary<
           : undefined,
     }),
   };
+}
+
+function buildScopedChannelAccountArtifactKey(
+  platform: string,
+  accountKey: string,
+  normalizePlatform: (platform: string) => string,
+) {
+  return `${normalizePlatform(platform)}::${accountKey}`;
+}
+
+function normalizeScopedChannelAccountPlatform(platform: string) {
+  return platform === 'facebook-group' ? 'facebookGroup' : platform;
+}
+
+function groupArtifactsByScope<
+  T extends {
+    platform: string;
+    accountKey: string;
+  },
+>(artifacts: T[], normalizePlatform: (platform: string) => string) {
+  const grouped = new Map<string, T[]>();
+
+  for (const artifact of artifacts) {
+    const key = buildScopedChannelAccountArtifactKey(
+      artifact.platform,
+      artifact.accountKey,
+      normalizePlatform,
+    );
+    const existing = grouped.get(key);
+    if (existing) {
+      existing.push(artifact);
+      continue;
+    }
+
+    grouped.set(key, [artifact]);
+  }
+
+  return grouped;
 }
 
 function parseSessionSummary(value: unknown): SessionSummary {

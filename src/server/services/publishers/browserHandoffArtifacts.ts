@@ -307,25 +307,38 @@ export function getLatestBrowserHandoffArtifact(input: {
   platform: string;
   accountKey: string;
 }): BrowserHandoffArtifactSummary | null {
+  return findLatestBrowserHandoffArtifact(input, listBrowserHandoffArtifacts());
+}
+
+export function findLatestBrowserHandoffArtifact(
+  input: {
+    channelAccountId?: number;
+    platform: string;
+    accountKey: string;
+  },
+  artifacts: BrowserHandoffArtifactSummary[],
+): BrowserHandoffArtifactSummary | null {
   const normalizedPlatform = normalizeBrowserHandoffPlatform(input.platform);
-  const artifacts = listBrowserHandoffArtifacts().filter(
+  const matchingArtifacts = artifacts.filter(
     (artifact) =>
       artifact.platform === normalizedPlatform &&
       artifact.accountKey === input.accountKey,
   );
 
   if (typeof input.channelAccountId === 'number') {
-    const exactMatch = artifacts.find((artifact) => artifact.channelAccountId === input.channelAccountId);
+    const exactMatch = matchingArtifacts.find(
+      (artifact) => artifact.channelAccountId === input.channelAccountId,
+    );
     if (exactMatch) {
       return exactMatch;
     }
 
-    if (artifacts.some((artifact) => typeof artifact.channelAccountId === 'number')) {
+    if (matchingArtifacts.some((artifact) => typeof artifact.channelAccountId === 'number')) {
       return null;
     }
   }
 
-  const latest = artifacts[0];
+  const latest = matchingArtifacts[0];
 
   return latest ?? null;
 }

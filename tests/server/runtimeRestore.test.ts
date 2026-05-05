@@ -991,7 +991,7 @@ describe('runtime restore cli', () => {
     }
   });
 
-  it('rejects restore targets that escape the repo root recorded for the backup', async () => {
+  it('restores copied entries back to absolute runtime paths outside the recorded repo root', async () => {
     const runtimeRestore = await loadRuntimeRestoreModule();
     const testDatabase = createTestDatabasePath();
     const outsideRootDir = path.dirname(testDatabase.rootDir);
@@ -1029,31 +1029,41 @@ describe('runtime restore cli', () => {
         repoRootDir: testDatabase.rootDir,
         stdout: stdout.stdout,
       })) as {
-        backupsCreated: unknown[];
-        missing: Array<{
-          expectedPath: string;
+        backupsCreated: Array<{
+          backupPath: string;
           kind: string;
-          reason: string;
+          originalPath: string;
+          type: string;
+        }>;
+        missing: unknown[];
+        restored: Array<{
+          backupPath: string;
+          kind: string;
           targetPath: string;
           type: string;
         }>;
-        restored: unknown[];
       };
 
-      expect(summary.ok).toBe(false);
-      expect(summary.restored).toEqual([]);
-      expect(summary.backupsCreated).toEqual([]);
-      expect(summary.missing).toEqual([
+      expect(summary.ok).toBe(true);
+      expect(summary.missing).toEqual([]);
+      expect(summary.restored).toEqual([
         {
           kind: 'database',
           type: 'file',
-          expectedPath: escapeTargetPath,
+          backupPath: backupPayloadPath,
           targetPath: escapeTargetPath,
-          reason: 'backup-incomplete',
         },
       ]);
-      expect(fs.readFileSync(escapeTargetPath, 'utf8')).toBe('outside-current');
-      expect(fs.existsSync(preRestoreBackupPath)).toBe(false);
+      expect(summary.backupsCreated).toEqual([
+        {
+          kind: 'database',
+          type: 'file',
+          originalPath: escapeTargetPath,
+          backupPath: preRestoreBackupPath,
+        },
+      ]);
+      expect(fs.readFileSync(escapeTargetPath, 'utf8')).toBe('outside-restored');
+      expect(fs.readFileSync(preRestoreBackupPath, 'utf8')).toBe('outside-current');
       expect(JSON.parse(stdout.read())).toEqual(summary);
     } finally {
       fs.rmSync(escapeTargetPath, { force: true });

@@ -374,22 +374,36 @@ export function getLatestInboxReplyHandoffArtifact(input: {
   platform: string;
   accountKey: string;
 }): InboxReplyHandoffArtifactSummary | null {
+  return findLatestInboxReplyHandoffArtifact(input, listInboxReplyHandoffArtifacts());
+}
+
+export function findLatestInboxReplyHandoffArtifact(
+  input: {
+    channelAccountId?: number;
+    platform: string;
+    accountKey: string;
+  },
+  artifacts: InboxReplyHandoffArtifactSummary[],
+): InboxReplyHandoffArtifactSummary | null {
   const normalizedPlatform = normalizeInboxReplyHandoffPlatform(input.platform);
-  const artifacts = listInboxReplyHandoffArtifacts().filter(
+  const matchingArtifacts = artifacts.filter(
     (artifact) =>
       normalizeInboxReplyHandoffPlatform(artifact.platform) === normalizedPlatform &&
       artifact.accountKey === input.accountKey,
   );
 
-  if (artifacts.length === 0) {
+  if (matchingArtifacts.length === 0) {
     return null;
   }
 
   if (typeof input.channelAccountId === 'number') {
-    return artifacts.find((artifact) => artifact.channelAccountId === input.channelAccountId) ?? null;
+    return (
+      matchingArtifacts.find((artifact) => artifact.channelAccountId === input.channelAccountId) ??
+      null
+    );
   }
 
-  return artifacts[0] ?? null;
+  return matchingArtifacts[0] ?? null;
 }
 
 function resolveInboxReplyHandoffOwnership(

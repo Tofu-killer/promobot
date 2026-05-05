@@ -12,6 +12,9 @@ vi.mock('../../src/server/services/browser/browserLaneDispatch.js', () => ({
   createBrowserLaneDispatch: () => browserLaneDispatchSpy,
 }));
 
+import * as browserHandoffArtifacts from '../../src/server/services/publishers/browserHandoffArtifacts';
+import * as inboxReplyHandoffArtifacts from '../../src/server/services/inbox/replyHandoffArtifacts';
+
 import { channelAccountsRouter } from '../../src/server/routes/channelAccounts';
 import { createSQLiteDraftStore } from '../../src/server/store/drafts';
 import { createInboxStore } from '../../src/server/store/inbox';
@@ -4562,6 +4565,102 @@ describe('channel accounts api', () => {
         ],
       });
     } finally {
+      cleanupTestDatabasePath(rootDir);
+    }
+  });
+
+  it('loads browser and inbox handoff artifact indexes once per channel account listing request', async () => {
+    const { rootDir } = createTestDatabasePath();
+    try {
+      await requestApp('POST', '/api/channel-accounts', {
+        projectId: 11,
+        platform: 'facebookGroup',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB Group 11',
+        authType: 'browser',
+        status: 'healthy',
+      });
+      await requestApp('POST', '/api/channel-accounts', {
+        projectId: 22,
+        platform: 'facebookGroup',
+        accountKey: 'launch-campaign',
+        displayName: 'PromoBot FB Group 22',
+        authType: 'browser',
+        status: 'healthy',
+      });
+      const inboxStore = createInboxStore();
+      const item = inboxStore.create({
+        projectId: 22,
+        source: 'facebook-group',
+        status: 'needs_reply',
+        author: 'Campaign owner',
+        title: 'Launch follow-up',
+        excerpt: 'Need a scoped reply',
+      });
+      const handoffDir = path.join(
+        rootDir,
+        'artifacts',
+        'browser-handoffs',
+        'facebookGroup',
+        'launch-campaign',
+      );
+      mkdirSync(handoffDir, { recursive: true });
+      writeFileSync(
+        path.join(handoffDir, 'facebookGroup-draft-1.json'),
+        JSON.stringify({
+          type: 'browser_manual_handoff',
+          status: 'pending',
+          platform: 'facebookGroup',
+          draftId: '1',
+          title: 'Scoped handoff draft',
+          content: 'Need handoff',
+          target: 'group-123',
+          accountKey: 'launch-campaign',
+          session: {
+            hasSession: true,
+            id: 'facebookGroup:launch-campaign',
+            status: 'active',
+            validatedAt: '2026-04-21T10:30:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
+          },
+          createdAt: '2026-04-21T10:30:00.000Z',
+          updatedAt: '2026-04-21T10:30:00.000Z',
+          resolvedAt: null,
+          resolution: null,
+        }),
+      );
+      writeInboxReplyHandoffArtifact(
+        rootDir,
+        `artifacts/inbox-reply-handoffs/facebookGroup/launch-campaign/facebookGroup-inbox-item-${item.id}.json`,
+        {
+          platform: 'facebookGroup',
+          source: 'facebookGroup',
+          accountKey: 'launch-campaign',
+          session: {
+            hasSession: true,
+            id: 'facebookGroup:launch-campaign',
+            status: 'active',
+            validatedAt: '2026-04-21T10:30:00.000Z',
+            storageStatePath: 'artifacts/browser-sessions/facebook-group.json',
+          },
+        },
+      );
+
+      const browserHandoffListSpy = vi.spyOn(
+        browserHandoffArtifacts,
+        'listBrowserHandoffArtifacts',
+      );
+      const inboxReplyHandoffListSpy = vi.spyOn(
+        inboxReplyHandoffArtifacts,
+        'listInboxReplyHandoffArtifacts',
+      );
+
+      const listedResponse = await requestApp('GET', '/api/channel-accounts');
+      expect(listedResponse.status).toBe(200);
+      expect(browserHandoffListSpy).toHaveBeenCalledTimes(1);
+      expect(inboxReplyHandoffListSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.restoreAllMocks();
       cleanupTestDatabasePath(rootDir);
     }
   });
