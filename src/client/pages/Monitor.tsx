@@ -8,6 +8,14 @@ import { MonitorFeed } from '../components/MonitorFeed';
 import { PageHeader } from '../components/PageHeader';
 import { SectionCard } from '../components/SectionCard';
 import { StatCard } from '../components/StatCard';
+import {
+  createProjectIdBody,
+  createProjectPayload,
+  getProjectIdValidationError,
+  parseProjectId,
+  queueInputStyle,
+  withProjectIdQuery,
+} from '../lib/projectId';
 
 export interface MonitorItem {
   id: number;
@@ -53,45 +61,12 @@ export interface EnqueueMonitorFetchJobResponse {
 const launchReadyFollowUpPlatforms = new Set(['x', 'reddit', 'instagram', 'tiktok', 'xiaohongshu', 'weibo']);
 const manualMonitorGeneratePlatforms = ['facebook-group', 'instagram', 'tiktok', 'xiaohongshu', 'weibo'];
 
-function parseProjectId(value: string) {
-  const normalizedValue = value.trim();
-
-  if (normalizedValue.length === 0) {
-    return undefined;
-  }
-
-  const projectId = Number(normalizedValue);
-  return Number.isInteger(projectId) && projectId > 0 ? projectId : undefined;
-}
-
-function getProjectIdValidationError(value: string) {
-  const normalizedValue = value.trim();
-
-  if (normalizedValue.length === 0) {
-    return null;
-  }
-
-  return parseProjectId(value) === undefined ? '项目 ID 必须是大于 0 的整数' : null;
-}
-
-function buildProjectScopedPath(path: string, projectId?: number) {
-  return projectId === undefined ? path : `${path}?projectId=${projectId}`;
-}
-
-function createProjectIdBody(projectId?: number) {
-  return projectId === undefined ? undefined : JSON.stringify({ projectId });
-}
-
-function createProjectPayload(projectId?: number) {
-  return projectId === undefined ? {} : { projectId };
-}
-
 function buildMonitorGenerateTopic(item: MonitorItem) {
   return [item.title, item.detail].filter((value) => value.trim().length > 0).join('\n\n');
 }
 
 export async function loadMonitorFeedRequest(projectId?: number): Promise<MonitorFeedResponse> {
-  return apiRequest<MonitorFeedResponse>(buildProjectScopedPath('/api/monitor/feed', projectId));
+  return apiRequest<MonitorFeedResponse>(withProjectIdQuery('/api/monitor/feed', projectId));
 }
 
 export async function generateFollowUpRequest(
@@ -188,15 +163,6 @@ const sourceFilters: Array<{ id: MonitorSourceFilter; label: string }> = [
   { id: 'product-hunt', label: 'Product Hunt' },
   { id: 'v2ex', label: 'V2EX' },
 ];
-const queueInputStyle = {
-  width: '100%',
-  borderRadius: '14px',
-  border: '1px solid #cbd5e1',
-  padding: '12px 14px',
-  font: 'inherit',
-  background: '#ffffff',
-} as const;
-
 export function MonitorPage({
   loadMonitorAction = loadMonitorFeedRequest,
   generateFollowUpAction = generateFollowUpRequest,

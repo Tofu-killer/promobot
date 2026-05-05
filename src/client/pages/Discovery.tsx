@@ -20,6 +20,13 @@ import {
   type GenerateDraftsPayload,
   type GenerateDraftsResponse,
 } from './Generate';
+import {
+  createProjectIdBody,
+  getProjectIdValidationError,
+  parseProjectId,
+  projectInputStyle,
+  withProjectIdQuery,
+} from '../lib/projectId';
 
 interface DiscoveryPageProps {
   loadDiscoveryAction?: (projectId?: number) => Promise<DiscoveryResponse>;
@@ -222,45 +229,6 @@ function filterDiscoveryItems(items: DiscoveryItem[], activeSourceFilter: string
   });
 }
 
-function parseProjectId(value: string) {
-  const normalizedValue = value.trim();
-
-  if (normalizedValue.length === 0) {
-    return undefined;
-  }
-
-  const projectId = Number(normalizedValue);
-  return Number.isInteger(projectId) && projectId > 0 ? projectId : undefined;
-}
-
-function getProjectIdValidationError(value: string) {
-  const normalizedValue = value.trim();
-
-  if (normalizedValue.length === 0) {
-    return null;
-  }
-
-  return parseProjectId(value) === undefined ? '项目 ID 必须是大于 0 的整数' : null;
-}
-
-function buildProjectScopedPath(path: string, projectId?: number) {
-  return projectId === undefined ? path : `${path}?projectId=${projectId}`;
-}
-
-function createProjectIdBody(projectId?: number) {
-  return projectId === undefined ? undefined : JSON.stringify({ projectId });
-}
-
-const projectInputStyle = {
-  width: '100%',
-  maxWidth: '240px',
-  borderRadius: '14px',
-  border: '1px solid #cbd5e1',
-  padding: '12px 14px',
-  font: 'inherit',
-  background: '#ffffff',
-} as const;
-
 const manualDiscoveryPlatforms = ['facebook-group', 'instagram', 'tiktok', 'xiaohongshu', 'weibo'];
 
 export async function loadDiscoveryPageRequest(projectId?: number): Promise<DiscoveryResponse> {
@@ -268,7 +236,7 @@ export async function loadDiscoveryPageRequest(projectId?: number): Promise<Disc
     return loadDiscoveryRequest();
   }
 
-  const payload = await apiRequest<unknown>(buildProjectScopedPath('/api/discovery', projectId));
+  const payload = await apiRequest<unknown>(withProjectIdQuery('/api/discovery', projectId));
   return normalizeDiscoveryResponse(payload);
 }
 

@@ -3,6 +3,7 @@ import { ActionButton } from '../components/ActionButton';
 import { PageHeader } from '../components/PageHeader';
 import { SectionCard } from '../components/SectionCard';
 import { apiRequest, getErrorMessage } from '../lib/api';
+import { getProjectIdValidationError, parseProjectId, projectInputStyle, withProjectIdQuery } from '../lib/projectId';
 import type { DraftRecord, DraftsResponse } from '../lib/drafts';
 import type { AsyncState } from '../hooks/useAsyncRequest';
 import { useAsyncAction, useAsyncQuery } from '../hooks/useAsyncRequest';
@@ -154,41 +155,8 @@ interface BrowserHandoffCompletionMutationState {
 const calendarStatuses: CalendarDraftStatus[] = ['scheduled', 'published'];
 const calendarWeekdayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
-function parseProjectId(value: string) {
-  const normalizedValue = value.trim();
-  if (normalizedValue.length === 0) {
-    return undefined;
-  }
-
-  const projectId = Number(normalizedValue);
-  return Number.isInteger(projectId) && projectId > 0 ? projectId : undefined;
-}
-
-function getProjectIdValidationError(value: string) {
-  const normalizedValue = value.trim();
-  if (normalizedValue.length === 0) {
-    return null;
-  }
-
-  return parseProjectId(value) === undefined ? '项目 ID 必须是大于 0 的整数' : null;
-}
-
-function buildPublishCalendarPath(projectId?: number) {
-  return projectId === undefined ? '/api/drafts' : `/api/drafts?projectId=${projectId}`;
-}
-
-const projectInputStyle = {
-  width: '100%',
-  maxWidth: '240px',
-  borderRadius: '14px',
-  border: '1px solid #cbd5e1',
-  padding: '12px 14px',
-  font: 'inherit',
-  background: '#ffffff',
-} as const;
-
 export async function loadPublishCalendarRequest(projectId?: number): Promise<DraftsResponse> {
-  return apiRequest<DraftsResponse>(buildPublishCalendarPath(projectId));
+  return apiRequest<DraftsResponse>(withProjectIdQuery('/api/drafts', projectId));
 }
 
 export async function loadPublishCalendarBrowserHandoffsRequest(

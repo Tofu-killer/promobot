@@ -9,6 +9,14 @@ import { PageHeader } from '../components/PageHeader';
 import { SectionCard } from '../components/SectionCard';
 import { StatCard } from '../components/StatCard';
 import { StatusBadge } from '../components/StatusBadge';
+import {
+  createProjectIdBody,
+  createProjectPayload,
+  getProjectIdValidationError,
+  parseProjectId,
+  queueInputStyle,
+  withProjectIdQuery,
+} from '../lib/projectId';
 
 export interface InboxItem {
   id: number;
@@ -71,41 +79,8 @@ export interface InboxReplyHandoffsResponse {
   total: number;
 }
 
-function parseProjectId(value: string) {
-  const normalizedValue = value.trim();
-
-  if (normalizedValue.length === 0) {
-    return undefined;
-  }
-
-  const projectId = Number(normalizedValue);
-  return Number.isInteger(projectId) && projectId > 0 ? projectId : undefined;
-}
-
-function getProjectIdValidationError(value: string) {
-  const normalizedValue = value.trim();
-
-  if (normalizedValue.length === 0) {
-    return null;
-  }
-
-  return parseProjectId(value) === undefined ? '项目 ID 必须是大于 0 的整数' : null;
-}
-
-function buildProjectScopedPath(path: string, projectId?: number) {
-  return projectId === undefined ? path : `${path}?projectId=${projectId}`;
-}
-
-function createProjectIdBody(projectId?: number) {
-  return projectId === undefined ? undefined : JSON.stringify({ projectId });
-}
-
-function createProjectPayload(projectId?: number) {
-  return projectId === undefined ? {} : { projectId };
-}
-
 export async function loadInboxRequest(projectId?: number): Promise<InboxResponse> {
-  return apiRequest<InboxResponse>(buildProjectScopedPath('/api/inbox', projectId));
+  return apiRequest<InboxResponse>(withProjectIdQuery('/api/inbox', projectId));
 }
 
 export async function fetchInboxRequest(projectId?: number): Promise<FetchInboxResponse> {
@@ -362,14 +337,6 @@ const feedbackStyle = {
   borderRadius: '16px',
   padding: '14px 16px',
   fontWeight: 600,
-} as const;
-const queueInputStyle = {
-  width: '100%',
-  borderRadius: '14px',
-  border: '1px solid #cbd5e1',
-  padding: '12px 14px',
-  font: 'inherit',
-  background: '#ffffff',
 } as const;
 const placeholderActionNoteStyle = {
   margin: 0,

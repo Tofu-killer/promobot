@@ -8,6 +8,14 @@ import { PageHeader } from '../components/PageHeader';
 import { SectionCard } from '../components/SectionCard';
 import { SentimentChart } from '../components/SentimentChart';
 import { StatCard } from '../components/StatCard';
+import {
+  createProjectIdBody,
+  createProjectPayload,
+  getProjectIdValidationError,
+  parseProjectId,
+  queueInputStyle,
+  withProjectIdQuery,
+} from '../lib/projectId';
 
 export interface ReputationItem {
   id: number;
@@ -45,39 +53,6 @@ export interface EnqueueReputationFetchJobResponse {
   runtime: Record<string, unknown>;
 }
 
-function parseProjectId(value: string) {
-  const normalizedValue = value.trim();
-
-  if (normalizedValue.length === 0) {
-    return undefined;
-  }
-
-  const projectId = Number(normalizedValue);
-  return Number.isInteger(projectId) && projectId > 0 ? projectId : undefined;
-}
-
-function getProjectIdValidationError(value: string) {
-  const normalizedValue = value.trim();
-
-  if (normalizedValue.length === 0) {
-    return null;
-  }
-
-  return parseProjectId(value) === undefined ? '项目 ID 必须是大于 0 的整数' : null;
-}
-
-function buildProjectScopedPath(path: string, projectId?: number) {
-  return projectId === undefined ? path : `${path}?projectId=${projectId}`;
-}
-
-function createProjectIdBody(projectId?: number) {
-  return projectId === undefined ? undefined : JSON.stringify({ projectId });
-}
-
-function createProjectPayload(projectId?: number) {
-  return projectId === undefined ? {} : { projectId };
-}
-
 function toSentimentPercentage(value: number, total: number) {
   if (total <= 0) {
     return 0;
@@ -87,7 +62,7 @@ function toSentimentPercentage(value: number, total: number) {
 }
 
 export async function loadReputationRequest(projectId?: number): Promise<ReputationStatsResponse> {
-  return apiRequest<ReputationStatsResponse>(buildProjectScopedPath('/api/reputation/stats', projectId));
+  return apiRequest<ReputationStatsResponse>(withProjectIdQuery('/api/reputation/stats', projectId));
 }
 
 export async function fetchReputationRequest(projectId?: number): Promise<FetchReputationResponse> {
@@ -185,14 +160,6 @@ const feedbackStyle = {
   borderRadius: '16px',
   padding: '14px 16px',
   fontWeight: 600,
-} as const;
-const queueInputStyle = {
-  width: '100%',
-  borderRadius: '14px',
-  border: '1px solid #cbd5e1',
-  padding: '12px 14px',
-  font: 'inherit',
-  background: '#ffffff',
 } as const;
 const negativeSentimentBadgeStyle = {
   display: 'inline-flex',

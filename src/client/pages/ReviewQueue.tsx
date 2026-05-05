@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { apiRequest, getErrorMessage } from '../lib/api';
+import { getProjectIdValidationError, parseProjectId, projectInputStyle, withProjectIdQuery } from '../lib/projectId';
 import type { AsyncState } from '../hooks/useAsyncRequest';
 import { useAsyncQuery } from '../hooks/useAsyncRequest';
 import { ActionButton } from '../components/ActionButton';
@@ -100,41 +101,8 @@ interface ReviewActionState {
   contractDetails: Record<string, unknown> | null;
 }
 
-function parseProjectId(value: string) {
-  const normalizedValue = value.trim();
-  if (normalizedValue.length === 0) {
-    return undefined;
-  }
-
-  const projectId = Number(normalizedValue);
-  return Number.isInteger(projectId) && projectId > 0 ? projectId : undefined;
-}
-
-function getProjectIdValidationError(value: string) {
-  const normalizedValue = value.trim();
-  if (normalizedValue.length === 0) {
-    return null;
-  }
-
-  return parseProjectId(value) === undefined ? '项目 ID 必须是大于 0 的整数' : null;
-}
-
-function buildReviewQueuePath(projectId?: number) {
-  return projectId === undefined ? '/api/drafts?status=review' : `/api/drafts?status=review&projectId=${projectId}`;
-}
-
-const projectInputStyle = {
-  width: '100%',
-  maxWidth: '240px',
-  borderRadius: '14px',
-  border: '1px solid #cbd5e1',
-  padding: '12px 14px',
-  font: 'inherit',
-  background: '#ffffff',
-} as const;
-
 export async function loadReviewQueueRequest(projectId?: number): Promise<DraftsResponse> {
-  return apiRequest<DraftsResponse>(buildReviewQueuePath(projectId));
+  return apiRequest<DraftsResponse>(withProjectIdQuery('/api/drafts?status=review', projectId));
 }
 
 export async function loadReviewQueueBrowserHandoffsRequest(

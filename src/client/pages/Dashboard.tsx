@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { apiRequest } from '../lib/api';
+import { getProjectIdValidationError, parseProjectId, projectInputStyle, withProjectIdQuery } from '../lib/projectId';
 import type { AsyncState } from '../hooks/useAsyncRequest';
 import { useAsyncQuery } from '../hooks/useAsyncRequest';
 import { StatCard } from '../components/StatCard';
@@ -70,43 +71,8 @@ export interface DashboardResponse {
   };
 }
 
-function parseProjectId(value: string) {
-  const normalizedValue = value.trim();
-
-  if (normalizedValue.length === 0) {
-    return undefined;
-  }
-
-  const projectId = Number(normalizedValue);
-  return Number.isInteger(projectId) && projectId > 0 ? projectId : undefined;
-}
-
-function getProjectIdValidationError(value: string) {
-  const normalizedValue = value.trim();
-
-  if (normalizedValue.length === 0) {
-    return null;
-  }
-
-  return parseProjectId(value) === undefined ? '项目 ID 必须是大于 0 的整数' : null;
-}
-
-function buildProjectScopedPath(path: string, projectId?: number) {
-  return projectId === undefined ? path : `${path}?projectId=${projectId}`;
-}
-
-const projectInputStyle = {
-  width: '100%',
-  maxWidth: '240px',
-  borderRadius: '14px',
-  border: '1px solid #cbd5e1',
-  padding: '12px 14px',
-  font: 'inherit',
-  background: '#ffffff',
-} as const;
-
 export async function loadDashboardRequest(projectId?: number): Promise<DashboardResponse> {
-  return apiRequest<DashboardResponse>(buildProjectScopedPath('/api/monitor/dashboard', projectId));
+  return apiRequest<DashboardResponse>(withProjectIdQuery('/api/monitor/dashboard', projectId));
 }
 
 interface DashboardPageProps {

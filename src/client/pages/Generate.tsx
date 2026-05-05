@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ActionButton } from '../components/ActionButton';
 import { apiRequest, getErrorMessage } from '../lib/api';
+import { getProjectIdValidationError, parseProjectId, projectInputStyle } from '../lib/projectId';
 import type { AsyncState } from '../hooks/useAsyncRequest';
 import { useAsyncAction, useAsyncQuery } from '../hooks/useAsyncRequest';
 import { SectionCard } from '../components/SectionCard';
@@ -48,37 +49,6 @@ const generationProgressStages = [
     description: '逐个平台写入标题、正文和 hashtags。',
   },
 ] as const;
-
-function parseProjectId(value: string) {
-  const normalizedValue = value.trim();
-
-  if (normalizedValue.length === 0) {
-    return undefined;
-  }
-
-  const projectId = Number(normalizedValue);
-  return Number.isInteger(projectId) && projectId > 0 ? projectId : undefined;
-}
-
-function getProjectIdValidationError(value: string) {
-  const normalizedValue = value.trim();
-
-  if (normalizedValue.length === 0) {
-    return null;
-  }
-
-  return parseProjectId(value) === undefined ? '项目 ID 必须是大于 0 的整数' : null;
-}
-
-const projectInputStyle = {
-  width: '100%',
-  maxWidth: '240px',
-  borderRadius: '14px',
-  border: '1px solid #cbd5e1',
-  padding: '12px 14px',
-  font: 'inherit',
-  background: '#ffffff',
-} as const;
 
 export interface GenerateDraftsPayload {
   topic: string;
