@@ -12,6 +12,7 @@ import {
   supportsBrowserSessionMetadata,
   type BrowserSessionAction,
 } from '../lib/channelAccountSession';
+import { getProjectIdValidationError, parseOptionalProjectId } from '../lib/projectId';
 import type { AsyncState } from '../hooks/useAsyncRequest';
 import { useAsyncAction, useAsyncQuery } from '../hooks/useAsyncRequest';
 import { ActionButton } from '../components/ActionButton';
@@ -501,31 +502,6 @@ function parseMetadataInput(value: string): Record<string, unknown> {
     }, {});
 }
 
-function parseOptionalProjectIdInput(value: string, mode: 'create' | 'edit') {
-  const normalizedValue = value.trim();
-  if (normalizedValue.length === 0) {
-    return mode === 'create' ? undefined : null;
-  }
-
-  const projectId = Number(normalizedValue);
-  return Number.isInteger(projectId) && projectId > 0
-    ? projectId
-    : mode === 'create'
-      ? undefined
-      : null;
-}
-
-function getProjectIdValidationError(value: string) {
-  const normalizedValue = value.trim();
-  if (normalizedValue.length === 0) {
-    return null;
-  }
-
-  return Number.isInteger(Number(normalizedValue)) && Number(normalizedValue) > 0
-    ? null
-    : '项目 ID 必须是大于 0 的整数';
-}
-
 function parseStorageStateJsonInput(value: string): Record<string, unknown> | undefined {
   const trimmedValue = value.trim();
   if (!trimmedValue) {
@@ -886,7 +862,7 @@ export function ChannelAccountsPage({
 
     setCreateFormError(null);
     const parsedMetadata = parseMetadataInput(metadata);
-    const parsedProjectId = parseOptionalProjectIdInput(projectId, 'create');
+    const parsedProjectId = parseOptionalProjectId(projectId);
 
     void createChannelAccount({
       ...(parsedProjectId === undefined ? {} : { projectId: parsedProjectId }),
@@ -1128,7 +1104,7 @@ export function ChannelAccountsPage({
     }
 
     const parsedMetadata = parseMetadataInput(formValue.metadata);
-    const parsedProjectId = parseOptionalProjectIdInput(formValue.projectId, 'edit');
+    const parsedProjectId = parseOptionalProjectId(formValue.projectId, null);
     const requestToken = createScopedRequestToken(accountUpdateRequestTokenByIdRef, accountId);
     setAccountFormErrorById((current) => {
       if (!(accountId in current)) {

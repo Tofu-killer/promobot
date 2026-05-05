@@ -3,6 +3,8 @@ import {
   createProjectIdBody,
   createProjectPayload,
   getProjectIdValidationError,
+  parseOptionalProjectId,
+  parseProjectIdDraft,
   parseProjectId,
   projectInputStyle,
   withProjectIdQuery,
@@ -21,6 +23,21 @@ describe('project id helpers', () => {
     expect(getProjectIdValidationError('  ')).toBeNull();
     expect(getProjectIdValidationError(' 12 ')).toBeNull();
     expect(getProjectIdValidationError('0')).toBe('项目 ID 必须是大于 0 的整数');
+  });
+
+  it('supports create and edit semantics for optional project ids', () => {
+    expect(parseOptionalProjectId('')).toBeUndefined();
+    expect(parseOptionalProjectId(' 12 ')).toBe(12);
+    expect(parseOptionalProjectId('0')).toBeUndefined();
+    expect(parseOptionalProjectId('', null)).toBeNull();
+    expect(parseOptionalProjectId(' 12 ', null)).toBe(12);
+    expect(parseOptionalProjectId('0', null)).toBeNull();
+  });
+
+  it('parses shared projectId drafts for the app shell', () => {
+    expect(parseProjectIdDraft('')).toBeNull();
+    expect(parseProjectIdDraft(' 0012 ')).toBe(12);
+    expect(parseProjectIdDraft('abc')).toBeNull();
   });
 
   it('builds project-scoped requests and payloads', () => {

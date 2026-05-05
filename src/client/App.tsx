@@ -17,6 +17,7 @@ import {
   logoutAdminSession,
   probeAdminSession,
 } from './lib/api';
+import { parseProjectIdDraft } from './lib/projectId';
 import type { AppRoute, NavItem } from './lib/types';
 import { LoginPage } from './pages/Login';
 
@@ -146,16 +147,6 @@ function getRouteFromPathname(pathname: string | null | undefined, fallback: App
 
 function getInitialRoute(initialRoute: AppRoute) {
   return typeof window === 'undefined' ? initialRoute : getRouteFromPathname(window.location.pathname, initialRoute);
-}
-
-function parseProjectIdDraft(value: string) {
-  const normalizedValue = value.trim();
-  if (!/^\d+$/.test(normalizedValue)) {
-    return null;
-  }
-
-  const projectId = Number(normalizedValue);
-  return Number.isSafeInteger(projectId) && projectId > 0 ? projectId : null;
 }
 
 interface GeneratePrefillState {

@@ -9,6 +9,16 @@ export function parseProjectId(value: string) {
   return Number.isInteger(projectId) && projectId > 0 ? projectId : undefined;
 }
 
+export function parseProjectIdDraft(value: string) {
+  const projectId = parseProjectId(value);
+  return projectId === undefined ? null : projectId;
+}
+
+export function parseOptionalProjectId(value: string, emptyValue: number | null | undefined = undefined) {
+  const projectId = parseProjectId(value);
+  return projectId === undefined && value.trim().length === 0 ? emptyValue : projectId ?? emptyValue;
+}
+
 export function getProjectIdValidationError(value: string) {
   return parseProjectId(value) === undefined && value.trim().length > 0
     ? '项目 ID 必须是大于 0 的整数'
