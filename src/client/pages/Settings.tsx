@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { apiRequest } from '../lib/api';
+import {
+  completeBrowserHandoffRequest as completeSharedBrowserHandoffRequest,
+  completeInboxReplyHandoffRequest as completeSharedInboxReplyHandoffRequest,
+  loadBrowserHandoffsRequest as loadSharedBrowserHandoffsRequest,
+  loadInboxReplyHandoffsRequest as loadSharedInboxReplyHandoffsRequest,
+} from '../lib/systemHandoffs';
 import type { AsyncState } from '../hooks/useAsyncRequest';
 import { useAsyncAction, useAsyncQuery } from '../hooks/useAsyncRequest';
 import { ActionButton } from '../components/ActionButton';
@@ -253,11 +259,11 @@ export async function loadBrowserLaneRequestsRequest(limit = 20): Promise<Browse
 }
 
 export async function loadBrowserHandoffsRequest(limit = 20): Promise<BrowserHandoffsResponse> {
-  return apiRequest<BrowserHandoffsResponse>(`/api/system/browser-handoffs?limit=${limit}`);
+  return loadSharedBrowserHandoffsRequest(limit);
 }
 
 export async function loadInboxReplyHandoffsRequest(limit = 20): Promise<InboxReplyHandoffsResponse> {
-  return apiRequest<InboxReplyHandoffsResponse>(`/api/system/inbox-reply-handoffs?limit=${limit}`);
+  return loadSharedInboxReplyHandoffsRequest(limit);
 }
 
 export async function importBrowserLaneRequestResultRequest(input: {
@@ -285,25 +291,7 @@ export async function completeBrowserHandoffRequest(input: {
   message?: string;
   publishUrl?: string;
 }): Promise<BrowserHandoffCompletionResponse> {
-  return apiRequest<BrowserHandoffCompletionResponse>('/api/system/browser-handoffs/import', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      artifactPath: input.artifactPath,
-      ...(input.handoffAttempt !== undefined ? { handoffAttempt: input.handoffAttempt } : {}),
-      publishStatus: input.publishStatus,
-      message:
-        input.message ??
-        (input.publishStatus === 'published'
-          ? 'browser handoff marked published'
-          : 'browser handoff marked failed'),
-      ...(input.publishUrl !== undefined && input.publishUrl.trim().length > 0
-        ? { publishUrl: input.publishUrl.trim() }
-        : {}),
-    }),
-  });
+  return completeSharedBrowserHandoffRequest(input);
 }
 
 export async function completeInboxReplyHandoffRequest(input: {
@@ -313,25 +301,7 @@ export async function completeInboxReplyHandoffRequest(input: {
   message?: string;
   deliveryUrl?: string;
 }): Promise<InboxReplyHandoffCompletionResponse> {
-  return apiRequest<InboxReplyHandoffCompletionResponse>('/api/system/inbox-reply-handoffs/import', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      artifactPath: input.artifactPath,
-      ...(input.handoffAttempt !== undefined ? { handoffAttempt: input.handoffAttempt } : {}),
-      replyStatus: input.replyStatus,
-      message:
-        input.message ??
-        (input.replyStatus === 'sent'
-          ? 'inbox reply handoff marked sent'
-          : 'inbox reply handoff marked failed'),
-      ...(input.deliveryUrl !== undefined && input.deliveryUrl.trim().length > 0
-        ? { deliveryUrl: input.deliveryUrl.trim() }
-        : {}),
-    }),
-  });
+  return completeSharedInboxReplyHandoffRequest(input);
 }
 
 export async function retrySystemJobRequest(
