@@ -2,6 +2,7 @@ import { Router } from 'express';
 import type { JobQueueEntry, JobQueueStore } from '../store/jobQueue.js';
 import { createJobQueueStore } from '../store/jobQueue.js';
 import { createSQLiteDraftStore } from '../store/drafts.js';
+import { parseOptionalProjectId, parseProjectIdQuery } from '../lib/projectId.js';
 
 export type DraftStatus =
   | 'approved'
@@ -136,7 +137,7 @@ export function createDraftsRouter(
       return;
     }
 
-    const projectId = parseProjectIdBodyValue(body?.projectId);
+    const projectId = parseOptionalProjectId(body?.projectId);
 
     if (body?.projectId !== undefined && projectId === undefined) {
       response.status(400).json({ error: 'invalid project id' });
@@ -234,19 +235,6 @@ function normalizeDraftPatch(currentDraft: DraftRecord, patch: UpdateDraftInput)
   }
 
   return nextPatch;
-}
-
-function parseProjectIdQuery(value: unknown) {
-  if (typeof value !== 'string') {
-    return undefined;
-  }
-
-  const projectId = Number(value);
-  return Number.isInteger(projectId) && projectId > 0 ? projectId : undefined;
-}
-
-function parseProjectIdBodyValue(value: unknown) {
-  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined;
 }
 
 function syncDraftSchedule(

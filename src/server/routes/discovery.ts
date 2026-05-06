@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { createInboxStore } from '../store/inbox.js';
 import { createMonitorStore } from '../store/monitor.js';
+import { parseOptionalProjectId, parseProjectIdQuery } from '../lib/projectId.js';
 
 export interface DiscoveryItemRecord {
   id: string;
@@ -128,15 +129,6 @@ discoveryRouter.patch('/:id', (request, response) => {
   });
 });
 
-function parseProjectIdQuery(value: unknown) {
-  if (typeof value !== 'string') {
-    return undefined;
-  }
-
-  const projectId = Number(value);
-  return Number.isInteger(projectId) && projectId > 0 ? projectId : undefined;
-}
-
 function filterProjectAwareRecords<T extends { projectId?: number | null }>(
   records: T[],
   projectId?: number,
@@ -162,8 +154,4 @@ function parseDiscoveryItemId(value: string) {
 
 function parseDiscoveryAction(value: unknown) {
   return value === 'save' || value === 'ignore' ? value : null;
-}
-
-function parseOptionalProjectId(value: unknown) {
-  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined;
 }

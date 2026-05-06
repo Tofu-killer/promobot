@@ -14,6 +14,7 @@ import { generateWeiboDraft } from '../services/generators/weibo.js';
 import { generateXDraft } from '../services/generators/x.js';
 import { generateXiaohongshuDraft } from '../services/generators/xiaohongshu.js';
 import { createProjectStore, type ProjectRecord, type ProjectStore } from '../store/projects.js';
+import { parseOptionalProjectId } from '../lib/projectId.js';
 import type { DraftStatus, DraftStore } from './drafts.js';
 import { createDraftStore } from './drafts.js';
 
@@ -43,10 +44,6 @@ const platformGenerators: Record<SupportedPlatform, PlatformGenerator> = {
 
 function isSupportedPlatform(platform: string): platform is SupportedPlatform {
   return platform in platformGenerators;
-}
-
-function parseOptionalProjectId(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined;
 }
 
 function hasOwnProperty(target: object, key: string): boolean {

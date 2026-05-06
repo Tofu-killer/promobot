@@ -3,6 +3,7 @@ import { createMonitorFetchService } from '../services/monitorFetch.js';
 import { createMonitorStore, type MonitorItemRecord } from '../store/monitor.js';
 import { createSQLiteDraftStore } from '../store/drafts.js';
 import { systemDashboardRouter } from './systemDashboard.js';
+import { parseOptionalProjectId, parseProjectIdQuery } from '../lib/projectId.js';
 
 export const monitorRouter = Router();
 const monitorStore = createMonitorStore();
@@ -114,19 +115,6 @@ function buildFollowUpContent(item: MonitorItemRecord) {
     `Signal: ${item.title}`,
     item.detail,
   ].join('\n\n');
-}
-
-function parseProjectIdQuery(value: unknown) {
-  if (typeof value !== 'string') {
-    return undefined;
-  }
-
-  const projectId = Number(value);
-  return Number.isInteger(projectId) && projectId > 0 ? projectId : undefined;
-}
-
-function parseOptionalProjectId(value: unknown) {
-  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined;
 }
 
 function resolveFollowUpSourcePlatform(source: string) {

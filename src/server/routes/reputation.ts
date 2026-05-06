@@ -3,6 +3,7 @@ import { createReputationFetchService } from '../services/reputationFetch.js';
 import { selectInboxStatus } from '../services/inbox/fetchers/types.js';
 import { createInboxStore } from '../store/inbox.js';
 import { createReputationStore } from '../store/reputation.js';
+import { parseOptionalProjectId, parseProjectIdQuery } from '../lib/projectId.js';
 
 export const reputationRouter = Router();
 const inboxStore = createInboxStore();
@@ -99,19 +100,6 @@ reputationRouter.patch('/:id', (request, response) => {
     ...(inboxItem ? { inboxItem } : {}),
   });
 });
-
-function parseProjectIdQuery(value: unknown) {
-  if (typeof value !== 'string') {
-    return undefined;
-  }
-
-  const projectId = Number(value);
-  return Number.isInteger(projectId) && projectId > 0 ? projectId : undefined;
-}
-
-function parseOptionalProjectId(value: unknown) {
-  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined;
-}
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (typeof value !== 'object' || value === null) {

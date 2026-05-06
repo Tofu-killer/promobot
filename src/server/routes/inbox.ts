@@ -3,6 +3,7 @@ import { createInboxStore } from '../store/inbox.js';
 import { chatJson } from '../services/aiClient.js';
 import { createInboxFetchService } from '../services/inboxFetch.js';
 import { createInboxReplyService } from '../services/inboxReply.js';
+import { parseOptionalProjectId, parseProjectIdQuery } from '../lib/projectId.js';
 
 export const inboxRouter = Router();
 const inboxStore = createInboxStore();
@@ -143,19 +144,6 @@ inboxRouter.post('/:id/send-reply', async (request, response, next) => {
     next(error);
   }
 });
-
-function parseProjectIdQuery(value: unknown) {
-  if (typeof value !== 'string') {
-    return undefined;
-  }
-
-  const projectId = Number(value);
-  return Number.isInteger(projectId) && projectId > 0 ? projectId : undefined;
-}
-
-function parseOptionalProjectId(value: unknown) {
-  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined;
-}
 
 function parseReply(value: unknown) {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;

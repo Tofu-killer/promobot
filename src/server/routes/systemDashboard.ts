@@ -11,6 +11,7 @@ import { listBrowserHandoffArtifacts } from '../services/publishers/browserHando
 import { listInboxReplyHandoffArtifacts } from '../services/inbox/replyHandoffArtifacts.js';
 import { resolveSourceConfigInputs } from '../services/monitorFetch.js';
 import { withDatabase } from '../lib/persistence.js';
+import { parseProjectIdQuery } from '../lib/projectId.js';
 
 const monitorStore = createMonitorStore();
 const draftStore = createSQLiteDraftStore();
@@ -196,15 +197,6 @@ systemDashboardRouter.get('/dashboard', (request, response) => {
     jobQueue: jobQueueStats,
   });
 });
-
-function parseProjectIdQuery(value: unknown) {
-  if (typeof value !== 'string') {
-    return undefined;
-  }
-
-  const projectId = Number(value);
-  return Number.isInteger(projectId) && projectId > 0 ? projectId : undefined;
-}
 
 function normalizeDashboardPlatform(platform: string) {
   return platform === 'facebook-group' ? 'facebookGroup' : platform;
