@@ -3,7 +3,23 @@ import { ActionButton } from '../components/ActionButton';
 import { PageHeader } from '../components/PageHeader';
 import { SectionCard } from '../components/SectionCard';
 import { apiRequest, getErrorMessage } from '../lib/api';
+import {
+  asRecord,
+  findPendingBrowserHandoff,
+  formatSessionActionLabel,
+  formatSessionActionPendingLabel,
+  getBrowserHandoffBlockedMessage,
+  getBrowserHandoffIdentity,
+  isReadyBrowserHandoff,
+  readBrowserHandoffContract,
+  readSessionActionArtifactPath,
+  readString,
+  toBrowserHandoffContract,
+  type BrowserHandoffContract,
+} from '../lib/browserHandoffContract';
+import type { BrowserSessionAction } from '../lib/channelAccountSession';
 import { getProjectIdValidationError, parseProjectId, projectInputStyle, withProjectIdQuery } from '../lib/projectId';
+import type { BrowserHandoffCompletionResponse, BrowserHandoffRecord, BrowserHandoffsResponse } from '../lib/systemHandoffs';
 import type { DraftRecord, DraftsResponse } from '../lib/drafts';
 import type { AsyncState } from '../hooks/useAsyncRequest';
 import { useAsyncAction, useAsyncQuery } from '../hooks/useAsyncRequest';
@@ -11,8 +27,6 @@ import { useAsyncAction, useAsyncQuery } from '../hooks/useAsyncRequest';
 export type { DraftRecord, DraftsResponse } from '../lib/drafts';
 
 type CalendarDraftStatus = 'scheduled' | 'published';
-type BrowserSessionAction = 'request_session' | 'relogin';
-
 interface CalendarDayCell {
   dateKey: string;
   dayLabel: string;
@@ -58,54 +72,6 @@ interface CompleteBrowserHandoffInput {
   publishStatus: 'published' | 'failed';
   message?: string;
   publishUrl?: string;
-}
-
-interface BrowserHandoffCompletionResponse {
-  ok: boolean;
-  imported: boolean;
-  artifactPath: string;
-  draftId: number;
-  draftStatus: string;
-  platform: string;
-  mode: string;
-  status: string;
-  success: boolean;
-  publishUrl: string | null;
-  externalId: string | null;
-  message: string;
-  publishedAt: string | null;
-}
-
-interface BrowserHandoffRecord {
-  platform: string;
-  channelAccountId?: number;
-  draftId: number | string;
-  handoffAttempt?: number;
-  title: string | null;
-  accountKey: string;
-  status: string;
-  readiness?: string;
-  sessionAction?: string | null;
-  artifactPath: string;
-  createdAt: string;
-  updatedAt: string;
-  resolvedAt: string | null;
-  resolution?: unknown;
-}
-
-interface BrowserHandoffsResponse {
-  handoffs: BrowserHandoffRecord[];
-  total: number;
-}
-
-interface BrowserHandoffContract {
-  platform: string | null;
-  accountKey: string | null;
-  channelAccountId?: number;
-  handoffAttempt?: number;
-  readiness: string | null;
-  sessionAction: BrowserSessionAction | null;
-  artifactPath: string | null;
 }
 
 interface PublishCalendarPageProps {
@@ -246,131 +212,6 @@ function formatCalendarPhaseLabel(draft: DraftRecord, scheduledAt: string) {
 
 function formatDraftTimestamp(draft: DraftRecord) {
   return draft.updatedAt.length > 0 ? draft.updatedAt : draft.createdAt;
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-function readString(value: unknown): string | null {
-  return typeof value === 'string' && value.trim().length > 0 ? value : null;
-}
-
-function readPositiveInteger(value: unknown) {
-  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined;
-}
-
-function readBrowserSessionAction(value: unknown): BrowserSessionAction | null {
-  const normalizedValue = readString(value);
-  return normalizedValue === 'request_session' || normalizedValue === 'relogin' ? normalizedValue : null;
-}
-
-function readBrowserHandoffContract(details: Record<string, unknown> | null): BrowserHandoffContract | null {
-  const browserHandoff = asRecord(details?.browserHandoff);
-  if (!browserHandoff) {
-    return null;
-  }
-
-  const artifact = browserHandoff.artifact;
-  const artifactRecord = asRecord(artifact);
-  const sessionActionRecord = asRecord(browserHandoff.sessionAction);
-  const sessionAction =
-    readBrowserSessionAction(browserHandoff.sessionAction) ??
-    readBrowserSessionAction(sessionActionRecord?.action) ??
-    readBrowserSessionAction(sessionActionRecord?.type);
-  const artifactPath =
-    readString(browserHandoff.artifactPath) ??
-    readString(artifact) ??
-    readString(artifactRecord?.artifactPath) ??
-    readString(artifactRecord?.path) ??
-    readString(artifactRecord?.relativePath) ??
-    readString(sessionActionRecord?.artifactPath) ??
-    readString(sessionActionRecord?.path);
-  const platform = readString(browserHandoff.platform);
-  const accountKey = readString(browserHandoff.accountKey);
-  const channelAccountId = readPositiveInteger(browserHandoff.channelAccountId);
-  const handoffAttempt = readPositiveInteger(browserHandoff.handoffAttempt);
-  const readiness = readString(browserHandoff.readiness);
-
-  if (!platform && !accountKey && !channelAccountId && !handoffAttempt && !readiness && !sessionAction && !artifactPath) {
-    return null;
-  }
-
-  return {
-    platform,
-    accountKey,
-    channelAccountId,
-    handoffAttempt,
-    readiness,
-    sessionAction,
-    artifactPath,
-  };
-}
-
-function readBrowserHandoffDraftId(handoff: BrowserHandoffRecord) {
-  return typeof handoff.draftId === 'number'
-    ? readPositiveInteger(handoff.draftId)
-    : readPositiveInteger(Number(handoff.draftId));
-}
-
-function findPendingBrowserHandoff(handoffs: BrowserHandoffRecord[], draftId: number) {
-  return handoffs.find((handoff) => handoff.status === 'pending' && readBrowserHandoffDraftId(handoff) === draftId) ?? null;
-}
-
-function isReadyBrowserHandoff(handoff: BrowserHandoffRecord) {
-  return handoff.status === 'pending' && (handoff.readiness ?? 'ready') === 'ready';
-}
-
-function getBrowserHandoffBlockedMessage(handoff: BrowserHandoffRecord) {
-  return handoff.sessionAction === 'relogin'
-    ? '等待刷新 Session 后继续发布接管。'
-    : '等待补充 Session 后继续发布接管。';
-}
-
-function toBrowserHandoffContract(handoff: BrowserHandoffRecord): BrowserHandoffContract {
-  return {
-    platform: handoff.platform,
-    accountKey: handoff.accountKey,
-    channelAccountId: handoff.channelAccountId,
-    handoffAttempt: handoff.handoffAttempt,
-    readiness: handoff.readiness ?? 'ready',
-    sessionAction: readBrowserSessionAction(handoff.sessionAction),
-    artifactPath: handoff.artifactPath,
-  };
-}
-
-function readSessionActionArtifactPath(result: RequestChannelAccountSessionActionResponse | undefined) {
-  const sessionAction = asRecord(result?.sessionAction);
-
-  return readString(sessionAction?.artifactPath) ?? readString(sessionAction?.path);
-}
-
-function getBrowserHandoffIdentity(handoff: BrowserHandoffContract | null) {
-  if (!handoff) {
-    return null;
-  }
-
-  if (handoff.artifactPath) {
-    return `${handoff.artifactPath}#${handoff.handoffAttempt ?? 0}`;
-  }
-
-  return [
-    handoff.platform ?? '',
-    handoff.accountKey ?? '',
-    String(handoff.channelAccountId ?? ''),
-    handoff.sessionAction ?? '',
-    String(handoff.handoffAttempt ?? ''),
-  ].join('|');
-}
-
-function formatSessionActionLabel(action: BrowserSessionAction) {
-  return action === 'relogin' ? '重新登录' : '请求登录';
-}
-
-function formatSessionActionPendingLabel(action: BrowserSessionAction) {
-  return action === 'relogin' ? '正在提交重新登录...' : '正在提交登录请求...';
 }
 
 function formatCalendarDraftStateDescription(draft: DraftRecord, scheduledAt: string) {
