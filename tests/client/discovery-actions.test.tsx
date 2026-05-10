@@ -570,6 +570,38 @@ afterEach(() => {
 });
 
 describe('Discovery draft actions', () => {
+  it('delegates discovery immediate fetches through shared ops helpers', async () => {
+    vi.resetModules();
+
+    const fetchMonitorFeedRequest = vi.fn().mockResolvedValue({ inserted: 2 });
+    const fetchInboxRequest = vi.fn().mockResolvedValue({});
+
+    vi.doMock('../../src/client/lib/opsApi', () => ({
+      fetchMonitorFeedRequest,
+      fetchInboxRequest,
+    }));
+
+    try {
+      const discoveryModule = (await import('../../src/client/pages/Discovery')) as Record<string, unknown>;
+      const fetchDiscoverySignalsRequest = discoveryModule.fetchDiscoverySignalsRequest as (
+        projectId?: number,
+      ) => Promise<{ monitorInserted: number; inboxInserted: number; totalInserted: number }>;
+
+      const result = await fetchDiscoverySignalsRequest(12);
+
+      expect(fetchMonitorFeedRequest).toHaveBeenCalledWith(12);
+      expect(fetchInboxRequest).toHaveBeenCalledWith(12);
+      expect(result).toEqual({
+        monitorInserted: 2,
+        inboxInserted: 0,
+        totalInserted: 2,
+      });
+    } finally {
+      vi.doUnmock('../../src/client/lib/opsApi');
+      vi.resetModules();
+    }
+  });
+
   it('posts discovery immediate fetch through the shared API helper', async () => {
     const fetchMock = vi
       .fn()
