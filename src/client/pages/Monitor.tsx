@@ -9,6 +9,10 @@ import { PageHeader } from '../components/PageHeader';
 import { SectionCard } from '../components/SectionCard';
 import { StatCard } from '../components/StatCard';
 import {
+  type SystemJobMutationResponse,
+  enqueueSystemJobRequest as enqueueSharedSystemJobRequest,
+} from '../lib/systemJobs';
+import {
   createProjectIdBody,
   createProjectPayload,
   getProjectIdValidationError,
@@ -47,16 +51,7 @@ export interface FetchMonitorFeedResponse {
   total: number;
 }
 
-export interface EnqueueMonitorFetchJobResponse {
-  job: {
-    id: number;
-    type: string;
-    status: string;
-    runAt: string;
-    attempts?: number;
-  };
-  runtime: Record<string, unknown>;
-}
+export type EnqueueMonitorFetchJobResponse = SystemJobMutationResponse;
 
 const launchReadyFollowUpPlatforms = new Set(['x', 'reddit', 'instagram', 'tiktok', 'xiaohongshu', 'weibo']);
 const manualMonitorGeneratePlatforms = ['facebook-group', 'instagram', 'tiktok', 'xiaohongshu', 'weibo'];
@@ -100,16 +95,10 @@ export async function enqueueMonitorFetchJobRequest(
   runAt?: string,
   projectId?: number,
 ): Promise<EnqueueMonitorFetchJobResponse> {
-  return apiRequest<EnqueueMonitorFetchJobResponse>('/api/system/jobs', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      type: 'monitor_fetch',
-      payload: createProjectPayload(projectId),
-      ...(runAt ? { runAt } : {}),
-    }),
+  return enqueueSharedSystemJobRequest<EnqueueMonitorFetchJobResponse>({
+    type: 'monitor_fetch',
+    payload: createProjectPayload(projectId),
+    ...(runAt ? { runAt } : {}),
   });
 }
 

@@ -9,6 +9,10 @@ import { SectionCard } from '../components/SectionCard';
 import { SentimentChart } from '../components/SentimentChart';
 import { StatCard } from '../components/StatCard';
 import {
+  type SystemJobMutationResponse,
+  enqueueSystemJobRequest as enqueueSharedSystemJobRequest,
+} from '../lib/systemJobs';
+import {
   createProjectIdBody,
   createProjectPayload,
   getProjectIdValidationError,
@@ -42,16 +46,7 @@ export interface FetchReputationResponse {
   total: number;
 }
 
-export interface EnqueueReputationFetchJobResponse {
-  job: {
-    id: number;
-    type: string;
-    status: string;
-    runAt: string;
-    attempts?: number;
-  };
-  runtime: Record<string, unknown>;
-}
+export type EnqueueReputationFetchJobResponse = SystemJobMutationResponse;
 
 function toSentimentPercentage(value: number, total: number) {
   if (total <= 0) {
@@ -83,16 +78,10 @@ export async function enqueueReputationFetchJobRequest(
   runAt?: string,
   projectId?: number,
 ): Promise<EnqueueReputationFetchJobResponse> {
-  return apiRequest<EnqueueReputationFetchJobResponse>('/api/system/jobs', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      type: 'reputation_fetch',
-      payload: createProjectPayload(projectId),
-      ...(runAt ? { runAt } : {}),
-    }),
+  return enqueueSharedSystemJobRequest<EnqueueReputationFetchJobResponse>({
+    type: 'reputation_fetch',
+    payload: createProjectPayload(projectId),
+    ...(runAt ? { runAt } : {}),
   });
 }
 

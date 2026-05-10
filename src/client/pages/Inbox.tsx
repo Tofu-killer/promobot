@@ -16,6 +16,10 @@ import {
   type RequestChannelAccountSessionActionResponse as SharedRequestChannelAccountSessionActionResponse,
 } from '../lib/channelAccountSession';
 import {
+  type SystemJobMutationResponse,
+  enqueueSystemJobRequest as enqueueSharedSystemJobRequest,
+} from '../lib/systemJobs';
+import {
   type CompleteInboxReplyHandoffInput as SharedCompleteInboxReplyHandoffInput,
   type InboxReplyHandoffCompletionResponse as SharedInboxReplyHandoffCompletionResponse,
   type InboxReplyHandoffRecord as SharedInboxReplyHandoffRecord,
@@ -58,16 +62,7 @@ export interface FetchInboxResponse extends InboxResponse {
   inserted: number;
 }
 
-export interface EnqueueInboxFetchJobResponse {
-  job: {
-    id: number;
-    type: string;
-    status: string;
-    runAt: string;
-    attempts?: number;
-  };
-  runtime: Record<string, unknown>;
-}
+export type EnqueueInboxFetchJobResponse = SystemJobMutationResponse;
 
 export type InboxReplyHandoffRecord = SharedInboxReplyHandoffRecord;
 export type InboxReplyHandoffsResponse = SharedInboxReplyHandoffsResponse;
@@ -94,16 +89,10 @@ export async function enqueueInboxFetchJobRequest(
   runAt?: string,
   projectId?: number,
 ): Promise<EnqueueInboxFetchJobResponse> {
-  return apiRequest<EnqueueInboxFetchJobResponse>('/api/system/jobs', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      type: 'inbox_fetch',
-      payload: createProjectPayload(projectId),
-      ...(runAt ? { runAt } : {}),
-    }),
+  return enqueueSharedSystemJobRequest<EnqueueInboxFetchJobResponse>({
+    type: 'inbox_fetch',
+    payload: createProjectPayload(projectId),
+    ...(runAt ? { runAt } : {}),
   });
 }
 
