@@ -21,12 +21,15 @@ import {
   type GenerateDraftsResponse,
 } from './Generate';
 import {
-  createProjectIdBody,
   getProjectIdValidationError,
   parseProjectId,
   projectInputStyle,
   withProjectIdQuery,
 } from '../lib/projectId';
+import {
+  fetchInboxRequest as fetchSharedInboxRequest,
+  fetchMonitorFeedRequest as fetchSharedMonitorFeedRequest,
+} from '../lib/opsApi';
 
 interface DiscoveryPageProps {
   loadDiscoveryAction?: (projectId?: number) => Promise<DiscoveryResponse>;
@@ -241,20 +244,9 @@ export async function loadDiscoveryPageRequest(projectId?: number): Promise<Disc
 }
 
 export async function fetchDiscoverySignalsRequest(projectId?: number): Promise<FetchDiscoverySignalsResponse> {
-  const requestOptions =
-    projectId === undefined
-      ? { method: 'POST' as const }
-      : {
-          method: 'POST' as const,
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: createProjectIdBody(projectId),
-        };
-
   const [monitorResponse, inboxResponse] = await Promise.all([
-    apiRequest<{ inserted?: number }>('/api/monitor/fetch', requestOptions),
-    apiRequest<{ inserted?: number }>('/api/inbox/fetch', requestOptions),
+    fetchSharedMonitorFeedRequest<{ inserted?: number }>(projectId),
+    fetchSharedInboxRequest<{ inserted?: number }>(projectId),
   ]);
 
   const monitorInserted = typeof monitorResponse.inserted === 'number' ? monitorResponse.inserted : 0;
