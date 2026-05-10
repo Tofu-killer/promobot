@@ -12,6 +12,9 @@ import {
   resolvePublishReadiness,
   supportsBrowserSessionMetadata,
   type BrowserSessionAction,
+  type RequestChannelAccountSessionActionPayload as SharedRequestChannelAccountSessionActionPayload,
+  type RequestChannelAccountSessionActionResponse as SharedRequestChannelAccountSessionActionResponse,
+  type SessionActionArtifactSummaryLike,
 } from '../lib/channelAccountSession';
 import { getProjectIdValidationError, parseOptionalProjectId } from '../lib/projectId';
 import type { AsyncState } from '../hooks/useAsyncRequest';
@@ -21,14 +24,7 @@ import { JsonPreview } from '../components/JsonPreview';
 import { PageHeader } from '../components/PageHeader';
 import { SectionCard } from '../components/SectionCard';
 
-interface SessionActionArtifactSummary {
-  action: BrowserSessionAction;
-  jobStatus: string;
-  requestedAt: string;
-  artifactPath: string;
-  resolvedAt: string | null;
-  resolution?: unknown;
-}
+type SessionActionArtifactSummary = SessionActionArtifactSummaryLike;
 
 export interface ChannelAccountRecord {
   id: number;
@@ -140,26 +136,24 @@ export interface SaveChannelAccountSessionResponse {
   channelAccount: ChannelAccountRecord;
 }
 
-export interface RequestChannelAccountSessionActionPayload {
-  action?: BrowserSessionAction;
-}
+export type RequestChannelAccountSessionActionPayload = SharedRequestChannelAccountSessionActionPayload;
 
-export interface RequestChannelAccountSessionActionResponse {
+export type RequestChannelAccountSessionActionResponse = Omit<
+  SharedRequestChannelAccountSessionActionResponse,
+  'sessionAction'
+> & {
   ok: boolean;
-  sessionAction: {
-    action: BrowserSessionAction;
+  sessionAction: SharedRequestChannelAccountSessionActionResponse['sessionAction'] & {
     accountId: number;
     status: string;
     requestedAt: string;
-    message: string;
     nextStep: string;
     jobId?: number;
     jobStatus?: string;
-    artifactPath?: string | null;
     reused?: boolean;
   };
   channelAccount: ChannelAccountRecord;
-}
+};
 
 export interface TestChannelAccountConnectionResponse {
   ok: boolean;
