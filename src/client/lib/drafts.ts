@@ -38,8 +38,9 @@ export interface PublishDraftResponse {
   details?: Record<string, unknown>;
 }
 
-export async function loadDraftsRequest(projectId?: number): Promise<DraftsResponse> {
-  return apiRequest<DraftsResponse>(withProjectIdQuery('/api/drafts', projectId));
+export async function loadDraftsRequest(projectId?: number, status?: DraftStatus): Promise<DraftsResponse> {
+  const draftsPath = status === undefined ? '/api/drafts' : `/api/drafts?status=${status}`;
+  return apiRequest<DraftsResponse>(withProjectIdQuery(draftsPath, projectId));
 }
 
 export async function updateDraftRequest(id: number, input: Record<string, unknown>): Promise<UpdateDraftResponse> {

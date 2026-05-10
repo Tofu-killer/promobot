@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { apiRequest, getErrorMessage } from '../lib/api';
+import { getErrorMessage } from '../lib/api';
 import {
   asRecord,
   findPendingBrowserHandoff,
@@ -19,7 +19,7 @@ import {
   type RequestChannelAccountSessionActionPayload,
   type RequestChannelAccountSessionActionResponse,
 } from '../lib/channelAccountSession';
-import { getProjectIdValidationError, parseProjectId, projectInputStyle, withProjectIdQuery } from '../lib/projectId';
+import { getProjectIdValidationError, parseProjectId, projectInputStyle } from '../lib/projectId';
 import {
   type CompleteBrowserHandoffInput,
   completeBrowserHandoffRequest as completeSharedBrowserHandoffRequest,
@@ -34,6 +34,7 @@ import { ActionButton } from '../components/ActionButton';
 import { PageHeader } from '../components/PageHeader';
 import { SectionCard } from '../components/SectionCard';
 import {
+  loadDraftsRequest as loadSharedDraftsRequest,
   publishDraftRequest as publishSharedDraftRequest,
   type DraftRecord,
   type DraftsResponse,
@@ -75,7 +76,7 @@ interface ReviewActionState {
 }
 
 export async function loadReviewQueueRequest(projectId?: number): Promise<DraftsResponse> {
-  return apiRequest<DraftsResponse>(withProjectIdQuery('/api/drafts?status=review', projectId));
+  return loadSharedDraftsRequest(projectId, 'review');
 }
 
 export async function loadReviewQueueBrowserHandoffsRequest(
