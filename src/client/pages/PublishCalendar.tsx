@@ -25,6 +25,7 @@ import {
 } from '../lib/channelAccountSession';
 import { getProjectIdValidationError, parseProjectId, projectInputStyle, withProjectIdQuery } from '../lib/projectId';
 import {
+  type CompleteBrowserHandoffInput,
   completeBrowserHandoffRequest as completeSharedBrowserHandoffRequest,
   loadBrowserHandoffsRequest,
   type BrowserHandoffCompletionResponse,
@@ -62,14 +63,6 @@ export interface RetryPublishCalendarDraftResponse {
   publishUrl: string | null;
   message: string;
   details?: Record<string, unknown>;
-}
-
-interface CompleteBrowserHandoffInput {
-  artifactPath: string;
-  handoffAttempt?: number;
-  publishStatus: 'published' | 'failed';
-  message?: string;
-  publishUrl?: string;
 }
 
 interface PublishCalendarPageProps {

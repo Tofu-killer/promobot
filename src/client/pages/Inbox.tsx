@@ -16,6 +16,7 @@ import {
   type RequestChannelAccountSessionActionResponse as SharedRequestChannelAccountSessionActionResponse,
 } from '../lib/channelAccountSession';
 import {
+  type CompleteInboxReplyHandoffInput as SharedCompleteInboxReplyHandoffInput,
   type InboxReplyHandoffCompletionResponse as SharedInboxReplyHandoffCompletionResponse,
   type InboxReplyHandoffRecord as SharedInboxReplyHandoffRecord,
   type InboxReplyHandoffsResponse as SharedInboxReplyHandoffsResponse,
@@ -213,13 +214,7 @@ export async function requestInboxReplySessionActionRequest(
   return requestChannelAccountSessionAction(accountId, input);
 }
 
-export interface CompleteInboxReplyHandoffInput {
-  artifactPath: string;
-  handoffAttempt?: number;
-  replyStatus: 'sent' | 'failed';
-  message?: string;
-  deliveryUrl?: string;
-}
+export type CompleteInboxReplyHandoffInput = SharedCompleteInboxReplyHandoffInput;
 
 export type InboxReplyHandoffCompletionResponse = SharedInboxReplyHandoffCompletionResponse;
 

@@ -66,6 +66,14 @@ export interface BrowserHandoffCompletionResponse {
   publishedAt: string | null;
 }
 
+export interface CompleteBrowserHandoffInput {
+  artifactPath: string;
+  handoffAttempt?: number;
+  publishStatus: 'published' | 'failed';
+  message?: string;
+  publishUrl?: string;
+}
+
 export interface InboxReplyHandoffCompletionResponse {
   ok: boolean;
   imported: boolean;
@@ -83,6 +91,14 @@ export interface InboxReplyHandoffCompletionResponse {
   deliveredAt: string | null;
 }
 
+export interface CompleteInboxReplyHandoffInput {
+  artifactPath: string;
+  handoffAttempt?: number;
+  replyStatus: 'sent' | 'failed';
+  message?: string;
+  deliveryUrl?: string;
+}
+
 export async function loadBrowserHandoffsRequest(limit = 20, projectId?: number): Promise<BrowserHandoffsResponse> {
   return apiRequest<BrowserHandoffsResponse>(withProjectIdQuery(`/api/system/browser-handoffs?limit=${limit}`, projectId));
 }
@@ -93,13 +109,7 @@ export async function loadInboxReplyHandoffsRequest(limit = 20, projectId?: numb
   );
 }
 
-export async function completeBrowserHandoffRequest(input: {
-  artifactPath: string;
-  handoffAttempt?: number;
-  publishStatus: 'published' | 'failed';
-  message?: string;
-  publishUrl?: string;
-}): Promise<BrowserHandoffCompletionResponse> {
+export async function completeBrowserHandoffRequest(input: CompleteBrowserHandoffInput): Promise<BrowserHandoffCompletionResponse> {
   return apiRequest<BrowserHandoffCompletionResponse>('/api/system/browser-handoffs/import', {
     method: 'POST',
     headers: {
@@ -121,13 +131,9 @@ export async function completeBrowserHandoffRequest(input: {
   });
 }
 
-export async function completeInboxReplyHandoffRequest(input: {
-  artifactPath: string;
-  handoffAttempt?: number;
-  replyStatus: 'sent' | 'failed';
-  message?: string;
-  deliveryUrl?: string;
-}): Promise<InboxReplyHandoffCompletionResponse> {
+export async function completeInboxReplyHandoffRequest(
+  input: CompleteInboxReplyHandoffInput,
+): Promise<InboxReplyHandoffCompletionResponse> {
   return apiRequest<InboxReplyHandoffCompletionResponse>('/api/system/inbox-reply-handoffs/import', {
     method: 'POST',
     headers: {
