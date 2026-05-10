@@ -9,6 +9,7 @@ import { PageHeader } from '../components/PageHeader';
 import { SectionCard } from '../components/SectionCard';
 import { StatCard } from '../components/StatCard';
 import { StatusBadge } from '../components/StatusBadge';
+import { loadInboxReplyHandoffsRequest as loadSharedInboxReplyHandoffsRequest } from '../lib/systemHandoffs';
 import {
   createProjectIdBody,
   createProjectPayload,
@@ -118,15 +119,7 @@ export async function loadInboxReplyHandoffsRequest(
   limit = 100,
   projectId?: number,
 ): Promise<InboxReplyHandoffsResponse> {
-  const searchParams = new URLSearchParams({
-    limit: String(limit),
-  });
-
-  if (projectId !== undefined) {
-    searchParams.set('projectId', String(projectId));
-  }
-
-  return apiRequest<InboxReplyHandoffsResponse>(`/api/system/inbox-reply-handoffs?${searchParams.toString()}`);
+  return loadSharedInboxReplyHandoffsRequest(limit, projectId) as Promise<InboxReplyHandoffsResponse>;
 }
 
 export interface UpdateInboxItemResponse {
