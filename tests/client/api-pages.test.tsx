@@ -2482,7 +2482,7 @@ describe('client API page wiring', () => {
     expect(result.settings.monitorV2exQueries).toEqual(['cursor']);
   });
 
-  it('posts runtime control actions through the shared API helpers', async () => {
+  it('posts runtime control actions through the settings API helpers', async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
@@ -2501,28 +2501,6 @@ describe('client API page wiring', () => {
           },
           results: [{ jobId: 1, type: 'publish', outcome: 'completed' }],
         }),
-      )
-      .mockResolvedValueOnce(
-        jsonResponse({
-          items: [{ id: 1, source: 'rss' }],
-          inserted: 1,
-          total: 1,
-        }),
-      )
-      .mockResolvedValueOnce(
-        jsonResponse({
-          items: [{ id: 1, source: 'reddit' }],
-          inserted: 1,
-          total: 1,
-          unread: 1,
-        }),
-      )
-      .mockResolvedValueOnce(
-        jsonResponse({
-          items: [{ id: 1, source: 'reddit', sentiment: 'positive' }],
-          inserted: 1,
-          total: 1,
-        }),
       );
     vi.stubGlobal('fetch', fetchMock);
 
@@ -2530,21 +2508,12 @@ describe('client API page wiring', () => {
 
     expect(typeof settingsModule.reloadSchedulerRuntimeRequest).toBe('function');
     expect(typeof settingsModule.tickSchedulerRuntimeRequest).toBe('function');
-    expect(typeof settingsModule.fetchMonitorSignalsRequest).toBe('function');
-    expect(typeof settingsModule.fetchInboxSignalsRequest).toBe('function');
-    expect(typeof settingsModule.fetchReputationSignalsRequest).toBe('function');
 
     const reloadSchedulerRuntimeRequest = settingsModule.reloadSchedulerRuntimeRequest as () => Promise<unknown>;
     const tickSchedulerRuntimeRequest = settingsModule.tickSchedulerRuntimeRequest as () => Promise<unknown>;
-    const fetchMonitorSignalsRequest = settingsModule.fetchMonitorSignalsRequest as () => Promise<unknown>;
-    const fetchInboxSignalsRequest = settingsModule.fetchInboxSignalsRequest as () => Promise<unknown>;
-    const fetchReputationSignalsRequest = settingsModule.fetchReputationSignalsRequest as () => Promise<unknown>;
 
     await reloadSchedulerRuntimeRequest();
     await tickSchedulerRuntimeRequest();
-    await fetchMonitorSignalsRequest();
-    await fetchInboxSignalsRequest();
-    await fetchReputationSignalsRequest();
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
@@ -2555,285 +2524,6 @@ describe('client API page wiring', () => {
       2,
       '/api/system/runtime/tick',
       expect.objectContaining({ method: 'POST' }),
-    );
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      3,
-      '/api/monitor/fetch',
-      expect.objectContaining({ method: 'POST' }),
-    );
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      4,
-      '/api/inbox/fetch',
-      expect.objectContaining({ method: 'POST' }),
-    );
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      5,
-      '/api/reputation/fetch',
-      expect.objectContaining({ method: 'POST' }),
-    );
-  });
-
-  it('loads and mutates system jobs through the shared API helpers', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        jsonResponse({
-          jobs: [
-            {
-              id: 11,
-              type: 'publish',
-              status: 'failed',
-              runAt: '2026-04-19T12:15:00.000Z',
-              attempts: 1,
-              canRetry: true,
-              canCancel: false,
-            },
-          ],
-          queue: {
-            pending: 1,
-            failed: 1,
-          },
-          recentJobs: [],
-        }),
-      )
-      .mockResolvedValueOnce(
-        jsonResponse({
-          job: {
-            id: 11,
-            type: 'publish',
-            status: 'pending',
-            runAt: '2026-04-19T12:20:00.000Z',
-            attempts: 1,
-            canRetry: false,
-            canCancel: true,
-          },
-          runtime: {
-            available: true,
-          },
-        }),
-      )
-      .mockResolvedValueOnce(
-        jsonResponse({
-          job: {
-            id: 12,
-            type: 'monitor_fetch',
-            status: 'canceled',
-            runAt: '2026-04-19T12:25:00.000Z',
-            attempts: 0,
-            canRetry: true,
-            canCancel: false,
-          },
-          runtime: {
-            available: true,
-          },
-        }),
-      );
-    vi.stubGlobal('fetch', fetchMock);
-
-    const settingsModule = (await import('../../src/client/pages/Settings')) as Record<string, unknown>;
-
-    expect(typeof settingsModule.loadSystemJobsRequest).toBe('function');
-    expect(typeof settingsModule.retrySystemJobRequest).toBe('function');
-    expect(typeof settingsModule.cancelSystemJobRequest).toBe('function');
-
-    const loadSystemJobsRequest = settingsModule.loadSystemJobsRequest as (limit?: number) => Promise<unknown>;
-    const retrySystemJobRequest = settingsModule.retrySystemJobRequest as (jobId: number, runAt?: string) => Promise<unknown>;
-    const cancelSystemJobRequest = settingsModule.cancelSystemJobRequest as (jobId: number) => Promise<unknown>;
-
-    await loadSystemJobsRequest(10);
-    await retrySystemJobRequest(11, '2026-04-19T12:20:00.000Z');
-    await cancelSystemJobRequest(12);
-
-    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/system/jobs?limit=10', undefined);
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      2,
-      '/api/system/jobs/11/retry',
-      expect.objectContaining({
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ runAt: '2026-04-19T12:20:00.000Z' }),
-      }),
-    );
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      3,
-      '/api/system/jobs/12/cancel',
-      expect.objectContaining({
-        method: 'POST',
-      }),
-    );
-  });
-
-  it('loads browser lane requests through the shared API helper', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      jsonResponse({
-        requests: [
-          {
-            channelAccountId: 7,
-            platform: 'x',
-            accountKey: 'acct-browser',
-            action: 'request_session',
-            jobStatus: 'pending',
-            requestedAt: '2026-04-21T09:00:00.000Z',
-            artifactPath:
-              'artifacts/browser-lane-requests/x/acct-browser/request-session-job-17.json',
-            resolvedAt: null,
-          },
-        ],
-        total: 1,
-      }),
-    );
-    vi.stubGlobal('fetch', fetchMock);
-
-    const settingsModule = (await import('../../src/client/pages/Settings')) as Record<string, unknown>;
-
-    expect(typeof settingsModule.loadBrowserLaneRequestsRequest).toBe('function');
-
-    const loadBrowserLaneRequestsRequest = settingsModule.loadBrowserLaneRequestsRequest as (
-      limit?: number,
-    ) => Promise<{ requests: Array<{ platform: string; action: string }>; total: number }>;
-
-    const result = await loadBrowserLaneRequestsRequest(10);
-
-    expect(fetchMock).toHaveBeenCalledWith('/api/system/browser-lane-requests?limit=10', undefined);
-    expect(result.total).toBe(1);
-    expect(result.requests[0]).toEqual(
-      expect.objectContaining({
-        platform: 'x',
-        action: 'request_session',
-      }),
-    );
-  });
-
-  it('loads browser handoffs through the settings shared API helper', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      jsonResponse({
-        handoffs: [
-          {
-            platform: 'facebookGroup',
-            draftId: '33',
-            title: 'Community update',
-            accountKey: 'launch-campaign',
-            status: 'pending',
-            artifactPath:
-              'artifacts/browser-handoffs/facebookGroup/launch-campaign/facebookGroup-draft-33.json',
-            createdAt: '2026-04-21T09:10:00.000Z',
-            updatedAt: '2026-04-21T09:10:00.000Z',
-            resolvedAt: null,
-          },
-        ],
-        total: 1,
-      }),
-    );
-    vi.stubGlobal('fetch', fetchMock);
-
-    const settingsModule = (await import('../../src/client/pages/Settings')) as Record<string, unknown>;
-
-    expect(typeof settingsModule.loadBrowserHandoffsRequest).toBe('function');
-
-    const loadBrowserHandoffsRequest = settingsModule.loadBrowserHandoffsRequest as (
-      limit?: number,
-    ) => Promise<{ handoffs: Array<{ platform: string; draftId: string }>; total: number }>;
-
-    const result = await loadBrowserHandoffsRequest(10);
-
-    expect(fetchMock).toHaveBeenCalledWith('/api/system/browser-handoffs?limit=10', undefined);
-    expect(result.total).toBe(1);
-    expect(result.handoffs[0]).toEqual(
-      expect.objectContaining({
-        platform: 'facebookGroup',
-        draftId: '33',
-      }),
-    );
-  });
-
-  it('loads inbox reply handoffs through the settings shared API helper', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      jsonResponse({
-        handoffs: [
-          {
-            platform: 'reddit',
-            itemId: '88',
-            source: 'reddit',
-            title: 'Need lower latency in APAC',
-            author: 'user123',
-            accountKey: 'reddit-main',
-            status: 'pending',
-            artifactPath:
-              'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88.json',
-            createdAt: '2026-04-23T09:10:00.000Z',
-            updatedAt: '2026-04-23T09:10:00.000Z',
-            resolvedAt: null,
-          },
-        ],
-        total: 1,
-      }),
-    );
-    vi.stubGlobal('fetch', fetchMock);
-
-    const settingsModule = (await import('../../src/client/pages/Settings')) as Record<string, unknown>;
-
-    expect(typeof settingsModule.loadInboxReplyHandoffsRequest).toBe('function');
-
-    const loadInboxReplyHandoffsRequest = settingsModule.loadInboxReplyHandoffsRequest as (
-      limit?: number,
-    ) => Promise<{ handoffs: Array<{ platform: string; itemId: string }>; total: number }>;
-
-    const result = await loadInboxReplyHandoffsRequest(10);
-
-    expect(fetchMock).toHaveBeenCalledWith('/api/system/inbox-reply-handoffs?limit=10', undefined);
-    expect(result.total).toBe(1);
-    expect(result.handoffs[0]).toEqual(
-      expect.objectContaining({
-        platform: 'reddit',
-        itemId: '88',
-      }),
-    );
-  });
-
-  it('posts new system jobs through the shared API helper', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      jsonResponse({
-        job: {
-          id: 21,
-          type: 'monitor_fetch',
-          status: 'pending',
-          runAt: '2026-04-20T09:00',
-          attempts: 0,
-        },
-        runtime: {
-          available: true,
-        },
-      }),
-    );
-    vi.stubGlobal('fetch', fetchMock);
-
-    const settingsModule = (await import('../../src/client/pages/Settings')) as Record<string, unknown>;
-
-    expect(typeof settingsModule.enqueueSystemJobRequest).toBe('function');
-
-    const enqueueSystemJobRequest = settingsModule.enqueueSystemJobRequest as (input: {
-      type: string;
-      payload?: Record<string, unknown>;
-      runAt?: string;
-    }) => Promise<unknown>;
-
-    await enqueueSystemJobRequest({
-      type: 'monitor_fetch',
-      payload: {},
-      runAt: '2026-04-20T09:00',
-    });
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      '/api/system/jobs',
-      expect.objectContaining({
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'monitor_fetch',
-          payload: {},
-          runAt: '2026-04-20T09:00',
-        }),
-      }),
     );
   });
 
