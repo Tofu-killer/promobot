@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { apiRequest } from '../lib/api';
 import {
+  fetchInboxRequest as fetchSharedInboxRequest,
+  fetchMonitorFeedRequest as fetchSharedMonitorFeedRequest,
+  fetchReputationRequest as fetchSharedReputationRequest,
+} from '../lib/opsApi';
+import {
   type BrowserLaneRequestImportResponse,
   type BrowserLaneRequestRecord,
   type BrowserLaneRequestsResponse,
@@ -108,21 +113,15 @@ export async function tickSchedulerRuntimeRequest(): Promise<RuntimeControlRespo
 }
 
 export async function fetchMonitorSignalsRequest(): Promise<FetchControlResponse> {
-  return apiRequest<FetchControlResponse>('/api/monitor/fetch', {
-    method: 'POST',
-  });
+  return fetchSharedMonitorFeedRequest<FetchControlResponse>();
 }
 
 export async function fetchInboxSignalsRequest(): Promise<FetchControlResponse> {
-  return apiRequest<FetchControlResponse>('/api/inbox/fetch', {
-    method: 'POST',
-  });
+  return fetchSharedInboxRequest<FetchControlResponse>();
 }
 
 export async function fetchReputationSignalsRequest(): Promise<FetchControlResponse> {
-  return apiRequest<FetchControlResponse>('/api/reputation/fetch', {
-    method: 'POST',
-  });
+  return fetchSharedReputationRequest<FetchControlResponse>();
 }
 
 export async function loadSystemJobsRequest(limit = 20): Promise<SystemJobsResponse> {

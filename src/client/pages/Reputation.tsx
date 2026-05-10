@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { apiRequest } from '../lib/api';
-import { loadReputationRequest as loadSharedReputationRequest } from '../lib/opsApi';
+import {
+  fetchReputationRequest as fetchSharedReputationRequest,
+  loadReputationRequest as loadSharedReputationRequest,
+} from '../lib/opsApi';
 import type { AsyncState } from '../hooks/useAsyncRequest';
 import { useAsyncAction, useAsyncQuery } from '../hooks/useAsyncRequest';
 import { ActionButton } from '../components/ActionButton';
@@ -14,7 +17,6 @@ import {
   enqueueSystemJobRequest as enqueueSharedSystemJobRequest,
 } from '../lib/systemJobs';
 import {
-  createProjectIdBody,
   createProjectPayload,
   getProjectIdValidationError,
   parseProjectId,
@@ -61,17 +63,7 @@ export async function loadReputationRequest(projectId?: number): Promise<Reputat
 }
 
 export async function fetchReputationRequest(projectId?: number): Promise<FetchReputationResponse> {
-  return apiRequest<FetchReputationResponse>('/api/reputation/fetch', {
-    method: 'POST',
-    ...(projectId === undefined
-      ? {}
-      : {
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: createProjectIdBody(projectId),
-        }),
-  });
+  return fetchSharedReputationRequest<FetchReputationResponse>(projectId);
 }
 
 export async function enqueueReputationFetchJobRequest(

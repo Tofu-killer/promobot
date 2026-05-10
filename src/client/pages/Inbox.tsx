@@ -28,13 +28,15 @@ import {
   loadInboxReplyHandoffsRequest as loadSharedInboxReplyHandoffsRequest,
 } from '../lib/systemHandoffs';
 import {
-  createProjectIdBody,
   createProjectPayload,
   getProjectIdValidationError,
   parseProjectId,
   queueInputStyle,
 } from '../lib/projectId';
-import { loadInboxRequest as loadSharedInboxRequest } from '../lib/opsApi';
+import {
+  fetchInboxRequest as fetchSharedInboxRequest,
+  loadInboxRequest as loadSharedInboxRequest,
+} from '../lib/opsApi';
 
 export interface InboxItem {
   id: number;
@@ -72,17 +74,7 @@ export async function loadInboxRequest(projectId?: number): Promise<InboxRespons
 }
 
 export async function fetchInboxRequest(projectId?: number): Promise<FetchInboxResponse> {
-  return apiRequest<FetchInboxResponse>('/api/inbox/fetch', {
-    method: 'POST',
-    ...(projectId === undefined
-      ? {}
-      : {
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: createProjectIdBody(projectId),
-        }),
-  });
+  return fetchSharedInboxRequest<FetchInboxResponse>(projectId);
 }
 
 export async function enqueueInboxFetchJobRequest(

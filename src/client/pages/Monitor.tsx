@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import { apiRequest } from '../lib/api';
-import { loadMonitorFeedRequest as loadSharedMonitorFeedRequest } from '../lib/opsApi';
+import {
+  fetchMonitorFeedRequest as fetchSharedMonitorFeedRequest,
+  loadMonitorFeedRequest as loadSharedMonitorFeedRequest,
+} from '../lib/opsApi';
 import type { AsyncState } from '../hooks/useAsyncRequest';
 import { useAsyncAction, useAsyncQuery } from '../hooks/useAsyncRequest';
 import { ActionButton } from '../components/ActionButton';
@@ -14,7 +17,6 @@ import {
   enqueueSystemJobRequest as enqueueSharedSystemJobRequest,
 } from '../lib/systemJobs';
 import {
-  createProjectIdBody,
   createProjectPayload,
   getProjectIdValidationError,
   parseProjectId,
@@ -78,17 +80,7 @@ export async function generateFollowUpRequest(
 }
 
 export async function fetchMonitorFeedRequest(projectId?: number): Promise<FetchMonitorFeedResponse> {
-  return apiRequest<FetchMonitorFeedResponse>('/api/monitor/fetch', {
-    method: 'POST',
-    ...(projectId === undefined
-      ? {}
-      : {
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: createProjectIdBody(projectId),
-        }),
-  });
+  return fetchSharedMonitorFeedRequest<FetchMonitorFeedResponse>(projectId);
 }
 
 export async function enqueueMonitorFetchJobRequest(

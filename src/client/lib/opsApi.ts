@@ -1,5 +1,5 @@
 import { apiRequest } from './api';
-import { withProjectIdQuery } from './projectId';
+import { createProjectIdBody, withProjectIdQuery } from './projectId';
 
 export interface InboxItem {
   id: string | number;
@@ -69,6 +69,32 @@ export interface ReputationStatsResponse {
 
 export async function loadReputationRequest<TResponse = ReputationStatsResponse>(projectId?: number): Promise<TResponse> {
   return apiRequest<TResponse>(withProjectIdQuery('/api/reputation/stats', projectId));
+}
+
+function createScopedFetchRequestInit(projectId?: number) {
+  return {
+    method: 'POST' as const,
+    ...(projectId === undefined
+      ? {}
+      : {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: createProjectIdBody(projectId),
+        }),
+  };
+}
+
+export async function fetchInboxRequest<TResponse = InboxResponse>(projectId?: number): Promise<TResponse> {
+  return apiRequest<TResponse>('/api/inbox/fetch', createScopedFetchRequestInit(projectId));
+}
+
+export async function fetchMonitorFeedRequest<TResponse = MonitorFeedResponse>(projectId?: number): Promise<TResponse> {
+  return apiRequest<TResponse>('/api/monitor/fetch', createScopedFetchRequestInit(projectId));
+}
+
+export async function fetchReputationRequest<TResponse = ReputationStatsResponse>(projectId?: number): Promise<TResponse> {
+  return apiRequest<TResponse>('/api/reputation/fetch', createScopedFetchRequestInit(projectId));
 }
 
 export function toBadgeTone(status: string): 'draft' | 'review' | 'approved' {
