@@ -1,4 +1,5 @@
 import { apiRequest } from './api';
+import { withProjectIdQuery } from './projectId';
 
 export interface InboxItem {
   id: string | number;
@@ -17,8 +18,8 @@ export interface InboxResponse {
   [key: string]: unknown;
 }
 
-export async function loadInboxRequest(): Promise<InboxResponse> {
-  return apiRequest<InboxResponse>('/api/inbox');
+export async function loadInboxRequest<TResponse = InboxResponse>(projectId?: number): Promise<TResponse> {
+  return apiRequest<TResponse>(withProjectIdQuery('/api/inbox', projectId));
 }
 
 export interface MonitorFeedItem {
@@ -36,8 +37,8 @@ export interface MonitorFeedResponse {
   [key: string]: unknown;
 }
 
-export async function loadMonitorFeedRequest(): Promise<MonitorFeedResponse> {
-  return apiRequest<MonitorFeedResponse>('/api/monitor/feed');
+export async function loadMonitorFeedRequest<TResponse = MonitorFeedResponse>(projectId?: number): Promise<TResponse> {
+  return apiRequest<TResponse>(withProjectIdQuery('/api/monitor/feed', projectId));
 }
 
 export interface ReputationTrendBar {
@@ -66,8 +67,8 @@ export interface ReputationStatsResponse {
   [key: string]: unknown;
 }
 
-export async function loadReputationRequest(): Promise<ReputationStatsResponse> {
-  return apiRequest<ReputationStatsResponse>('/api/reputation/stats');
+export async function loadReputationRequest<TResponse = ReputationStatsResponse>(projectId?: number): Promise<TResponse> {
+  return apiRequest<TResponse>(withProjectIdQuery('/api/reputation/stats', projectId));
 }
 
 export function toBadgeTone(status: string): 'draft' | 'review' | 'approved' {

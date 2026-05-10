@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { apiRequest } from '../lib/api';
+import { loadReputationRequest as loadSharedReputationRequest } from '../lib/opsApi';
 import type { AsyncState } from '../hooks/useAsyncRequest';
 import { useAsyncAction, useAsyncQuery } from '../hooks/useAsyncRequest';
 import { ActionButton } from '../components/ActionButton';
@@ -18,7 +19,6 @@ import {
   getProjectIdValidationError,
   parseProjectId,
   queueInputStyle,
-  withProjectIdQuery,
 } from '../lib/projectId';
 
 export interface ReputationItem {
@@ -57,7 +57,7 @@ function toSentimentPercentage(value: number, total: number) {
 }
 
 export async function loadReputationRequest(projectId?: number): Promise<ReputationStatsResponse> {
-  return apiRequest<ReputationStatsResponse>(withProjectIdQuery('/api/reputation/stats', projectId));
+  return loadSharedReputationRequest<ReputationStatsResponse>(projectId);
 }
 
 export async function fetchReputationRequest(projectId?: number): Promise<FetchReputationResponse> {

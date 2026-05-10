@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { apiRequest } from '../lib/api';
+import { loadMonitorFeedRequest as loadSharedMonitorFeedRequest } from '../lib/opsApi';
 import type { AsyncState } from '../hooks/useAsyncRequest';
 import { useAsyncAction, useAsyncQuery } from '../hooks/useAsyncRequest';
 import { ActionButton } from '../components/ActionButton';
@@ -18,7 +19,6 @@ import {
   getProjectIdValidationError,
   parseProjectId,
   queueInputStyle,
-  withProjectIdQuery,
 } from '../lib/projectId';
 
 export interface MonitorItem {
@@ -61,7 +61,7 @@ function buildMonitorGenerateTopic(item: MonitorItem) {
 }
 
 export async function loadMonitorFeedRequest(projectId?: number): Promise<MonitorFeedResponse> {
-  return apiRequest<MonitorFeedResponse>(withProjectIdQuery('/api/monitor/feed', projectId));
+  return loadSharedMonitorFeedRequest<MonitorFeedResponse>(projectId);
 }
 
 export async function generateFollowUpRequest(

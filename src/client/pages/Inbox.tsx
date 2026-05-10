@@ -33,8 +33,8 @@ import {
   getProjectIdValidationError,
   parseProjectId,
   queueInputStyle,
-  withProjectIdQuery,
 } from '../lib/projectId';
+import { loadInboxRequest as loadSharedInboxRequest } from '../lib/opsApi';
 
 export interface InboxItem {
   id: number;
@@ -68,7 +68,7 @@ export type InboxReplyHandoffRecord = SharedInboxReplyHandoffRecord;
 export type InboxReplyHandoffsResponse = SharedInboxReplyHandoffsResponse;
 
 export async function loadInboxRequest(projectId?: number): Promise<InboxResponse> {
-  return apiRequest<InboxResponse>(withProjectIdQuery('/api/inbox', projectId));
+  return loadSharedInboxRequest<InboxResponse>(projectId);
 }
 
 export async function fetchInboxRequest(projectId?: number): Promise<FetchInboxResponse> {
