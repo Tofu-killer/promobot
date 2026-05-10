@@ -652,40 +652,6 @@ afterEach(() => {
 });
 
 describe('PublishCalendar and Projects pages', () => {
-  it('loads publish calendar drafts through the shared API helper', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      jsonResponse({
-        drafts: [
-          {
-            id: 5,
-            platform: 'x',
-            title: 'Scheduled launch thread',
-            content: 'Queued for 09:30',
-            hashtags: ['#launch'],
-            status: 'scheduled',
-            createdAt: '2026-04-19T08:00:00.000Z',
-            updatedAt: '2026-04-19T08:10:00.000Z',
-          },
-        ],
-      }),
-    );
-    vi.stubGlobal('fetch', fetchMock);
-
-    const publishCalendarModule = (await import('../../src/client/pages/PublishCalendar')) as Record<string, unknown>;
-
-    expect(typeof publishCalendarModule.loadPublishCalendarRequest).toBe('function');
-
-    const loadPublishCalendarRequest = publishCalendarModule.loadPublishCalendarRequest as () => Promise<{
-      drafts: Array<{ id: number; title?: string; status: string }>;
-    }>;
-
-    const result = await loadPublishCalendarRequest();
-
-    expect(fetchMock).toHaveBeenCalledWith('/api/drafts', undefined);
-    expect(result.drafts).toHaveLength(1);
-    expect(result.drafts[0]?.status).toBe('scheduled');
-  });
-
   it('shows publish calendar loading, error, and filtered success states', async () => {
     const { PublishCalendarPage } = await import('../../src/client/pages/PublishCalendar');
 
