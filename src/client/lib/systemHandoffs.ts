@@ -1,4 +1,5 @@
 import { apiRequest } from './api';
+import { withProjectIdQuery } from './projectId';
 
 export interface BrowserHandoffRecord {
   channelAccountId?: number;
@@ -82,12 +83,14 @@ export interface InboxReplyHandoffCompletionResponse {
   deliveredAt: string | null;
 }
 
-export async function loadBrowserHandoffsRequest(limit = 20): Promise<BrowserHandoffsResponse> {
-  return apiRequest<BrowserHandoffsResponse>(`/api/system/browser-handoffs?limit=${limit}`);
+export async function loadBrowserHandoffsRequest(limit = 20, projectId?: number): Promise<BrowserHandoffsResponse> {
+  return apiRequest<BrowserHandoffsResponse>(withProjectIdQuery(`/api/system/browser-handoffs?limit=${limit}`, projectId));
 }
 
-export async function loadInboxReplyHandoffsRequest(limit = 20): Promise<InboxReplyHandoffsResponse> {
-  return apiRequest<InboxReplyHandoffsResponse>(`/api/system/inbox-reply-handoffs?limit=${limit}`);
+export async function loadInboxReplyHandoffsRequest(limit = 20, projectId?: number): Promise<InboxReplyHandoffsResponse> {
+  return apiRequest<InboxReplyHandoffsResponse>(
+    withProjectIdQuery(`/api/system/inbox-reply-handoffs?limit=${limit}`, projectId),
+  );
 }
 
 export async function completeBrowserHandoffRequest(input: {

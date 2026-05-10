@@ -16,7 +16,12 @@ import {
 } from '../lib/browserHandoffContract';
 import type { BrowserSessionAction } from '../lib/channelAccountSession';
 import { getProjectIdValidationError, parseProjectId, projectInputStyle, withProjectIdQuery } from '../lib/projectId';
-import type { BrowserHandoffCompletionResponse, BrowserHandoffRecord, BrowserHandoffsResponse } from '../lib/systemHandoffs';
+import {
+  loadBrowserHandoffsRequest,
+  type BrowserHandoffCompletionResponse,
+  type BrowserHandoffRecord,
+  type BrowserHandoffsResponse,
+} from '../lib/systemHandoffs';
 import type { AsyncState } from '../hooks/useAsyncRequest';
 import { useAsyncQuery } from '../hooks/useAsyncRequest';
 import { ActionButton } from '../components/ActionButton';
@@ -93,13 +98,7 @@ export async function loadDraftBrowserHandoffsRequest(
   limit = 100,
   projectId?: number,
 ): Promise<BrowserHandoffsResponse> {
-  const query = new URLSearchParams({ limit: String(limit) });
-
-  if (projectId !== undefined) {
-    query.set('projectId', String(projectId));
-  }
-
-  return apiRequest<BrowserHandoffsResponse>(`/api/system/browser-handoffs?${query.toString()}`);
+  return loadBrowserHandoffsRequest(limit, projectId);
 }
 
 function defaultLoadDraftBrowserHandoffsAction(projectId?: number) {

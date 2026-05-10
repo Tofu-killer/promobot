@@ -42,6 +42,7 @@ describe('system handoff request helpers', () => {
 
     const loadBrowserHandoffsRequest = handoffModule.loadBrowserHandoffsRequest as (
       limit?: number,
+      projectId?: number,
     ) => Promise<{ handoffs: Array<{ platform: string; draftId: string }>; total: number }>;
 
     const result = await loadBrowserHandoffsRequest(10);
@@ -54,6 +55,22 @@ describe('system handoff request helpers', () => {
         draftId: '33',
       }),
     );
+  });
+
+  it('loads project-scoped browser handoffs through the shared helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ handoffs: [], total: 0 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const handoffModule = (await import('../../src/client/lib/systemHandoffs')) as Record<string, unknown>;
+
+    const loadBrowserHandoffsRequest = handoffModule.loadBrowserHandoffsRequest as (
+      limit?: number,
+      projectId?: number,
+    ) => Promise<{ handoffs: Array<{ platform: string; draftId: string }>; total: number }>;
+
+    await loadBrowserHandoffsRequest(25, 12);
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/system/browser-handoffs?limit=25&projectId=12', undefined);
   });
 
   it('posts browser handoff completion through the shared helper without blank publishUrl', async () => {
@@ -164,5 +181,21 @@ describe('system handoff request helpers', () => {
         }),
       }),
     );
+  });
+
+  it('loads project-scoped inbox reply handoffs through the shared helper', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ handoffs: [], total: 0 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const handoffModule = (await import('../../src/client/lib/systemHandoffs')) as Record<string, unknown>;
+
+    const loadInboxReplyHandoffsRequest = handoffModule.loadInboxReplyHandoffsRequest as (
+      limit?: number,
+      projectId?: number,
+    ) => Promise<{ handoffs: Array<{ itemId: string }>; total: number }>;
+
+    await loadInboxReplyHandoffsRequest(15, 8);
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/system/inbox-reply-handoffs?limit=15&projectId=8', undefined);
   });
 });
