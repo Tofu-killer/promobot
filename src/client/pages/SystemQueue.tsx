@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { apiRequest } from '../lib/api';
 import {
+  cancelSystemJobRequest as cancelSharedSystemJobRequest,
+  enqueueSystemJobRequest as enqueueSharedSystemJobRequest,
+  importBrowserLaneRequestResultRequest as importSharedBrowserLaneRequestResultRequest,
+  loadBrowserLaneRequestsRequest as loadSharedBrowserLaneRequestsRequest,
+  loadSystemJobsRequest as loadSharedSystemJobsRequest,
+  retrySystemJobRequest as retrySharedSystemJobRequest,
+} from '../lib/systemJobs';
+import {
   completeBrowserHandoffRequest as completeSharedBrowserHandoffRequest,
   completeInboxReplyHandoffRequest as completeSharedInboxReplyHandoffRequest,
   loadBrowserHandoffsRequest as loadSharedBrowserHandoffsRequest,
@@ -197,11 +205,11 @@ export interface InboxReplyHandoffCompletionResponse {
 }
 
 export async function loadSystemQueueRequest(limit = 50): Promise<SystemQueueResponse> {
-  return apiRequest<SystemQueueResponse>(`/api/system/jobs?limit=${limit}`);
+  return loadSharedSystemJobsRequest<SystemQueueResponse>(limit);
 }
 
 export async function loadBrowserLaneRequestsRequest(limit = 20): Promise<BrowserLaneRequestsResponse> {
-  return apiRequest<BrowserLaneRequestsResponse>(`/api/system/browser-lane-requests?limit=${limit}`);
+  return loadSharedBrowserLaneRequestsRequest<BrowserLaneRequestsResponse>(limit);
 }
 
 export async function loadBrowserHandoffsRequest(limit = 20): Promise<BrowserHandoffsResponse> {
@@ -213,17 +221,7 @@ export async function importBrowserLaneRequestResultRequest(input: {
   storageState: Record<string, unknown>;
   notes?: string;
 }): Promise<BrowserLaneRequestImportResponse> {
-  return apiRequest<BrowserLaneRequestImportResponse>('/api/system/browser-lane-requests/import', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      requestArtifactPath: input.requestArtifactPath,
-      storageState: input.storageState,
-      ...(input.notes !== undefined && input.notes.trim().length > 0 ? { notes: input.notes.trim() } : {}),
-    }),
-  });
+  return importSharedBrowserLaneRequestResultRequest<BrowserLaneRequestImportResponse>(input);
 }
 
 export async function loadInboxReplyHandoffsRequest(limit = 20): Promise<InboxReplyHandoffsResponse> {
@@ -254,19 +252,11 @@ export async function retrySystemQueueJobRequest(
   jobId: number,
   runAt?: string,
 ): Promise<SystemQueueMutationResponse> {
-  return apiRequest<SystemQueueMutationResponse>(`/api/system/jobs/${jobId}/retry`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(runAt ? { runAt } : {}),
-  });
+  return retrySharedSystemJobRequest<SystemQueueMutationResponse>(jobId, runAt);
 }
 
 export async function cancelSystemQueueJobRequest(jobId: number): Promise<SystemQueueMutationResponse> {
-  return apiRequest<SystemQueueMutationResponse>(`/api/system/jobs/${jobId}/cancel`, {
-    method: 'POST',
-  });
+  return cancelSharedSystemJobRequest<SystemQueueMutationResponse>(jobId);
 }
 
 export async function enqueueSystemQueueJobRequest(input: {
@@ -274,13 +264,7 @@ export async function enqueueSystemQueueJobRequest(input: {
   payload?: Record<string, unknown>;
   runAt?: string;
 }): Promise<SystemQueueMutationResponse> {
-  return apiRequest<SystemQueueMutationResponse>('/api/system/jobs', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(input),
-  });
+  return enqueueSharedSystemJobRequest<SystemQueueMutationResponse>(input);
 }
 
 interface SystemQueuePageProps {

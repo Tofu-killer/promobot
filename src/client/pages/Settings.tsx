@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { apiRequest } from '../lib/api';
 import {
+  cancelSystemJobRequest as cancelSharedSystemJobRequest,
+  enqueueSystemJobRequest as enqueueSharedSystemJobRequest,
+  importBrowserLaneRequestResultRequest as importSharedBrowserLaneRequestResultRequest,
+  loadBrowserLaneRequestsRequest as loadSharedBrowserLaneRequestsRequest,
+  loadSystemJobsRequest as loadSharedSystemJobsRequest,
+  retrySystemJobRequest as retrySharedSystemJobRequest,
+} from '../lib/systemJobs';
+import {
   completeBrowserHandoffRequest as completeSharedBrowserHandoffRequest,
   completeInboxReplyHandoffRequest as completeSharedInboxReplyHandoffRequest,
   loadBrowserHandoffsRequest as loadSharedBrowserHandoffsRequest,
@@ -251,11 +259,11 @@ export async function fetchReputationSignalsRequest(): Promise<FetchControlRespo
 }
 
 export async function loadSystemJobsRequest(limit = 20): Promise<SystemJobsResponse> {
-  return apiRequest<SystemJobsResponse>(`/api/system/jobs?limit=${limit}`);
+  return loadSharedSystemJobsRequest<SystemJobsResponse>(limit);
 }
 
 export async function loadBrowserLaneRequestsRequest(limit = 20): Promise<BrowserLaneRequestsResponse> {
-  return apiRequest<BrowserLaneRequestsResponse>(`/api/system/browser-lane-requests?limit=${limit}`);
+  return loadSharedBrowserLaneRequestsRequest<BrowserLaneRequestsResponse>(limit);
 }
 
 export async function loadBrowserHandoffsRequest(limit = 20): Promise<BrowserHandoffsResponse> {
@@ -271,17 +279,7 @@ export async function importBrowserLaneRequestResultRequest(input: {
   storageState: Record<string, unknown>;
   notes?: string;
 }): Promise<BrowserLaneRequestImportResponse> {
-  return apiRequest<BrowserLaneRequestImportResponse>('/api/system/browser-lane-requests/import', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      requestArtifactPath: input.requestArtifactPath,
-      storageState: input.storageState,
-      ...(input.notes !== undefined && input.notes.trim().length > 0 ? { notes: input.notes.trim() } : {}),
-    }),
-  });
+  return importSharedBrowserLaneRequestResultRequest<BrowserLaneRequestImportResponse>(input);
 }
 
 export async function completeBrowserHandoffRequest(input: {
@@ -308,31 +306,17 @@ export async function retrySystemJobRequest(
   jobId: number,
   runAt?: string,
 ): Promise<SystemJobMutationResponse> {
-  return apiRequest<SystemJobMutationResponse>(`/api/system/jobs/${jobId}/retry`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(runAt ? { runAt } : {}),
-  });
+  return retrySharedSystemJobRequest<SystemJobMutationResponse>(jobId, runAt);
 }
 
 export async function cancelSystemJobRequest(jobId: number): Promise<SystemJobMutationResponse> {
-  return apiRequest<SystemJobMutationResponse>(`/api/system/jobs/${jobId}/cancel`, {
-    method: 'POST',
-  });
+  return cancelSharedSystemJobRequest<SystemJobMutationResponse>(jobId);
 }
 
 export async function enqueueSystemJobRequest(
   input: EnqueueSystemJobPayload,
 ): Promise<SystemJobMutationResponse> {
-  return apiRequest<SystemJobMutationResponse>('/api/system/jobs', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(input),
-  });
+  return enqueueSharedSystemJobRequest<SystemJobMutationResponse>(input);
 }
 
 export async function submitSettingsForm(
