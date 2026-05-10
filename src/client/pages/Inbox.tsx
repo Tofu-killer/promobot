@@ -9,7 +9,12 @@ import { PageHeader } from '../components/PageHeader';
 import { SectionCard } from '../components/SectionCard';
 import { StatCard } from '../components/StatCard';
 import { StatusBadge } from '../components/StatusBadge';
-import { requestChannelAccountSessionAction } from '../lib/channelAccountSession';
+import {
+  requestChannelAccountSessionAction,
+  type BrowserSessionAction,
+  type RequestChannelAccountSessionActionPayload as SharedRequestChannelAccountSessionActionPayload,
+  type RequestChannelAccountSessionActionResponse as SharedRequestChannelAccountSessionActionResponse,
+} from '../lib/channelAccountSession';
 import {
   type InboxReplyHandoffCompletionResponse as SharedInboxReplyHandoffCompletionResponse,
   type InboxReplyHandoffRecord as SharedInboxReplyHandoffRecord,
@@ -198,24 +203,14 @@ export async function sendInboxReplyRequest(id: number, reply: string): Promise<
   });
 }
 
-export interface RequestChannelAccountSessionActionPayload {
-  action?: BrowserSessionAction;
-}
-
-export interface RequestChannelAccountSessionActionResponse {
-  sessionAction: {
-    action: BrowserSessionAction;
-    message: string;
-    artifactPath?: string | null;
-    path?: string | null;
-  };
-}
+export type RequestChannelAccountSessionActionPayload = SharedRequestChannelAccountSessionActionPayload;
+export type RequestChannelAccountSessionActionResponse = SharedRequestChannelAccountSessionActionResponse;
 
 export async function requestInboxReplySessionActionRequest(
   accountId: number,
   input: RequestChannelAccountSessionActionPayload = {},
 ): Promise<RequestChannelAccountSessionActionResponse> {
-  return requestChannelAccountSessionAction<RequestChannelAccountSessionActionResponse>(accountId, input);
+  return requestChannelAccountSessionAction(accountId, input);
 }
 
 export interface CompleteInboxReplyHandoffInput {

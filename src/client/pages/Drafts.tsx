@@ -14,7 +14,12 @@ import {
   toBrowserHandoffContract,
   type BrowserHandoffContract,
 } from '../lib/browserHandoffContract';
-import { requestChannelAccountSessionAction, type BrowserSessionAction } from '../lib/channelAccountSession';
+import {
+  requestChannelAccountSessionAction,
+  type BrowserSessionAction,
+  type RequestChannelAccountSessionActionPayload,
+  type RequestChannelAccountSessionActionResponse,
+} from '../lib/channelAccountSession';
 import { getProjectIdValidationError, parseProjectId, projectInputStyle, withProjectIdQuery } from '../lib/projectId';
 import {
   completeBrowserHandoffRequest as completeSharedBrowserHandoffRequest,
@@ -74,19 +79,6 @@ export async function publishDraftRequest(id: number): Promise<PublishDraftRespo
   });
 }
 
-interface RequestChannelAccountSessionActionPayload {
-  action?: BrowserSessionAction;
-}
-
-interface RequestChannelAccountSessionActionResponse {
-  sessionAction: {
-    action: BrowserSessionAction;
-    message: string;
-    artifactPath?: string | null;
-    path?: string | null;
-  };
-}
-
 interface CompleteBrowserHandoffInput {
   artifactPath: string;
   handoffAttempt?: number;
@@ -110,7 +102,7 @@ export async function requestDraftSessionActionRequest(
   accountId: number,
   input: RequestChannelAccountSessionActionPayload = {},
 ): Promise<RequestChannelAccountSessionActionResponse> {
-  return requestChannelAccountSessionAction<RequestChannelAccountSessionActionResponse>(accountId, input);
+  return requestChannelAccountSessionAction(accountId, input);
 }
 
 export async function completeDraftBrowserHandoffRequest(
