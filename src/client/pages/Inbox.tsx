@@ -10,7 +10,10 @@ import { SectionCard } from '../components/SectionCard';
 import { StatCard } from '../components/StatCard';
 import { StatusBadge } from '../components/StatusBadge';
 import { requestChannelAccountSessionAction } from '../lib/channelAccountSession';
-import { loadInboxReplyHandoffsRequest as loadSharedInboxReplyHandoffsRequest } from '../lib/systemHandoffs';
+import {
+  completeInboxReplyHandoffRequest as completeSharedInboxReplyHandoffRequest,
+  loadInboxReplyHandoffsRequest as loadSharedInboxReplyHandoffsRequest,
+} from '../lib/systemHandoffs';
 import {
   createProjectIdBody,
   createProjectPayload,
@@ -260,25 +263,7 @@ export interface InboxReplyHandoffCompletionResponse {
 export async function completeInboxReplyHandoffRequest(
   input: CompleteInboxReplyHandoffInput,
 ): Promise<InboxReplyHandoffCompletionResponse> {
-  return apiRequest<InboxReplyHandoffCompletionResponse>('/api/system/inbox-reply-handoffs/import', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      artifactPath: input.artifactPath,
-      ...(input.handoffAttempt !== undefined ? { handoffAttempt: input.handoffAttempt } : {}),
-      replyStatus: input.replyStatus,
-      message:
-        input.message ??
-        (input.replyStatus === 'sent'
-          ? 'inbox reply handoff marked sent'
-          : 'inbox reply handoff marked failed'),
-      ...(input.deliveryUrl !== undefined && input.deliveryUrl.trim().length > 0
-        ? { deliveryUrl: input.deliveryUrl.trim() }
-        : {}),
-    }),
-  });
+  return completeSharedInboxReplyHandoffRequest(input);
 }
 
 interface InboxPageProps {

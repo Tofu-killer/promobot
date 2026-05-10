@@ -20,6 +20,7 @@ import {
 import { requestChannelAccountSessionAction, type BrowserSessionAction } from '../lib/channelAccountSession';
 import { getProjectIdValidationError, parseProjectId, projectInputStyle, withProjectIdQuery } from '../lib/projectId';
 import {
+  completeBrowserHandoffRequest as completeSharedBrowserHandoffRequest,
   loadBrowserHandoffsRequest,
   type BrowserHandoffCompletionResponse,
   type BrowserHandoffRecord,
@@ -170,25 +171,7 @@ export async function requestPublishCalendarSessionActionRequest(
 export async function completePublishCalendarBrowserHandoffRequest(
   input: CompleteBrowserHandoffInput,
 ): Promise<BrowserHandoffCompletionResponse> {
-  return apiRequest<BrowserHandoffCompletionResponse>('/api/system/browser-handoffs/import', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      artifactPath: input.artifactPath,
-      ...(input.handoffAttempt !== undefined ? { handoffAttempt: input.handoffAttempt } : {}),
-      publishStatus: input.publishStatus,
-      message:
-        input.message ??
-        (input.publishStatus === 'published'
-          ? 'browser handoff marked published'
-          : 'browser handoff marked failed'),
-      ...(input.publishUrl !== undefined && input.publishUrl.trim().length > 0
-        ? { publishUrl: input.publishUrl.trim() }
-        : {}),
-    }),
-  });
+  return completeSharedBrowserHandoffRequest(input);
 }
 
 function isCalendarDraftStatus(status: DraftRecord['status']): status is CalendarDraftStatus {
