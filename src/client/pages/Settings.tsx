@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { apiRequest } from '../lib/api';
 import {
+  type BrowserLaneRequestImportResponse,
+  type BrowserLaneRequestRecord,
+  type BrowserLaneRequestsResponse,
+  type BrowserLaneSessionSummary,
+  type EnqueueSystemJobInput,
+  type SystemJobMutationResponse,
+  type SystemJobRecord,
+  type SystemJobsResponse,
   cancelSystemJobRequest as cancelSharedSystemJobRequest,
   enqueueSystemJobRequest as enqueueSharedSystemJobRequest,
   importBrowserLaneRequestResultRequest as importSharedBrowserLaneRequestResultRequest,
@@ -9,6 +17,12 @@ import {
   retrySystemJobRequest as retrySharedSystemJobRequest,
 } from '../lib/systemJobs';
 import {
+  type BrowserHandoffCompletionResponse,
+  type BrowserHandoffRecord,
+  type BrowserHandoffsResponse,
+  type InboxReplyHandoffCompletionResponse,
+  type InboxReplyHandoffRecord,
+  type InboxReplyHandoffsResponse,
   completeBrowserHandoffRequest as completeSharedBrowserHandoffRequest,
   completeInboxReplyHandoffRequest as completeSharedInboxReplyHandoffRequest,
   loadBrowserHandoffsRequest as loadSharedBrowserHandoffsRequest,
@@ -79,154 +93,7 @@ export interface FetchControlResponse {
   unread?: number;
 }
 
-export interface SystemJobRecord {
-  id: number;
-  type: string;
-  status: string;
-  runAt: string;
-  attempts: number;
-  lastError?: string;
-  canRetry?: boolean;
-  canCancel?: boolean;
-}
-
-export interface SystemJobsResponse {
-  jobs: SystemJobRecord[];
-  queue: Record<string, unknown>;
-  recentJobs: SystemJobRecord[];
-}
-
-export interface BrowserLaneRequestRecord {
-  channelAccountId: number;
-  platform: string;
-  accountKey: string;
-  action: string;
-  jobStatus: string;
-  requestedAt: string;
-  artifactPath: string;
-  resolvedAt: string | null;
-  resolution?: unknown;
-}
-
-export interface BrowserLaneRequestsResponse {
-  requests: BrowserLaneRequestRecord[];
-  total: number;
-}
-
-export interface BrowserHandoffRecord {
-  channelAccountId?: number;
-  accountDisplayName?: string;
-  ownership?: string;
-  platform: string;
-  draftId: string;
-  handoffAttempt?: number;
-  title: string | null;
-  accountKey: string;
-  status: string;
-  readiness?: string;
-  sessionAction?: string | null;
-  artifactPath: string;
-  createdAt: string;
-  updatedAt: string;
-  resolvedAt: string | null;
-  resolution?: unknown;
-}
-
-export interface BrowserHandoffsResponse {
-  handoffs: BrowserHandoffRecord[];
-  total: number;
-}
-
-export interface InboxReplyHandoffRecord {
-  channelAccountId?: number;
-  platform: string;
-  itemId: string;
-  handoffAttempt?: number;
-  source: string;
-  title: string | null;
-  author: string | null;
-  accountKey: string;
-  status: string;
-  readiness?: string;
-  sessionAction?: string | null;
-  artifactPath: string;
-  createdAt: string;
-  updatedAt: string;
-  resolvedAt: string | null;
-  resolution?: unknown;
-}
-
-export interface InboxReplyHandoffsResponse {
-  handoffs: InboxReplyHandoffRecord[];
-  total: number;
-}
-
-export interface BrowserLaneSessionSummary {
-  hasSession: boolean;
-  status: 'active' | 'expired' | 'missing' | string;
-  validatedAt: string | null;
-  storageStatePath: string | null;
-  id?: string;
-  notes?: string;
-}
-
-export interface BrowserLaneRequestImportResponse {
-  ok: boolean;
-  imported: boolean;
-  artifactPath: string;
-  session: BrowserLaneSessionSummary | null;
-  channelAccount: {
-    id: number;
-    metadata?: Record<string, unknown>;
-    session?: BrowserLaneSessionSummary;
-    [key: string]: unknown;
-  };
-}
-
-export interface BrowserHandoffCompletionResponse {
-  ok: boolean;
-  imported: boolean;
-  artifactPath: string;
-  draftId: number;
-  draftStatus: string;
-  platform: string;
-  mode: string;
-  status: string;
-  publishStatus?: string;
-  success: boolean;
-  publishUrl: string | null;
-  externalId: string | null;
-  message: string;
-  publishedAt: string | null;
-}
-
-export interface InboxReplyHandoffCompletionResponse {
-  ok: boolean;
-  imported: boolean;
-  artifactPath: string;
-  itemId: number;
-  itemStatus: string;
-  platform: string;
-  mode: string;
-  status: string;
-  replyStatus?: string;
-  success: boolean;
-  deliveryUrl: string | null;
-  externalId: string | null;
-  message: string;
-  deliveredAt: string | null;
-}
-
-export interface SystemJobMutationResponse {
-  job: SystemJobRecord;
-  runtime: Record<string, unknown>;
-}
-
-export interface EnqueueSystemJobPayload {
-  type: string;
-  payload?: Record<string, unknown>;
-  runAt?: string;
-}
+export type EnqueueSystemJobPayload = EnqueueSystemJobInput;
 
 export async function reloadSchedulerRuntimeRequest(): Promise<RuntimeControlResponse> {
   return apiRequest<RuntimeControlResponse>('/api/system/runtime/reload', {

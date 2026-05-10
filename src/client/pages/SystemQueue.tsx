@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { apiRequest } from '../lib/api';
 import {
+  type BrowserLaneRequestImportResponse as SharedBrowserLaneRequestImportResponse,
+  type BrowserLaneRequestRecord as SharedBrowserLaneRequestRecord,
+  type BrowserLaneRequestsResponse as SharedBrowserLaneRequestsResponse,
+  type BrowserLaneSessionSummary as SharedBrowserLaneSessionSummary,
+  type EnqueueSystemJobInput,
+  type SystemJobMutationResponse as SharedSystemJobMutationResponse,
+  type SystemJobRecord as SharedSystemJobRecord,
+  type SystemJobsResponse as SharedSystemJobsResponse,
   cancelSystemJobRequest as cancelSharedSystemJobRequest,
   enqueueSystemJobRequest as enqueueSharedSystemJobRequest,
   importBrowserLaneRequestResultRequest as importSharedBrowserLaneRequestResultRequest,
@@ -9,6 +16,12 @@ import {
   retrySystemJobRequest as retrySharedSystemJobRequest,
 } from '../lib/systemJobs';
 import {
+  type BrowserHandoffCompletionResponse,
+  type BrowserHandoffRecord,
+  type BrowserHandoffsResponse,
+  type InboxReplyHandoffCompletionResponse,
+  type InboxReplyHandoffRecord,
+  type InboxReplyHandoffsResponse,
   completeBrowserHandoffRequest as completeSharedBrowserHandoffRequest,
   completeInboxReplyHandoffRequest as completeSharedInboxReplyHandoffRequest,
   loadBrowserHandoffsRequest as loadSharedBrowserHandoffsRequest,
@@ -21,121 +34,13 @@ import { PageHeader } from '../components/PageHeader';
 import { SectionCard } from '../components/SectionCard';
 import { StatCard } from '../components/StatCard';
 
-export interface SystemQueueJob {
-  id: number;
-  type: string;
-  status: string;
-  runAt: string;
-  attempts: number;
-  lastError?: string;
-  canRetry?: boolean;
-  canCancel?: boolean;
-}
-
-export interface SystemQueueResponse {
-  jobs: SystemQueueJob[];
-  queue: {
-    pending?: number;
-    running?: number;
-    done?: number;
-    failed?: number;
-    canceled?: number;
-    duePending?: number;
-  };
-  recentJobs: SystemQueueJob[];
-}
-
-export interface SystemQueueMutationResponse {
-  job: SystemQueueJob;
-  runtime: Record<string, unknown>;
-}
-
-export interface BrowserLaneRequestRecord {
-  channelAccountId: number;
-  platform: string;
-  accountKey: string;
-  action: string;
-  jobStatus: string;
-  requestedAt: string;
-  artifactPath: string;
-  resolvedAt: string | null;
-  resolution?: unknown;
-}
-
-export interface BrowserLaneRequestsResponse {
-  requests: BrowserLaneRequestRecord[];
-  total: number;
-}
-
-export interface BrowserLaneSessionSummary {
-  hasSession: boolean;
-  status: 'active' | 'expired' | 'missing' | string;
-  validatedAt: string | null;
-  storageStatePath: string | null;
-  id?: string;
-  notes?: string;
-}
-
-export interface BrowserLaneRequestImportResponse {
-  ok: boolean;
-  imported: boolean;
-  artifactPath: string;
-  session: BrowserLaneSessionSummary | null;
-  channelAccount: {
-    id: number;
-    metadata?: Record<string, unknown>;
-    session?: BrowserLaneSessionSummary;
-    [key: string]: unknown;
-  };
-}
-
-export interface BrowserHandoffRecord {
-  channelAccountId?: number;
-  accountDisplayName?: string;
-  ownership?: string;
-  platform: string;
-  draftId: string;
-  handoffAttempt?: number;
-  title: string | null;
-  accountKey: string;
-  status: string;
-  readiness?: string;
-  sessionAction?: string | null;
-  artifactPath: string;
-  createdAt: string;
-  updatedAt: string;
-  resolvedAt: string | null;
-  resolution?: unknown;
-}
-
-export interface BrowserHandoffsResponse {
-  handoffs: BrowserHandoffRecord[];
-  total: number;
-}
-
-export interface InboxReplyHandoffRecord {
-  channelAccountId?: number;
-  platform: string;
-  itemId: string;
-  handoffAttempt?: number;
-  source: string;
-  title: string | null;
-  author: string | null;
-  accountKey: string;
-  status: string;
-  readiness?: string;
-  sessionAction?: string | null;
-  artifactPath: string;
-  createdAt: string;
-  updatedAt: string;
-  resolvedAt: string | null;
-  resolution?: unknown;
-}
-
-export interface InboxReplyHandoffsResponse {
-  handoffs: InboxReplyHandoffRecord[];
-  total: number;
-}
+export type SystemQueueJob = SharedSystemJobRecord;
+export type SystemQueueResponse = SharedSystemJobsResponse;
+export type SystemQueueMutationResponse = SharedSystemJobMutationResponse;
+export type BrowserLaneRequestRecord = SharedBrowserLaneRequestRecord;
+export type BrowserLaneRequestsResponse = SharedBrowserLaneRequestsResponse;
+export type BrowserLaneSessionSummary = SharedBrowserLaneSessionSummary;
+export type BrowserLaneRequestImportResponse = SharedBrowserLaneRequestImportResponse;
 
 interface BasePriorityActionRecord {
   key: string;
@@ -169,40 +74,6 @@ type PriorityActionRecord =
   | BrowserLanePriorityActionRecord
   | InboxReplyPriorityActionRecord
   | BrowserHandoffPriorityActionRecord;
-
-export interface BrowserHandoffCompletionResponse {
-  ok: boolean;
-  imported: boolean;
-  artifactPath: string;
-  draftId: number;
-  draftStatus: string;
-  platform: string;
-  mode: string;
-  status: string;
-  publishStatus?: string;
-  success: boolean;
-  publishUrl: string | null;
-  externalId: string | null;
-  message: string;
-  publishedAt: string | null;
-}
-
-export interface InboxReplyHandoffCompletionResponse {
-  ok: boolean;
-  imported: boolean;
-  artifactPath: string;
-  itemId: number;
-  itemStatus: string;
-  platform: string;
-  mode: string;
-  status: string;
-  replyStatus?: string;
-  success: boolean;
-  deliveryUrl: string | null;
-  externalId: string | null;
-  message: string;
-  deliveredAt: string | null;
-}
 
 export async function loadSystemQueueRequest(limit = 50): Promise<SystemQueueResponse> {
   return loadSharedSystemJobsRequest<SystemQueueResponse>(limit);
@@ -259,11 +130,9 @@ export async function cancelSystemQueueJobRequest(jobId: number): Promise<System
   return cancelSharedSystemJobRequest<SystemQueueMutationResponse>(jobId);
 }
 
-export async function enqueueSystemQueueJobRequest(input: {
-  type: string;
-  payload?: Record<string, unknown>;
-  runAt?: string;
-}): Promise<SystemQueueMutationResponse> {
+export async function enqueueSystemQueueJobRequest(
+  input: EnqueueSystemJobInput,
+): Promise<SystemQueueMutationResponse> {
   return enqueueSharedSystemJobRequest<SystemQueueMutationResponse>(input);
 }
 
@@ -274,11 +143,7 @@ interface SystemQueuePageProps {
   loadInboxReplyHandoffsAction?: () => Promise<InboxReplyHandoffsResponse>;
   retrySystemQueueJobAction?: (jobId: number, runAt?: string) => Promise<SystemQueueMutationResponse>;
   cancelSystemQueueJobAction?: (jobId: number) => Promise<SystemQueueMutationResponse>;
-  enqueueSystemQueueJobAction?: (input: {
-    type: string;
-    payload?: Record<string, unknown>;
-    runAt?: string;
-  }) => Promise<SystemQueueMutationResponse>;
+  enqueueSystemQueueJobAction?: (input: EnqueueSystemJobInput) => Promise<SystemQueueMutationResponse>;
   importBrowserLaneRequestResultAction?: (input: {
     requestArtifactPath: string;
     storageState: Record<string, unknown>;
