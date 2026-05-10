@@ -14,12 +14,12 @@ import {
   type SystemJobMutationResponse,
   type SystemJobRecord,
   type SystemJobsResponse,
-  cancelSystemJobRequest as cancelSharedSystemJobRequest,
-  enqueueSystemJobRequest as enqueueSharedSystemJobRequest,
-  importBrowserLaneRequestResultRequest as importSharedBrowserLaneRequestResultRequest,
-  loadBrowserLaneRequestsRequest as loadSharedBrowserLaneRequestsRequest,
-  loadSystemJobsRequest as loadSharedSystemJobsRequest,
-  retrySystemJobRequest as retrySharedSystemJobRequest,
+  cancelSystemJobRequest,
+  enqueueSystemJobRequest,
+  importBrowserLaneRequestResultRequest,
+  loadBrowserLaneRequestsRequest,
+  loadSystemJobsRequest,
+  retrySystemJobRequest,
 } from '../lib/systemJobs';
 import {
   type BrowserHandoffCompletionResponse,
@@ -28,10 +28,10 @@ import {
   type InboxReplyHandoffCompletionResponse,
   type InboxReplyHandoffRecord,
   type InboxReplyHandoffsResponse,
-  completeBrowserHandoffRequest as completeSharedBrowserHandoffRequest,
-  completeInboxReplyHandoffRequest as completeSharedInboxReplyHandoffRequest,
-  loadBrowserHandoffsRequest as loadSharedBrowserHandoffsRequest,
-  loadInboxReplyHandoffsRequest as loadSharedInboxReplyHandoffsRequest,
+  completeBrowserHandoffRequest,
+  completeInboxReplyHandoffRequest,
+  loadBrowserHandoffsRequest,
+  loadInboxReplyHandoffsRequest,
 } from '../lib/systemHandoffs';
 import type { AsyncState } from '../hooks/useAsyncRequest';
 import { useAsyncAction, useAsyncQuery } from '../hooks/useAsyncRequest';
@@ -124,66 +124,18 @@ export async function fetchReputationSignalsRequest(): Promise<FetchControlRespo
   return fetchSharedReputationRequest<FetchControlResponse>();
 }
 
-export async function loadSystemJobsRequest(limit = 20): Promise<SystemJobsResponse> {
-  return loadSharedSystemJobsRequest<SystemJobsResponse>(limit);
-}
-
-export async function loadBrowserLaneRequestsRequest(limit = 20): Promise<BrowserLaneRequestsResponse> {
-  return loadSharedBrowserLaneRequestsRequest<BrowserLaneRequestsResponse>(limit);
-}
-
-export async function loadBrowserHandoffsRequest(limit = 20): Promise<BrowserHandoffsResponse> {
-  return loadSharedBrowserHandoffsRequest(limit);
-}
-
-export async function loadInboxReplyHandoffsRequest(limit = 20): Promise<InboxReplyHandoffsResponse> {
-  return loadSharedInboxReplyHandoffsRequest(limit);
-}
-
-export async function importBrowserLaneRequestResultRequest(input: {
-  requestArtifactPath: string;
-  storageState: Record<string, unknown>;
-  notes?: string;
-}): Promise<BrowserLaneRequestImportResponse> {
-  return importSharedBrowserLaneRequestResultRequest<BrowserLaneRequestImportResponse>(input);
-}
-
-export async function completeBrowserHandoffRequest(input: {
-  artifactPath: string;
-  handoffAttempt?: number;
-  publishStatus: 'published' | 'failed';
-  message?: string;
-  publishUrl?: string;
-}): Promise<BrowserHandoffCompletionResponse> {
-  return completeSharedBrowserHandoffRequest(input);
-}
-
-export async function completeInboxReplyHandoffRequest(input: {
-  artifactPath: string;
-  handoffAttempt?: number;
-  replyStatus: 'sent' | 'failed';
-  message?: string;
-  deliveryUrl?: string;
-}): Promise<InboxReplyHandoffCompletionResponse> {
-  return completeSharedInboxReplyHandoffRequest(input);
-}
-
-export async function retrySystemJobRequest(
-  jobId: number,
-  runAt?: string,
-): Promise<SystemJobMutationResponse> {
-  return retrySharedSystemJobRequest<SystemJobMutationResponse>(jobId, runAt);
-}
-
-export async function cancelSystemJobRequest(jobId: number): Promise<SystemJobMutationResponse> {
-  return cancelSharedSystemJobRequest<SystemJobMutationResponse>(jobId);
-}
-
-export async function enqueueSystemJobRequest(
-  input: EnqueueSystemJobPayload,
-): Promise<SystemJobMutationResponse> {
-  return enqueueSharedSystemJobRequest<SystemJobMutationResponse>(input);
-}
+export {
+  cancelSystemJobRequest,
+  completeBrowserHandoffRequest,
+  completeInboxReplyHandoffRequest,
+  enqueueSystemJobRequest,
+  importBrowserLaneRequestResultRequest,
+  loadBrowserHandoffsRequest,
+  loadBrowserLaneRequestsRequest,
+  loadInboxReplyHandoffsRequest,
+  loadSystemJobsRequest,
+  retrySystemJobRequest,
+};
 
 export async function submitSettingsForm(
   formValues: {
@@ -311,19 +263,19 @@ const statusPillStyle = {
   fontWeight: 700,
 } as const;
 
-function defaultLoadSystemJobsAction() {
-  return loadSystemJobsRequest(20);
+function defaultLoadSystemJobsAction(): Promise<SystemJobsResponse> {
+  return loadSystemJobsRequest<SystemJobsResponse>(20);
 }
 
-function defaultLoadBrowserLaneRequestsAction() {
-  return loadBrowserLaneRequestsRequest(20);
+function defaultLoadBrowserLaneRequestsAction(): Promise<BrowserLaneRequestsResponse> {
+  return loadBrowserLaneRequestsRequest<BrowserLaneRequestsResponse>(20);
 }
 
-function defaultLoadBrowserHandoffsAction() {
+function defaultLoadBrowserHandoffsAction(): Promise<BrowserHandoffsResponse> {
   return loadBrowserHandoffsRequest(20);
 }
 
-function defaultLoadInboxReplyHandoffsAction() {
+function defaultLoadInboxReplyHandoffsAction(): Promise<InboxReplyHandoffsResponse> {
   return loadInboxReplyHandoffsRequest(20);
 }
 
