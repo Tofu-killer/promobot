@@ -1,3 +1,6 @@
+import { apiRequest } from './api';
+import { withProjectIdQuery } from './projectId';
+
 export type DraftStatus = 'approved' | 'draft' | 'failed' | 'published' | 'queued' | 'review' | 'scheduled';
 
 export interface DraftRecord {
@@ -33,6 +36,26 @@ export interface PublishDraftResponse {
   publishUrl: string | null;
   message: string;
   details?: Record<string, unknown>;
+}
+
+export async function loadDraftsRequest(projectId?: number): Promise<DraftsResponse> {
+  return apiRequest<DraftsResponse>(withProjectIdQuery('/api/drafts', projectId));
+}
+
+export async function updateDraftRequest(id: number, input: Record<string, unknown>): Promise<UpdateDraftResponse> {
+  return apiRequest<UpdateDraftResponse>(`/api/drafts/${id}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(input),
+  });
+}
+
+export async function publishDraftRequest(id: number): Promise<PublishDraftResponse> {
+  return apiRequest<PublishDraftResponse>(`/api/drafts/${id}/publish`, {
+    method: 'POST',
+  });
 }
 
 export interface DraftFormValues {

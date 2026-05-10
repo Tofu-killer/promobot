@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ActionButton } from '../components/ActionButton';
 import { PageHeader } from '../components/PageHeader';
 import { SectionCard } from '../components/SectionCard';
-import { apiRequest, getErrorMessage } from '../lib/api';
+import { getErrorMessage } from '../lib/api';
 import {
   asRecord,
   findPendingBrowserHandoff,
@@ -23,7 +23,7 @@ import {
   type RequestChannelAccountSessionActionPayload,
   type RequestChannelAccountSessionActionResponse,
 } from '../lib/channelAccountSession';
-import { getProjectIdValidationError, parseProjectId, projectInputStyle, withProjectIdQuery } from '../lib/projectId';
+import { getProjectIdValidationError, parseProjectId, projectInputStyle } from '../lib/projectId';
 import {
   type CompleteBrowserHandoffInput,
   completeBrowserHandoffRequest as completeSharedBrowserHandoffRequest,
@@ -32,7 +32,15 @@ import {
   type BrowserHandoffRecord,
   type BrowserHandoffsResponse,
 } from '../lib/systemHandoffs';
-import type { DraftRecord, DraftsResponse } from '../lib/drafts';
+import {
+  loadDraftsRequest as loadSharedDraftsRequest,
+  publishDraftRequest as publishSharedDraftRequest,
+  type DraftRecord,
+  type DraftsResponse,
+  type PublishDraftResponse,
+  type UpdateDraftResponse,
+  updateDraftRequest as updateSharedDraftRequest,
+} from '../lib/drafts';
 import type { AsyncState } from '../hooks/useAsyncRequest';
 import { useAsyncAction, useAsyncQuery } from '../hooks/useAsyncRequest';
 
@@ -53,17 +61,9 @@ interface CalendarMonthSection {
   dayCells: CalendarDayCell[];
 }
 
-export interface UpdatePublishCalendarDraftScheduleResponse {
-  draft: DraftRecord;
-}
+export type UpdatePublishCalendarDraftScheduleResponse = UpdateDraftResponse;
 
-export interface RetryPublishCalendarDraftResponse {
-  success: boolean;
-  status?: string;
-  publishUrl: string | null;
-  message: string;
-  details?: Record<string, unknown>;
-}
+export type RetryPublishCalendarDraftResponse = PublishDraftResponse;
 
 interface PublishCalendarPageProps {
   loadDraftsAction?: (projectId?: number) => Promise<DraftsResponse>;
@@ -113,7 +113,7 @@ const calendarStatuses: CalendarDraftStatus[] = ['scheduled', 'published'];
 const calendarWeekdayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 export async function loadPublishCalendarRequest(projectId?: number): Promise<DraftsResponse> {
-  return apiRequest<DraftsResponse>(withProjectIdQuery('/api/drafts', projectId));
+  return loadSharedDraftsRequest(projectId);
 }
 
 export async function loadPublishCalendarBrowserHandoffsRequest(
@@ -131,19 +131,11 @@ export async function updatePublishCalendarDraftScheduleRequest(
   id: number,
   input: { scheduledAt: string | null },
 ): Promise<UpdatePublishCalendarDraftScheduleResponse> {
-  return apiRequest<UpdatePublishCalendarDraftScheduleResponse>(`/api/drafts/${id}`, {
-    method: 'PATCH',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(input),
-  });
+  return updateSharedDraftRequest(id, input);
 }
 
 export async function retryPublishCalendarDraftRequest(id: number): Promise<RetryPublishCalendarDraftResponse> {
-  return apiRequest<RetryPublishCalendarDraftResponse>(`/api/drafts/${id}/publish`, {
-    method: 'POST',
-  });
+  return publishSharedDraftRequest(id);
 }
 
 export async function requestPublishCalendarSessionActionRequest(

@@ -21,6 +21,12 @@ import {
   type RequestChannelAccountSessionActionPayload,
   type RequestChannelAccountSessionActionResponse,
 } from '../lib/channelAccountSession';
+import {
+  publishDraftRequest as publishSharedDraftRequest,
+  type PublishDraftResponse,
+  type UpdateDraftResponse,
+  updateDraftRequest as updateSharedDraftRequest,
+} from '../lib/drafts';
 import { getProjectIdValidationError, parseProjectId, projectInputStyle } from '../lib/projectId';
 import {
   type CompleteBrowserHandoffInput,
@@ -96,32 +102,11 @@ export interface GenerateDraftsResponse {
   }>;
 }
 
-export interface SendDraftToReviewResponse {
-  draft: {
-    id: number;
-    platform: string;
-    title?: string;
-    content: string;
-    hashtags: string[];
-    status: string;
-  };
-}
+export type SendDraftToReviewResponse = UpdateDraftResponse;
 
-export interface PublishGeneratedDraftResponse {
-  success: boolean;
-  status?: string;
-  publishUrl: string | null;
-  message: string;
-  details?: Record<string, unknown>;
-}
+export type PublishGeneratedDraftResponse = PublishDraftResponse;
 
-export interface ScheduleGeneratedDraftResponse {
-  draft: {
-    id: number;
-    status: string;
-    scheduledAt?: string | null;
-  };
-}
+export type ScheduleGeneratedDraftResponse = UpdateDraftResponse;
 
 interface SessionActionMutationState {
   status: 'idle' | 'loading' | 'success' | 'error';
@@ -148,9 +133,7 @@ export async function generateDraftsRequest(input: GenerateDraftsPayload): Promi
 }
 
 export async function publishGeneratedDraftRequest(id: number): Promise<PublishGeneratedDraftResponse> {
-  return apiRequest<PublishGeneratedDraftResponse>(`/api/drafts/${id}/publish`, {
-    method: 'POST',
-  });
+  return publishSharedDraftRequest(id);
 }
 
 export async function loadGeneratedDraftBrowserHandoffsRequest(
@@ -181,23 +164,11 @@ export async function scheduleGeneratedDraftRequest(
   id: number,
   input: { scheduledAt: string | null },
 ): Promise<ScheduleGeneratedDraftResponse> {
-  return apiRequest<ScheduleGeneratedDraftResponse>(`/api/drafts/${id}`, {
-    method: 'PATCH',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(input),
-  });
+  return updateSharedDraftRequest(id, input);
 }
 
 export async function sendDraftToReviewRequest(id: number): Promise<SendDraftToReviewResponse> {
-  return apiRequest<SendDraftToReviewResponse>(`/api/drafts/${id}`, {
-    method: 'PATCH',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ status: 'review' }),
-  });
+  return updateSharedDraftRequest(id, { status: 'review' });
 }
 
 interface ReviewMutationState {
