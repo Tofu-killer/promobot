@@ -6,6 +6,7 @@ import {
   getSupportedSessionAction,
   getUnresolvedRequestedSessionArtifact,
   normalizeReadinessRecord,
+  requestChannelAccountSessionAction,
   resolveCurrentSessionAction,
   resolvePreferredSessionAction,
   resolvePublishReadiness,
@@ -229,16 +230,7 @@ export async function requestChannelAccountSessionActionRequest(
   accountId: number,
   input: RequestChannelAccountSessionActionPayload = {},
 ): Promise<RequestChannelAccountSessionActionResponse> {
-  return apiRequest<RequestChannelAccountSessionActionResponse>(
-    `/api/channel-accounts/${accountId}/session/request`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(input),
-    },
-  );
+  return requestChannelAccountSessionAction<RequestChannelAccountSessionActionResponse>(accountId, input);
 }
 
 export async function runChannelAccountConnectionTest(

@@ -9,6 +9,7 @@ import { PageHeader } from '../components/PageHeader';
 import { SectionCard } from '../components/SectionCard';
 import { StatCard } from '../components/StatCard';
 import { StatusBadge } from '../components/StatusBadge';
+import { requestChannelAccountSessionAction } from '../lib/channelAccountSession';
 import { loadInboxReplyHandoffsRequest as loadSharedInboxReplyHandoffsRequest } from '../lib/systemHandoffs';
 import {
   createProjectIdBody,
@@ -229,13 +230,7 @@ export async function requestInboxReplySessionActionRequest(
   accountId: number,
   input: RequestChannelAccountSessionActionPayload = {},
 ): Promise<RequestChannelAccountSessionActionResponse> {
-  return apiRequest<RequestChannelAccountSessionActionResponse>(`/api/channel-accounts/${accountId}/session/request`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(input),
-  });
+  return requestChannelAccountSessionAction<RequestChannelAccountSessionActionResponse>(accountId, input);
 }
 
 export interface CompleteInboxReplyHandoffInput {

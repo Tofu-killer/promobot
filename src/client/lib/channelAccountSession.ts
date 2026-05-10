@@ -1,4 +1,21 @@
+import { apiRequest } from './api';
+
 export type BrowserSessionAction = 'request_session' | 'relogin';
+
+export interface RequestChannelAccountSessionActionPayload {
+  action?: BrowserSessionAction;
+}
+
+export interface RequestChannelAccountSessionActionResponse {
+  sessionAction: {
+    action: BrowserSessionAction;
+    message: string;
+    artifactPath?: string | null;
+    path?: string | null;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
 
 export interface SessionActionArtifactSummaryLike {
   action: BrowserSessionAction;
@@ -115,4 +132,19 @@ export function resolveCurrentSessionAction(
   }
 
   return resolvePreferredSessionAction(account);
+}
+
+export async function requestChannelAccountSessionAction<
+  TResponse extends RequestChannelAccountSessionActionResponse = RequestChannelAccountSessionActionResponse,
+>(
+  accountId: number,
+  input: RequestChannelAccountSessionActionPayload = {},
+): Promise<TResponse> {
+  return apiRequest<TResponse>(`/api/channel-accounts/${accountId}/session/request`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(input),
+  });
 }

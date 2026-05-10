@@ -1,10 +1,20 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   getUnresolvedRequestedSessionArtifact,
+  requestChannelAccountSessionAction,
   resolveCurrentSessionAction,
   type SessionActionAccountLike,
 } from '../../src/client/lib/channelAccountSession';
+
+function jsonResponse(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  });
+}
 
 function buildAccount(overrides: Partial<SessionActionAccountLike> = {}): SessionActionAccountLike {
   return {
@@ -19,7 +29,59 @@ function buildAccount(overrides: Partial<SessionActionAccountLike> = {}): Sessio
   };
 }
 
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
 describe('channelAccountSession helpers', () => {
+  it('posts session request actions through the shared client helper', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          sessionAction: {
+            action: 'request_session',
+            message: 'queued request_session',
+            artifactPath: 'artifacts/browser-lane-requests/x/acct-main/request-session-job-9.json',
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          sessionAction: {
+            action: 'relogin',
+            message: 'queued relogin',
+            artifactPath: 'artifacts/browser-lane-requests/x/acct-main/relogin-job-10.json',
+          },
+        }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const requestSessionResult = await requestChannelAccountSessionAction(3);
+    const reloginResult = await requestChannelAccountSessionAction(3, { action: 'relogin' });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      '/api/channel-accounts/3/session/request',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/channel-accounts/3/session/request',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'relogin' }),
+      }),
+    );
+    expect(requestSessionResult.sessionAction.action).toBe('request_session');
+    expect(reloginResult.sessionAction.action).toBe('relogin');
+  });
+
   it('prefers the unresolved requested-action artifact over a newer different-action latest artifact', () => {
     const account = buildAccount({
       latestBrowserLaneArtifact: {

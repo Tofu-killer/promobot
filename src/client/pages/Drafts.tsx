@@ -14,7 +14,7 @@ import {
   toBrowserHandoffContract,
   type BrowserHandoffContract,
 } from '../lib/browserHandoffContract';
-import type { BrowserSessionAction } from '../lib/channelAccountSession';
+import { requestChannelAccountSessionAction, type BrowserSessionAction } from '../lib/channelAccountSession';
 import { getProjectIdValidationError, parseProjectId, projectInputStyle, withProjectIdQuery } from '../lib/projectId';
 import {
   loadBrowserHandoffsRequest,
@@ -109,13 +109,7 @@ export async function requestDraftSessionActionRequest(
   accountId: number,
   input: RequestChannelAccountSessionActionPayload = {},
 ): Promise<RequestChannelAccountSessionActionResponse> {
-  return apiRequest<RequestChannelAccountSessionActionResponse>(`/api/channel-accounts/${accountId}/session/request`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(input),
-  });
+  return requestChannelAccountSessionAction<RequestChannelAccountSessionActionResponse>(accountId, input);
 }
 
 export async function completeDraftBrowserHandoffRequest(
