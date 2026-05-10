@@ -184,7 +184,27 @@ describe('system handoff request helpers', () => {
   });
 
   it('loads project-scoped inbox reply handoffs through the shared helper', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ handoffs: [], total: 0 }));
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        handoffs: [
+          {
+            platform: 'reddit',
+            itemId: 88,
+            handoffAttempt: '2',
+            source: 'reddit',
+            title: 'Need lower latency in APAC',
+            author: 'user123',
+            accountKey: 'reddit-main',
+            status: 'pending',
+            artifactPath: 'artifacts/inbox-reply-handoffs/reddit/reddit-main/reddit-item-88.json',
+            createdAt: '2026-04-23T11:00:00.000Z',
+            updatedAt: '2026-04-23T11:00:00.000Z',
+            resolvedAt: null,
+          },
+        ],
+        total: 1,
+      }),
+    );
     vi.stubGlobal('fetch', fetchMock);
 
     const handoffModule = (await import('../../src/client/lib/systemHandoffs')) as Record<string, unknown>;
@@ -192,10 +212,16 @@ describe('system handoff request helpers', () => {
     const loadInboxReplyHandoffsRequest = handoffModule.loadInboxReplyHandoffsRequest as (
       limit?: number,
       projectId?: number,
-    ) => Promise<{ handoffs: Array<{ itemId: string }>; total: number }>;
+    ) => Promise<{ handoffs: Array<{ itemId: string | number; handoffAttempt?: string | number | null }>; total: number }>;
 
-    await loadInboxReplyHandoffsRequest(15, 8);
+    const result = await loadInboxReplyHandoffsRequest(15, 8);
 
     expect(fetchMock).toHaveBeenCalledWith('/api/system/inbox-reply-handoffs?limit=15&projectId=8', undefined);
+    expect(result.handoffs[0]).toEqual(
+      expect.objectContaining({
+        itemId: 88,
+        handoffAttempt: '2',
+      }),
+    );
   });
 });

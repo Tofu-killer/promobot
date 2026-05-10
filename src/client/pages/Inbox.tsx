@@ -11,6 +11,9 @@ import { StatCard } from '../components/StatCard';
 import { StatusBadge } from '../components/StatusBadge';
 import { requestChannelAccountSessionAction } from '../lib/channelAccountSession';
 import {
+  type InboxReplyHandoffCompletionResponse as SharedInboxReplyHandoffCompletionResponse,
+  type InboxReplyHandoffRecord as SharedInboxReplyHandoffRecord,
+  type InboxReplyHandoffsResponse as SharedInboxReplyHandoffsResponse,
   completeInboxReplyHandoffRequest as completeSharedInboxReplyHandoffRequest,
   loadInboxReplyHandoffsRequest as loadSharedInboxReplyHandoffsRequest,
 } from '../lib/systemHandoffs';
@@ -60,29 +63,8 @@ export interface EnqueueInboxFetchJobResponse {
   runtime: Record<string, unknown>;
 }
 
-export interface InboxReplyHandoffRecord {
-  channelAccountId?: number;
-  platform: string;
-  itemId: string | number;
-  handoffAttempt?: number | string | null;
-  source: string;
-  title: string | null;
-  author: string | null;
-  accountKey: string;
-  status: string;
-  readiness?: string;
-  sessionAction?: string | null;
-  artifactPath: string;
-  createdAt: string;
-  updatedAt: string;
-  resolvedAt: string | null;
-  resolution?: unknown;
-}
-
-export interface InboxReplyHandoffsResponse {
-  handoffs: InboxReplyHandoffRecord[];
-  total: number;
-}
+export type InboxReplyHandoffRecord = SharedInboxReplyHandoffRecord;
+export type InboxReplyHandoffsResponse = SharedInboxReplyHandoffsResponse;
 
 export async function loadInboxRequest(projectId?: number): Promise<InboxResponse> {
   return apiRequest<InboxResponse>(withProjectIdQuery('/api/inbox', projectId));
@@ -123,7 +105,7 @@ export async function loadInboxReplyHandoffsRequest(
   limit = 100,
   projectId?: number,
 ): Promise<InboxReplyHandoffsResponse> {
-  return loadSharedInboxReplyHandoffsRequest(limit, projectId) as Promise<InboxReplyHandoffsResponse>;
+  return loadSharedInboxReplyHandoffsRequest(limit, projectId);
 }
 
 export interface UpdateInboxItemResponse {
@@ -244,21 +226,7 @@ export interface CompleteInboxReplyHandoffInput {
   deliveryUrl?: string;
 }
 
-export interface InboxReplyHandoffCompletionResponse {
-  ok: boolean;
-  imported: boolean;
-  artifactPath: string;
-  itemId: number;
-  itemStatus: string;
-  platform: string;
-  mode: string;
-  status: string;
-  success: boolean;
-  deliveryUrl: string | null;
-  externalId: string | null;
-  message: string;
-  deliveredAt: string | null;
-}
+export type InboxReplyHandoffCompletionResponse = SharedInboxReplyHandoffCompletionResponse;
 
 export async function completeInboxReplyHandoffRequest(
   input: CompleteInboxReplyHandoffInput,

@@ -28,8 +28,8 @@ export interface BrowserHandoffsResponse {
 export interface InboxReplyHandoffRecord {
   channelAccountId?: number;
   platform: string;
-  itemId: string;
-  handoffAttempt?: number;
+  itemId: string | number;
+  handoffAttempt?: number | string | null;
   source: string;
   title: string | null;
   author: string | null;
