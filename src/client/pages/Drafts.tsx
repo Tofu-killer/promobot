@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { apiRequest, getErrorMessage } from '../lib/api';
+import { getErrorMessage } from '../lib/api';
 import {
   asRecord,
   findPendingBrowserHandoff,
@@ -20,7 +20,7 @@ import {
   type RequestChannelAccountSessionActionPayload,
   type RequestChannelAccountSessionActionResponse,
 } from '../lib/channelAccountSession';
-import { getProjectIdValidationError, parseProjectId, projectInputStyle, withProjectIdQuery } from '../lib/projectId';
+import { getProjectIdValidationError, parseProjectId, projectInputStyle } from '../lib/projectId';
 import {
   type CompleteBrowserHandoffInput,
   completeBrowserHandoffRequest as completeSharedBrowserHandoffRequest,
@@ -38,6 +38,8 @@ import { SectionCard } from '../components/SectionCard';
 import {
   createDraftFormValues,
   draftStatusOptions,
+  loadDraftsRequest as loadSharedDraftsRequest,
+  publishDraftRequest as publishSharedDraftRequest,
   type DraftFormValues,
   type DraftInteractionStateOverride,
   type DraftMutationState,
@@ -47,6 +49,7 @@ import {
   type PublishDraftResponse,
   type UpdateDraftPayload,
   type UpdateDraftResponse,
+  updateDraftRequest as updateSharedDraftRequest,
   upsertDraftRecord,
 } from '../lib/drafts';
 
@@ -61,23 +64,15 @@ export type {
 } from '../lib/drafts';
 
 export async function loadDraftsRequest(projectId?: number): Promise<DraftsResponse> {
-  return apiRequest<DraftsResponse>(withProjectIdQuery('/api/drafts', projectId));
+  return loadSharedDraftsRequest(projectId);
 }
 
 export async function updateDraftRequest(id: number, input: UpdateDraftPayload): Promise<UpdateDraftResponse> {
-  return apiRequest<UpdateDraftResponse>(`/api/drafts/${id}`, {
-    method: 'PATCH',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(input),
-  });
+  return updateSharedDraftRequest(id, input);
 }
 
 export async function publishDraftRequest(id: number): Promise<PublishDraftResponse> {
-  return apiRequest<PublishDraftResponse>(`/api/drafts/${id}/publish`, {
-    method: 'POST',
-  });
+  return publishSharedDraftRequest(id);
 }
 
 export async function loadDraftBrowserHandoffsRequest(

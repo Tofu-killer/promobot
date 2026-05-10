@@ -33,8 +33,15 @@ import { useAsyncQuery } from '../hooks/useAsyncRequest';
 import { ActionButton } from '../components/ActionButton';
 import { PageHeader } from '../components/PageHeader';
 import { SectionCard } from '../components/SectionCard';
-import type { DraftRecord, DraftsResponse, PublishDraftResponse, UpdateDraftResponse } from '../lib/drafts';
-import { upsertDraftRecord } from '../lib/drafts';
+import {
+  publishDraftRequest as publishSharedDraftRequest,
+  type DraftRecord,
+  type DraftsResponse,
+  type PublishDraftResponse,
+  type UpdateDraftResponse,
+  updateDraftRequest as updateSharedDraftRequest,
+  upsertDraftRecord,
+} from '../lib/drafts';
 
 interface ReviewQueuePageProps {
   loadReviewQueueAction?: (projectId?: number) => Promise<DraftsResponse>;
@@ -86,13 +93,7 @@ export async function updateReviewDraftRequest(
   id: number,
   input: { status: 'approved' | 'draft' | 'failed' },
 ): Promise<UpdateDraftResponse> {
-  return apiRequest<UpdateDraftResponse>(`/api/drafts/${id}`, {
-    method: 'PATCH',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(input),
-  });
+  return updateSharedDraftRequest(id, input);
 }
 
 export async function discardReviewDraftRequest(id: number): Promise<UpdateDraftResponse> {
@@ -100,22 +101,14 @@ export async function discardReviewDraftRequest(id: number): Promise<UpdateDraft
 }
 
 export async function publishReviewDraftRequest(id: number): Promise<PublishDraftResponse> {
-  return apiRequest<PublishDraftResponse>(`/api/drafts/${id}/publish`, {
-    method: 'POST',
-  });
+  return publishSharedDraftRequest(id);
 }
 
 export async function scheduleReviewDraftRequest(
   id: number,
   input: { scheduledAt: string | null; status: 'scheduled' },
 ): Promise<UpdateDraftResponse> {
-  return apiRequest<UpdateDraftResponse>(`/api/drafts/${id}`, {
-    method: 'PATCH',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(input),
-  });
+  return updateSharedDraftRequest(id, input);
 }
 
 export async function requestReviewQueueSessionActionRequest(
